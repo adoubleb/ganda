@@ -115,7 +115,7 @@ def _legacy_api(root: str):
 
 def _ganda_api():
     sys.path.insert(0, os.path.join(HERE, ".."))
-    from ganda.orientdb import write_phase as writes
+    from ganda.core.generators import write_phase as writes
     from ganda.orientdb.generate import GeneratorConfig, build
     from ganda.orientdb.mapping import MAPPERS
     from ganda.core.setup_plan import plan_to_dict
