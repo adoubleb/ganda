@@ -45,6 +45,10 @@ RENAMED_KEYS: dict = {"spellings": "concrete_syntax", "hoisted": "pulled_up", "k
 RENAMED_VARIANT_TAGS: dict = {"hoist": "pull_up"}
 
 
+# fields ganda added that the legacy tree has no counterpart for
+GANDA_ONLY_FIELDS = {"engine", "variant_options", "data_models"}
+
+
 def _rename_string(s: str) -> str:
     m = re.fullmatch(r"(doc|graph|rel):(.+)", s)
     if m and m.group(2) in RENAMED_VARIANT_TAGS:
@@ -55,7 +59,7 @@ def _rename_string(s: str) -> str:
 def canon(value, legacy: bool = False):
     """A JSON value that depends on the content only: no class names, no dict order."""
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        return canon({f.name: getattr(value, f.name) for f in dataclasses.fields(value)}, legacy)
+        return canon({f.name: getattr(value, f.name) for f in dataclasses.fields(value) if f.name not in GANDA_ONLY_FIELDS}, legacy)
     if isinstance(value, enum.Enum):
         return value.name
     if isinstance(value, dict):
