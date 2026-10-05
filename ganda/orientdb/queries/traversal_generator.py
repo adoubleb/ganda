@@ -30,9 +30,9 @@ from __future__ import annotations
 
 import random
 
-from ganda.orientdb.model import INT_TYPES, ORDERED_TYPES, FieldType, Instance, Schema
+from ganda.core.model import INT_TYPES, ORDERED_TYPES, FieldType, Instance, Schema
 from ganda.orientdb.queries import predicates
-from ganda.orientdb.queries.case import QueryCase
+from ganda.core.case import QueryCase
 from ganda.orientdb.queries.traversal_ast import EDGE_PROJECTIONS, MAX_HOPS, PLACEMENTS, PROJECTIONS, REACH_PROJECTIONS, Hop, TraversalQuery, shape_signature, sums_exactly
 from ganda.orientdb.queries.traversal_syntax import can_pull_up, render, syntaxes_for
 

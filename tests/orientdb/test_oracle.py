@@ -1,9 +1,11 @@
-from ganda.orientdb.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, Instance, NodeRow, NodeTypeSpec, Schema
+from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.oracle import build_result, fold_rows, normalize_multiset, normalize_set
-from ganda.orientdb.dedup import BugDeduplicator
-from ganda.orientdb.queries.case import Comparison, QueryCase
+from ganda.core.dedup import BugDeduplicator
+from ganda.core.case import Comparison, QueryCase
 from ganda.orientdb.semantics import agg, eq, orient_key, predicate_hit
 
+
+from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
 
 def _case(comparison=Comparison.MULTISET_BY_ID, template="ir_traversal", params=None):
     return QueryCase(template, "e1", comparison, {"doc": "d", "graph": "g", "rel": "r", "graph:match": "m"}, params=params or {"reference": False}, shape="s")

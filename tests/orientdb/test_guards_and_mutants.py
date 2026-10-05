@@ -1,11 +1,13 @@
 from ganda.orientdb.data_generator import GeneratorConfig, build
 from ganda.orientdb.known_bugs import o1_shape, o2_shape
-from ganda.orientdb.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeTypeSpec, Schema
+from ganda.core.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeTypeSpec, Schema
 from ganda.orientdb.mutants import MUTANTS
 from ganda.orientdb.queries.traversal_ast import Hop, TraversalQuery
 from ganda.orientdb.queries.predicates import Predicate
 from ganda.orientdb.queries.registry import all_cases
 
+
+from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
 
 def _schema(indexes=()):
     return Schema(
@@ -92,7 +94,7 @@ def test_guards_see_leaves_inside_compounds():
 
 def test_hoisted_sides_are_judged_without_the_source_predicate():
     from ganda.orientdb.known_bugs import mark_known_bugs
-    from ganda.orientdb.queries.case import Comparison, QueryCase
+    from ganda.core.case import Comparison, QueryCase
 
     schema = _schema([IndexSpec("n1", "f1", data_model="rel")])
     sp = Predicate("source", "f1", ">", "p0", 0)
@@ -178,7 +180,7 @@ def test_new_type_and_collation_guards():
     # O11: `<` on the second field of a composite index next to an equality on its lead
     inst2 = build(3, GeneratorConfig())[1]
     comp = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f2", FieldType.INT))),), edge_types=(), indexes=(IndexSpec("n1", "f1", extra_fields=("f2",), data_model="both"),))
-    from ganda.orientdb.model import NodeRow
+    from ganda.core.model import NodeRow
 
     rows = Instance(comp, [NodeRow("n1", 0, {"f1": 1}), NodeRow("n1", 1, {"f1": 1, "f2": 0})], [])
     both = Compound("source", "AND", (Predicate("source", "f1", "=", "p_0", 1), Predicate("source", "f2", "<", "p_1", 1)))

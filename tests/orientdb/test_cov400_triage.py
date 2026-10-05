@@ -15,13 +15,15 @@ from ganda.orientdb.known_bugs import (
     o44_dfs_reach,
 )
 from ganda.orientdb.java_hash import distinct_collides, java_hash, string_hash
-from ganda.orientdb.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
+from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.queries.traversal_ast import Hop, TraversalQuery
 from ganda.orientdb.queries.predicates import Compound, Predicate, arithmetic
 from ganda.orientdb.semantics import like_hit
 
 # the 66 LONG values the live reducer kept: DISTINCT over them answers a duplicate,
 # over any 65 of them it does not
+from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
+
 DISTINCT_REPRO = [-290, None, 2**63 - 1, None, -(2**63), -364, -642, -122, -364, None, 794, 2**63 - 1, -874, -33, 492, -987, 592, 772, -(2**31), 484, 957, -903, 40, 2**53 + 1, 7, -482, -(2**62), -749, 2**53 + 1, None, -820, None, 568, None, 274, None, 703, 2**31, None, -693, 2**31 - 1, -51, -564, 1, 714, 2**63 - 1, -893, 304, -(2**31), None, -700, 603, -642, 939, 794, -33, None, 2**53, -745, 496, None, -894, 609, -291, -1, 0]
 
 
@@ -140,7 +142,7 @@ def test_the_fuzzer_bugs():
     from ganda.orientdb.queries import predicates
 
     # `VALUES CONTAINS` one past a stored Long.MAX stays a long
-    assert predicates._offset(FieldType.INT, 2**63 - 1, 1) == 2**63 - 1
+    assert predicates.offset(FieldType.INT, 2**63 - 1, 1) == 2**63 - 1
 
     class Pick:
         def __init__(self, pick):

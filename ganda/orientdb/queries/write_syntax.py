@@ -45,7 +45,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
-from ganda.orientdb.model import Instance, Schema
+from ganda.core.model import Instance, Schema
 from ganda.orientdb.queries.predicate_syntax import render_predicate as render_pred
 from ganda.orientdb.queries.write_ast import EDGE_OPS, WriteQuery, edge_hits, node_hits
 

@@ -53,7 +53,9 @@ import struct
 from decimal import Decimal
 from typing import Any
 
-from ganda.orientdb.model import FieldType
+from ganda.core.ast.predicates import Compound, shift_date
+from ganda.core.model import FieldType
+from ganda.core.provider import Semantics
 
 I64_MAX = 2**63 - 1
 I64_MIN = -(2**63)
@@ -334,3 +336,55 @@ def agg(fn: str, values: list, ftype: "str | None" = None):
 
 def sort_values(values: list) -> list:
     return sorted(values, key=orient_key)
+
+
+def apply_arith(v, sym: str, c, ftype: "str | None"):
+    """`v <sym> c` as the engine computes it where the arithmetic is exact (the
+    caller guarded that): integer arithmetic on the integer types, double / float
+    arithmetic (exact by construction) on the floating ones, exact decimal
+    arithmetic on DECIMAL, a millisecond shift on the date types."""
+    if ftype in ("datetime", "date"):
+        return shift_date(v, (c if sym == "+" else -c) // 1000)
+    if ftype == "decimal":
+        a = Decimal(repr(v)) if isinstance(v, float) else Decimal(v)
+        r = {"+": a + c, "-": a - c, "*": a * c}[sym]
+        return float(r)
+    return {"+": v + c, "-": v - c, "*": v * c}[sym]
+
+
+def evaluate(values: dict, p) -> bool:
+    """Two-valued boolean logic over `predicate_hit` for the leaves (probed 3.2.56:
+    `NOT (f > 5)` holds for a null `f`)."""
+    if isinstance(p, Compound):
+        if p.op == "NOT":
+            return not evaluate(values, p.children[0])
+        if p.op == "AND":
+            return all(evaluate(values, c) for c in p.children)
+        return any(evaluate(values, c) for c in p.children)
+    present, v = p.field in values, values.get(p.field)
+    if p.sub is not None:
+        # the listed values are the engine's own stored values of the same column
+        # type, compared as stored (a DECIMAL against a BigDecimal, not through a
+        # double's expansion; a ci column code unit by code unit, as a scan's `IN`
+        # does): no conversion (the semi-join leaf's reference)
+        return predicate_hit(present, v, "IN", p.pivot)
+    if p.arith is not None and v is not None and p.key is None:
+        v = apply_arith(v, p.arith[0], p.arith[2], p.ftype)
+    return predicate_hit(present, v, p.op, p.pivot, p.ftype, p.ci, p.key)
+
+
+class OrientSemantics(Semantics):
+    """OrientDB's value semantics as the core's `Semantics`: this module's functions."""
+
+    key = staticmethod(orient_key)
+    eq = staticmethod(eq)
+    lt = staticmethod(lt)
+    predicate_hit = staticmethod(predicate_hit)
+    evaluate = staticmethod(evaluate)
+    apply_arith = staticmethod(apply_arith)
+    agg = staticmethod(agg)
+    mean = staticmethod(mean)
+    sum_is_exact = staticmethod(sum_is_exact)
+
+
+SEMANTICS = OrientSemantics()

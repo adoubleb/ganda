@@ -1,11 +1,13 @@
 from ganda.orientdb.data_generator import GeneratorConfig, build
 from ganda.orientdb.known_bugs import o37_write, write_known
-from ganda.orientdb.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
+from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.queries.predicates import Predicate
 from ganda.orientdb.queries.write_generator import sample_write, unique_safe
 from ganda.orientdb.queries.write_ast import COVERAGE_DENOMINATOR, WriteQuery, all_coverage_signatures, answer, apply, coverage_signature, from_params
 from ganda.orientdb.queries.write_syntax import WriteSyntax, WriteRewrites, applicable, render
 from ganda.orientdb.write_phase import build_write_case
+
+from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
 
 CFG = GeneratorConfig(inheritance_probability=0.5, narrow_type_probability=0.3, date_map_probability=0.5, collate_probability=0.4, list_index_probability=0.5, custom_key_probability=0.3)
 

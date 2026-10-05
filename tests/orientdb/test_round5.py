@@ -5,7 +5,7 @@ import random
 
 from ganda.orientdb.data_generator import GeneratorConfig, build
 from ganda.orientdb.known_bugs import _leaf_served, list_ops_known, o31_known, o32_predicate
-from ganda.orientdb.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
+from ganda.core.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.oracle import is_script, unwrap_script
 from ganda.orientdb.queries import predicates
 from ganda.orientdb.queries.select_support import bfs_distances
@@ -15,6 +15,8 @@ from ganda.orientdb.queries.predicates import Compound, Predicate, apply_arith, 
 from ganda.orientdb.queries.registry import all_cases, reference_for
 from ganda.orientdb.semantics import predicate_hit
 
+
+from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
 
 def _schema(indexes=(), ftype=FieldType.INT):
     return Schema(
@@ -151,7 +153,7 @@ def test_tx_rows_apply_the_write():
 def test_bfs_distances():
     sch = _schema()
     rows = [NodeRow("n1", i, {}) for i in range(4)]
-    from ganda.orientdb.model import EdgeRow
+    from ganda.core.model import EdgeRow
 
     edges = [EdgeRow("e1", 0, "n1/r0", "n1/r1", {}), EdgeRow("e1", 1, "n1/r1", "n1/r2", {}), EdgeRow("e1", 2, "n1/r0", "n1/r0", {})]
     inst = Instance(sch, rows, edges)
@@ -163,7 +165,7 @@ def test_bfs_distances():
 
 def test_order_form_withholds_the_asc_walk_of_a_composite_index_with_a_null_component():
     from ganda.orientdb.known_bugs import select_shape_known
-    from ganda.orientdb.model import EdgeTypeSpec
+    from ganda.core.model import EdgeTypeSpec
     from ganda.orientdb.queries.select_ast import SelectQuery
     from ganda.orientdb.queries.select_syntax import SelectSyntax
 

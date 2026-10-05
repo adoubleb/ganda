@@ -22,7 +22,7 @@ from ganda.orientdb.data_generator import GeneratorConfig, build
 from ganda.orientdb.connection import OrientCrash, OrientError, OrientServer, cleanup_orphans, db_name
 from ganda.orientdb.mapping import MAPPERS
 from ganda.orientdb.oracle import is_empty_value, is_script, run_cases
-from ganda.orientdb.dedup import BugDeduplicator
+from ganda.core.dedup import BugDeduplicator
 from ganda.orientdb.queries.traversal_ast import SHAPE_DENOMINATOR
 from ganda.orientdb.queries.path_ast import COVERAGE_DENOMINATOR as PATH_COVERAGE_DENOMINATOR
 from ganda.orientdb.queries.select_ast import COVERAGE_DENOMINATOR as SELECT_COVERAGE_DENOMINATOR

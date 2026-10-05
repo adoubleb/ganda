@@ -55,9 +55,9 @@ import dataclasses
 import itertools
 from dataclasses import dataclass
 
-from ganda.orientdb.model import FieldType, Instance, Schema
+from ganda.core.model import FieldType, Instance, Schema
 from ganda.orientdb.queries import predicates
-from ganda.orientdb.queries.case import Comparison
+from ganda.core.case import Comparison
 from ganda.orientdb.queries.predicates import Compound, Predicate
 from ganda.orientdb.semantics import agg, mean, orient_key
 

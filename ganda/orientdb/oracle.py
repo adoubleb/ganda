@@ -33,8 +33,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ganda.orientdb.connection import strip_meta, OrientCrash, OrientError, OrientSession
-from ganda.orientdb.model import Instance, hashable_value
-from ganda.orientdb.queries.case import DATA_MODELS, Comparison, QueryCase, data_model_of
+from ganda.core.model import Instance, hashable_value
+from ganda.core.case import DATA_MODELS, Comparison, QueryCase, data_model_of
 from ganda.orientdb.semantics import orient_key
 
 _BARE = (Comparison.SINGLE_VALUE, Comparison.NESTED_VALUE)

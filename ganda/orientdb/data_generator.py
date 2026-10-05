@@ -21,9 +21,11 @@ from __future__ import annotations
 import dataclasses
 import datetime as _dt
 import random
+
+from ganda.core.rng import QueryRng, stream as _stream
 from dataclasses import dataclass
 
-from ganda.orientdb.model import (
+from ganda.core.model import (
     MAP_KEYS,
     NUMERIC_TYPES,
     DATA_MODELS,
@@ -51,27 +53,6 @@ from ganda.orientdb.dialect import (
     UPDATE_FORMS,
     is_valid_key,
 )
-
-
-def _stream(seed: int, *parts) -> random.Random:
-    """One named, independently-seeded RNG sub-stream. `random.Random` hashes a str
-    seed with a fixed, un-salted algorithm, so this is deterministic across processes
-    (unlike the builtin `hash()`, which must never be used here)."""
-    return random.Random(f"{seed}:{':'.join(str(p) for p in parts)}")
-
-
-class QueryRng(random.Random):
-    """The rng handed to `all_cases()`; `for_generator(name)` gives each query generator its own
-    independent sub-stream, so a query generator can be sampled, skipped or added without
-    perturbing any other query generator's draws, and the reducer can reconstruct the exact
-    case that failed."""
-
-    def __init__(self, seed: int):
-        super().__init__(f"{seed}:queries")
-        self._template_seed = seed
-
-    def for_generator(self, name: str) -> random.Random:
-        return _stream(self._template_seed, "queries", name)
 
 
 _FIELD_TYPE_WEIGHTS = {
@@ -359,7 +340,9 @@ def generate_schema(rng: random.Random, cfg: GeneratorConfig, seed: "int | None"
     base, base_indexes = _base_class(seed, cfg, names)
     node_types, base = _tail_field_axes(seed, cfg, node_types, base)
     list_indexes = _list_indexes(seed, cfg, node_types, base)
-    return Schema(node_types=node_types, edge_types=tuple(edge_types), indexes=tuple(_dedupe_indexes(indexes + base_indexes + list_indexes)), id_index=id_index, base=base)
+    from ganda.orientdb.provider import PROVIDER
+
+    return Schema(engine=PROVIDER, node_types=node_types, edge_types=tuple(edge_types), indexes=tuple(_dedupe_indexes(indexes + base_indexes + list_indexes)), id_index=id_index, base=base)
 
 
 def _retype(seed: "int | None", cfg: GeneratorConfig, table: str, f: FieldSpec) -> FieldSpec:

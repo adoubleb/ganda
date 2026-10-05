@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ganda.orientdb.data_generator import initial_node_values, initial_nodes
-from ganda.orientdb.model import (
+from ganda.core.model import (
     INT_TYPES,
     EdgeDelete,
     EdgeUpdate,

@@ -6,10 +6,10 @@ from collections import Counter
 
 from ganda.orientdb.data_generator import GeneratorConfig, build
 from ganda.orientdb.known_bugs import select_known
-from ganda.orientdb.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
+from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.mutants import MUTANTS_BY_NAME
 from ganda.orientdb.queries import predicates
-from ganda.orientdb.queries.case import Comparison, QueryCase
+from ganda.core.case import Comparison, QueryCase
 from ganda.orientdb.queries.path_ast import PathQuery, evaluate as evaluate_path, render_all
 from ganda.orientdb.queries.predicate_syntax import render_predicate as render
 from ganda.orientdb.queries.predicates import Compound, Predicate
@@ -18,6 +18,8 @@ from ganda.orientdb.queries.select_ast import KINDS, SelectQuery, evaluate, tx_i
 from ganda.orientdb.queries.select_syntax import BASE, SelectSyntax, Rewrites, applicable, render as render_select
 from ganda.orientdb.queries.select_support import tx_write
 from ganda.orientdb.queries.registry import all_cases
+
+from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
 
 CFG = GeneratorConfig(inheritance_probability=0.5, narrow_type_probability=0.3, date_map_probability=0.5, collate_probability=0.4, list_index_probability=0.5, custom_key_probability=0.3)
 

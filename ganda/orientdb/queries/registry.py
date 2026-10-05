@@ -20,8 +20,8 @@ benchmark see one list:
 """
 from __future__ import annotations
 
-from ganda.orientdb.model import Instance, Schema
-from ganda.orientdb.queries.case import QueryCase
+from ganda.core.model import Instance, Schema
+from ganda.core.case import QueryCase
 from ganda.orientdb.queries.traversal_ast import SET_PROJECTIONS, evaluate, from_params
 from ganda.orientdb.queries.traversal_generator import CASES_PER_INSTANCE, generate_traversal_cases
 from ganda.orientdb.queries.path_ast import evaluate as evaluate_path

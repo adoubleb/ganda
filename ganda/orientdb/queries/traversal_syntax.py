@@ -59,7 +59,7 @@ from __future__ import annotations
 
 import dataclasses
 
-from ganda.orientdb.model import FieldType, Schema
+from ganda.core.model import FieldType, Schema
 from ganda.orientdb.queries.traversal_ast import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, FIELD_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, Hop, TraversalQuery
 from ganda.orientdb.queries.predicates import fields_of, has_op
 from ganda.orientdb.queries.predicate_syntax import render_predicate as render_pred

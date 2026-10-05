@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import dataclasses
 
-from ganda.orientdb.model import FieldType, Instance, NodeRow, Schema
+from ganda.core.model import FieldType, Instance, NodeRow, Schema
 from ganda.orientdb.dialect import HASH_KINDS, UNIQUE_KINDS
 from ganda.orientdb.queries import predicates
 from ganda.orientdb.queries.predicates import Compound, Predicate

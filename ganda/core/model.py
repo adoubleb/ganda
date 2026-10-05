@@ -141,6 +141,9 @@ class Schema:
     # the base (which covers every subclass) or on one subclass. None: every node class
     # stands alone.
     base: "NodeTypeSpec | None" = None
+    # the provider this schema was generated for (`ganda.core.provider.Provider`):
+    # where the core finds the engine's semantics, concrete syntax and known bugs
+    engine: Any = field(default=None, compare=False, repr=False)
 
     def node_type(self, name: str) -> NodeTypeSpec:
         for nt in self.node_types:

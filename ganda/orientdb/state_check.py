@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ganda.orientdb.model import Instance
+from ganda.core.model import Instance
 from ganda.orientdb.semantics import eq
 
 

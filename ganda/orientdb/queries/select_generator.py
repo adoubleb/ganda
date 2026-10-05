@@ -40,9 +40,9 @@ from __future__ import annotations
 import dataclasses
 import random
 
-from ganda.orientdb.model import COLLECTION_TYPES, INT_TYPES, NUMERIC_TYPES, ORDERED_TYPES, FieldType, Instance, Schema
+from ganda.core.model import COLLECTION_TYPES, INT_TYPES, NUMERIC_TYPES, ORDERED_TYPES, FieldType, Instance, Schema
 from ganda.orientdb.queries import predicates
-from ganda.orientdb.queries.case import DATA_MODELS, QueryCase
+from ganda.core.case import DATA_MODELS, QueryCase
 from ganda.orientdb.queries.predicates import Predicate
 from ganda.orientdb.queries.select_ast import AGG_FNS, DIRECTIONS, EDGE_KINDS, GROUP_FNS, JOIN_FORMS, JOIN_OPS, KINDS, SelectQuery, coverage_signature, hits, present_values, reference_ok, shape_signature, target_fields
 from ganda.orientdb.queries.select_syntax import BASE, Rewrites, applicable, base_data_models, render, syntaxes_for

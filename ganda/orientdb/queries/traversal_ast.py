@@ -25,9 +25,9 @@ import itertools
 from dataclasses import dataclass
 from typing import Any
 
-from ganda.orientdb.model import Instance
+from ganda.core.model import Instance
 from ganda.orientdb.queries import predicates
-from ganda.orientdb.queries.case import Comparison
+from ganda.core.case import Comparison
 from ganda.orientdb.queries.predicates import Predicate
 from ganda.orientdb.semantics import agg, sum_is_exact
 

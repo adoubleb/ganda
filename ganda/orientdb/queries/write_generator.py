@@ -26,10 +26,10 @@ from __future__ import annotations
 
 import random
 
-from ganda.orientdb.model import COLLECTION_TYPES, INT_TYPES, FieldType, Instance, Schema
+from ganda.core.model import COLLECTION_TYPES, INT_TYPES, FieldType, Instance, Schema
 from ganda.orientdb.dialect import UNIQUE_KINDS
 from ganda.orientdb.queries import predicates
-from ganda.orientdb.queries.case import DATA_MODELS
+from ganda.core.case import DATA_MODELS
 from ganda.orientdb.queries.predicates import Predicate
 from ganda.orientdb.queries.write_ast import EDGE_OPS, NODE_OPS, RETURNING_OPS, WriteQuery, apply, edge_hits, node_hits
 from ganda.orientdb.queries.write_syntax import WriteRewrites, all_syntaxes, applicable

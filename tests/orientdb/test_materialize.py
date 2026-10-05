@@ -3,7 +3,7 @@ import json
 from ganda.orientdb.data_generator import GeneratorConfig, build
 from ganda.orientdb.mapping import MAPPERS
 from ganda.orientdb.mapping.common import Batch, Ref, Script, Sql, _groups, plan_from_dict, plan_to_dict, resolve_refs, wrap_data
-from ganda.orientdb.model import WriteForm
+from ganda.core.model import WriteForm
 
 
 def _all_steps(plan):

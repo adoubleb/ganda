@@ -1,7 +1,7 @@
-"""OrientDB's vocabulary for the abstract model (`ganda.orientdb.model`): the declared type of
+"""OrientDB's vocabulary for the abstract model (`ganda.core.model`): the declared type of
 each `FieldType`, the index kinds an `IndexSpec` / `Schema.id_index` names, the write
 forms a `WriteForm` names, the key charset, and the engine facts the model's types meet
-here (live-probed 3.2.56). `ganda.orientdb.model` imports nothing from this module.
+here (live-probed 3.2.56). `ganda.core.model` imports nothing from this module.
 
 - **Records are addressed by a logical `id` property, never by `@rid`.** A RID
   (`#cluster:position`) is assigned per database, so the three data models of one instance
@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 
-from ganda.orientdb.model import FieldType
+from ganda.core.model import FieldType
 
 # The declared property type of each FieldType (`CREATE PROPERTY t.f <type>`).
 #

@@ -16,7 +16,7 @@ import re
 from typing import Any
 
 from ganda.orientdb.mapping.common import plan_to_dict
-from ganda.orientdb.model import FieldType
+from ganda.core.model import FieldType
 
 
 def _jsonable(v: Any) -> Any:

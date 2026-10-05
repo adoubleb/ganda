@@ -29,7 +29,7 @@ from dataclasses import dataclass
 import re
 from typing import Callable
 
-from ganda.orientdb.model import EdgeDelete, EdgeRow, EdgeUpdate, FieldType, Instance, NodeDelete, NodeUpdate, Schema
+from ganda.core.model import EdgeDelete, EdgeRow, EdgeUpdate, FieldType, Instance, NodeDelete, NodeUpdate, Schema
 from ganda.orientdb.dialect import RANGE_KINDS
 
 

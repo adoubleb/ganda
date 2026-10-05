@@ -1,7 +1,7 @@
 import dataclasses
 
 from ganda.orientdb.data_generator import GeneratorConfig, build, initial_node_values, write_order_states
-from ganda.orientdb.model import FieldType, NodeDelete, NodeUpdate
+from ganda.core.model import FieldType, NodeDelete, NodeUpdate
 from ganda.orientdb.dialect import is_valid_key
 
 
@@ -144,7 +144,7 @@ def test_new_axes_are_tail_axes():
     import struct
     from decimal import Decimal
 
-    from ganda.orientdb.model import EdgeUpdate
+    from ganda.core.model import EdgeUpdate
 
     base = build(31, GeneratorConfig())[1]
     tail = build(31, GeneratorConfig(narrow_type_probability=1.0, collate_probability=1.0, clusters_probability=1.0, list_index_probability=1.0, churn_edge_update_probability=0.5, write_form_probability=1.0))[1]

@@ -71,7 +71,7 @@ from __future__ import annotations
 import itertools
 from dataclasses import dataclass, field
 
-from ganda.orientdb.model import Schema
+from ganda.core.model import Schema
 from ganda.orientdb.queries.predicate_syntax import render_predicate as render_pred
 from ganda.orientdb.queries.predicates import MIRROR
 from ganda.orientdb.queries.select_ast import DOC_EDGE_KINDS, SelectQuery, notnull_fields

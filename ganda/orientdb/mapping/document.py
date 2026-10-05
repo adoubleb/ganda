@@ -34,7 +34,7 @@ from ganda.orientdb.mapping.common import (
     node_document,
     node_update_steps,
 )
-from ganda.orientdb.model import EdgeUpdate, Instance, NodeDelete
+from ganda.core.model import EdgeUpdate, Instance, NodeDelete
 
 
 def link_entry(edge, values: "dict | None" = None) -> dict:

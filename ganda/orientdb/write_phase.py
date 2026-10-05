@@ -27,9 +27,9 @@ import re
 from dataclasses import dataclass, field
 
 from ganda.orientdb.connection import OrientCrash, OrientError
-from ganda.orientdb.model import Instance
+from ganda.core.model import Instance
 from ganda.orientdb.oracle import build_result, run_case, unwrap_script
-from ganda.orientdb.queries.case import DATA_MODELS, QueryCase
+from ganda.core.case import DATA_MODELS, QueryCase
 from ganda.orientdb.queries.write_ast import apply, comparison, coverage_signature, shape_signature, touched
 from ganda.orientdb.queries.write_generator import sample_write
 from ganda.orientdb.queries.write_syntax import render

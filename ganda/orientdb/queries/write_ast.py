@@ -38,9 +38,9 @@ import itertools
 from dataclasses import dataclass
 from typing import Any
 
-from ganda.orientdb.model import Instance, NodeRow, Schema
+from ganda.core.model import Instance, NodeRow, Schema
 from ganda.orientdb.queries import predicates
-from ganda.orientdb.queries.case import Comparison
+from ganda.core.case import Comparison
 from ganda.orientdb.queries.predicates import Predicate, apply_arith
 
 NODE_OPS = ("set", "arith", "null", "remove", "merge", "delete", "upsert")

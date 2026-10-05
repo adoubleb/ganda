@@ -185,10 +185,10 @@ import dataclasses
 import math
 
 from ganda.orientdb.java_hash import distinct_collides
-from ganda.orientdb.model import FieldType, Instance, Schema
+from ganda.core.model import FieldType, Instance, Schema
 from ganda.orientdb.dialect import HASH_KINDS, RANGE_KINDS
 from ganda.orientdb.queries import predicates
-from ganda.orientdb.queries.case import QueryCase
+from ganda.core.case import QueryCase
 from ganda.orientdb.queries.traversal_ast import REACH_PROJECTIONS, TraversalQuery
 from ganda.orientdb.queries.predicates import lossy_pivot, Compound, Predicate
 from ganda.orientdb.queries.traversal_syntax import BRACKET, CORRELATED

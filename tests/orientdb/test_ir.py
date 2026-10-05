@@ -1,12 +1,14 @@
 import itertools
 
 from ganda.orientdb.data_generator import GeneratorConfig, build
-from ganda.orientdb.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, Instance, NodeRow, NodeTypeSpec, Schema
+from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.queries.traversal_ast import PROJECTIONS, SHAPE_DENOMINATOR, Hop, TraversalQuery, all_signatures, evaluate, from_params, shape_signature
 from ganda.orientdb.queries.traversal_generator import generate_traversal_cases, sample_query
 from ganda.orientdb.queries.predicates import Compound, Predicate
 from ganda.orientdb.queries.traversal_syntax import SYNTAXES, applicable, can_pull_up, render, syntaxes_for
 
+
+from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
 
 def _fixture():
     schema = Schema(

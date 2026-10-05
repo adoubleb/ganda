@@ -43,8 +43,8 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
-from ganda.orientdb.model import Instance, Schema
-from ganda.orientdb.queries.case import Comparison, QueryCase
+from ganda.core.model import Instance, Schema
+from ganda.core.case import Comparison, QueryCase
 from ganda.orientdb.queries.select_support import bfs_distances
 
 DIRECTIONS = ("OUT", "IN", "BOTH")
