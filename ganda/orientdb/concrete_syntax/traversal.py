@@ -61,8 +61,8 @@ import dataclasses
 
 from ganda.core.model import FieldType, Schema
 from ganda.core.ast.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, FIELD_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, Hop, TraversalQuery
-from ganda.orientdb.queries.predicates import fields_of, has_op
-from ganda.orientdb.queries.predicate_syntax import render_predicate as render_pred
+from ganda.orientdb.predicates import fields_of, has_op
+from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
 
 SYNTAXES = {
     "graph": ("chain", "match", "match_opt", "edgescan", "bag", "traverse", "traverse_dfs", "traverse_e"),

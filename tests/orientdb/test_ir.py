@@ -4,8 +4,8 @@ from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.core.ast.traversal import PROJECTIONS, SHAPE_DENOMINATOR, Hop, TraversalQuery, all_signatures, evaluate, from_params, shape_signature
 from ganda.core.generators.traversal import generate_traversal_cases, sample_query
-from ganda.orientdb.queries.predicates import Compound, Predicate
-from ganda.orientdb.queries.traversal_syntax import SYNTAXES, applicable, can_pull_up, render, syntaxes_for
+from ganda.orientdb.predicates import Compound, Predicate
+from ganda.orientdb.concrete_syntax.traversal import SYNTAXES, applicable, can_pull_up, render, syntaxes_for
 
 
 from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
@@ -236,7 +236,7 @@ def test_dates_and_maps_in_the_reference():
     assert predicate_hit(False, None, "IS NULL", None, key="k3") and predicate_hit(True, m, "<>", 5, key="k3")
     assert not predicate_hit(True, m, ">", 1, key="k3")
     p = Predicate("source", "m", "=", "p", 2, True, "int", False, "k2")
-    from ganda.orientdb.queries.predicate_syntax import render_predicate as render_pred
+    from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
 
     assert render_pred(p) == "m.k2 = :p"
     assert render_pred(Predicate("source", "m", "=", "p", 2, True, "int", False, "k2", "pk")) == "m[:pk] = :p" and Predicate("source", "m", "=", "p", 2, True, "int", False, "k2", "pk").bind_vars == {"pk": "k2", "p": 2}

@@ -73,10 +73,10 @@ import random
 from dataclasses import dataclass, field
 
 from ganda.core.model import Instance, Schema
-from ganda.orientdb.queries import predicates
-from ganda.orientdb.queries.predicate_syntax import render_predicate as render_pred
-from ganda.orientdb.queries.predicates import MIRROR, Predicate
-from ganda.orientdb.queries.select_support import METHODS, method_fn  # noqa: F401 -- the method catalog
+from ganda.orientdb import predicates
+from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
+from ganda.orientdb.predicates import MIRROR, Predicate
+from ganda.orientdb.concrete_syntax.support import METHODS, method_fn  # noqa: F401 -- the method catalog
 from ganda.core.ast.select import DOC_EDGE_KINDS, SelectQuery, notnull_fields
 
 FILTERS = ("plain", "rw", "rev", "arith", "literal")
@@ -250,7 +250,7 @@ TX_TIMEOUT = "TIMEOUT 20000 EXCEPTION"
 def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str) -> str:
     text = _render(q, schema, sp, rewrites, data_model)
     if q.tx:
-        from ganda.orientdb.queries.select_support import tx_write
+        from ganda.orientdb.concrete_syntax.support import tx_write
 
         return f"BEGIN; {tx_write(q.tx, data_model)}; LET $r = ({text} {TX_TIMEOUT}); ROLLBACK; RETURN $r"
     return text
@@ -300,7 +300,7 @@ def _door(p, table: str, schema: Schema, instance: Instance, data_model: str) ->
     """The `index:` door of `select_support.index_door` where it answers every matching
     record (`door_complete`), its own bind variable renamed per data model (two data models'
     composite indexes may order the same key differently)."""
-    from ganda.orientdb.queries.select_support import door_complete, index_door as _index_door
+    from ganda.orientdb.concrete_syntax.support import door_complete, index_door as _index_door
 
     door = _index_door(p, table, schema, data_model)
     if door is None or not door_complete(door[2], table, p, instance):
@@ -316,7 +316,7 @@ def _door(p, table: str, schema: Schema, instance: Instance, data_model: str) ->
 
 def build_rewrites(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> Rewrites:
     from ganda.core.ast.select import present_values, records, view
-    from ganda.orientdb.queries.select_support import literal_pred as _literal_pred
+    from ganda.orientdb.concrete_syntax.support import literal_pred as _literal_pred
 
     rewrites = Rewrites(present=present_values(q, instance) if q.kind == "agg" else [])
     p = q.where

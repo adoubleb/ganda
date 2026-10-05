@@ -187,11 +187,11 @@ import math
 from ganda.orientdb.java_hash import distinct_collides
 from ganda.core.model import FieldType, Instance, Schema
 from ganda.orientdb.dialect import HASH_KINDS, RANGE_KINDS
-from ganda.orientdb.queries import predicates
+from ganda.orientdb import predicates
 from ganda.core.case import QueryCase
 from ganda.core.ast.traversal import REACH_PROJECTIONS, TraversalQuery
-from ganda.orientdb.queries.predicates import lossy_pivot, Compound, Predicate
-from ganda.orientdb.queries.traversal_syntax import BRACKET, CORRELATED
+from ganda.orientdb.predicates import lossy_pivot, Compound, Predicate
+from ganda.orientdb.concrete_syntax.traversal import BRACKET, CORRELATED
 
 DICTIONARY_DUPLICATES = False  # set by `--keep-dictionary-duplicates`
 
@@ -1152,7 +1152,7 @@ def insub_known(schema: Schema, instance: Instance, table: str, p, data_model: s
     among the answered values through an index on `f`: the null-keyed records come
     back). O10 / O21 / O4 on the outer lookup are the IN leaf's, judged by
     `o10_predicate` / `o21_predicate` / `_dictionary_equality`."""
-    from ganda.orientdb.queries.select_support import SCAN_SIDE_FINDINGS
+    from ganda.orientdb.concrete_syntax.support import SCAN_SIDE_FINDINGS
 
     for leaf in predicates.subqueries(p):
         t2, _g, q, scan = leaf.sub
@@ -1301,7 +1301,7 @@ def select_shape_known(q, sp, data_model: str, schema: Schema, instance: Instanc
     edge target, the transaction's view of the rows under the door). A subquery
     target always sorts."""
     from ganda.core.ast.select import column, evaluate, hits, view
-    from ganda.orientdb.queries.select_syntax import WALK_POSITIONS
+    from ganda.orientdb.concrete_syntax.select import WALK_POSITIONS
 
     walk = sp.position in WALK_POSITIONS
     inst = view(q, instance)

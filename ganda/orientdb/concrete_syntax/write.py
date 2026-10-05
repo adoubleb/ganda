@@ -48,9 +48,9 @@ import re
 from dataclasses import dataclass, field
 
 from ganda.core.model import Instance, Schema
-from ganda.orientdb.queries import predicates
-from ganda.orientdb.queries.predicates import Predicate
-from ganda.orientdb.queries.predicate_syntax import render_predicate as render_pred
+from ganda.orientdb import predicates
+from ganda.orientdb.predicates import Predicate
+from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
 from ganda.core.ast.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
 
 FILTERS = ("plain", "rw", "rev", "ar")

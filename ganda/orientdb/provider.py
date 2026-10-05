@@ -31,25 +31,25 @@ class OrientDBProvider(Provider):
 
     @property
     def traversal_syntax(self):
-        from ganda.orientdb.queries import traversal_syntax
+        from ganda.orientdb.concrete_syntax import traversal as traversal_syntax
 
         return traversal_syntax
 
     @property
     def select_syntax(self):
-        from ganda.orientdb.queries import select_syntax
+        from ganda.orientdb.concrete_syntax import select as select_syntax
 
         return select_syntax
 
     @property
     def path_syntax(self):
-        from ganda.orientdb.queries import path_syntax
+        from ganda.orientdb.concrete_syntax import path as path_syntax
 
         return path_syntax
 
     @property
     def write_syntax(self):
-        from ganda.orientdb.queries import write_syntax
+        from ganda.orientdb.concrete_syntax import write as write_syntax
 
         return write_syntax
 

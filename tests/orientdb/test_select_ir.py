@@ -4,12 +4,12 @@ import re
 from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.known_bugs import select_known
 from ganda.core.model import FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
-from ganda.orientdb.queries import predicates
+from ganda.orientdb import predicates
 from ganda.core.case import Comparison, QueryCase
-from ganda.orientdb.queries.predicates import Predicate
-from ganda.orientdb.queries.select_syntax import build_rewrites
+from ganda.orientdb.predicates import Predicate
+from ganda.orientdb.concrete_syntax.select import build_rewrites
 from ganda.core.ast.select import COVERAGE_DENOMINATOR, SelectQuery, all_coverage_signatures, coverage_signature, evaluate, from_params, records
-from ganda.orientdb.queries.select_syntax import BASE, SelectSyntax, Rewrites, applicable, render
+from ganda.orientdb.concrete_syntax.select import BASE, SelectSyntax, Rewrites, applicable, render
 from ganda.core.generators.registry import all_cases, reference_for
 
 from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
@@ -189,7 +189,7 @@ def test_supply_is_deterministic_and_prefix_stable():
 
 
 def test_index_door_is_withheld_where_a_composite_ignoring_nulls_lacks_a_match():
-    from ganda.orientdb.queries.select_support import door_complete
+    from ganda.orientdb.concrete_syntax.support import door_complete
 
     ix = IndexSpec("n1", "f3", data_model="both", kind="NOTUNIQUE", extra_fields=("f1",), ignore_nulls=True)
     schema, inst = _fixture([ix])

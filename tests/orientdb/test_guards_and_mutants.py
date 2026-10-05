@@ -3,7 +3,7 @@ from ganda.orientdb.known_bugs import o1_shape, o2_shape
 from ganda.core.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeTypeSpec, Schema
 from ganda.orientdb.mutants import MUTANTS
 from ganda.core.ast.traversal import Hop, TraversalQuery
-from ganda.orientdb.queries.predicates import Predicate
+from ganda.orientdb.predicates import Predicate
 from ganda.core.generators.registry import all_cases
 
 
@@ -77,7 +77,7 @@ def test_every_read_ir_emits_and_references():
 
 def test_guards_see_leaves_inside_compounds():
     from ganda.orientdb.known_bugs import node_case_known, o10_predicate, o12_literal
-    from ganda.orientdb.queries.predicates import Compound
+    from ganda.orientdb.predicates import Compound
 
     schema = _schema([IndexSpec("n1", "f1", data_model="rel")])
     inner = Predicate("target", "f1", ">", "p1_0", 0)
@@ -127,7 +127,7 @@ def test_cross_type_guards_o16_o17():
 def test_o18_withholds_the_desc_order_side_under_an_index_that_ignores_nulls():
     from ganda.orientdb.known_bugs import select_shape_known
     from ganda.core.ast.select import SelectQuery
-    from ganda.orientdb.queries.select_syntax import SelectSyntax
+    from ganda.orientdb.concrete_syntax.select import SelectSyntax
 
     order = SelectSyntax(form="order")
     found = {"O18": 0, "plain": 0}
@@ -153,7 +153,7 @@ def test_o18_withholds_the_desc_order_side_under_an_index_that_ignores_nulls():
 
 def test_new_type_and_collation_guards():
     from ganda.orientdb.known_bugs import node_case_known, o11_predicate, o16_predicate, o17_predicate, o20_predicate, o21_predicate, ordered_keys_known
-    from ganda.orientdb.queries.predicates import Compound
+    from ganda.orientdb.predicates import Compound
 
     inst = build(3, GeneratorConfig())[1]
     schema = Schema(
@@ -216,7 +216,7 @@ def test_o25_withholds_bracket_spellings_on_ci_targets():
 
 def test_o36_between_on_a_composite_lead_next_to_a_later_field():
     from ganda.orientdb.known_bugs import o36_predicate
-    from ganda.orientdb.queries.predicates import Compound
+    from ganda.orientdb.predicates import Compound
 
     schema = Schema(
         node_types=(NodeTypeSpec("n1", (FieldSpec("f", FieldType.INT), FieldSpec("g", FieldType.INT), FieldSpec("h", FieldType.INT))),),

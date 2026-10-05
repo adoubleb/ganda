@@ -8,16 +8,16 @@ from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.known_bugs import select_known
 from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.mutants import MUTANTS_BY_NAME
-from ganda.orientdb.queries import predicates
+from ganda.orientdb import predicates
 from ganda.core.case import Comparison, QueryCase
 from ganda.core.ast.path import PathQuery, evaluate as evaluate_path
-from ganda.orientdb.queries.path_syntax import render_all
-from ganda.orientdb.queries.predicate_syntax import render_predicate as render
-from ganda.orientdb.queries.predicates import Compound, Predicate
+from ganda.orientdb.concrete_syntax.path import render_all
+from ganda.orientdb.concrete_syntax.predicate import render_predicate as render
+from ganda.orientdb.predicates import Compound, Predicate
 from ganda.core.generators.select import KIND_WEIGHTS, build_case, strata
 from ganda.core.ast.select import KINDS, SelectQuery, evaluate, tx_instance
-from ganda.orientdb.queries.select_syntax import BASE, SelectSyntax, Rewrites, applicable, render as render_select
-from ganda.orientdb.queries.select_support import tx_write
+from ganda.orientdb.concrete_syntax.select import BASE, SelectSyntax, Rewrites, applicable, render as render_select
+from ganda.orientdb.concrete_syntax.support import tx_write
 from ganda.core.generators.registry import all_cases
 
 from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
