@@ -18,7 +18,7 @@ import sys
 import time
 from collections import defaultdict
 
-from ganda.orientdb.data_generator import GeneratorConfig, build
+from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.connection import OrientCrash, OrientError, OrientServer, cleanup_orphans, db_name
 from ganda.orientdb.mapping import MAPPERS
 from ganda.orientdb.mutants import MUTANTS, MUTANTS_BY_NAME

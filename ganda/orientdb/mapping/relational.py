@@ -55,7 +55,7 @@ def junction_step(edge, form, values: "dict | None" = None) -> Sql:
 
 def build_relational_setup(instance: Instance) -> list:
     schema = instance.schema
-    form = instance.rel_write_form
+    form = instance.write_form("rel")
     ddl = node_ddl(schema, "rel")
     for et in schema.edge_types:
         steps = class_steps(et.name, et.fields, None, [("eid", "STRING"), ("src_id", "STRING"), ("dst_id", "STRING")])

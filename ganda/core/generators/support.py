@@ -83,7 +83,7 @@ def draw_tx(rng, schema: Schema, instance: Instance, table: str, where) -> "dict
     written to a column a UNIQUE index of any data model covers (a duplicate key inside
     the transaction raises nothing before COMMIT, and the unique lookup answers one
     of the two)."""
-    from ganda.orientdb.data_generator import random_value  # TODO(core): the data generator
+    from ganda.core.data_generator import random_value
 
     value_key = schema.engine.semantics.key
 

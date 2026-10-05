@@ -27,7 +27,20 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from ganda.orientdb.data_generator import initial_node_values, initial_nodes
+from ganda.core.data_generator import initial_node_values, initial_nodes
+from ganda.core.setup_plan import (  # noqa: F401
+    Ref,
+    churned_away_edges,
+    decode_refs,
+    encode_refs,
+    initial_edge_values,
+    initial_edges,
+    plan_from_dict,
+    plan_to_dict,
+    resolve_refs,
+    step,
+    step_from_dict,
+)
 from ganda.core.model import (
     INT_TYPES,
     EdgeDelete,
@@ -43,52 +56,9 @@ from ganda.core.model import (
 from ganda.orientdb.dialect import ORIENT_TYPES, UNIQUE_KINDS
 
 
-# --- RID placeholders -------------------------------------------------------------------
-
-@dataclass(frozen=True)
-class Ref:
-    """A placeholder for the RID of the record whose logical id is `id`."""
-
-    id: str
-
-
-def encode_refs(value: Any) -> Any:
-    """JSON form: a `Ref` becomes `{"$ref": id}`."""
-    if isinstance(value, Ref):
-        return {"$ref": value.id}
-    if isinstance(value, list):
-        return [encode_refs(v) for v in value]
-    if isinstance(value, dict):
-        return {k: encode_refs(v) for k, v in value.items()}
-    return value
-
-
-def decode_refs(value: Any) -> Any:
-    if isinstance(value, dict):
-        if set(value) == {"$ref"}:
-            return Ref(value["$ref"])
-        return {k: decode_refs(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [decode_refs(v) for v in value]
-    return value
-
-
-def resolve_refs(value: Any, rids: dict) -> Any:
-    """Substitute every `Ref` with the RID string the connection layer captured."""
-    if isinstance(value, Ref):
-        try:
-            return rids[value.id]
-        except KeyError:
-            raise KeyError(f"no RID captured for {value.id!r}; the plan references a record before inserting it") from None
-    if isinstance(value, list):
-        return [resolve_refs(v, rids) for v in value]
-    if isinstance(value, dict):
-        return {k: resolve_refs(v, rids) for k, v in value.items()}
-    return value
-
-
 # --- setup plan vocabulary ---------------------------------------------------------------
 
+@step("sql")
 @dataclass
 class Sql:
     """One SQL command with named parameters. `capture` is the logical id whose RID
@@ -102,7 +72,12 @@ class Sql:
     def to_dict(self) -> dict:
         return {"op": "sql", "command": self.command, "params": encode_refs(self.params), "capture": self.capture}
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "Sql":
+        return cls(d["command"], decode_refs(d.get("params", {})), d.get("capture"))
 
+
+@step("script")
 @dataclass
 class Script:
     """A multi-statement script (`POST /command/<db>/script`). `params` are shared by
@@ -116,7 +91,12 @@ class Script:
     def to_dict(self) -> dict:
         return {"op": "script", "text": self.text, "params": encode_refs(self.params), "captures": dict(self.captures)}
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "Script":
+        return cls(d["text"], decode_refs(d.get("params", {})), d.get("captures", {}))
 
+
+@step("batch")
 @dataclass
 class Batch:
     """The `/batch` endpoint: `steps` are `Sql` commands run in one request, in one
@@ -128,27 +108,12 @@ class Batch:
     def to_dict(self) -> dict:
         return {"op": "batch", "transaction": self.transaction, "steps": [s.to_dict() for s in self.steps]}
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "Batch":
+        return cls([step_from_dict(s) for s in d["steps"]], d.get("transaction", True))
+
 
 SetupPlan = list
-
-
-def plan_to_dict(plan: list) -> list:
-    return [s.to_dict() for s in plan]
-
-
-def step_from_dict(d: dict):
-    op = d["op"]
-    if op == "sql":
-        return Sql(d["command"], decode_refs(d.get("params", {})), d.get("capture"))
-    if op == "script":
-        return Script(d["text"], decode_refs(d.get("params", {})), d.get("captures", {}))
-    if op == "batch":
-        return Batch([step_from_dict(s) for s in d["steps"]], d.get("transaction", True))
-    raise ValueError(op)
-
-
-def plan_from_dict(items: list) -> list:
-    return [step_from_dict(d) for d in items]
 
 
 # --- DDL ----------------------------------------------------------------------------------
@@ -311,15 +276,6 @@ def node_update_steps(instance: Instance, form: WriteForm, extras: "dict | None"
     return steps
 
 
-def initial_edge_values(instance: Instance) -> dict:
-    """edge id -> the attribute values the relationship was FIRST written with."""
-    out = {e.record_id: e.values for e in initial_edges(instance)}
-    for op in instance.churn:
-        if isinstance(op, EdgeUpdate):
-            out[op.edge.record_id] = op.initial_values
-    return out
-
-
 def edge_update_steps(instance: Instance, form: WriteForm, verb: str) -> list:
     """EdgeUpdate churn on the graph E class (`verb` = "UPDATE EDGE") or the junction
     class ("UPDATE"): the relationship's attributes go from their initial values to
@@ -351,21 +307,6 @@ def edge_update_steps(instance: Instance, form: WriteForm, verb: str) -> list:
         else:
             steps.append(Sql(f"{verb} {t} SET {_set_clause(final, params)} WHERE eid = :k", params))
     return steps
-
-
-def initial_edges(instance: Instance) -> list:
-    """Every edge that was ever written, including ones churn later removes."""
-    gone = churned_away_edges(instance)
-    both = list(instance.edges) + gone
-    return sorted(both, key=lambda e: (e.type_name, e.local_id))
-
-
-def churned_away_edges(instance: Instance) -> list:
-    out = [op.edge for op in instance.churn if isinstance(op, EdgeDelete)]
-    for op in instance.churn:
-        if isinstance(op, NodeDelete):
-            out.extend(op.incident_edges)
-    return out
 
 
 JUNK_MARKER = "__junk"

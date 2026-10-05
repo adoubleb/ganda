@@ -52,7 +52,7 @@ def edge_step(edge, form, values: "dict | None" = None) -> Sql:
 
 def build_graph_setup(instance: Instance) -> list:
     schema = instance.schema
-    form = instance.graph_write_form
+    form = instance.write_form("graph")
     ddl = node_ddl(schema, "graph", superclass="V")
     for et in schema.edge_types:
         # an E subclass declares `eid` and the attributes; `out`/`in` are the engine's

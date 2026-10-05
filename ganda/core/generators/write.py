@@ -43,7 +43,7 @@ def _present(values: list) -> list:
 
 
 def _value(rng: random.Random, ftype: FieldType, column: list):
-    from ganda.orientdb.data_generator import random_value  # TODO(core): the data generator
+    from ganda.core.data_generator import random_value
 
     present = _present(column)
     if present and rng.random() < PRESENT_VALUE_PROBABILITY:
@@ -70,7 +70,7 @@ def _unique_indexes(schema: Schema, q: WriteQuery) -> list:
 
 
 def unique_safe(q: WriteQuery, before: Instance, after: Instance) -> bool:
-    from ganda.orientdb.data_generator import index_key  # TODO(core): the data generator
+    from ganda.core.data_generator import index_key
 
     schema = before.schema
     ixs = _unique_indexes(schema, q)

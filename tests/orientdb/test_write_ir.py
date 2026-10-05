@@ -1,4 +1,4 @@
-from ganda.orientdb.data_generator import GeneratorConfig, build
+from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.known_bugs import o37_write, write_known
 from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.queries.predicates import Predicate

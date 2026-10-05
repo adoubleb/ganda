@@ -52,7 +52,7 @@ def grouped_links(edges) -> dict:
 
 def build_document_setup(instance: Instance) -> list:
     schema = instance.schema
-    form = instance.doc_write_form
+    form = instance.write_form("doc")
     ddl = node_ddl(schema, "doc", extra=lambda nt: [(et.name, "EMBEDDEDLIST") for et in schema.edge_types_from(nt.name)])
 
     values = initial_node_values(instance)

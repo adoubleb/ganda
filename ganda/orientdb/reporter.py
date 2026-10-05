@@ -179,7 +179,7 @@ def _repro_script(seed: int, cfg, case, write_step: "int | None" = None) -> str:
 fresh server (Docker, or ORIENT_URL/ORIENT_PASSWORD), and re-run the case."""
 import json, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-from ganda.orientdb.data_generator import GeneratorConfig, build
+from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.connection import OrientInstance, db_name
 from ganda.orientdb.mapping import BUILDERS
 from ganda.orientdb.oracle import run_case

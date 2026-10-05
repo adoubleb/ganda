@@ -4,7 +4,7 @@ index-level mutants."""
 import random
 from collections import Counter
 
-from ganda.orientdb.data_generator import GeneratorConfig, build
+from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.known_bugs import select_known
 from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.mutants import MUTANTS_BY_NAME

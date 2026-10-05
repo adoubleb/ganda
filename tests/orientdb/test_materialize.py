@@ -1,6 +1,6 @@
 import json
 
-from ganda.orientdb.data_generator import GeneratorConfig, build
+from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.mapping import MAPPERS
 from ganda.orientdb.mapping.common import Batch, Ref, Script, Sql, _groups, plan_from_dict, plan_to_dict, resolve_refs, wrap_data
 from ganda.core.model import WriteForm
@@ -85,7 +85,7 @@ def test_content_update_carries_no_parameter_and_resets_links():
     _, inst, _ = build(6, GeneratorConfig(write_form_probability=0.0, churn_update_probability=0.9))
     import dataclasses
 
-    inst = dataclasses.replace(inst, doc_write_form=WriteForm(update_form="content"))
+    inst = dataclasses.replace(inst, write_forms={**inst.write_forms, "doc": WriteForm(update_form="content")})
     plan = MAPPERS["doc"](inst)
     contents = [s for s in _all_steps(plan) if isinstance(s, Sql) and " CONTENT " in s.command]
     assert contents

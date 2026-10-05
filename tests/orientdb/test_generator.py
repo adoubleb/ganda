@@ -1,6 +1,6 @@
 import dataclasses
 
-from ganda.orientdb.data_generator import GeneratorConfig, build, initial_node_values, write_order_states
+from ganda.orientdb.generate import GeneratorConfig, build, initial_node_values, write_order_states
 from ganda.core.model import FieldType, NodeDelete, NodeUpdate
 from ganda.orientdb.dialect import is_valid_key
 

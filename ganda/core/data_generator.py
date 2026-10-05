@@ -28,7 +28,6 @@ from dataclasses import dataclass
 from ganda.core.model import (
     MAP_KEYS,
     NUMERIC_TYPES,
-    DATA_MODELS,
     EdgeDelete,
     EdgeRow,
     EdgeTypeSpec,
@@ -44,15 +43,7 @@ from ganda.core.model import (
     Schema,
     WriteForm,
 )
-from ganda.orientdb.dialect import (
-    EDGE_FROM_FORMS,
-    EDGE_UPDATE_FORMS,
-    ID_INDEX_KINDS,
-    INSERT_FORMS,
-    TRANSACTION_FORMS,
-    UPDATE_FORMS,
-    is_valid_key,
-)
+from ganda.core.setup_plan import initial_edge_values, initial_edges
 
 
 _FIELD_TYPE_WEIGHTS = {
@@ -72,7 +63,7 @@ DBL_MAX = 1.7976931348623157e308
 # Adversarial per-type value pools (all live-probed to store and read back unchanged on
 # 3.2.56 through a declared property; NaN/Infinity are excluded because JSON cannot
 # carry them). Strings are built with `chr()` where an editor could normalize them.
-_BOUNDARY_VALUES = {
+BOUNDARY_VALUES = {
     FieldType.INT: [
         0, 1, -1, 2, 7, 2**31 - 1, -(2**31), 2**31, 2**32, F64_INT_EXACT - 1, F64_INT_EXACT,
         F64_INT_EXACT + 1, 2**62, -(2**62), I64_MAX, I64_MIN, I64_MAX - 1, 123456789012345678,
@@ -161,8 +152,8 @@ def random_value(rng: random.Random, ftype: FieldType):
     raise ValueError(ftype)
 
 
-def boundary_value(rng: random.Random, ftype: FieldType):
-    v = rng.choice(_BOUNDARY_VALUES[ftype])
+def boundary_value(rng: random.Random, ftype: FieldType, pool: "dict | None" = None):
+    v = rng.choice((pool or BOUNDARY_VALUES)[ftype])
     if isinstance(v, dict):
         return dict(v)
     return list(v) if isinstance(v, list) else v
@@ -211,7 +202,6 @@ class GeneratorConfig:
     custom_key_probability: float = 0.0
     write_form_probability: float = 0.5
     # The `id` index kind per data model (`ID_INDEX_KINDS`); at 0 every data model gets UNIQUE.
-    id_index_probability: float = 0.5
     # An abstract base class every node class extends, with 1-3 fields of its own
     # (`b1`, ...) that every node carries, and indexes on those fields placed on the
     # base or on one subclass (`Schema.base`). At 0 no base class exists.
@@ -227,7 +217,6 @@ class GeneratorConfig:
     # case-flipped with probability 0.5 so case variants collide.
     collate_probability: float = 0.0
     # Per node class: 2 or 3 clusters (`CREATE CLASS ... CLUSTERS n`).
-    clusters_probability: float = 0.0
     # Per LIST node field: a NOTUNIQUE / NOTUNIQUE_HASH_INDEX index on the list (an
     # index over the elements: `CONTAINSANY` and a list `=` / `IN` are served by it,
     # `CONTAINS` is not, probed). Per MAP node field: the same, `BY KEY` (serves
@@ -253,14 +242,9 @@ class GeneratorConfig:
     # LLM-written template cards (`fuzzer/cards`, query generator `llm_card`): this many card
     # instantiations per instance from the JSONL corpus at `card_corpus`, its own
     # sub-stream after every other read supply; 0 reproduces a run from before it
-    card_cases: int = 0
-    card_corpus: str = ""
 
     def with_(self, **kw) -> "GeneratorConfig":
         return dataclasses.replace(self, **kw)
-
-
-_INDEX_KIND_WEIGHTS = {"NOTUNIQUE": 40, "UNIQUE": 10, "NOTUNIQUE_HASH_INDEX": 20, "UNIQUE_HASH_INDEX": 5, "DICTIONARY": 15}
 
 
 def _random_field_specs(rng: random.Random, count: int, cfg: GeneratorConfig, prefix: str = "f") -> tuple:
@@ -275,7 +259,7 @@ def _random_field_specs(rng: random.Random, count: int, cfg: GeneratorConfig, pr
 BASE_CLASS = "N0"
 
 
-def _base_class(seed: "int | None", cfg: GeneratorConfig, node_names: list) -> "tuple[NodeTypeSpec | None, list]":
+def _base_class(seed: "int | None", cfg: GeneratorConfig, node_names: list, engine) -> "tuple[NodeTypeSpec | None, list]":
     """The inheritance axis, on its own tail stream: the base class's fields and the
     indexes on them (on the base, or on one subclass)."""
     if seed is None or cfg.inheritance_probability <= 0:
@@ -289,16 +273,11 @@ def _base_class(seed: "int | None", cfg: GeneratorConfig, node_names: list) -> "
         if f.type is FieldType.LIST or r.random() >= cfg.index_probability:
             continue
         table = BASE_CLASS if r.random() < 0.5 else r.choice(node_names)
-        indexes.append(IndexSpec(table=table, field=f.name, data_model=r.choice(("doc", "graph", "rel", "both")), kind=_draw_kind(r), ignore_nulls=r.random() < 0.5))
+        indexes.append(IndexSpec(table=table, field=f.name, data_model=r.choice(engine.data_models + ("both",)), kind=engine.physical_design.draw_index_kind(r), ignore_nulls=r.random() < 0.5))
     return base, indexes
 
 
-def _draw_kind(rng: random.Random) -> str:
-    (kind,) = rng.choices(list(_INDEX_KIND_WEIGHTS), weights=list(_INDEX_KIND_WEIGHTS.values()))
-    return kind
-
-
-def generate_schema(rng: random.Random, cfg: GeneratorConfig, seed: "int | None" = None) -> Schema:
+def generate_schema(rng: random.Random, cfg: GeneratorConfig, seed: "int | None" = None, engine=None) -> Schema:
     n_node_types = rng.randint(cfg.min_node_types, cfg.max_node_types)
     node_types = tuple(
         NodeTypeSpec(name=f"n{i + 1}", fields=_random_field_specs(rng, rng.randint(cfg.min_fields_per_type, cfg.max_fields_per_type), cfg))
@@ -316,33 +295,28 @@ def generate_schema(rng: random.Random, cfg: GeneratorConfig, seed: "int | None"
         for i in range(n_edge_types)
     )
 
-    data_models = ("doc", "graph", "rel", "both")
+    pd = engine.physical_design
+    data_models = engine.data_models + ("both",)
     indexes = []
     for nt in node_types:
         scalar = [f for f in nt.fields if f.type is not FieldType.LIST]
         for f in scalar:
             if rng.random() < cfg.index_probability:
-                indexes.append(IndexSpec(table=nt.name, field=f.name, data_model=rng.choice(data_models), kind=_draw_kind(rng), ignore_nulls=rng.random() < 0.5))
+                indexes.append(IndexSpec(table=nt.name, field=f.name, data_model=rng.choice(data_models), kind=pd.draw_index_kind(rng), ignore_nulls=rng.random() < 0.5))
         if len(scalar) >= 2 and rng.random() < cfg.composite_index_probability:
             a, b = rng.sample(scalar, 2)
-            indexes.append(IndexSpec(table=nt.name, field=a.name, extra_fields=(b.name,), data_model=rng.choice(data_models), kind=rng.choice(("NOTUNIQUE", "NOTUNIQUE_HASH_INDEX"))))
+            indexes.append(IndexSpec(table=nt.name, field=a.name, extra_fields=(b.name,), data_model=rng.choice(data_models), kind=rng.choice(pd.NON_UNIQUE_KINDS)))
     for et in edge_types:
         scalar = [f for f in et.fields if f.type is not FieldType.LIST]
         if scalar and rng.random() < cfg.edge_index_probability:
-            indexes.append(IndexSpec(table=et.name, field=rng.choice(scalar).name, data_model=rng.choice(("graph", "rel", "both")), kind=rng.choice(("NOTUNIQUE", "NOTUNIQUE_HASH_INDEX")), target="edge"))
+            indexes.append(IndexSpec(table=et.name, field=rng.choice(scalar).name, data_model=rng.choice(pd.EDGE_INDEX_DATA_MODELS), kind=rng.choice(pd.NON_UNIQUE_KINDS), target="edge"))
 
-    id_index: dict = {}
-    if seed is not None and cfg.id_index_probability > 0:
-        for data_model in DATA_MODELS:
-            r = _stream(seed, "idindex", data_model)
-            if r.random() < cfg.id_index_probability:
-                id_index[data_model] = r.choice(ID_INDEX_KINDS)
-    base, base_indexes = _base_class(seed, cfg, names)
+    id_index = pd.draw_id_indexes(seed, cfg)
+    base, base_indexes = _base_class(seed, cfg, names, engine)
     node_types, base = _tail_field_axes(seed, cfg, node_types, base)
-    list_indexes = _list_indexes(seed, cfg, node_types, base)
-    from ganda.orientdb.provider import PROVIDER
-
-    return Schema(engine=PROVIDER, node_types=node_types, edge_types=tuple(edge_types), indexes=tuple(_dedupe_indexes(indexes + base_indexes + list_indexes)), id_index=id_index, base=base)
+    node_types = pd.draw_storage_options(seed, cfg, node_types)
+    list_indexes = _list_indexes(seed, cfg, node_types, base, engine)
+    return Schema(engine=engine, node_types=node_types, edge_types=tuple(edge_types), indexes=tuple(_dedupe_indexes(indexes + base_indexes + list_indexes, engine.data_models)), id_index=id_index, base=base)
 
 
 def _retype(seed: "int | None", cfg: GeneratorConfig, table: str, f: FieldSpec) -> FieldSpec:
@@ -372,18 +346,13 @@ def _tail_field_axes(seed: "int | None", cfg: GeneratorConfig, node_types: tuple
     out = []
     for nt in node_types:
         fields = tuple(_retype(seed, cfg, nt.name, f) for f in nt.fields)
-        clusters = 1
-        if cfg.clusters_probability > 0:
-            r = _stream(seed, "clusters", nt.name)
-            if r.random() < cfg.clusters_probability:
-                clusters = r.choice((2, 3))
-        out.append(dataclasses.replace(nt, fields=fields, clusters=clusters))
+        out.append(dataclasses.replace(nt, fields=fields))
     if base is not None:
         base = dataclasses.replace(base, fields=tuple(_retype(seed, cfg, base.name, f) for f in base.fields))
     return tuple(out), base
 
 
-def _list_indexes(seed: "int | None", cfg: GeneratorConfig, node_types: tuple, base: "NodeTypeSpec | None") -> list:
+def _list_indexes(seed: "int | None", cfg: GeneratorConfig, node_types: tuple, base: "NodeTypeSpec | None", engine) -> list:
     if seed is None or cfg.list_index_probability <= 0:
         return []
     out = []
@@ -394,17 +363,17 @@ def _list_indexes(seed: "int | None", cfg: GeneratorConfig, node_types: tuple, b
             r = _stream(seed, "listindex", nt.name, f.name)
             if r.random() < cfg.list_index_probability:
                 by = r.choice(("KEY", "VALUE")) if f.type is FieldType.MAP else None
-                out.append(IndexSpec(table=nt.name, field=f.name, data_model=r.choice(("doc", "graph", "rel", "both")), kind=r.choice(("NOTUNIQUE", "NOTUNIQUE_HASH_INDEX")), ignore_nulls=r.random() < 0.5, by=by))
+                out.append(IndexSpec(table=nt.name, field=f.name, data_model=r.choice(engine.data_models + ("both",)), kind=r.choice(engine.physical_design.NON_UNIQUE_KINDS), ignore_nulls=r.random() < 0.5, by=by))
     return out
 
 
-def _dedupe_indexes(indexes: list) -> list:
+def _dedupe_indexes(indexes: list, data_models: tuple) -> list:
     """Two specs rendering the same index NAME on some data model would fail that data model's
     setup alone (a fuzzer-made asymmetry); the later one is dropped."""
     seen: set = set()
     kept = []
     for ix in indexes:
-        keys = {(s, ix.name()) for s in DATA_MODELS if ix.applies_to(s)}
+        keys = {(s, ix.name()) for s in data_models if ix.applies_to(s)}
         if keys & seen:
             continue
         seen |= keys
@@ -413,8 +382,9 @@ def _dedupe_indexes(indexes: list) -> list:
 
 
 class _ValuePools:
-    def __init__(self):
+    def __init__(self, boundaries: "dict | None" = None):
         self.pools: dict = {}
+        self.boundaries = boundaries or BOUNDARY_VALUES
 
     def add(self, f: FieldSpec, v):
         self.pools.setdefault((f.name, f.type), []).append(v)
@@ -423,11 +393,11 @@ class _ValuePools:
         return self.pools.get((f.name, f.type), [])
 
 
-def _controlled_pool(seed: int, table: str, f: FieldSpec) -> list:
+def _controlled_pool(seed: int, table: str, f: FieldSpec, boundaries: dict) -> list:
     rng = _stream(seed, "cardpool", table, f.name)
     out: list = []
     while len(out) < f.cardinality:
-        v = boundary_value(rng, f.type) if rng.random() < 0.3 else random_value(rng, f.type)
+        v = boundary_value(rng, f.type, boundaries) if rng.random() < 0.3 else random_value(rng, f.type)
         if v not in out:
             out.append(v)
         if f.type is FieldType.BOOL and len(out) == 2:
@@ -438,7 +408,7 @@ def _controlled_pool(seed: int, table: str, f: FieldSpec) -> list:
 def _draw_value(rng: random.Random, f: FieldSpec, cfg: GeneratorConfig, pools: _ValuePools):
     roll = rng.random()
     if roll < cfg.boundary_value_probability:
-        return boundary_value(rng, f.type)
+        return boundary_value(rng, f.type, pools.boundaries)
     pool = pools.get(f)
     if pool and roll < cfg.boundary_value_probability + cfg.value_reuse_probability:
         return rng.choice(pool)
@@ -472,7 +442,7 @@ _KEY_PUNCT_BASES = ("k:1", "a.b", "x@y", "(p)", "c+d", "e,f", "g=h", "i;j", "$",
 _KEY_UNICODE_BASES = (chr(0x00E9), chr(0x1F600), chr(0x4E2D), chr(0x0130), "e" + chr(0x0301))
 
 
-def _custom_key(seed: int, type_name: str, local_id: int, cfg: GeneratorConfig) -> "str | None":
+def _custom_key(seed: int, type_name: str, local_id: int, cfg: GeneratorConfig, is_valid_key) -> "str | None":
     if cfg.custom_key_probability <= 0:
         return None
     style_rng = _stream(seed, "keystyle", type_name)
@@ -494,27 +464,21 @@ def _custom_key(seed: int, type_name: str, local_id: int, cfg: GeneratorConfig) 
     return key
 
 
-def _write_form(seed: int, data_model: str, cfg: GeneratorConfig) -> WriteForm:
+def _write_form(seed: int, data_model: str, cfg: GeneratorConfig, engine) -> WriteForm:
+    """How one data model's setup writes its steps, on the data model's own stream;
+    the forms' vocabulary is the engine's."""
     rng = _stream(seed, "writeform", data_model)
     if rng.random() >= cfg.write_form_probability:
         return WriteForm()
-    form = WriteForm(
-        insert_via=rng.choice(INSERT_FORMS),
-        update_form=rng.choice(UPDATE_FORMS[:4]),
-        edge_from=rng.choice(EDGE_FROM_FORMS),
-        transaction=rng.choice(TRANSACTION_FORMS),
-        cancelled_junk=rng.random() < 0.5,
-    )
-    # the later doors draw AFTER the original ones, so an older seed keeps its forms
-    if rng.random() < 0.25:
-        form = dataclasses.replace(form, update_form="arith")
-    return dataclasses.replace(form, edge_update_form=rng.choice(EDGE_UPDATE_FORMS), rebuild_indexes=rng.random() < 0.3)
+    return engine.physical_design.draw_write_form(rng)
 
 
 def generate_instance(seed: int, schema: Schema, cfg: GeneratorConfig) -> Instance:
-    pools = _ValuePools()
+    engine = schema.engine
+    pd = engine.physical_design
+    pools = _ValuePools(pd.BOUNDARY_VALUES)
     controlled = {
-        (t.name, f.name): _controlled_pool(seed, t.name, f)
+        (t.name, f.name): _controlled_pool(seed, t.name, f, pd.BOUNDARY_VALUES)
         for t in list(schema.node_types) + list(schema.edge_types)
         for f in t.fields
         if f.cardinality is not None
@@ -524,7 +488,7 @@ def generate_instance(seed: int, schema: Schema, cfg: GeneratorConfig) -> Instan
         # polymorphic GROUP BY / IN collides across classes on purpose
         for f in schema.base.fields:
             if f.cardinality is not None:
-                pool = _controlled_pool(seed, schema.base.name, f)
+                pool = _controlled_pool(seed, schema.base.name, f, pd.BOUNDARY_VALUES)
                 for nt in schema.node_types:
                     controlled[(nt.name, f.name)] = pool
 
@@ -537,7 +501,7 @@ def generate_instance(seed: int, schema: Schema, cfg: GeneratorConfig) -> Instan
         fields = schema.query_fields(nt.name)
         for i in range(count):
             values = _row_values(seed, nt.name, fields, i, cfg, pools, controlled)
-            node = NodeRow(type_name=nt.name, local_id=i, values=values, custom_key=_custom_key(seed, nt.name, i, cfg))
+            node = NodeRow(type_name=nt.name, local_id=i, values=values, custom_key=_custom_key(seed, nt.name, i, cfg, pd.is_valid_key))
             nodes.append(node)
             crng = _stream(seed, "churn", nt.name, i)
             if crng.random() < cfg.churn_update_probability:
@@ -582,9 +546,7 @@ def generate_instance(seed: int, schema: Schema, cfg: GeneratorConfig) -> Instan
         nodes=nodes,
         edges=edges,
         churn=churn,
-        doc_write_form=_write_form(seed, "doc", cfg),
-        graph_write_form=_write_form(seed, "graph", cfg),
-        rel_write_form=_write_form(seed, "rel", cfg),
+        write_forms={data_model: _write_form(seed, data_model, cfg, engine) for data_model in engine.data_models},
     )
     if cfg.demote_colliding_indexes:
         instance.schema = _demote_colliding_indexes(instance)
@@ -637,24 +599,10 @@ def write_order_states(instance: Instance):
     yield {n.record_id: n.values for n in instance.nodes}
 
 
-def _hashable(v, ci: bool = False):
-    if isinstance(v, bool):
-        return ("b", v)
-    if isinstance(v, float):
-        return ("f", v, str(v)[0] == "-")
-    if isinstance(v, list):
-        return tuple(_hashable(x) for x in v)
-    if isinstance(v, dict):
-        return tuple(sorted((k, _hashable(x)) for k, x in v.items()))
-    if ci and isinstance(v, str):
-        # a ci index stores the lower-cased key (probed: a UNIQUE index rejects `A`
-        # next to `a`)
-        return v.lower()
-    return v
-
-
 def index_key(schema: Schema, ix: IndexSpec, values: dict, edge: bool = False) -> tuple:
-    """The key an index holds for a record, as a hashable tuple (ci fields lowered)."""
+    """The key an index holds for a record, as a hashable tuple (the engine says how a
+    value is keyed: `physical_design.index_key_value`)."""
+    _hashable = schema.engine.physical_design.index_key_value
     out = []
     for f in ix.all_fields:
         try:
@@ -687,7 +635,6 @@ def _collides(instance: Instance, ix: IndexSpec) -> bool:
 def edge_value_states(instance: Instance):
     """Every edge-attribute state the setup passes through: the initial values of
     every edge ever written, then the final ones."""
-    from ganda.orientdb.mapping.common import initial_edge_values, initial_edges
 
     edges = initial_edges(instance)
     yield initial_edge_values(instance)
@@ -695,7 +642,6 @@ def edge_value_states(instance: Instance):
 
 
 def _edge_collides(instance: Instance, ix: IndexSpec) -> bool:
-    from ganda.orientdb.mapping.common import initial_edges
 
     ids = {e.record_id for e in initial_edges(instance) if e.type_name == ix.table}
     for state in edge_value_states(instance):
@@ -719,18 +665,20 @@ def _demote_colliding_indexes(instance: Instance) -> Schema:
     write state, in write order -- the mixed states between two updates are where a
     collision can hide (the ArangoDB port learned that on run6 seed 998235)."""
     schema = instance.schema
+    pd = schema.engine.physical_design
     fixed = []
     for ix in schema.indexes:
-        if ix.kind in ("UNIQUE", "UNIQUE_HASH_INDEX", "DICTIONARY"):
+        if pd.holds_one_record_per_key(ix):
             collides = _edge_collides(instance, ix) if ix.target == "edge" else _collides(instance, ix)
             if collides:
-                ix = dataclasses.replace(ix, kind={"UNIQUE": "NOTUNIQUE", "UNIQUE_HASH_INDEX": "NOTUNIQUE_HASH_INDEX", "DICTIONARY": "NOTUNIQUE"}[ix.kind])
+                ix = dataclasses.replace(ix, kind=pd.demoted_kind(ix.kind))
         fixed.append(ix)
     return dataclasses.replace(schema, indexes=tuple(fixed))
 
 
-def build(seed: int, cfg: GeneratorConfig) -> "tuple[Schema, Instance, TemplateRng]":
-    """The single entry point: (schema, instance, query rng) for a (seed, config)."""
-    schema = generate_schema(_stream(seed, "schema"), cfg, seed=seed)
+def build(seed: int, cfg: GeneratorConfig, engine) -> "tuple[Schema, Instance, QueryRng]":
+    """The single entry point: (schema, instance, query rng) for a (seed, config) on
+    one engine."""
+    schema = generate_schema(_stream(seed, "schema"), cfg, seed=seed, engine=engine)
     instance = generate_instance(seed, schema, cfg)
     return instance.schema, instance, QueryRng(seed)

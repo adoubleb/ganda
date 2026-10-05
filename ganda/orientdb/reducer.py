@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import dataclasses
 
-from ganda.orientdb.data_generator import GeneratorConfig, build
+from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.mapping import MAPPERS
 from ganda.orientdb.oracle import run_case
 from ganda.core.dedup import BugDeduplicator

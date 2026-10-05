@@ -18,7 +18,7 @@ from typing import NamedTuple
 
 import ganda.orientdb.coverage as coverage
 import ganda.orientdb.known_bugs as guards
-from ganda.orientdb.data_generator import GeneratorConfig, build
+from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.connection import OrientCrash, OrientError, OrientServer, cleanup_orphans, db_name
 from ganda.orientdb.mapping import MAPPERS
 from ganda.orientdb.oracle import is_empty_value, is_script, run_cases

@@ -320,12 +320,11 @@ class Instance:
     nodes: list
     edges: list
     churn: list = field(default_factory=list)
-    doc_write_form: WriteForm = PLAIN_WRITE_FORM
-    graph_write_form: WriteForm = PLAIN_WRITE_FORM
-    rel_write_form: WriteForm = PLAIN_WRITE_FORM
+    # data model -> how its setup writes (a missing data model writes plainly)
+    write_forms: dict = field(default_factory=dict)
 
     def write_form(self, data_model: str) -> WriteForm:
-        return {"doc": self.doc_write_form, "graph": self.graph_write_form, "rel": self.rel_write_form}[data_model]
+        return self.write_forms.get(data_model, PLAIN_WRITE_FORM)
 
     def nodes_of(self, type_name: str) -> list:
         if self.schema.is_base(type_name):

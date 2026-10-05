@@ -69,6 +69,9 @@ def canon(value, legacy: bool = False):
             if legacy:
                 key = _rename_string(RENAMED_KEYS.get(key, key))
             out[key] = canon(v, legacy)
+        if legacy and "doc_write_form" in out:
+            # ganda keeps one write form per data model in a dict
+            out["write_forms"] = {dm: out.pop(f"{dm}_write_form") for dm in ("doc", "graph", "rel")}
         return out
     if isinstance(value, (list, tuple)):
         return [canon(v, legacy) for v in value]
@@ -113,9 +116,9 @@ def _legacy_api(root: str):
 def _ganda_api():
     sys.path.insert(0, os.path.join(HERE, ".."))
     from ganda.orientdb import write_phase as writes
-    from ganda.orientdb.data_generator import GeneratorConfig, build
+    from ganda.orientdb.generate import GeneratorConfig, build
     from ganda.orientdb.mapping import MAPPERS
-    from ganda.orientdb.mapping.common import plan_to_dict
+    from ganda.core.setup_plan import plan_to_dict
     from ganda.core.generators.registry import all_cases, reference_for
     from ganda.core.generators.write import sample_write
     from ganda.core.ast.write import apply

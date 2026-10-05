@@ -3,7 +3,7 @@ door, the BFS distances and their guards."""
 import dataclasses
 import random
 
-from ganda.orientdb.data_generator import GeneratorConfig, build
+from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.known_bugs import _leaf_served, list_ops_known, o31_known, o32_predicate
 from ganda.core.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.oracle import is_script, unwrap_script
