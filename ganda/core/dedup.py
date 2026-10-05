@@ -20,13 +20,13 @@ class BugDeduplicator:
         cls = result.finding_class or "ok"
         pairs = tuple(result.failing_pairs)
         if cls == "reference_mismatch":
-            pairs = tuple(sorted({m.data_model for m in result.reference_mismatches}))
+            pairs = tuple(sorted({m.variant for m in result.reference_mismatches}))
         elif cls == "error_asymmetry":
             pairs = tuple(sorted(s for s in result.variants if result.errors.get(s)))
         elif cls == "internal_error":
             pairs = tuple(sorted(s for s, i in result.internal.items() if i))
         elif cls == "duplicate_id_rows":
-            pairs = tuple(sorted({d.data_model for d in result.duplicate_id_rows}))
+            pairs = tuple(sorted({d.variant for d in result.duplicate_id_rows}))
         return (result.case.generator_name, result.case.shape, pairs, cls)
 
     def admit(self, result) -> "tuple[bool, int]":

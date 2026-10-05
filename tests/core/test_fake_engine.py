@@ -109,3 +109,28 @@ def test_mutation_benchmark_catches_instance_mutants_and_needs_the_reference_for
     assert report["mutants"]["all_sides_drop_edge"]["caught"] > 0  # only the reference sees it
     blind = mutation.run_benchmark(engine, _args(mutation.add_arguments, engine, ["--trials", "4", "--no-reference", "--mutants", "all_sides_drop_edge"]))
     assert blind["mutants"]["all_sides_drop_edge"]["caught"] == 0
+
+
+def test_every_finding_class_has_a_deduplication_key():
+    engine = FakeProvider()
+    cfg = engine.config_class(**SMALL)
+    tampers = {
+        "reference_mismatch": (lambda rows: rows[1:], ("doc", "graph", "rel")),  # every data model alike
+        "duplicate_id_rows": (lambda rows: rows + rows[:1], ("graph",)),
+        "mismatch": (lambda rows: rows[1:], ("graph",)),
+    }
+    seen = set()
+    for seed in range(1, 8):
+        schema, instance, rng = build(seed, cfg, engine)
+        cases = all_cases(rng, schema, instance, cfg=cfg)
+        for tamper, data_models in tampers.values():
+            sessions = _sessions(engine, instance)
+            for dm in data_models:
+                sessions[dm].tamper = tamper
+            for case in cases:
+                r = run_case(case, sessions, instance)
+                if not r.ok:
+                    key = BugDeduplicator.key(r)
+                    assert key[0] == case.generator_name and key[3] == r.finding_class and key[2]
+                    seen.add(r.finding_class)
+    assert set(tampers) <= seen

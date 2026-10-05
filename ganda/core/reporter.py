@@ -180,9 +180,11 @@ def _repro_script(engine, seed: int, cfg, case, write_step: "int | None" = None)
 server of the engine and re-run the case (`ganda.core.replay`). Run it from the ganda
 project root, or with ganda installed."""
 import json
+import os
 import sys
 
-from ganda.core.replay import replay
+sys.path.insert(0, os.getcwd())  # the project root, when ganda is not installed
+from ganda.core.replay import replay  # noqa: E402
 
 sys.exit(replay({engine.name!r}, {seed}, json.loads({cfg_json!r}), json.loads({key!r})))
 '''

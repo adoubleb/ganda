@@ -77,16 +77,19 @@ empty list with `reference_mismatches` means every database agreed and only the
 reference disagreed, so check the provider's semantics before blaming the engine.
 `internal_error` is a raw exception from inside the engine and is a finding on its own.
 
-## Not yet verified live
+## Live verification (2026-10-05, OrientDB 3.2.56 in Docker)
 
-The port was verified offline: unit tests, the fake-engine end-to-end tests and
-byte-for-byte parity of everything generated. Docker was not available when it was
-built, so these have NOT run against a server and are the first thing to check:
+Run side by side with the same commands in `../OrientDB`; repeat after any change to
+the connection layer, the campaign, the oracle or the write phase:
 
-- `ganda orientdb probe` and a campaign (`run`), against the same command in
-  `../OrientDB`: per-generator case counts, shape census and findings should match.
-  The touched live paths are `OrientSession.execute` / `read_nodes` / `read_edges`,
-  `concrete_syntax/write.execute`, the campaign's crash and coverage handling.
-- `ganda orientdb mutate --trials 8 --seed 1` against the legacy mutation reports.
-- `ganda orientdb run --coverage variant --workers 1`.
-- `ganda surrealdb doctor`, `ganda arangodb doctor` (new connection code).
+- `ganda orientdb probe`: every fact holds.
+- `run --iterations 12 --seed 1000 --workers 2` with every axis on: all 28 statistics
+  fields equal the legacy run's (2834 cases, the same known-bug counts, the same one
+  finding on seed 1010), and the bundle's `repro.py` replays it.
+- `run --iterations 2 --seed 1 --no-known-bugs`: the same 49 finding keys and 47 bundles.
+- `mutate --trials 3 --seed 1 --inheritance-probability 0.5` over 10 mutants (instance,
+  render and index ones): per-mutant results identical to the legacy runner's.
+- `run --coverage variant --workers 1` and `scripts/coverage_report.py report`.
+- `ganda surrealdb doctor`, `ganda arangodb doctor`, `ganda orientdb doctor`.
+
+Not run: the full 21-mutant benchmark at 8 trials, and long campaigns.
