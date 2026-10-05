@@ -22,7 +22,7 @@ from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.connection import OrientCrash, OrientError, OrientServer, cleanup_orphans, db_name
 from ganda.orientdb.mapping import MAPPERS
 from ganda.orientdb.mutants import MUTANTS, MUTANTS_BY_NAME
-from ganda.orientdb.oracle import run_case
+from ganda.core.oracle import run_case
 from ganda.core.generators.registry import all_cases
 
 
@@ -52,7 +52,7 @@ def _write_results(sessions, instance, rng, cfg, args) -> list:
     which says nothing about the write supply."""
     if not cfg.write_cases:
         return []
-    from ganda.orientdb.write_phase import run_write_phase
+    from ganda.core.generators.write_phase import run_write_phase
 
     return run_write_phase(sessions, instance, rng.for_generator("ir_write"), cfg.write_cases, verify=False, reference=not args.no_reference).results
 

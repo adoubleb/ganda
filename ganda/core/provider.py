@@ -28,8 +28,24 @@ class Semantics:
     predict an answer from the `Instance`."""
 
     def key(self, v: Any):
-        """A total-order key reproducing the engine's comparison inside one type."""
-        raise NotImplementedError
+        """A total-order key reproducing the engine's comparison inside one type, and a
+        stable rank across types. The default is structural: null < bool < number <
+        string (code points) < list < map, `-0.0` below `0.0`."""
+        if v is None:
+            return (0,)
+        if isinstance(v, bool):
+            return (1, int(v))
+        if isinstance(v, (int, float)):
+            if v == 0:
+                return (2, 0, -1 if str(v).startswith("-") else 0)
+            return (2, v, 0)
+        if isinstance(v, str):
+            return (3, v)
+        if isinstance(v, list):
+            return (4, tuple(self.key(x) for x in v))
+        if isinstance(v, dict):
+            return (5, tuple(sorted((k, self.key(x)) for k, x in v.items())))
+        return (6, repr(v))
 
     def eq(self, a: Any, b: Any) -> bool:
         raise NotImplementedError
@@ -76,3 +92,7 @@ class Semantics:
         """Whether the reference reproduces an id-tiebroken ORDER BY on a column of
         `ftype` (a collation the reference does not model makes it inexact)."""
         raise NotImplementedError
+
+
+# the value order of a case no provider wrote (hand-built cases)
+DEFAULT_SEMANTICS = Semantics()

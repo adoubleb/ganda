@@ -8,7 +8,7 @@ import dataclasses
 
 from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.mapping import MAPPERS
-from ganda.orientdb.oracle import run_case
+from ganda.core.oracle import run_case
 from ganda.core.dedup import BugDeduplicator
 from ganda.core.generators.registry import all_cases
 

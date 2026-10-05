@@ -32,10 +32,9 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
-from ganda.orientdb.connection import strip_meta, OrientCrash, OrientError, OrientSession
 from ganda.core.model import Instance, hashable_value
-from ganda.core.case import DATA_MODELS, Comparison, QueryCase, data_model_of
-from ganda.orientdb.semantics import orient_key
+from ganda.core.case import Comparison, QueryCase, data_model_of
+from ganda.core.provider import DEFAULT_SEMANTICS, EngineCrash, EngineError
 
 _BARE = (Comparison.SINGLE_VALUE, Comparison.NESTED_VALUE)
 
@@ -51,14 +50,20 @@ def _flatten(value: Any) -> list:
     return [value]
 
 
-def normalize_multiset(value: Any) -> list:
-    return sorted(_flatten(value), key=orient_key)
+def _key_of(case) -> Any:
+    """The value order a case's answers are normalized under: its engine's."""
+    engine = getattr(case, "engine", None)
+    return (engine.semantics if engine is not None else DEFAULT_SEMANTICS).key
 
 
-def normalize_set(value: Any) -> list:
+def normalize_multiset(value: Any, key=DEFAULT_SEMANTICS.key) -> list:
+    return sorted(_flatten(value), key=key)
+
+
+def normalize_set(value: Any, key=DEFAULT_SEMANTICS.key) -> list:
     seen: dict = {}
     for v in _flatten(value):
-        seen.setdefault(orient_key(v), v)
+        seen.setdefault(key(v), v)
     return [seen[k] for k in sorted(seen)]
 
 
@@ -86,16 +91,16 @@ def normalize_deep(value: Any) -> Any:
 
 def normalize_bare(case, value: Any) -> Any:
     """A bare answer's canonical form: the cards compare NESTED_VALUE deep."""
-    if case.comparison is Comparison.NESTED_VALUE and case.params.get("card"):
+    if case.comparison is Comparison.NESTED_VALUE and case.params.get("unordered_values"):
         return normalize_deep(value)
-    return normalize(case.comparison, value)
+    return normalize(case.comparison, value, _key_of(case))
 
 
-def normalize(comparison: Comparison, value: Any) -> Any:
+def normalize(comparison: Comparison, value: Any, key=DEFAULT_SEMANTICS.key) -> Any:
     if comparison is Comparison.MULTISET_BY_ID:
-        return normalize_multiset(value)
+        return normalize_multiset(value, key)
     if comparison is Comparison.SET_BY_ID:
-        return normalize_set(value)
+        return normalize_set(value, key)
     if comparison is Comparison.NESTED_VALUE:
         return normalize_nested(value)
     return value
@@ -235,22 +240,9 @@ class CaseResult:
         return any(not is_empty_value(v) for v in self.compared_values())
 
 
-def is_script(text: str) -> bool:
-    return text.lstrip().upper().startswith("BEGIN;")
-
-
-def unwrap_script(result: list) -> list:
-    """A script's `RETURN $r` comes back as `[{"value": [rows...]}]` (probed); the
-    rows are the answer."""
-    if len(result) == 1 and isinstance(result[0], dict) and set(result[0]) == {"value"}:
-        v = result[0]["value"]
-        return [strip_meta(r) if isinstance(r, dict) else r for r in v] if isinstance(v, list) else [v]
-    return result
-
-
 def run_case(case: QueryCase, sessions: dict, instance: "Instance | None" = None, explain: bool = False, keep_known_bugs: bool = False, after_variant=None) -> CaseResult:
     """`after_variant(case, data_model)` runs once a data model (and its plan) has been asked --
-    `ganda.orientdb.coverage` closes a coverage window there."""
+    a coverage collector closes a window there."""
     rows: dict = {}
     errors: dict = {}
     internal: dict = {}
@@ -262,22 +254,23 @@ def run_case(case: QueryCase, sessions: dict, instance: "Instance | None" = None
         if variant in case.known_bugs and not keep_known_bugs:
             suppressed[variant] = case.known_bugs[variant]
             continue
-        session: OrientSession = sessions[data_model_of(variant)]
+        session = sessions[data_model_of(variant)]
         text = case.query_for(variant)
-        script = is_script(text)
         try:
-            rows[variant] = unwrap_script(session.script(text, case.bind_vars)) if script else session.sql(text, case.bind_vars)
+            rows[variant] = session.execute(text, case.bind_vars, case.options_for(variant))
             errors[variant] = ""
             internal[variant] = False
-        except OrientError as e:
+        except EngineError as e:
             rows[variant] = []
             errors[variant] = str(e)
             internal[variant] = e.internal
-        if explain and not script:
+        if explain:
             try:
-                plans[variant] = session.explain(text, case.bind_vars)
-            except (OrientError, OrientCrash):
-                plans[variant] = ["<explain failed>"]
+                plan = session.explain(text, case.bind_vars)
+            except (EngineError, EngineCrash):
+                plan = ["<explain failed>"]
+            if plan is not None:
+                plans[variant] = plan
         if after_variant is not None:
             after_variant(case, variant)
     result = build_result(case, rows, errors, instance)
@@ -312,16 +305,17 @@ def _reference_check(case: QueryCase, instance: "Instance | None", data_model_va
         return []
     out = []
     if case.comparison in _BARE:
-        ref_n = normalize(case.comparison, ref)
+        ref_n = normalize_bare(case, ref)
         for variant, value in data_model_values.items():
-            if normalize(case.comparison, value) != ref_n:
+            if normalize_bare(case, value) != ref_n:
                 out.append(ReferenceMismatch(variant=variant, record_id="<single>", got=value, expected=ref))
         return out
+    key = _key_of(case)
     ref_map = {hashable_value(k): v for k, v in ref.items()}
     for variant, data_model_map in data_model_values.items():
         for rid in sorted(set(data_model_map) | set(ref_map), key=repr):
             got, exp = data_model_map.get(rid), ref_map.get(rid)
-            if normalize(case.comparison, got) != normalize(case.comparison, exp):
+            if normalize(case.comparison, got, key) != normalize(case.comparison, exp, key):
                 out.append(ReferenceMismatch(variant=variant, record_id=rid, got=got, expected=exp))
     return out
 
@@ -344,6 +338,7 @@ def build_result(case: QueryCase, rows: dict, errors: dict, instance: "Instance 
         ref_mismatches = _reference_check(case, instance, {s: rows[s] for s in base_data_models})
         return CaseResult(case=case, ok=not mismatches and not ref_mismatches, rows=rows, errors=errors, mismatches=mismatches, reference_mismatches=ref_mismatches)
 
+    key = _key_of(case)
     maps: dict = {}
     dups: list = []
     for s in variants:
@@ -355,7 +350,7 @@ def build_result(case: QueryCase, rows: dict, errors: dict, instance: "Instance 
     for left, right in pairs:
         for rid in sorted(set(maps[left]) | set(maps[right]), key=repr):
             lv, rv = maps[left].get(rid), maps[right].get(rid)
-            ln, rn = normalize(case.comparison, lv), normalize(case.comparison, rv)
+            ln, rn = normalize(case.comparison, lv, key), normalize(case.comparison, rv, key)
             if ln != rn:
                 mismatches.append(Mismatch(rid, left, right, lv, rv, ln, rn))
     ref_mismatches = _reference_check(case, instance, {s: maps[s] for s in base_data_models})

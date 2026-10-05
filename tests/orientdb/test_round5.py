@@ -6,7 +6,7 @@ import random
 from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.known_bugs import _leaf_served, list_ops_known, o31_known, o32_predicate
 from ganda.core.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
-from ganda.orientdb.oracle import is_script, unwrap_script
+from ganda.orientdb.connection import is_script, unwrap_script
 from ganda.orientdb.queries import predicates
 from ganda.orientdb.queries.select_support import bfs_distances
 from ganda.orientdb.queries.select_support import tx_rows as _tx_rows

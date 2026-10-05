@@ -235,7 +235,7 @@ class GeneratorConfig:
     # the shortest-path questions (`ir_path`, `queries/path_ast.py`): its own
     # sub-stream after the select supply, 0 reproduces a run from before it
     path_cases: int = 3
-    # the write phase (`ganda.orientdb.write_phase`, `ir_write`): this many predicate-targeted
+    # the write phase (`ganda.core.generators.write_phase`, `ir_write`): this many predicate-targeted
     # writes after every read case, each checked (answers, state, read-back) and
     # applied to the Instance; its own sub-stream, 0 reproduces a run from before it
     write_cases: int = 8

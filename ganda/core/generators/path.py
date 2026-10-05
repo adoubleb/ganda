@@ -48,7 +48,7 @@ def build_case(q: PathQuery, schema: Schema, instance: Instance) -> QueryCase:
     }
     if not all(s in queries for s in engine.data_models):
         params["partial"] = True
-    return QueryCase("ir_path", q.edge_type or "", Comparison.SINGLE_VALUE, queries, bind, params, shape=params["shape"], known_bugs=known_bugs, data_models=engine.data_models)
+    return QueryCase("ir_path", q.edge_type or "", Comparison.SINGLE_VALUE, queries, bind, params, shape=params["shape"], known_bugs=known_bugs, engine=engine)
 
 
 def generate_path_cases(rng: random.Random, schema: Schema, instance: Instance, per_instance: int = CASES_PER_INSTANCE) -> list:

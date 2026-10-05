@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 from dataclasses import dataclass, field
 
 from ganda.core.model import Instance, Schema
@@ -317,3 +318,35 @@ def build_rewrites(q: WriteQuery, rng: random.Random, schema: Schema, instance: 
             stored = [n.values.get(p.field) for n in instance.nodes_of(q.table) if p.field in n.values]
             rewrites.ar = predicates.arithmetic(p, rng, "ar", ftype, stored)
     return rewrites
+
+
+def execute(session, st) -> list:
+    """Run one data model's statements; the compared statement's answer."""
+    from ganda.orientdb.connection import unwrap_script
+    from ganda.orientdb.mapping.common import resolve_refs
+
+    if st.door == "tx":
+        if not st.prelude and not st.main:
+            return []
+        rows = session.script(st.script(), resolve_refs(st.params, session.rids))
+        return unwrap_script(rows) if st.main else []
+    for text, params in st.prelude:
+        session.sql(text, resolve_refs(params, session.rids), timeout_ms=0)
+    if st.main:
+        return session.sql(st.main[0], resolve_refs(st.main[1], session.rids), timeout_ms=0)
+    return []
+
+
+def shared_binds(st: Statements) -> dict:
+    """The bind variables a bundle records for the case: the doc data model's
+    per-source link lists stay out of the shared map."""
+    return {k: v for k, v in st.params.items() if not re.fullmatch(r"w[li]\d+", k)}
+
+
+def rewrite_params(rewrites: WriteRewrites) -> dict:
+    params: dict = {}
+    for name in ("rw", "rev", "ar"):
+        rewritten = getattr(rewrites, name)
+        if rewritten is not None:
+            params[name] = rewritten.to_dict()
+    return params

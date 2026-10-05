@@ -182,9 +182,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.connection import OrientInstance, db_name
 from ganda.orientdb.mapping import BUILDERS
-from ganda.orientdb.oracle import run_case
+from ganda.core.oracle import run_case
 from ganda.core.generators.registry import all_cases
-from ganda.orientdb.state_check import verify_state
+from ganda.core.state_check import verify_state
 
 SEED = {seed}
 CFG = GeneratorConfig(**json.loads({cfg_json!r}))
@@ -201,7 +201,7 @@ with OrientInstance() as server:
         sessions[side] = s
     if KEY and KEY.get("write_step") is not None:
         # the write phase up to the step: every write, its answers and state check
-        from ganda.orientdb.write_phase import run_write_phase
+        from ganda.core.generators.write_phase import run_write_phase
 
         wp = run_write_phase(sessions, instance, rng.for_template("ir_write"), CFG.write_cases, keep_known=KEY["keep_known"], stop_after=KEY["write_step"])
         for r in wp.results:

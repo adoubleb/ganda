@@ -202,7 +202,7 @@ def build_case(q: TraversalQuery, rng: random.Random, schema: Schema, instance: 
         bind_vars=q.bind_vars,
         params=params,
         shape=shape_signature(q),
-        data_models=schema.engine.data_models,
+        engine=schema.engine,
     )
     return schema.engine.known_bugs.mark_known_bugs(case, q, schema, instance)
 

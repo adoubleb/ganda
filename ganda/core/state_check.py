@@ -13,7 +13,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ganda.core.model import Instance
-from ganda.orientdb.semantics import eq
 
 
 @dataclass
@@ -26,46 +25,16 @@ class StateDiff:
         return not self.problems
 
 
-def _node_rows(session, table: str) -> dict:
-    rows = session.sql(f"SELECT FROM {table}", timeout_ms=0)
-    return {r["id"]: r for r in rows if "id" in r}
-
-
-def _edge_rows(session, data_model: str, instance: Instance, et) -> list:
-    """[(eid, from id, to id, {attrs})] as the data model stores them."""
-    out = []
-    if data_model == "graph":
-        rows = session.sql(f"SELECT eid, out.id AS s, in.id AS t, * FROM {et.name}", timeout_ms=0)
-        for r in rows:
-            out.append((r.get("eid"), r.get("s"), r.get("t"), {f.name: r.get(f.name) for f in et.fields if f.name in r and r.get(f.name) is not None}))
-    elif data_model == "rel":
-        rows = session.sql(f"SELECT FROM {et.name}", timeout_ms=0)
-        for r in rows:
-            out.append((r.get("eid"), r.get("src_id"), r.get("dst_id"), {f.name: r.get(f.name) for f in et.fields if f.name in r and r.get(f.name) is not None}))
-    else:
-        rows = session.sql(f"SELECT id, {et.name} AS links FROM {et.from_type}", timeout_ms=0)
-        for r in rows:
-            for link in r.get("links") or []:
-                target = link.get("target")
-                tid = None
-                if isinstance(target, str) and target.startswith("#"):
-                    got = session.sql("SELECT id FROM " + et.to_type + " WHERE @rid = :r", {"r": target}, timeout_ms=0)
-                    tid = got[0]["id"] if got else None
-                elif isinstance(target, dict):
-                    tid = target.get("id")
-                out.append((link.get("eid"), r["id"], tid, {f.name: link.get(f.name) for f in et.fields if f.name in link and link.get(f.name) is not None}))
-    return out
-
-
 def verify_state(session, data_model: str, instance: Instance, tables: "set | None" = None, edge_types: "set | None" = None) -> StateDiff:
     """The whole state, or with `tables` / `edge_types` only those node classes and
     relationship types (the write phase's check after one write)."""
     diff = StateDiff(data_model)
     schema = instance.schema
+    eq = schema.engine.semantics.eq
     for nt in schema.node_types:
         if tables is not None and nt.name not in tables:
             continue
-        rows = _node_rows(session, nt.name)
+        rows = session.read_nodes(nt.name)
         expected = {n.record_id: n for n in instance.nodes_of(nt.name)}
         for rid in sorted(set(rows) | set(expected)):
             if rid not in rows:
@@ -84,7 +53,7 @@ def verify_state(session, data_model: str, instance: Instance, tables: "set | No
     for et in schema.edge_types:
         if edge_types is not None and et.name not in edge_types:
             continue
-        stored = _edge_rows(session, data_model, instance, et)
+        stored = session.read_edges(data_model, instance, et)
         want = {e.record_id: e for e in instance.edges_of(et.name)}
         got = {}
         for eid, s, t, attrs in stored:

@@ -1,14 +1,14 @@
 from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, Instance, NodeRow, NodeTypeSpec, Schema
-from ganda.orientdb.oracle import build_result, fold_rows, normalize_multiset, normalize_set
+from ganda.core.oracle import build_result, fold_rows, normalize_multiset, normalize_set
 from ganda.core.dedup import BugDeduplicator
 from ganda.core.case import Comparison, QueryCase
 from ganda.orientdb.semantics import agg, eq, orient_key, predicate_hit
 
 
-from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
+from ganda.orientdb import PROVIDER, Schema  # noqa: E402,F811 -- bound to the OrientDB provider
 
 def _case(comparison=Comparison.MULTISET_BY_ID, template="ir_traversal", params=None):
-    return QueryCase(template, "e1", comparison, {"doc": "d", "graph": "g", "rel": "r", "graph:match": "m"}, params=params or {"reference": False}, shape="s")
+    return QueryCase(template, "e1", comparison, {"doc": "d", "graph": "g", "rel": "r", "graph:match": "m"}, params=params or {"reference": False}, shape="s", engine=PROVIDER)
 
 
 def test_folding_and_flattening():
@@ -20,7 +20,7 @@ def test_folding_and_flattening():
 
 
 def test_normalization_orders_like_orientdb():
-    assert normalize_multiset(["￿", "\U0001F600", "a"]) == ["a", "\U0001F600", "￿"]
+    assert normalize_multiset(["￿", "\U0001F600", "a"], orient_key) == ["a", "\U0001F600", "￿"]
     assert normalize_set([1, 1, 2]) == [1, 2]
     assert normalize_multiset([0.0, -0.0]) == [-0.0, 0.0] and str(normalize_multiset([0.0, -0.0])[0]) == "-0.0"
 

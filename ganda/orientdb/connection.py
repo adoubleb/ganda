@@ -40,18 +40,14 @@ from typing import Any
 import requests
 
 from ganda.orientdb.mapping.common import Batch, Script, Sql, resolve_refs
+from ganda.core.provider import EngineCrash, EngineError
 
 
-class OrientError(RuntimeError):
+class OrientError(EngineError):
     """The server rejected a request."""
 
-    def __init__(self, message: str, internal: bool = False, status: int = 0):
-        super().__init__(message)
-        self.internal = internal
-        self.status = status
 
-
-class OrientCrash(RuntimeError):
+class OrientCrash(EngineCrash):
     """The server could not be reached or replied with garbage."""
 
 
@@ -89,6 +85,19 @@ def strip_meta(row: Any) -> Any:
     if isinstance(row, list):
         return [strip_meta(v) for v in row]
     return row
+
+
+def is_script(text: str) -> bool:
+    return text.lstrip().upper().startswith("BEGIN;")
+
+
+def unwrap_script(result: list) -> list:
+    """A script's `RETURN $r` comes back as `[{"value": [rows...]}]` (probed); the
+    rows are the answer."""
+    if len(result) == 1 and isinstance(result[0], dict) and set(result[0]) == {"value"}:
+        v = result[0]["value"]
+        return [strip_meta(r) if isinstance(r, dict) else r for r in v] if isinstance(v, list) else [v]
+    return result
 
 
 class OrientSession:
@@ -169,9 +178,19 @@ class OrientSession:
             ops.append(op)
         return self._request("POST", f"/batch/{self.db}", {"transaction": transaction, "operations": ops})
 
-    def explain(self, command: str, params: "dict | None" = None) -> list:
+    def execute(self, text: str, params: "dict | None" = None, options: "dict | None" = None) -> list:
+        """One query text of a case: a script (`BEGIN; ...`) through the script door,
+        its `RETURN` unwrapped; anything else as one SQL statement."""
+        if is_script(text):
+            return unwrap_script(self.script(text, params))
+        return self.sql(text, params)
+
+    def explain(self, command: str, params: "dict | None" = None) -> "list | None":
         """The execution plan's step types -- a plan fingerprint (`FetchFromIndexStep`,
-        `FetchFromClassExecutionStep`, `FilterStep`, ...), index names kept."""
+        `FetchFromClassExecutionStep`, `FilterStep`, ...), index names kept. None for a
+        script (EXPLAIN takes one statement)."""
+        if is_script(command):
+            return None
         body: dict = {"command": f"EXPLAIN {command}"}
         if params:
             body["parameters"] = params
@@ -215,6 +234,38 @@ class OrientSession:
                 self.rids[r["id"]] = r["@rid"]
             # an id the same script inserted AND deleted (a churned-away node) is
             # legitimately absent; a later `Ref` to it raises with a clear message
+
+    # --- reading the stored state back (`ganda.core.state_check`) ----------------------
+
+    def read_nodes(self, table: str) -> dict:
+        rows = self.sql(f"SELECT FROM {table}", timeout_ms=0)
+        return {r["id"]: r for r in rows if "id" in r}
+
+
+    def read_edges(self, data_model: str, instance, et) -> list:
+        """[(eid, from id, to id, {attrs})] as the data model stores them."""
+        out = []
+        if data_model == "graph":
+            rows = self.sql(f"SELECT eid, out.id AS s, in.id AS t, * FROM {et.name}", timeout_ms=0)
+            for r in rows:
+                out.append((r.get("eid"), r.get("s"), r.get("t"), {f.name: r.get(f.name) for f in et.fields if f.name in r and r.get(f.name) is not None}))
+        elif data_model == "rel":
+            rows = self.sql(f"SELECT FROM {et.name}", timeout_ms=0)
+            for r in rows:
+                out.append((r.get("eid"), r.get("src_id"), r.get("dst_id"), {f.name: r.get(f.name) for f in et.fields if f.name in r and r.get(f.name) is not None}))
+        else:
+            rows = self.sql(f"SELECT id, {et.name} AS links FROM {et.from_type}", timeout_ms=0)
+            for r in rows:
+                for link in r.get("links") or []:
+                    target = link.get("target")
+                    tid = None
+                    if isinstance(target, str) and target.startswith("#"):
+                        got = self.sql("SELECT id FROM " + et.to_type + " WHERE @rid = :r", {"r": target}, timeout_ms=0)
+                        tid = got[0]["id"] if got else None
+                    elif isinstance(target, dict):
+                        tid = target.get("id")
+                    out.append((link.get("eid"), r["id"], tid, {f.name: link.get(f.name) for f in et.fields if f.name in link and link.get(f.name) is not None}))
+        return out
 
     def classes(self) -> list:
         rows = self.sql_raw("SELECT name FROM (SELECT expand(classes) FROM metadata:schema) WHERE name NOT LIKE 'O%' AND name NOT IN ['V', 'E']")

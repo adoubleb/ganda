@@ -321,7 +321,7 @@ def build_case(q: SelectQuery, rng: random.Random, schema: Schema, instance: Ins
     if set(syn.base_data_models(q)) != set(data_models):
         params["partial"] = True
     params.update(syn.rewrite_params(rewrites))
-    return QueryCase("ir_select", q.table if q.edge else "", q.comparison, queries, bind, params, shape=params["shape"], known_bugs=known_bugs, data_models=data_models)
+    return QueryCase("ir_select", q.table if q.edge else "", q.comparison, queries, bind, params, shape=params["shape"], known_bugs=known_bugs, engine=engine)
 
 
 def strata(schema: Schema, instance: Instance) -> list:

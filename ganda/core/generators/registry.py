@@ -52,7 +52,7 @@ def all_cases(rng, schema: Schema, instance: Instance, traversal_cases: int = CA
     return cases
 
 
-# `ir_write` is not a read query generator: `ganda.orientdb.write_phase` runs it after every read case
+# `ir_write` is not a read query generator: `ganda.core.generators.write_phase` runs it after every read case
 GENERATOR_NAMES = ["ir_traversal", "ir_select", "ir_path", "ir_write", "llm_card"]
 
 

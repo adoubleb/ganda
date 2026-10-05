@@ -14,6 +14,7 @@ parameters, literals) is the provider session's business.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 from enum import Enum
 
 
@@ -53,8 +54,13 @@ class QueryCase:
     known_bugs: dict = field(default_factory=dict)
     # variant -> engine options the session passes through with the text (a plan hint)
     variant_options: dict = field(default_factory=dict)
-    # the engine's data models, in comparison order
-    data_models: tuple = DATA_MODELS
+    # the provider the texts are written for (None: the standard three data models and
+    # the core's default value order)
+    engine: Any = field(default=None, compare=False, repr=False)
+
+    @property
+    def data_models(self) -> tuple:
+        return self.engine.data_models if self.engine is not None else DATA_MODELS
 
     def __post_init__(self):
         for variant in self.queries:

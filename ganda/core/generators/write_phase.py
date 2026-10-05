@@ -23,17 +23,16 @@ from __future__ import annotations
 
 import dataclasses
 import random
-import re
 from dataclasses import dataclass, field
 
-from ganda.orientdb.connection import OrientCrash, OrientError
 from ganda.core.model import Instance
-from ganda.orientdb.oracle import build_result, run_case, unwrap_script
-from ganda.core.case import DATA_MODELS, QueryCase
+from ganda.core.oracle import build_result, run_case
+from ganda.core.provider import EngineCrash, EngineError
+from ganda.core.case import QueryCase
 from ganda.core.ast.write import apply, comparison, coverage_signature, shape_signature, touched
+from ganda.core.generators.select import build_case, sample_select
 from ganda.core.generators.write import sample_write
-from ganda.orientdb.queries.write_syntax import render
-from ganda.orientdb.state_check import StateDiff, verify_state
+from ganda.core.state_check import StateDiff, verify_state
 
 READBACKS = 2
 
@@ -48,24 +47,7 @@ class WritePhase:
     steps: int = 0
 
 
-def _execute(session, st) -> list:
-    from ganda.orientdb.mapping.common import resolve_refs
-
-    if st.door == "tx":
-        if not st.prelude and not st.main:
-            return []
-        rows = session.script(st.script(), resolve_refs(st.params, session.rids))
-        return unwrap_script(rows) if st.main else []
-    for text, params in st.prelude:
-        session.sql(text, resolve_refs(params, session.rids), timeout_ms=0)
-    if st.main:
-        return session.sql(st.main[0], resolve_refs(st.main[1], session.rids), timeout_ms=0)
-    return []
-
-
 def _readbacks(q, rng: random.Random, instance: Instance, step: int) -> list:
-    from ganda.core.generators.select import build_case, sample_select
-
     out = []
     for _ in range(READBACKS):
         # an edge write is read back through the select IR's edge-type target (the
@@ -82,12 +64,13 @@ def _readbacks(q, rng: random.Random, instance: Instance, step: int) -> list:
 def build_write_case(q, rewrites, syntaxes: dict, step: int, before: Instance, after: Instance, keep_known_bugs: bool) -> "tuple[QueryCase, dict]":
     """(the compared case, data model -> Statements). The doc data model of an edge write answers
     no relationship count: the case is `partial` there and only its state is checked."""
-    statements = {data_model: render(q, syntaxes[data_model][0], rewrites, data_model, before, after) for data_model in DATA_MODELS}
+    engine = before.schema.engine
+    syn = engine.write_syntax
+    statements = {data_model: syn.render(q, syntaxes[data_model][0], rewrites, data_model, before, after) for data_model in engine.data_models}
     queries = {data_model: st.display() for data_model, st in statements.items() if st.main is not None}
     bind: dict = {}
     for st in statements.values():
-        # the doc data model's per-source lists stay out of the shared bind map
-        bind.update({k: v for k, v in st.params.items() if not re.fullmatch(r"w[li]\d+", k)})
+        bind.update(syn.shared_binds(st))
     params = {
         "shape": shape_signature(q, before.schema),
         "coverage": coverage_signature(q),
@@ -98,14 +81,11 @@ def build_write_case(q, rewrites, syntaxes: dict, step: int, before: Instance, a
         "statements": {data_model: st.display() for data_model, st in statements.items()},
         "reference": q.where is None or q.where.reference,
     }
-    if set(queries) != set(DATA_MODELS):
+    if set(queries) != set(engine.data_models):
         params["partial"] = True
-    for name in ("rw", "rev", "ar"):
-        rewritten = getattr(rewrites, name)
-        if rewritten is not None:
-            params[name] = rewritten.to_dict()
+    params.update(syn.rewrite_params(rewrites))
     known_bugs = {data_model: fid for data_model, (_sp, fid) in syntaxes.items() if fid and data_model in queries}
-    case = QueryCase("ir_write", q.edge_type, comparison(q), queries, bind, params, shape=params["shape"], known_bugs=known_bugs)
+    case = QueryCase("ir_write", q.edge_type, comparison(q), queries, bind, params, shape=params["shape"], known_bugs=known_bugs, engine=engine)
     return case, statements
 
 
@@ -115,6 +95,8 @@ def run_write_phase(sessions: dict, instance: Instance, rng: random.Random, step
     phase = WritePhase(instance=instance)
     inst = instance
     schema = instance.schema
+    engine = schema.engine
+    data_models = engine.data_models
     for step in range(steps):
         if stop_after is not None and step > stop_after:
             break
@@ -128,12 +110,12 @@ def run_write_phase(sessions: dict, instance: Instance, rng: random.Random, step
         errors: dict = {}
         internal: dict = {}
         state_errors: dict = {}
-        for data_model in DATA_MODELS:
+        for data_model in data_models:
             try:
-                answer = _execute(sessions[data_model], statements[data_model])
+                answer = engine.write_syntax.execute(sessions[data_model], statements[data_model])
                 if data_model in case.queries:
                     rows[data_model], errors[data_model], internal[data_model] = answer, "", False
-            except (OrientError, OrientCrash) as e:
+            except (EngineError, EngineCrash) as e:
                 if data_model in case.queries:
                     rows[data_model], errors[data_model], internal[data_model] = [], str(e), getattr(e, "internal", False)
                 else:
@@ -153,7 +135,7 @@ def run_write_phase(sessions: dict, instance: Instance, rng: random.Random, step
         phase.instance = inst
         if verify:
             tables, edge_types = touched(q, inst)
-            diffs = {data_model: verify_state(sessions[data_model], data_model, inst, tables=tables, edge_types=edge_types) for data_model in DATA_MODELS}
+            diffs = {data_model: verify_state(sessions[data_model], data_model, inst, tables=tables, edge_types=edge_types) for data_model in data_models}
             if any(not d.ok for d in diffs.values()):
                 phase.diffs = diffs
                 phase.failed_step = step

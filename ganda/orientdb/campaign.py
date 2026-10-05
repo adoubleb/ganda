@@ -21,7 +21,8 @@ import ganda.orientdb.known_bugs as guards
 from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.connection import OrientCrash, OrientError, OrientServer, cleanup_orphans, db_name
 from ganda.orientdb.mapping import MAPPERS
-from ganda.orientdb.oracle import is_empty_value, is_script, run_cases
+from ganda.core.oracle import is_empty_value, run_cases
+from ganda.orientdb.connection import is_script
 from ganda.core.dedup import BugDeduplicator
 from ganda.core.ast.traversal import SHAPE_DENOMINATOR
 from ganda.core.ast.path import COVERAGE_DENOMINATOR as PATH_COVERAGE_DENOMINATOR
@@ -29,7 +30,7 @@ from ganda.core.ast.select import COVERAGE_DENOMINATOR as SELECT_COVERAGE_DENOMI
 from ganda.core.ast.write import COVERAGE_DENOMINATOR as WRITE_COVERAGE_DENOMINATOR
 from ganda.core.generators.registry import all_cases
 from ganda.orientdb.reporter import report_bug, report_crash, report_setup_problem
-from ganda.orientdb.state_check import verify_state
+from ganda.core.state_check import verify_state
 
 
 class CampaignStats(NamedTuple):
@@ -135,8 +136,8 @@ def run_instance(server: OrientServer, seed: int, cfg: GeneratorConfig, args, sh
             print(f"[seed {seed}] state-leak after the cases: {leaked} -> {d}", flush=True)
     if cfg.write_cases:
         # the write phase: predicate-targeted writes after every read, each checked
-        # and applied to the Instance (`ganda.orientdb.write_phase`)
-        from ganda.orientdb.write_phase import run_write_phase
+        # and applied to the Instance (`ganda.core.generators.write_phase`)
+        from ganda.core.generators.write_phase import run_write_phase
 
         wp = run_write_phase(sessions, instance, rng.for_generator("ir_write"), cfg.write_cases, verify=args.verify_state, keep_known_bugs=args.no_known_bugs)
         results += wp.results
