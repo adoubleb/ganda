@@ -1,6 +1,6 @@
 """The campaign driver: for each seed, generate an instance, materialize it three ways
 into fresh databases on one OrientDB server, verify the state, run every case, and
-write a bundle for every NEW finding key (`quarantine.Quarantine`). Crashes are
+write a bundle for every NEW finding key (`dedup.BugDeduplicator`). Crashes are
 autopsied and the server is restarted. `--workers N` runs N seed shards as threads
 against the same server (the work is HTTP-bound).
 """
@@ -17,25 +17,25 @@ from collections import Counter
 from typing import NamedTuple
 
 import ganda.orientdb.coverage as coverage
-import ganda.orientdb.guards as guards
-from ganda.orientdb.generator import GeneratorConfig, build
-from ganda.orientdb.harness import OrientCrash, OrientError, OrientInstance, cleanup_orphans, db_name
-from ganda.orientdb.materialize import BUILDERS
+import ganda.orientdb.known_bugs as guards
+from ganda.orientdb.data_generator import GeneratorConfig, build
+from ganda.orientdb.connection import OrientCrash, OrientError, OrientServer, cleanup_orphans, db_name
+from ganda.orientdb.mapping import MAPPERS
 from ganda.orientdb.oracle import is_empty_value, is_script, run_cases
-from ganda.orientdb.quarantine import Quarantine
-from ganda.orientdb.queries.ir import SHAPE_DENOMINATOR
-from ganda.orientdb.queries.path_ir import COVERAGE_DENOMINATOR as PATH_COVERAGE_DENOMINATOR
-from ganda.orientdb.queries.select_ir import COVERAGE_DENOMINATOR as SELECT_COVERAGE_DENOMINATOR
-from ganda.orientdb.queries.write_ir import COVERAGE_DENOMINATOR as WRITE_COVERAGE_DENOMINATOR
-from ganda.orientdb.queries.templates import all_cases
+from ganda.orientdb.dedup import BugDeduplicator
+from ganda.orientdb.queries.traversal_ast import SHAPE_DENOMINATOR
+from ganda.orientdb.queries.path_ast import COVERAGE_DENOMINATOR as PATH_COVERAGE_DENOMINATOR
+from ganda.orientdb.queries.select_ast import COVERAGE_DENOMINATOR as SELECT_COVERAGE_DENOMINATOR
+from ganda.orientdb.queries.write_ast import COVERAGE_DENOMINATOR as WRITE_COVERAGE_DENOMINATOR
+from ganda.orientdb.queries.registry import all_cases
 from ganda.orientdb.reporter import report_bug, report_crash, report_setup_problem
-from ganda.orientdb.state import verify_state
+from ganda.orientdb.state_check import verify_state
 
 
 class CampaignStats(NamedTuple):
     instances: int
-    setup_failures: int  # every side rejected the setup: consistent rejection, skipped
-    setup_asymmetries: int  # some sides rejected the setup, or one side's state differs
+    setup_failures: int  # every data model rejected the setup: consistent rejection, skipped
+    setup_asymmetries: int  # some data models rejected the setup, or one side's state differs
     cases: int
     cases_asserting: int
     symmetric_errors: int
@@ -44,13 +44,13 @@ class CampaignStats(NamedTuple):
     findings_repeated: int  # occurrences of an already-bundled key
     crashes: int
     state_leaks: int  # an instance whose live state differed AFTER the cases ran (a transaction door leaked past its ROLLBACK)
-    known_suppressed: dict
+    known_bugs_suppressed: dict
     values_compared: int
     values_nonempty: int
-    per_template: dict
+    per_generator: dict
     per_class: dict
     distinct_shapes: int
-    ir_shapes_visited: int
+    traversal_shapes_visited: int
     select_shapes_visited: int
     path_shapes_visited: int
     writes: int
@@ -64,12 +64,12 @@ class CampaignStats(NamedTuple):
 class _Shared:
     def __init__(self):
         self.lock = threading.Lock()
-        self.quarantine = Quarantine()
-        self.per_template: dict = {}
+        self.dedup = BugDeduplicator()
+        self.per_generator: dict = {}
         self.per_class: Counter = Counter()
-        self.known: Counter = Counter()
+        self.known_bugs: Counter = Counter()
         self.shapes: set = set()
-        self.ir_shapes: set = set()
+        self.traversal_shapes: set = set()
         self.select_shapes: set = set()
         self.path_shapes: set = set()
         self.write_shapes: set = set()
@@ -80,25 +80,25 @@ class _Shared:
 
 
 def _tpl(shared: _Shared, name: str) -> dict:
-    return shared.per_template.setdefault(name, {"cases": 0, "asserting": 0, "findings": 0, "symmetric_errors": 0, "internal_errors": 0, "suppressed": 0})
+    return shared.per_generator.setdefault(name, {"cases": 0, "asserting": 0, "findings": 0, "symmetric_errors": 0, "internal_errors": 0, "suppressed": 0})
 
 
-def run_instance(server: OrientInstance, seed: int, cfg: GeneratorConfig, args, shared: _Shared, ns: str) -> None:
+def run_instance(server: OrientServer, seed: int, cfg: GeneratorConfig, args, shared: _Shared, ns: str) -> None:
     schema, instance, rng = build(seed, cfg)
-    plans = {side: BUILDERS[side](instance) for side in ("doc", "graph", "rel")}
+    plans = {data_model: MAPPERS[data_model](instance) for data_model in ("doc", "graph", "rel")}
     sessions: dict = {}
     setup_errors: dict = {}
     diffs: dict = {}
-    for side, plan in plans.items():
-        s = server.fresh_session(db_name(ns, side))
+    for data_model, plan in plans.items():
+        s = server.fresh_session(db_name(ns, data_model))
         try:
             s.apply_setup(plan)
-            setup_errors[side] = ""
-            sessions[side] = s
+            setup_errors[data_model] = ""
+            sessions[data_model] = s
             if args.verify_state:
-                diffs[side] = verify_state(s, side, instance)
+                diffs[data_model] = verify_state(s, data_model, instance)
         except OrientError as e:
-            setup_errors[side] = str(e)
+            setup_errors[data_model] = str(e)
     cov = shared.coverage
     if cov:
         cov.after_setup()
@@ -120,52 +120,52 @@ def run_instance(server: OrientInstance, seed: int, cfg: GeneratorConfig, args, 
         _drop(server, ns)
         return
 
-    cases = all_cases(rng, schema, instance, ir_cases=cfg.ir_cases, select_cases=cfg.select_cases, path_cases=cfg.path_cases, card_cases=cfg.card_cases, card_corpus=cfg.card_corpus)
-    hooks = {"after_case": cov.after_case, "after_side": cov.after_side} if cov else {}
-    results = run_cases(cases, sessions, instance, explain=args.explain, keep_known=args.no_known_guards, **hooks)
+    cases = all_cases(rng, schema, instance, traversal_cases=cfg.traversal_cases, select_cases=cfg.select_cases, path_cases=cfg.path_cases, card_cases=cfg.card_cases, card_corpus=cfg.card_corpus)
+    hooks = {"after_case": cov.after_case, "after_variant": cov.after_variant} if cov else {}
+    results = run_cases(cases, sessions, instance, explain=args.explain, keep_known_bugs=args.no_known_bugs, **hooks)
     if args.verify_state and any(is_script(t) for r in results for t in r.case.queries.values()):
         # the transaction door rolled every write back: the live state must still be
-        # the Instance on every side
-        after = {side: verify_state(s, side, instance) for side, s in sessions.items()}
-        leaked = [side for side, d in after.items() if not d.ok]
+        # the Instance on every data model
+        after = {data_model: verify_state(s, data_model, instance) for data_model, s in sessions.items()}
+        leaked = [data_model for data_model, d in after.items() if not d.ok]
         if leaked:
             with shared.lock:
                 shared.counters["state_leaks"] += 1
-            d = report_setup_problem(args.out_dir, args.run_tag, seed, cfg, instance, plans, {side: "" for side in sessions}, after, "state-leak")
+            d = report_setup_problem(args.out_dir, args.run_tag, seed, cfg, instance, plans, {data_model: "" for data_model in sessions}, after, "state-leak")
             print(f"[seed {seed}] state-leak after the cases: {leaked} -> {d}", flush=True)
     if cfg.write_cases:
         # the write phase: predicate-targeted writes after every read, each checked
-        # and applied to the Instance (`ganda.orientdb.writes`)
-        from ganda.orientdb.writes import run_write_phase
+        # and applied to the Instance (`ganda.orientdb.write_phase`)
+        from ganda.orientdb.write_phase import run_write_phase
 
-        wp = run_write_phase(sessions, instance, rng.for_template("ir_write"), cfg.write_cases, verify=args.verify_state, keep_known=args.no_known_guards)
+        wp = run_write_phase(sessions, instance, rng.for_generator("ir_write"), cfg.write_cases, verify=args.verify_state, keep_known_bugs=args.no_known_bugs)
         results += wp.results
         with shared.lock:
-            shared.counters["writes"] += sum(1 for r in wp.results if r.case.template_name == "ir_write")
+            shared.counters["writes"] += sum(1 for r in wp.results if r.case.generator_name == "ir_write")
             for r in wp.results:
-                if r.case.template_name == "ir_write":
+                if r.case.generator_name == "ir_write":
                     shared.write_shapes.add(r.case.params["coverage"])
         if any(not d.ok for d in wp.diffs.values()):
             with shared.lock:
                 shared.counters["write_state_diffs"] += 1
-            last = next((r.case for r in reversed(wp.results) if r.case.template_name == "ir_write"), None)
-            wrote = {side: f"[{last.params['spellings'][side]}] {last.params['statements'][side]}" for side in sessions} if last else {side: "" for side in sessions}
+            last = next((r.case for r in reversed(wp.results) if r.case.generator_name == "ir_write"), None)
+            wrote = {data_model: f"[{last.params['concrete_syntax'][data_model]}] {last.params['statements'][data_model]}" for data_model in sessions} if last else {data_model: "" for data_model in sessions}
             d = report_setup_problem(args.out_dir, args.run_tag, seed, cfg, wp.instance, plans, wrote, wp.diffs, f"write-state-{wp.failed_step}", write_step=wp.failed_step)
             print(f"[seed {seed}] write-state after {wp.stopped} -> {d}", flush=True)
     with shared.lock:
         for r in results:
-            t = _tpl(shared, r.case.template_name)
+            t = _tpl(shared, r.case.generator_name)
             t["cases"] += 1
             shared.counters["cases"] += 1
             shared.shapes.add(r.case.shape)
-            if r.case.template_name == "ir_traversal":
-                shared.ir_shapes.add(r.case.shape)
-            elif r.case.template_name == "ir_select":
+            if r.case.generator_name == "ir_traversal":
+                shared.traversal_shapes.add(r.case.shape)
+            elif r.case.generator_name == "ir_select":
                 shared.select_shapes.add(r.case.params["coverage"])
-            elif r.case.template_name == "ir_path":
+            elif r.case.generator_name == "ir_path":
                 shared.path_shapes.add(r.case.params["coverage"])
-            for side, fid in r.suppressed.items():
-                shared.known[fid] += 1
+            for data_model, fid in r.suppressed.items():
+                shared.known_bugs[fid] += 1
                 t["suppressed"] += 1
             if r.plans:
                 shared.plan_pairs.add((r.case.shape, tuple(sorted((s, tuple(p)) for s, p in r.plans.items()))))
@@ -185,10 +185,10 @@ def run_instance(server: OrientInstance, seed: int, cfg: GeneratorConfig, args, 
     for r in results:
         if r.ok:
             continue
-        first, n = shared.quarantine.admit(r)
+        first, n = shared.dedup.admit(r)
         with shared.lock:
             shared.per_class[r.finding_class] += 1
-            _tpl(shared, r.case.template_name)["findings"] += 1
+            _tpl(shared, r.case.generator_name)["findings"] += 1
             if first:
                 shared.counters["findings"] += 1
             else:
@@ -197,14 +197,14 @@ def run_instance(server: OrientInstance, seed: int, cfg: GeneratorConfig, args, 
                 shared.stop = True
         if first or args.bundle_all:
             d = report_bug(args.out_dir, args.run_tag, seed, cfg, instance, plans, r, times_seen=n)
-            print(f"[seed {seed}] {r.finding_class} {r.case.template_name} {r.case.shape} pairs={r.failing_pairs} -> {d}", flush=True)
+            print(f"[seed {seed}] {r.finding_class} {r.case.generator_name} {r.case.shape} pairs={r.failing_pairs} -> {d}", flush=True)
     _drop(server, ns)
 
 
-def _drop(server: OrientInstance, ns: str) -> None:
-    for side in ("doc", "graph", "rel"):
+def _drop(server: OrientServer, ns: str) -> None:
+    for data_model in ("doc", "graph", "rel"):
         try:
-            server.drop_database(db_name(ns, side))
+            server.drop_database(db_name(ns, data_model))
         except (OrientError, OrientCrash):
             pass
 
@@ -245,9 +245,9 @@ def run_campaign(args) -> CampaignStats:
     seeds = list(range(args.seed, args.seed + args.iterations))
     start = time.time()
     os.makedirs(args.out_dir, exist_ok=True)
-    if args.coverage in ("case", "side") and args.workers > 1:
+    if args.coverage in ("case", "variant") and args.workers > 1:
         raise SystemExit(f"--coverage {args.coverage} attributes each window to what ran since the last dump: it needs --workers 1")
-    with OrientInstance(coverage=args.coverage != "off") as server:
+    with OrientServer(coverage=args.coverage != "off") as server:
         if args.coverage != "off":
             shared.coverage = coverage.Collector(server, args.coverage)
         box = {"server": server}
@@ -275,13 +275,13 @@ def run_campaign(args) -> CampaignStats:
         findings_repeated=c["findings_repeated"],
         crashes=c["crashes"],
         state_leaks=c["state_leaks"],
-        known_suppressed=dict(shared.known),
+        known_bugs_suppressed=dict(shared.known_bugs),
         values_compared=c["values_compared"],
         values_nonempty=c["values_nonempty"],
-        per_template=shared.per_template,
+        per_generator=shared.per_generator,
         per_class=dict(shared.per_class),
         distinct_shapes=len(shared.shapes),
-        ir_shapes_visited=len(shared.ir_shapes),
+        traversal_shapes_visited=len(shared.traversal_shapes),
         select_shapes_visited=len(shared.select_shapes),
         path_shapes_visited=len(shared.path_shapes),
         writes=shared.counters["writes"],
@@ -293,22 +293,22 @@ def run_campaign(args) -> CampaignStats:
     )
 
 
-def print_stats(stats: CampaignStats, quarantine_summary: "dict | None" = None) -> None:
+def print_stats(stats: CampaignStats, dedup_summary: "dict | None" = None) -> None:
     print("=" * 72)
     print(f"instances: {stats.instances}  setup failures: {stats.setup_failures}  setup asymmetries: {stats.setup_asymmetries}  crashes: {stats.crashes}  state leaks: {stats.state_leaks}")
     pct = 100.0 * stats.cases_asserting / stats.cases if stats.cases else 0.0
     print(f"cases: {stats.cases}  asserting: {stats.cases_asserting} ({pct:.1f}%)  symmetric errors: {stats.symmetric_errors}  internal errors: {stats.internal_errors}")
     print(f"findings: {stats.findings} new keys, {stats.findings_repeated} repeats  by class: {stats.per_class}")
-    print(f"known findings withheld: {stats.known_suppressed}")
-    print(f"distinct shapes: {stats.distinct_shapes}  ir_traversal shape coverage: {stats.ir_shapes_visited}/{SHAPE_DENOMINATOR}  ir_select coverage: {stats.select_shapes_visited}/{SELECT_COVERAGE_DENOMINATOR}  ir_path coverage: {stats.path_shapes_visited}/{PATH_COVERAGE_DENOMINATOR}  distinct plan pairs: {stats.distinct_plan_pairs}")
+    print(f"known findings withheld: {stats.known_bugs_suppressed}")
+    print(f"distinct shapes: {stats.distinct_shapes}  ir_traversal shape coverage: {stats.traversal_shapes_visited}/{SHAPE_DENOMINATOR}  ir_select coverage: {stats.select_shapes_visited}/{SELECT_COVERAGE_DENOMINATOR}  ir_path coverage: {stats.path_shapes_visited}/{PATH_COVERAGE_DENOMINATOR}  distinct plan pairs: {stats.distinct_plan_pairs}")
     print(f"writes: {stats.writes}  write-state diffs: {stats.write_state_diffs}  ir_write coverage: {stats.write_shapes_visited}/{WRITE_COVERAGE_DENOMINATOR}")
     print(f"elapsed: {stats.elapsed:.1f}s")
-    for name, t in sorted(stats.per_template.items()):
+    for name, t in sorted(stats.per_generator.items()):
         a = 100.0 * t["asserting"] / t["cases"] if t["cases"] else 0.0
         print(f"  {name:26s} cases={t['cases']:5d} asserting={a:5.1f}% findings={t['findings']} symerr={t['symmetric_errors']} internal={t['internal_errors']} withheld={t['suppressed']}")
-    if quarantine_summary:
+    if dedup_summary:
         print("finding keys:")
-        for k, v in list(quarantine_summary.items())[:30]:
+        for k, v in list(dedup_summary.items())[:30]:
             print(f"  {v:4d}x {k}")
     if stats.coverage:
         coverage.print_summary(stats.coverage)
@@ -325,7 +325,7 @@ def main(argv=None) -> int:
     ap.add_argument("--max-findings", type=int, default=0)
     ap.add_argument("--explain", action="store_true", help="fingerprint every side's plan (extra round trips)")
     ap.add_argument("--no-verify-state", dest="verify_state", action="store_false")
-    ap.add_argument("--no-known-guards", action="store_true", help="run the sides that match a filed finding")
+    ap.add_argument("--no-known-bugs", action="store_true", help="run the sides that match a filed finding")
     ap.add_argument("--keep-dictionary-duplicates", action="store_true")
     ap.add_argument("--bundle-all", action="store_true", help="bundle every finding, not only the first per key")
     ap.add_argument("--bundle-setup-failures", action="store_true")

@@ -1,7 +1,7 @@
 """Shared pieces of the three materializers, and the setup-plan vocabulary.
 
 A materializer produces a `SetupPlan`: an ordered list of `Step` values that
-`harness.OrientSession.apply_setup` executes -- `Sql` (one command with named
+`connection.OrientSession.apply_setup` executes -- `Sql` (one command with named
 parameters), `Script` (a multi-statement SQL script, `BEGIN; ...; COMMIT;` or
 `ROLLBACK;`) and `Batch` (the `/batch` endpoint, optionally transactional). Every step
 is a plain dataclass with a JSON `to_dict()`, so a bug bundle records the exact plan
@@ -9,15 +9,15 @@ and `repro.py` replays it.
 
 **RIDs never appear in a plan.** A record is addressed by its logical `id`; where a
 statement needs a RID (a LINK inside an embedded document, `CREATE EDGE FROM :a TO :b`)
-the parameter holds a `Ref("n1/r0")` placeholder, and the harness substitutes the RID
+the parameter holds a `Ref("n1/r0")` placeholder, and the connection layer substitutes the RID
 it captured when the step that inserted that record ran (`Sql.capture` names the id
 to record). A plan is therefore the same text on every replay although every database
 assigns its own RIDs.
 
-What the three sides share: node records with byte-identical values (declared
-properties of the same type on every side), the logical `id` on every node and `eid`
+What the three data models share: node records with byte-identical values (declared
+properties of the same type on every data model), the logical `id` on every node and `eid`
 on every relationship, the churn discipline (initial values first, then update to the
-final ones through the side's drawn update form; churned edges written then removed;
+final ones through the data model's drawn update form; churned edges written then removed;
 churned-away nodes removed with the per-side cascade), the write forms and the
 cancelled-junk block.
 """
@@ -27,7 +27,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from ganda.orientdb.generator import initial_node_values, initial_nodes
+from ganda.orientdb.data_generator import initial_node_values, initial_nodes
 from ganda.orientdb.model import (
     INT_TYPES,
     EdgeDelete,
@@ -40,7 +40,7 @@ from ganda.orientdb.model import (
     Schema,
     WriteForm,
 )
-from ganda.orientdb.orient import ORIENT_TYPES, UNIQUE_KINDS
+from ganda.orientdb.dialect import ORIENT_TYPES, UNIQUE_KINDS
 
 
 # --- RID placeholders -------------------------------------------------------------------
@@ -74,7 +74,7 @@ def decode_refs(value: Any) -> Any:
 
 
 def resolve_refs(value: Any, rids: dict) -> Any:
-    """Substitute every `Ref` with the RID string the harness captured."""
+    """Substitute every `Ref` with the RID string the connection layer captured."""
     if isinstance(value, Ref):
         try:
             return rids[value.id]
@@ -92,7 +92,7 @@ def resolve_refs(value: Any, rids: dict) -> Any:
 @dataclass
 class Sql:
     """One SQL command with named parameters. `capture` is the logical id whose RID
-    the harness records from the command's result (an INSERT / CREATE VERTEX returns
+    the connection layer records from the command's result (an INSERT / CREATE VERTEX returns
     the record with its `@rid`)."""
 
     command: str
@@ -155,7 +155,7 @@ def plan_from_dict(items: list) -> list:
 
 def class_steps(name: str, fields: tuple, superclass: "str | None" = None, extra_properties: "list | None" = None, declare_id: bool = True, abstract: bool = False, clusters: int = 1) -> list:
     """A class with every field declared (schemaful). `extra_properties` are
-    `(name, orient type)` pairs the side adds (the doc side's link lists, the
+    `(name, orient type)` pairs the data model adds (the doc data model's link lists, the
     junction's foreign keys). A subclass of the generated base class inherits `id`
     (`declare_id=False`). A ci field gets its `ALTER PROPERTY ... COLLATE ci` right
     after its declaration, before any data; `clusters > 1` spreads the records over
@@ -172,8 +172,8 @@ def class_steps(name: str, fields: tuple, superclass: "str | None" = None, extra
     return steps
 
 
-def id_index_step(table: str, schema: Schema, side: str) -> list:
-    kind = schema.id_index_kind(side)
+def id_index_step(table: str, schema: Schema, data_model: str) -> list:
+    kind = schema.id_index_kind(data_model)
     if kind == "none":
         return []
     return [Sql(f"CREATE INDEX {table}_id ON {table} (id) {kind}")]
@@ -183,14 +183,14 @@ def index_step(ix: IndexSpec) -> Sql:
     """The metadata is always explicit: the engine's default is `ignoreNullValues:
     false` (probed: a UNIQUE index created without metadata treats an absent field as
     the key `null` and rejects the second record lacking it), so `ignore_nulls` is
-    only an axis when both values are spelled out. A map index names its side
+    only an axis when both values are rendered out. A map index names its data model
     (`m BY KEY` / `m BY VALUE`)."""
     fields = ", ".join(ix.all_fields) + (f" BY {ix.by}" if ix.by else "")
     metadata = f" METADATA {{ignoreNullValues: {'true' if ix.ignore_nulls else 'false'}}}"
     return Sql(f"CREATE INDEX {ix.name()} ON {ix.table} ({fields}) {ix.kind}{metadata}")
 
 
-def node_ddl(schema: Schema, side: str, superclass: "str | None" = None, extra: "callable | None" = None) -> list:
+def node_ddl(schema: Schema, data_model: str, superclass: "str | None" = None, extra: "callable | None" = None) -> list:
     """Every node class; with the inheritance axis, the abstract base class first
     (`CREATE CLASS N0 [EXTENDS V] ABSTRACT`, declaring `id` and the base fields) and
     every node class `EXTENDS N0`."""
@@ -200,15 +200,15 @@ def node_ddl(schema: Schema, side: str, superclass: "str | None" = None, extra: 
         superclass = schema.base.name
     for nt in schema.node_types:
         steps += class_steps(nt.name, nt.fields, superclass, extra(nt) if extra else None, declare_id=schema.base is None, clusters=nt.clusters)
-        steps += id_index_step(nt.name, schema, side)
+        steps += id_index_step(nt.name, schema, data_model)
     for ix in schema.indexes:
-        if ix.target == "node" and ix.applies_to(side):
+        if ix.target == "node" and ix.applies_to(data_model):
             steps.append(index_step(ix))
     return steps
 
 
-def edge_index_steps(schema: Schema, side: str) -> list:
-    return [index_step(ix) for ix in schema.indexes if ix.target == "edge" and ix.applies_to(side)]
+def edge_index_steps(schema: Schema, data_model: str) -> list:
+    return [index_step(ix) for ix in schema.indexes if ix.target == "edge" and ix.applies_to(data_model)]
 
 
 # --- data -----------------------------------------------------------------------------------
@@ -271,8 +271,8 @@ def _arith_set_clause(table: str, schema: Schema, initial: dict, final: dict, pa
 
 def node_update_steps(instance: Instance, form: WriteForm, extras: "dict | None" = None) -> list:
     """NodeUpdate churn: from the initial values to the final `values`, through the
-    side's drawn update form. `extras` (record id -> fields the side stores on the
-    record besides its values, i.e. the doc side's link lists as they stand) is merged
+    data model's drawn update form. `extras` (record id -> fields the data model stores on the
+    record besides its values, i.e. the doc data model's link lists as they stand) is merged
     into a CONTENT write so it does not wipe the relationship. A merging form (SET /
     MERGE / UPSERT / arith) also REMOVEs fields the final state lacks -- a separate
     step, or an explicit final null would be stripped too and `IS DEFINED` would
@@ -288,7 +288,7 @@ def node_update_steps(instance: Instance, form: WriteForm, extras: "dict | None"
         t = n.type_name
         if form.update_form == "content":
             # CONTENT takes a JSON literal, never a bind parameter (probed); a RID string
-            # inside the literal would stay a string, so the doc side's link lists are
+            # inside the literal would stay a string, so the doc data model's link lists are
             # re-set through a parameter right after the whole-document write
             doc = node_document(n, final)
             steps.append(Sql(f"UPDATE {t} CONTENT {json.dumps(doc, ensure_ascii=False)} WHERE id = :id", {"id": n.record_id}))
@@ -323,7 +323,7 @@ def initial_edge_values(instance: Instance) -> dict:
 def edge_update_steps(instance: Instance, form: WriteForm, verb: str) -> list:
     """EdgeUpdate churn on the graph E class (`verb` = "UPDATE EDGE") or the junction
     class ("UPDATE"): the relationship's attributes go from their initial values to
-    the final ones through the side's edge update form; dropped attributes are
+    the final ones through the data model's edge update form; dropped attributes are
     REMOVEd first (the CONTENT form rewrites the whole record: `eid` and, on the
     junction, the endpoint columns travel in the literal)."""
     steps = []
@@ -400,7 +400,7 @@ def _free_value(ftype: FieldType, values: list):
     return None
 
 
-def cancelled_junk_steps(instance: Instance, side: str, vertex: bool = False) -> list:
+def cancelled_junk_steps(instance: Instance, data_model: str, vertex: bool = False) -> list:
     """A `BEGIN; ...; ROLLBACK;` script that inserts a junk record, updates and deletes
     a real one. Nothing in it may survive (the `cancel_leaks` mutant is the leak). The
     junk record fills every uniquely indexed field with a free value so the insert is
@@ -411,7 +411,7 @@ def cancelled_junk_steps(instance: Instance, side: str, vertex: bool = False) ->
     t = victim.type_name
     junk: "dict | None" = {"id": f"{t}/{JUNK_MARKER}"}
     for ix in instance.schema.indexes:
-        if ix.target == "node" and ix.table == t and ix.kind in UNIQUE_KINDS and ix.applies_to(side):
+        if ix.target == "node" and ix.table == t and ix.kind in UNIQUE_KINDS and ix.applies_to(data_model):
             for f in ix.all_fields:
                 spec = instance.schema.field(t, f)
                 v = _free_value(spec.type, [n.values.get(f) for n in instance.nodes_of(t)])
@@ -479,7 +479,7 @@ def wrap_data(data: list, form: WriteForm) -> list:
     inserts (`_groups`). The batch door takes positional parameters only and turns a
     map or list parameter into its `toString()` (probed: `{x=1}`), so a step carrying
     one runs as a plain command between two batches. A script or batch answers with
-    the LAST command's result only, so captures inside one are re-read by the harness
+    the LAST command's result only, so captures inside one are re-read by the connection layer
     (`Script.captures` / the batch steps' `capture`)."""
     if form.transaction == "none" or not data:
         return data
@@ -526,10 +526,10 @@ def _rename_param(text: str, old: str, new: str) -> str:
     return re.sub(rf":{re.escape(old)}(?![A-Za-z0-9_])", f":{new}", text)
 
 
-def finalize(ddl: list, data: list, tail: list, instance: Instance, side: str, form: WriteForm, vertex: bool = False) -> list:
+def finalize(ddl: list, data: list, tail: list, instance: Instance, data_model: str, form: WriteForm, vertex: bool = False) -> list:
     plan = list(ddl) + wrap_data(data, form) + list(tail)
     if form.cancelled_junk:
-        plan += cancelled_junk_steps(instance, side, vertex=vertex)
+        plan += cancelled_junk_steps(instance, data_model, vertex=vertex)
     if form.rebuild_indexes:
         plan.append(Sql("REBUILD INDEX *"))
     return plan

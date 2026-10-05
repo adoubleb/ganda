@@ -2,7 +2,7 @@
 
 Each `Mutant` simulates one class of representation-divergence bug by overriding a
 single piece of the real pipeline (one side's instance before it is materialized, one
-side's rendered text, or the oracle's view of one side) while leaving everything else
+data model's rendered text, or the oracle's view of one side) while leaving everything else
 untouched. Running a trial through the mutant and through the real implementation
 should disagree -- `ganda.orientdb.mutation_runner` checks that the cases actually notice.
 
@@ -13,14 +13,14 @@ accompanied by an A/B run over the same seeds.
 
 Categories: structural (edges dropped/duplicated/reversed), attribute (values
 shifted), churn (a churn step skipped so the final state is not the Instance),
-oracle-blind (a corruption every side shares, which only the reference leg can see),
+oracle-blind (a corruption every data model shares, which only the reference leg can see),
 render (a predicate operator or a projection changed on one side), setup (the cancelled
 junk block committed), index (an INDEX-path defect on one side: the texts whose filter
-or ORDER BY an index of that side may serve are corrupted the way a broken index
+or ORDER BY an index of that data model may serve are corrupted the way a broken index
 would answer them -- a strict range bound served inclusively, null keys returned by a
-lookup, a DESC walk answered ascending -- while a scan spelling of the same question
+lookup, a DESC walk answered ascending -- while a scan concrete syntax of the same question
 stays right; the select IR's identical base text and its scan / reversed /
-arithmetic twins are what can see it).
+arithmetic rewrites are what can see it).
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ import re
 from typing import Callable
 
 from ganda.orientdb.model import EdgeDelete, EdgeRow, EdgeUpdate, FieldType, Instance, NodeDelete, NodeUpdate, Schema
-from ganda.orientdb.orient import RANGE_KINDS
+from ganda.orientdb.dialect import RANGE_KINDS
 
 
 @dataclass(frozen=True)
@@ -38,14 +38,14 @@ class Mutant:
     name: str
     category: str
     description: str
-    # side -> function(Instance) -> Instance applied BEFORE that side is materialized
-    instance_for_side: dict = dataclasses.field(default_factory=dict)
+    # data model -> function(Instance) -> Instance applied BEFORE that data model is materialized
+    instance_for_data_model: dict = dataclasses.field(default_factory=dict)
     # function(case) -> case applied to every case (renderer-level corruption)
     rewrite_case: "Callable | None" = None
-    # the sides whose plan is replaced by the plan of the corrupted instance
+    # the data models whose plan is replaced by the plan of the corrupted instance
     reference_only: bool = False
     # function(case, schema) -> case: a renderer-level corruption that needs the
-    # schema (which fields an index of the side covers)
+    # schema (which fields an index of the data model covers)
     rewrite_case_schema: "Callable | None" = None
 
 
@@ -157,7 +157,7 @@ def _skip_edge_deletes(instance: Instance) -> Instance:
 
 
 def _dangling_after_node_delete(instance: Instance) -> Instance:
-    """The doc side's cascade: a deleted node's INCOMING links stay in the sources'
+    """The doc data model's cascade: a deleted node's INCOMING links stay in the sources'
     lists (a LINK to a removed record, which dereferences to null)."""
     extra = []
     for op in instance.churn:
@@ -166,10 +166,10 @@ def _dangling_after_node_delete(instance: Instance) -> Instance:
     return dataclasses.replace(instance, edges=list(instance.edges) + extra)
 
 
-def _first_case_side_query(case, side: str, fn):
+def _first_case_variant_query(case, data_model: str, fn):
     q = dict(case.queries)
     for s in list(q):
-        if s.split(":", 1)[0] == side:
+        if s.split(":", 1)[0] == data_model:
             q[s] = fn(q[s])
     return dataclasses.replace(case, queries=q)
 
@@ -182,22 +182,22 @@ def _flip_op(text: str) -> str:
 
 
 def _wrong_op_graph(case):
-    return _first_case_side_query(case, "graph", _flip_op)
+    return _first_case_variant_query(case, "graph", _flip_op)
 
 
 def _distinct_on_doc(case):
     def fn(t):
         return t.replace(".id AS v", ".id.asSet() AS v", 1) if ".id AS v" in t and "asSet" not in t else t
 
-    return _first_case_side_query(case, "doc", fn)
+    return _first_case_variant_query(case, "doc", fn)
 
 
-def _index_fields(schema: Schema, table: str, side: str, range_only: bool) -> list:
-    """The fields of `table` an index of `side` may serve (a range-capable one with
+def _index_fields(schema: Schema, table: str, data_model: str, range_only: bool) -> list:
+    """The fields of `table` an index of `data_model` may serve (a range-capable one with
     `range_only`)."""
     out = []
     for f in schema.query_fields(table):
-        ixs = schema.node_indexes(table, f.name, side)
+        ixs = schema.node_indexes(table, f.name, data_model)
         if range_only:
             ixs = [ix for ix in ixs if ix.kind in RANGE_KINDS]
         if ixs:
@@ -205,25 +205,25 @@ def _index_fields(schema: Schema, table: str, side: str, range_only: bool) -> li
     return out
 
 
-def _index_rewrite(side: str, range_only: bool, fn):
-    """Apply `fn(text, fields)` to every spelling of `side` whose target is a node
+def _index_rewrite(data_model: str, range_only: bool, fn):
+    """Apply `fn(text, fields)` to every concrete syntax of `data_model` whose target is a node
     class it may serve from an index: not a subquery target (`(SELECT FROM t)`, which
     a scan answers), not a transaction script (its write shares the text), not a
     traversal or an edge-type question."""
 
     def rewrite(case, schema: Schema):
         table = case.params.get("table")
-        if not table or case.template_name in ("ir_traversal", "ir_path") or (case.params.get("select") or {}).get("edge"):
+        if not table or case.generator_name in ("ir_traversal", "ir_path") or (case.params.get("select") or {}).get("edge"):
             return case
         try:
-            fields = _index_fields(schema, table, side, range_only)
+            fields = _index_fields(schema, table, data_model, range_only)
         except KeyError:
             return case
         if not fields:
             return case
         q = dict(case.queries)
         for s in q:
-            if s.split(":", 1)[0] == side and "(SELECT FROM " not in q[s] and not q[s].startswith("BEGIN;"):
+            if s.split(":", 1)[0] == data_model and "(SELECT FROM " not in q[s] and not q[s].startswith("BEGIN;"):
                 q[s] = fn(q[s], fields)
         return dataclasses.replace(case, queries=q) if q != case.queries else case
 

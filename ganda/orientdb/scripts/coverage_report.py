@@ -1,6 +1,6 @@
 """Line / branch / method coverage of OrientDB from a campaign's JaCoCo execution data.
 
-`python3 -m ganda.orientdb.runner --coverage side ...` leaves `campaign_reports/<tag>-coverage.exec`
+`python3 -m ganda.orientdb.campaign --coverage side ...` leaves `campaign_reports/<tag>-coverage.exec`
 (everything) and `campaign_reports/<tag>-coverage/<template>.exec` (per template).
 This script analyzes them against EVERY class of the image's `orientdb-*.jar`s (so the
 denominator is the engine, not the classes the campaign loaded) through
@@ -30,7 +30,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, ROOT)
 
 from ganda.orientdb.coverage import AGENT_EXCLUDES, JACOCO_VERSION  # noqa: E402
-from ganda.orientdb.harness import DEFAULT_IMAGE  # noqa: E402
+from ganda.orientdb.connection import DEFAULT_IMAGE  # noqa: E402
 
 ASM_VERSION = "9.8"  # what org.jacoco.core 0.8.13 is built against
 M2 = os.path.expanduser("~/.m2/repository")

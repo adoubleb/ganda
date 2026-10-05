@@ -1,6 +1,6 @@
 """The SELECT IR: the single-class questions -- one class, an optional filter, a result
 shape -- as data, so every shape is asked with and
-without a filter and through every spelling that applies (`select_spellings`).
+without a filter and through every concrete syntax that applies (`select_syntax`).
 
 A `SelectQuery` is a class (`table`, the base class included), a predicate tree
 (`where`, None for the whole class) and a `kind`:
@@ -28,13 +28,13 @@ Two more dimensions of the question:
 
 - the TARGET: a node class, or with `edge` an EDGE TYPE -- the relationship records
   (`eid` is their id): the graph E class and the junction class hold them as
-  declared, possibly indexed, records; the doc side reads the embedded link
+  declared, possibly indexed, records; the doc data model reads the embedded link
   documents through a bracket filter (`ids` and `count` only: its attributes are
-  untyped, see `select_spellings`);
+  untyped, see `select_syntax`);
 - the TRANSACTION door (`tx`): the question read inside `BEGIN; <write>; LET $r =
   (...); ROLLBACK; RETURN $r`, one record of the class updated (set, set to null,
   removed), inserted or deleted first -- the answer is the Instance's with the write
-  applied (`tx_instance`), and every spelling reads through the transaction's view
+  applied (`tx_instance`), and every concrete syntax reads through the transaction's view
   of the indexes.
 
 A filter may hold a SEMI-JOIN leaf (`f IN (SELECT g FROM t2 [WHERE q])`,
@@ -42,7 +42,7 @@ A filter may hold a SEMI-JOIN leaf (`f IN (SELECT g FROM t2 [WHERE q])`,
 evaluates (the transaction's included).
 
 `evaluate` answers a query in Python over the records the filter keeps (the
-reference leg); it is the same answer for every spelling. Engine facts it rests on
+reference leg); it is the same answer for every concrete syntax. Engine facts it rests on
 (probed 3.2.56, `scripts/probe_osql.py`): `count(*)` and `count(f)` over no rows
 answer 0, every other aggregate (`max`, `sum`, `avg`, `median`, `set`, ...) answers
 NO ROW; over rows that are all null `max` is null, `sum` 0 and `set().size()` 0;
@@ -57,14 +57,14 @@ from dataclasses import dataclass
 
 from ganda.orientdb.model import FieldType, Instance, Schema
 from ganda.orientdb.queries import predicates
-from ganda.orientdb.queries.base import Comparison
+from ganda.orientdb.queries.case import Comparison
 from ganda.orientdb.queries.predicates import Compound, Predicate
-from ganda.orientdb.reference import agg, mean, orient_key
+from ganda.orientdb.semantics import agg, mean, orient_key
 
 KINDS = ("ids", "count", "field", "method", "agg", "group", "distinct", "page", "keys", "join")
 # the kinds over an edge type (a join correlates a class with itself: nodes only)
 EDGE_KINDS = ("ids", "count", "field", "method", "agg", "group", "distinct", "page", "keys")
-# the kinds the doc side spells over its embedded link documents
+# the kinds the doc data model renders over its embedded link documents
 DOC_EDGE_KINDS = ("ids", "count")
 JOIN_OPS = ("=", "<>", "<", "<=", ">", ">=")
 JOIN_FORMS = ("count", "ids")
@@ -172,7 +172,7 @@ def view(q: SelectQuery, instance: Instance) -> Instance:
 
 
 def notnull_fields(q: SelectQuery, form: str) -> tuple:
-    """The fields a spelling's filter must also hold present (`f IS NOT NULL`): a
+    """The fields a concrete syntax's filter must also hold present (`f IS NOT NULL`): a
     method projection's field, the counted field of a DISTINCT subquery, the ordered
     field of `max` / `min` read as the first row of an ordering."""
     if q.kind == "method":
@@ -183,8 +183,8 @@ def notnull_fields(q: SelectQuery, form: str) -> tuple:
 
 
 def effective(q: SelectQuery, form: str, pred) -> "Predicate | Compound | None":
-    """The predicate a spelling actually filters by: `pred` (the filter or one of its
-    twins) with the spelling's `IS NOT NULL` conjuncts -- what the guards judge."""
+    """The predicate a concrete syntax actually filters by: `pred` (the filter or one of its
+    rewrites) with the concrete syntax's `IS NOT NULL` conjuncts -- what the guards judge."""
     extra = []
     for f in notnull_fields(q, form):
         extra.append(Predicate("source", f, "IS NOT NULL", "", None))
@@ -260,7 +260,7 @@ COVERAGE_DENOMINATOR = len(all_coverage_signatures())
 
 
 def shape_signature(q: SelectQuery, schema: Schema) -> str:
-    """The census and quarantine key: the coverage signature refined by the filter's
+    """The census and deduplication key: the coverage signature refined by the filter's
     operators and the column types involved."""
     d = _detail(q)
     cols = list(q.fields) + ([q.arg] if q.arg and q.kind == "group" else [])
@@ -358,7 +358,7 @@ def _join(q: SelectQuery, instance: Instance, rows: list) -> dict:
     filter of its own) whose `f` compares to its own -- the pivot is the record's
     STORED value (never a converted parameter), so the column type plays no part;
     the collation does (a ci value join is case-insensitive, probed)."""
-    from ganda.orientdb.reference import predicate_hit
+    from ganda.orientdb.semantics import predicate_hit
 
     f, op = q.field, q.fn
     ci = column(instance.schema, q, f).ci
@@ -372,7 +372,7 @@ def _join(q: SelectQuery, instance: Instance, rows: list) -> dict:
 
 
 def evaluate(q: SelectQuery, instance: Instance):
-    """The answer every spelling of `q` must give: a row list for the bare
+    """The answer every concrete syntax of `q` must give: a row list for the bare
     comparisons, {id: value} for the by-id ones."""
     rows = hits(q, instance)
     if q.kind == "join":

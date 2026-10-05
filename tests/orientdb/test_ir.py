@@ -1,11 +1,11 @@
 import itertools
 
-from ganda.orientdb.generator import GeneratorConfig, build
+from ganda.orientdb.data_generator import GeneratorConfig, build
 from ganda.orientdb.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, Instance, NodeRow, NodeTypeSpec, Schema
-from ganda.orientdb.queries.ir import PROJECTIONS, SHAPE_DENOMINATOR, Hop, TraversalQuery, all_signatures, evaluate, from_params, shape_signature
-from ganda.orientdb.queries.ir_generator import ir_traversal_cases, sample_query
+from ganda.orientdb.queries.traversal_ast import PROJECTIONS, SHAPE_DENOMINATOR, Hop, TraversalQuery, all_signatures, evaluate, from_params, shape_signature
+from ganda.orientdb.queries.traversal_generator import generate_traversal_cases, sample_query
 from ganda.orientdb.queries.predicates import Compound, Predicate
-from ganda.orientdb.queries.spellings import SPELLINGS, applicable, hoistable, render, spellings_for
+from ganda.orientdb.queries.traversal_syntax import SYNTAXES, applicable, can_pull_up, render, syntaxes_for
 
 
 def _fixture():
@@ -66,15 +66,15 @@ def test_every_admitted_spelling_renders_every_side():
                     for sp in (None, Predicate("source", "f1", ">=", "p0", 0), Compound("source", "OR", (Predicate("source", "f1", ">=", "p0_0", 0), Predicate("source", "f2", "IS NULL", "", None)))):
                         field = "f1" if proj in ("field", "max", "min", "sum") else ("w" if proj.startswith("e") and proj != "exists" else None)
                         q = TraversalQuery("n1", hops, proj, field, sp)
-                        for side, names in SPELLINGS.items():
+                        for data_model, names in SYNTAXES.items():
                             for name in names:
-                                if applicable(q, schema, side, name):
-                                    for hoist in ((False, True) if hoistable(q) else (False,)):
-                                        text = render(q, schema, side, name, hoist=hoist)
-                                        assert text.upper().startswith(("SELECT", "MATCH")), (side, name, text)
+                                if applicable(q, schema, data_model, name):
+                                    for pull_up in ((False, True) if can_pull_up(q) else (False,)):
+                                        text = render(q, schema, data_model, name, pull_up=pull_up)
+                                        assert text.upper().startswith(("SELECT", "MATCH")), (data_model, name, text)
                                         for b in q.bind_vars:
-                                            assert f":{b}" in text, (side, name, b, text)
-                                        if hoist:
+                                            assert f":{b}" in text, (data_model, name, b, text)
+                                        if pull_up:
                                             assert text.startswith("SELECT id") and " FROM (" in text
 
 
@@ -91,19 +91,19 @@ def test_rendered_texts_for_one_question():
 def test_sampler_only_keeps_questions_every_side_can_spell():
     for seed in range(1, 30):
         schema, inst, rng = build(seed, GeneratorConfig())
-        for case in ir_traversal_cases(rng.for_template("ir_traversal"), schema, inst):
-            q = from_params(case.params["ir"])
-            for side in ("doc", "graph", "rel"):
-                assert spellings_for(q, schema, side)
-                assert side in case.queries
+        for case in generate_traversal_cases(rng.for_generator("ir_traversal"), schema, inst):
+            q = from_params(case.params["traversal"])
+            for data_model in ("doc", "graph", "rel"):
+                assert syntaxes_for(q, schema, data_model)
+                assert data_model in case.queries
             assert case.shape in all_signatures()
 
 
 def test_sampler_is_deterministic():
     schema, inst, rng = build(9, GeneratorConfig())
-    a = [c.queries for c in ir_traversal_cases(rng.for_template("ir_traversal"), schema, inst)]
+    a = [c.queries for c in generate_traversal_cases(rng.for_generator("ir_traversal"), schema, inst)]
     schema, inst, rng = build(9, GeneratorConfig())
-    b = [c.queries for c in ir_traversal_cases(rng.for_template("ir_traversal"), schema, inst)]
+    b = [c.queries for c in generate_traversal_cases(rng.for_generator("ir_traversal"), schema, inst)]
     assert a == b
 
 
@@ -134,17 +134,17 @@ def test_hoisted_form_and_traverse():
     schema, inst = _fixture()
     sp = Predicate("source", "f1", ">", "p0", 0)
     q = TraversalQuery("n1", (Hop("e2", "out"),), "distinct_ids", None, sp)
-    assert render(q, schema, "graph", "chain", hoist=True) == "SELECT id, v FROM (SELECT id, f1, out('e2').id.asSet() AS v FROM n1) WHERE f1 > :p0"
-    assert render(q, schema, "rel", "flat", hoist=True) == "SELECT id, v FROM (SELECT DISTINCT src_id AS id, dst_id AS v FROM e2) WHERE id IN (SELECT id FROM n1 WHERE f1 > :p0)"
+    assert render(q, schema, "graph", "chain", pull_up=True) == "SELECT id, v FROM (SELECT id, f1, out('e2').id.asSet() AS v FROM n1) WHERE f1 > :p0"
+    assert render(q, schema, "rel", "flat", pull_up=True) == "SELECT id, v FROM (SELECT DISTINCT src_id AS id, dst_id AS v FROM e2) WHERE id IN (SELECT id FROM n1 WHERE f1 > :p0)"
     assert applicable(q, schema, "graph", "traverse")
     assert not applicable(TraversalQuery("n1", (Hop("e1", "out"),), "distinct_ids"), schema, "graph", "traverse")  # e1 is self-typed
-    assert not hoistable(TraversalQuery("n1", (Hop("e2", "out"),), "ids", None, Predicate("source", "f1", "IS DEFINED", "", None)))
+    assert not can_pull_up(TraversalQuery("n1", (Hop("e2", "out"),), "ids", None, Predicate("source", "f1", "IS DEFINED", "", None)))
 
 
 def test_both_direction_nexists_and_optional_match():
     schema, inst = _fixture()
     q = TraversalQuery("n1", (Hop("e1", "both"),), "ids")
-    # a self-loop is visited twice, parallel edges twice, the incoming side once more
+    # a self-loop is visited twice, parallel edges twice, the incoming data model once more
     assert evaluate(q, inst) == {"n1/r0": ["n1/r1", "n1/r1", "n1/r0", "n1/r0"], "n1/r1": ["n1/r2", "n1/r0", "n1/r0"], "n1/r2": ["n1/r1"]}
     assert render(q, schema, "graph", "chain") == "SELECT id, both('e1').id AS v FROM n1"
     assert render(q, schema, "graph", "bag") == "SELECT id, unionall(out_e1.in, in_e1.out).id AS v FROM n1"
@@ -156,7 +156,7 @@ def test_both_direction_nexists_and_optional_match():
     assert applicable(TraversalQuery("n1", (Hop("e1", "both", ep),), "efield", "w"), schema, "graph", "match")
     assert render(TraversalQuery("n1", (Hop("e1", "both", ep),), "efield", "w"), schema, "graph", "match") == "MATCH {class: n1, as: a} .bothE('e1') {as: ae1, where: (w > :p1)} RETURN a.id AS id, ae1.w AS v"
     assert not applicable(TraversalQuery("n1", (Hop("e1", "both"), Hop("e1", "out")), "ids"), schema, "graph", "chain")
-    # nexists: the complement of exists; the anti-join on the relational side
+    # nexists: the complement of exists; the anti-join on the relational data model
     nq = TraversalQuery("n1", (Hop("e1", "out"),), "nexists")
     assert evaluate(nq, inst) == ["n1/r2"]
     assert render(nq, schema, "graph", "chain") == "SELECT id FROM n1 WHERE out('e1').size() = 0"
@@ -168,7 +168,7 @@ def test_both_direction_nexists_and_optional_match():
 
 
 def test_narrow_types_in_the_reference():
-    from ganda.orientdb.reference import agg, predicate_hit, sum_is_exact
+    from ganda.orientdb.semantics import agg, predicate_hit, sum_is_exact
 
     # an INTEGER column: a Long pivot compares exactly on a scan; the wrap is the index's (O16)
     assert not predicate_hit(True, 5, "=", 2**32 + 5, "int32")
@@ -196,7 +196,7 @@ def test_narrow_types_in_the_reference():
 
 
 def test_reach_projections():
-    from ganda.orientdb.queries.ir import REACH_PROJECTIONS
+    from ganda.orientdb.queries.traversal_ast import REACH_PROJECTIONS
 
     schema, inst = _fixture()
     q = TraversalQuery("n1", (Hop("e1", "out"),), "reach2")
@@ -205,8 +205,8 @@ def test_reach_projections():
     assert evaluate(TraversalQuery("n1", (Hop("e1", "out"),), "reach3_count"), inst) == {"n1/r0": 3, "n1/r1": 2, "n1/r2": 1}
     for proj in REACH_PROJECTIONS:
         q = TraversalQuery("n1", (Hop("e1", "out"),), proj)
-        for side in ("doc", "graph", "rel"):
-            assert spellings_for(q, schema, side), (proj, side)
+        for data_model in ("doc", "graph", "rel"):
+            assert syntaxes_for(q, schema, data_model), (proj, data_model)
         assert not applicable(q, schema, "graph", "edgescan") and not applicable(q, schema, "rel", "flat")
     assert render(TraversalQuery("n1", (Hop("e1", "out"),), "reach2"), schema, "graph", "chain") == "SELECT id, unionall([@this], out('e1'), out('e1').out('e1')).id.asSet() AS v FROM n1"
     assert render(TraversalQuery("n1", (Hop("e1", "out"),), "reach2_count"), schema, "graph", "traverse") == "SELECT id, $t.id.asSet().size() AS v FROM n1 LET $t = (SELECT FROM (TRAVERSE out('e1') FROM $parent.$current MAXDEPTH 2 STRATEGY BREADTH_FIRST))"
@@ -215,7 +215,7 @@ def test_reach_projections():
 
 
 def test_dates_and_maps_in_the_reference():
-    from ganda.orientdb.reference import canonical_date, predicate_hit
+    from ganda.orientdb.semantics import canonical_date, predicate_hit
 
     assert canonical_date("2024-01-01") == "2024-01-01 00:00:00"
     assert canonical_date(1704112496000) == "2024-01-01 12:34:56"
@@ -234,7 +234,7 @@ def test_dates_and_maps_in_the_reference():
     assert predicate_hit(False, None, "IS NULL", None, key="k3") and predicate_hit(True, m, "<>", 5, key="k3")
     assert not predicate_hit(True, m, ">", 1, key="k3")
     p = Predicate("source", "m", "=", "p", 2, True, "int", False, "k2")
-    from ganda.orientdb.queries.osql import render_predicate as render_pred
+    from ganda.orientdb.queries.predicate_syntax import render_predicate as render_pred
 
     assert render_pred(p) == "m.k2 = :p"
     assert render_pred(Predicate("source", "m", "=", "p", 2, True, "int", False, "k2", "pk")) == "m[:pk] = :p" and Predicate("source", "m", "=", "p", 2, True, "int", False, "k2", "pk").bind_vars == {"pk": "k2", "p": 2}

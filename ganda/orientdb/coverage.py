@@ -1,6 +1,6 @@
 """Code coverage of the OrientDB server under test, through the JaCoCo agent.
 
-With `OrientInstance(coverage=True)` the server JVM runs with JaCoCo's agent
+With `OrientServer(coverage=True)` the server JVM runs with JaCoCo's agent
 (`output=tcpserver`, `includes=com.orientechnologies.*`), which counts PROBES -- one per
 edge of every instrumented method's control flow, so a probe set is branch coverage
 without the class files. The fuzzer speaks the agent's TCP protocol itself: a DUMP
@@ -44,7 +44,7 @@ MAGIC = 0xC0C0
 FORMAT_VERSION = 0x1007  # every JaCoCo since 0.7.5
 HEADER = struct.pack(">BHH", BLOCK_HEADER, MAGIC, FORMAT_VERSION)
 
-LEVELS = ("off", "seed", "case", "side")
+LEVELS = ("off", "seed", "case", "variant")
 
 
 def agent_jar() -> str:
@@ -282,8 +282,8 @@ class Collector:
     """Takes a reset dump after every execution window and attributes it.
 
     `seed`: one window per seed -- the growth curve only, any number of workers.
-    `case`: a window after every case, labelled by its template; `side`: after every
-    side, labelled by the template and by `template/side`. Both attribute a window to
+    `case`: a window after every case, labelled by its template; `data_model`: after every
+    data model, labelled by the template and by `template/data_model`. Both attribute a window to
     whatever ran since the last dump, so they need `--workers 1`. Two labels are not
     templates: `boot` (the server's start) and `setup` (the database lifecycle --
     create, DDL, inserts, state checks, drop). A dump that fails (the server crashed)
@@ -297,7 +297,7 @@ class Collector:
         self.lock = threading.Lock()
         self.total = ExecData()
         self.templates: dict = {}
-        self.sides: dict = {}
+        self.variants: dict = {}
         self.growth: list = []
         # the `llm_card` saturation curve: each card case's window, in run order, with
         # the probes no earlier card case had reached (case level only)
@@ -306,10 +306,10 @@ class Collector:
         self.dumps = 0
         self.dump_failures = 0
         self.start = time.time()
-        if level in ("case", "side"):
+        if level in ("case", "variant"):
             self.window("boot")
 
-    def window(self, template: "str | None" = None, side: "str | None" = None, card: "str | None" = None) -> None:
+    def window(self, template: "str | None" = None, variant: "str | None" = None, card: "str | None" = None) -> None:
         with self.lock:
             try:
                 host, port = self.server.coverage_address()
@@ -321,29 +321,29 @@ class Collector:
             self.total.merge(delta)
             if template:
                 self.templates.setdefault(template, ExecData()).merge(delta)
-            if side:
-                self.sides.setdefault(f"{template}/{side}", ExecData()).merge(delta)
+            if variant:
+                self.variants.setdefault(f"{template}/{variant}", ExecData()).merge(delta)
             if card:
                 self.card_novelty.append({"card": card, "new": self.card_union.merge(delta), "covered": self.card_union.covered()})
 
     def after_setup(self) -> None:
-        if self.level in ("case", "side"):
+        if self.level in ("case", "variant"):
             self.window("setup")
 
     def after_case(self, case) -> None:
         if self.level == "case":
-            self.window(case.template_name, card=case.params.get("card") if case.template_name == "llm_card" else None)
+            self.window(case.generator_name, card=case.params.get("card") if case.generator_name == "llm_card" else None)
 
-    def after_side(self, case, side: str) -> None:
-        if self.level == "side":
-            self.window(case.template_name, side)
+    def after_variant(self, case, variant: str) -> None:
+        if self.level == "variant":
+            self.window(case.generator_name, variant)
 
     def before_restart(self) -> None:
         """The server is about to be replaced: whatever it still holds, or the loss."""
         self.window()
 
     def after_seed(self, seed: int) -> None:
-        if self.level in ("case", "side"):
+        if self.level in ("case", "variant"):
             self.window("setup")
         else:
             self.window()
@@ -374,7 +374,7 @@ class Collector:
         }
         if self.templates:
             uniq = unique_counts(self.templates)
-            out["templates"] = {
+            out["generators"] = {
                 name: {"covered": d.covered(), "unique": uniq[name], "classes": d.classes_hit()}
                 for name, d in sorted(self.templates.items(), key=lambda kv: -uniq[kv[0]])
             }
@@ -383,10 +383,10 @@ class Collector:
             for w in self.card_novelty:
                 per_card[w["card"]] = per_card.get(w["card"], 0) + w["new"]
             out["card_novelty"] = {"curve": self.card_novelty, "per_card": dict(sorted(per_card.items(), key=lambda kv: -kv[1]))}
-        if self.sides:
-            uniq = unique_counts(self.sides)
-            ranked = sorted(self.sides.items(), key=lambda kv: (-uniq[kv[0]], -kv[1].covered()))
-            out["sides"] = {name: {"covered": d.covered(), "unique": uniq[name]} for name, d in ranked}
+        if self.variants:
+            uniq = unique_counts(self.variants)
+            ranked = sorted(self.variants.items(), key=lambda kv: (-uniq[kv[0]], -kv[1].covered()))
+            out["variants"] = {name: {"covered": d.covered(), "unique": uniq[name]} for name, d in ranked}
         return out
 
     def write_exec(self, stats_dir: str, tag: str) -> None:
@@ -417,13 +417,13 @@ def print_summary(s: dict, top: int = 12) -> None:
           f"({pct:.1f}% of the probes of the classes hit)  dumps: {s['dumps']}  lost windows: {s['dump_failures']}")
     for pkg, row in list(s["packages"].items())[:top]:
         print(f"  {pkg:52s} {row['covered']:7d} / {row['probes']:7d}  classes={row['classes']}")
-    if "templates" in s:
+    if "generators" in s:
         print("  by template (covered / unique to it):")
-        for name, row in s["templates"].items():
+        for name, row in s["generators"].items():
             print(f"    {name:26s} {row['covered']:7d} / {row['unique']:6d}")
-    if "sides" in s:
+    if "variants" in s:
         print("  top sides by unique probes (covered / unique to it):")
-        for name, row in list(s["sides"].items())[:top]:
+        for name, row in list(s["variants"].items())[:top]:
             print(f"    {name:44s} {row['covered']:7d} / {row['unique']:6d}")
 
 

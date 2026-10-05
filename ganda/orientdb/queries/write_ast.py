@@ -40,7 +40,7 @@ from typing import Any
 
 from ganda.orientdb.model import Instance, NodeRow, Schema
 from ganda.orientdb.queries import predicates
-from ganda.orientdb.queries.base import Comparison
+from ganda.orientdb.queries.case import Comparison
 from ganda.orientdb.queries.predicates import Predicate, apply_arith
 
 NODE_OPS = ("set", "arith", "null", "remove", "merge", "delete", "upsert")
@@ -209,7 +209,7 @@ def touched(q: WriteQuery, instance: Instance) -> "tuple[set, set]":
     edges: set = set()
     if q.op == "delete":
         edges = {et.name for et in schema.edge_types if et.from_type in tables or et.to_type in tables}
-        # the doc side rewrites the link lists of every source pointing at a victim
+        # the doc data model rewrites the link lists of every source pointing at a victim
         tables |= {et.from_type for et in schema.edge_types if et.name in edges}
     return tables, edges
 

@@ -14,7 +14,7 @@ explicitly (there is nothing to cascade) before its own record.
 """
 from __future__ import annotations
 
-from ganda.orientdb.materialize.common import (
+from ganda.orientdb.mapping.common import (
     Sql,
     class_steps,
     edge_index_steps,
@@ -48,7 +48,7 @@ def junction_step(edge, form, values: "dict | None" = None) -> Sql:
         for i, v in enumerate(doc.values()):
             params[f"v{i}"] = v
         return Sql(f"INSERT INTO {edge.type_name} ({', '.join(doc)}) VALUES ({', '.join(f':v{i}' for i in range(len(doc)))})", params)
-    from ganda.orientdb.materialize.common import _set_clause
+    from ganda.orientdb.mapping.common import _set_clause
 
     return Sql(f"INSERT INTO {edge.type_name} SET {_set_clause(doc, params)}", params)
 

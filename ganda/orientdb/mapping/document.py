@@ -9,18 +9,18 @@ foreign reference:
 Classes are plain document classes (no `V`), so `out()`/`MATCH`/`TRAVERSE` over edges
 never enter; a hop is `e1.target`, dereferenced as `e1.target.id` / `e1.target.f1`.
 
-Two phases: node records are inserted first (every side's node write forms apply),
+Two phases: node records are inserted first (every data model's node write forms apply),
 then one `UPDATE ... SET e1 = :links` per (source, edge type) writes the INITIAL link
-list with `Ref` targets the harness resolves to that database's RIDs. Churn then
+list with `Ref` targets the connection layer resolves to that database's RIDs. Churn then
 rewrites lists: a source that loses an outgoing edge (EdgeDelete, or the cascade of a
 NodeDelete) gets its list rewritten to the final adjacency -- that rewrite IS this
-side's cascade. A deleted node's own record is removed with `DELETE FROM`; a LINK to a
+data model's cascade. A deleted node's own record is removed with `DELETE FROM`; a LINK to a
 removed record would dereference to null (probed), which is exactly what the
 `doc_dangling_after_node_delete` mutant leaves behind.
 """
 from __future__ import annotations
 
-from ganda.orientdb.materialize.common import (
+from ganda.orientdb.mapping.common import (
     Ref,
     Sql,
     churned_away_edges,
@@ -74,7 +74,7 @@ def build_document_setup(instance: Instance) -> list:
     gone = churned_away_edges(instance)
     updated = [op.edge for op in instance.churn if isinstance(op, EdgeUpdate)]
     if gone or updated:
-        # this side's edge update AND its cascade: the source's list is rewritten to
+        # this data model's edge update AND its cascade: the source's list is rewritten to
         # the final adjacency with the final attribute values
         final_grouped = grouped_links(instance.edges)
         pairs = sorted({(e.type_name, e.from_record) for e in gone + updated if e.from_record not in doomed})

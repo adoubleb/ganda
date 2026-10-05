@@ -1,28 +1,28 @@
-"""The metamorphic oracle: run a `QueryCase` against every side and decide whether the
+"""The metamorphic oracle: run a `QueryCase` against every data model and decide whether the
 answers are equivalent.
 
-Every unordered *pair* of sides (`doc`, `graph`, `rel`, plus every variant side such
+Every unordered *pair* of data models (`doc`, `graph`, `rel`, plus every variant such
 as `graph:match` or `rel:flat`) is compared independently, and each `Mismatch` records
 which pair saw it (`CaseResult.failing_pairs`) -- the per-pair attribution that says
 whether a divergence is cross-model, or a same-database disagreement between two
 syntaxes over one storage layout.
 
 Normalization strips only *representation* artifacts:
-- a spelling that answers one row per PATH (MATCH, an edge/junction scan, UNWIND) is
+- a concrete syntax that answers one row per PATH (MATCH, an edge/junction scan, UNWIND) is
   folded into one entry per start id; a start record with no path is then absent,
   which reads as the empty multiset;
 - inside a multiset, nested lists are flattened (a multi-hop `e1.target.e1.target.id`
   is a list of lists where `out('e1').out('e1').id` is flat) and nulls are dropped
-  (the absent-list side of a record with no links);
+  (the absent-list data model of a record with no links);
 - element order inside a multiset/set.
 
 Numbers are NOT collapsed across types: every column has one declared type on every
-side, so `5` against `5.0` for the same expression is a divergence.
+data model, so `5` against `5.0` for the same expression is a divergence.
 
-An error on some sides but not all is a finding (`error_asymmetry`); an error on every
-side is consistent rejection. An *internal* error (a raw Java exception, HTTP 501) is a
-finding of its own class whether or not the sides agree on it. The Python reference
-leg is compared against each base side under the same normalization.
+An error on some data models but not all is a finding (`error_asymmetry`); an error on every
+data model is consistent rejection. An *internal* error (a raw Java exception, HTTP 501) is a
+finding of its own class whether or not the data models agree on it. The Python reference
+leg is compared against each data model under the same normalization.
 """
 from __future__ import annotations
 
@@ -32,10 +32,10 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
-from ganda.orientdb.harness import strip_meta, OrientCrash, OrientError, OrientSession
+from ganda.orientdb.connection import strip_meta, OrientCrash, OrientError, OrientSession
 from ganda.orientdb.model import Instance, hashable_value
-from ganda.orientdb.queries.base import SIDES, Comparison, QueryCase, base_side
-from ganda.orientdb.reference import orient_key
+from ganda.orientdb.queries.case import DATA_MODELS, Comparison, QueryCase, data_model_of
+from ganda.orientdb.semantics import orient_key
 
 _BARE = (Comparison.SINGLE_VALUE, Comparison.NESTED_VALUE)
 
@@ -102,7 +102,7 @@ def normalize(comparison: Comparison, value: Any) -> Any:
 
 
 def fold_rows(rows: list, comparison: Comparison, result_field: str) -> "tuple[dict, list]":
-    """{id: value} from a side's rows. For multiset/set comparisons several rows with
+    """{id: value} from a data model's rows. For multiset/set comparisons several rows with
     one id are concatenated (list values extended, scalars appended); for a scalar
     comparison a repeated id is a `DuplicateIdRows` finding."""
     out: dict = {}
@@ -144,7 +144,7 @@ def is_empty_value(value) -> bool:
 class DuplicateIdRows:
     record_id: Any
     count: int
-    side: str = ""
+    variant: str = ""
 
 
 @dataclass
@@ -164,7 +164,7 @@ class Mismatch:
 
 @dataclass
 class ReferenceMismatch:
-    side: str
+    variant: str
     record_id: Any
     got: Any
     expected: Any
@@ -181,20 +181,20 @@ class CaseResult:
     reference_mismatches: list = field(default_factory=list)
     duplicate_id_rows: list = field(default_factory=list)
     plans: dict = field(default_factory=dict)
-    suppressed: dict = field(default_factory=dict)  # side -> known finding id
+    suppressed: dict = field(default_factory=dict)  # data model -> known bug id
 
     @property
-    def sides(self) -> list:
-        return [s for s in self.case.sides if s in self.rows]
+    def variants(self) -> list:
+        return [s for s in self.case.variants if s in self.rows]
 
     @property
     def error_asymmetry(self) -> bool:
-        flags = [bool(self.errors.get(s)) for s in self.sides]
+        flags = [bool(self.errors.get(s)) for s in self.variants]
         return any(flags) and not all(flags)
 
     @property
     def symmetric_error(self) -> bool:
-        flags = [bool(self.errors.get(s)) for s in self.sides]
+        flags = [bool(self.errors.get(s)) for s in self.variants]
         return bool(flags) and all(flags)
 
     @property
@@ -204,7 +204,7 @@ class CaseResult:
     @property
     def failing_pairs(self) -> list:
         seen = {m.pair for m in self.mismatches}
-        return [f"{a}/{b}" for a, b in itertools.combinations(self.sides, 2) if f"{a}/{b}" in seen]
+        return [f"{a}/{b}" for a, b in itertools.combinations(self.variants, 2) if f"{a}/{b}" in seen]
 
     @property
     def finding_class(self) -> "str | None":
@@ -221,9 +221,9 @@ class CaseResult:
         return None
 
     def compared_values(self) -> list:
-        if not self.sides:
+        if not self.variants:
             return []
-        rows = self.rows.get(self.sides[0], [])
+        rows = self.rows.get(self.variants[0], [])
         if self.case.comparison in _BARE:
             return list(rows)
         return [row.get(self.case.result_field) for row in rows if isinstance(row, dict)]
@@ -248,38 +248,38 @@ def unwrap_script(result: list) -> list:
     return result
 
 
-def run_case(case: QueryCase, sessions: dict, instance: "Instance | None" = None, explain: bool = False, keep_known: bool = False, after_side=None) -> CaseResult:
-    """`after_side(case, side)` runs once a side (and its plan) has been asked --
+def run_case(case: QueryCase, sessions: dict, instance: "Instance | None" = None, explain: bool = False, keep_known_bugs: bool = False, after_variant=None) -> CaseResult:
+    """`after_variant(case, data_model)` runs once a data model (and its plan) has been asked --
     `ganda.orientdb.coverage` closes a coverage window there."""
     rows: dict = {}
     errors: dict = {}
     internal: dict = {}
     plans: dict = {}
     suppressed: dict = {}
-    for side in case.sides:
-        if base_side(side) not in sessions:
+    for variant in case.variants:
+        if data_model_of(variant) not in sessions:
             continue
-        if side in case.known and not keep_known:
-            suppressed[side] = case.known[side]
+        if variant in case.known_bugs and not keep_known_bugs:
+            suppressed[variant] = case.known_bugs[variant]
             continue
-        session: OrientSession = sessions[base_side(side)]
-        text = case.query_for(side)
+        session: OrientSession = sessions[data_model_of(variant)]
+        text = case.query_for(variant)
         script = is_script(text)
         try:
-            rows[side] = unwrap_script(session.script(text, case.bind_vars)) if script else session.sql(text, case.bind_vars)
-            errors[side] = ""
-            internal[side] = False
+            rows[variant] = unwrap_script(session.script(text, case.bind_vars)) if script else session.sql(text, case.bind_vars)
+            errors[variant] = ""
+            internal[variant] = False
         except OrientError as e:
-            rows[side] = []
-            errors[side] = str(e)
-            internal[side] = e.internal
+            rows[variant] = []
+            errors[variant] = str(e)
+            internal[variant] = e.internal
         if explain and not script:
             try:
-                plans[side] = session.explain(text, case.bind_vars)
+                plans[variant] = session.explain(text, case.bind_vars)
             except (OrientError, OrientCrash):
-                plans[side] = ["<explain failed>"]
-        if after_side is not None:
-            after_side(case, side)
+                plans[variant] = ["<explain failed>"]
+        if after_variant is not None:
+            after_variant(case, variant)
     result = build_result(case, rows, errors, instance)
     result.internal = internal
     result.plans = plans
@@ -299,12 +299,12 @@ def run_cases(cases: list, sessions: dict, instance: "Instance | None" = None, a
 
 
 def _expected(case: QueryCase, instance: Instance):
-    from ganda.orientdb.queries.templates import reference_for
+    from ganda.orientdb.queries.registry import reference_for
 
     return reference_for(case, instance)
 
 
-def _reference_check(case: QueryCase, instance: "Instance | None", side_values: dict) -> list:
+def _reference_check(case: QueryCase, instance: "Instance | None", data_model_values: dict) -> list:
     if instance is None or case.params.get("reference") is False:
         return []
     has_ref, ref = _expected(case, instance)
@@ -313,16 +313,16 @@ def _reference_check(case: QueryCase, instance: "Instance | None", side_values: 
     out = []
     if case.comparison in _BARE:
         ref_n = normalize(case.comparison, ref)
-        for side, value in side_values.items():
+        for variant, value in data_model_values.items():
             if normalize(case.comparison, value) != ref_n:
-                out.append(ReferenceMismatch(side=side, record_id="<single>", got=value, expected=ref))
+                out.append(ReferenceMismatch(variant=variant, record_id="<single>", got=value, expected=ref))
         return out
     ref_map = {hashable_value(k): v for k, v in ref.items()}
-    for side, side_map in side_values.items():
-        for rid in sorted(set(side_map) | set(ref_map), key=repr):
-            got, exp = side_map.get(rid), ref_map.get(rid)
+    for variant, data_model_map in data_model_values.items():
+        for rid in sorted(set(data_model_map) | set(ref_map), key=repr):
+            got, exp = data_model_map.get(rid), ref_map.get(rid)
             if normalize(case.comparison, got) != normalize(case.comparison, exp):
-                out.append(ReferenceMismatch(side=side, record_id=rid, got=got, expected=exp))
+                out.append(ReferenceMismatch(variant=variant, record_id=rid, got=got, expected=exp))
     return out
 
 
@@ -330,26 +330,26 @@ def build_result(case: QueryCase, rows: dict, errors: dict, instance: "Instance 
     if any(errors.values()):
         return CaseResult(case=case, ok=all(errors.values()), rows=rows, errors=errors)
 
-    sides = [s for s in case.sides if s in rows]
-    pairs = list(itertools.combinations(sides, 2))
-    base_sides = [s for s in sides if ":" not in s]
+    variants = [s for s in case.variants if s in rows]
+    pairs = list(itertools.combinations(variants, 2))
+    base_data_models = [s for s in variants if ":" not in s]
 
     if case.comparison in _BARE:
-        normalized = {s: normalize_bare(case, rows[s]) for s in sides}
+        normalized = {s: normalize_bare(case, rows[s]) for s in variants}
         mismatches = [
             Mismatch("<single>", left, right, rows[left], rows[right], normalized[left], normalized[right])
             for left, right in pairs
             if normalized[left] != normalized[right]
         ]
-        ref_mismatches = _reference_check(case, instance, {s: rows[s] for s in base_sides})
+        ref_mismatches = _reference_check(case, instance, {s: rows[s] for s in base_data_models})
         return CaseResult(case=case, ok=not mismatches and not ref_mismatches, rows=rows, errors=errors, mismatches=mismatches, reference_mismatches=ref_mismatches)
 
     maps: dict = {}
     dups: list = []
-    for s in sides:
+    for s in variants:
         maps[s], d = fold_rows(rows[s], case.comparison, case.result_field)
         for x in d:
-            x.side = s
+            x.variant = s
         dups.extend(d)
     mismatches = []
     for left, right in pairs:
@@ -358,7 +358,7 @@ def build_result(case: QueryCase, rows: dict, errors: dict, instance: "Instance 
             ln, rn = normalize(case.comparison, lv), normalize(case.comparison, rv)
             if ln != rn:
                 mismatches.append(Mismatch(rid, left, right, lv, rv, ln, rn))
-    ref_mismatches = _reference_check(case, instance, {s: maps[s] for s in base_sides})
+    ref_mismatches = _reference_check(case, instance, {s: maps[s] for s in base_data_models})
     return CaseResult(
         case=case,
         ok=not mismatches and not ref_mismatches and not dups,

@@ -1,8 +1,8 @@
 from ganda.orientdb.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.oracle import build_result, fold_rows, normalize_multiset, normalize_set
-from ganda.orientdb.quarantine import Quarantine
-from ganda.orientdb.queries.base import Comparison, QueryCase
-from ganda.orientdb.reference import agg, eq, orient_key, predicate_hit
+from ganda.orientdb.dedup import BugDeduplicator
+from ganda.orientdb.queries.case import Comparison, QueryCase
+from ganda.orientdb.semantics import agg, eq, orient_key, predicate_hit
 
 
 def _case(comparison=Comparison.MULTISET_BY_ID, template="ir_traversal", params=None):
@@ -35,7 +35,7 @@ def test_error_classes():
     case = _case()
     r = build_result(case, {"doc": [], "graph": [], "rel": [], "graph:match": []}, {"doc": "boom", "graph": "", "rel": "", "graph:match": ""}, None)
     assert r.error_asymmetry and not r.symmetric_error and r.finding_class == "error_asymmetry"
-    r = build_result(case, {s: [] for s in case.sides}, {s: "boom" for s in case.sides}, None)
+    r = build_result(case, {s: [] for s in case.variants}, {s: "boom" for s in case.variants}, None)
     assert r.symmetric_error and r.ok
 
 
@@ -43,8 +43,8 @@ def test_reference_leg_sees_shared_corruption():
     schema = Schema((NodeTypeSpec("n1", ()),), (EdgeTypeSpec("e1", "n1", "n1", ()),))
     inst = Instance(schema, [NodeRow("n1", 0, {}), NodeRow("n1", 1, {})], [EdgeRow("e1", 0, "n1/r0", "n1/r1", {})])
     q = {"source_table": "n1", "source_predicate": None, "hops": [{"edge_type": "e1", "direction": "out", "predicate": None}], "projection": "ids", "field": None}
-    case = _case(params={"ir": q, "reference": True})
-    rows = {s: [{"id": "n1/r0", "v": []}, {"id": "n1/r1", "v": []}] for s in case.sides}
+    case = _case(params={"traversal": q, "reference": True})
+    rows = {s: [{"id": "n1/r0", "v": []}, {"id": "n1/r1", "v": []}] for s in case.variants}
     r = build_result(case, rows, {s: "" for s in rows}, inst)
     assert not r.ok and r.reference_mismatches and not r.mismatches and r.finding_class == "reference_mismatch"
 
@@ -53,7 +53,7 @@ def test_quarantine_keys_first_then_counts():
     case = _case()
     rows = {"doc": [{"id": "a", "v": [1]}], "graph": [{"id": "a", "v": [2]}], "rel": [{"id": "a", "v": [1]}], "graph:match": [{"id": "a", "v": [1]}]}
     r = build_result(case, rows, {s: "" for s in rows}, None)
-    qn = Quarantine()
+    qn = BugDeduplicator()
     assert qn.admit(r) == (True, 1)
     assert qn.admit(r) == (False, 2)
 

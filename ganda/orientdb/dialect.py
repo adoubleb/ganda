@@ -4,10 +4,10 @@ forms a `WriteForm` names, the key charset, and the engine facts the model's typ
 here (live-probed 3.2.56). `ganda.orientdb.model` imports nothing from this module.
 
 - **Records are addressed by a logical `id` property, never by `@rid`.** A RID
-  (`#cluster:position`) is assigned per database, so the three sides of one instance
+  (`#cluster:position`) is assigned per database, so the three data models of one instance
   hold different RIDs for the same node; every query projects and compares the `id`
   string (`n1/r0`), and every setup step that needs a RID carries a `Ref` placeholder
-  the harness resolves against the RIDs it captured when it inserted that record.
+  the connection layer resolves against the RIDs it captured when it inserted that record.
 - **Every property is declared (schemaful).** OrientDB coerces a value to the declared
   type on write (`5.5` into a LONG is `5`, a bool is null -- probed), and a schemaless
   class types each value by its JSON (`5` INTEGER, `2^40` LONG, `"#1:0"` a LINK), so
@@ -59,7 +59,7 @@ ORIENT_TYPES = {
 # Order: LONG / INTEGER are Java integer order; DOUBLE / FLOAT are `Double.compare`
 # (which puts -0.0 strictly below 0.0, probed; a FLOAT value is its exact widening);
 # DECIMAL is numeric order (no -0.0: a BigDecimal has none, probed); STRING is UTF-16
-# code-unit order (`String.compareTo`), which `reference.orient_key` reproduces by
+# code-unit order (`String.compareTo`), which `semantics.orient_key` reproduces by
 # comparing the UTF-16 encoding.
 #
 # The type a value of each kind is COMPARED in when a pivot of the other kind meets it
@@ -80,14 +80,14 @@ ORIENT_TYPES = {
 # (range-capable); the *_HASH_INDEX kinds answer equality only and a range predicate on
 # them falls back to a scan (probed); DICTIONARY keeps ONE record per key and the
 # planner still uses it to answer an equality predicate, dropping every other record
-# holding the key (probed, issue-drafts/O4) -- so `guards.o4_shape` withholds the cases
+# holding the key (probed, issue-drafts/O4) -- so `known_bugs.o4_shape` withholds the cases
 # where that is what a correct engine would show, and the kind is only drawn for a
-# column whose values are distinct on every side. `IndexSpec.ignore_nulls` is the
-# METADATA `ignoreNullValues`, always spelled out (the engine's default is false: a null
+# column whose values are distinct on every data model. `IndexSpec.ignore_nulls` is the
+# METADATA `ignoreNullValues`, always rendered out (the engine's default is false: a null
 # or ABSENT field is the key `null`, which a unique index holds once -- probed);
 # `IndexSpec.by` is a map index's `BY KEY` (serves CONTAINSKEY) or `BY VALUE` (serves
-# CONTAINSVALUE). An edge index sits on the graph side's E subclass and the relational
-# side's junction class; the doc side has nothing to index (an embedded list's
+# CONTAINSVALUE). An edge index sits on the graph data model's E subclass and the relational
+# data model's junction class; the doc data model has nothing to index (an embedded list's
 # sub-field is not indexable, probed). The planner uses a composite index for a
 # predicate on its first field only, and a base class's index for a query on any
 # subclass; a query on the base class uses its subclasses' indexes in parallel (probed).
@@ -96,7 +96,7 @@ UNIQUE_KINDS = ("UNIQUE", "UNIQUE_HASH_INDEX")
 HASH_KINDS = ("NOTUNIQUE_HASH_INDEX", "UNIQUE_HASH_INDEX")
 RANGE_KINDS = ("NOTUNIQUE", "UNIQUE", "DICTIONARY")
 
-# How each side looks a node up by its logical `id` (`Schema.id_index`): the kind of
+# How each data model looks a node up by its logical `id` (`Schema.id_index`): the kind of
 # index on the `id` property. "none" means a class scan serves `WHERE id = :s`, which is
 # what makes the `id` index an axis rather than a constant -- the shape of
 # issue-drafts/O1 depends on whether the outer query of a correlated subquery is
@@ -108,10 +108,10 @@ ID_INDEX_KINDS = ("UNIQUE", "UNIQUE_HASH_INDEX", "NOTUNIQUE", "none")
 # class scan is a multi-cluster fetch and an index covers several clusters (probed:
 # queries answer alike).
 
-# Logical keys: kept to a charset every side stores as a plain STRING. A `#` is
+# Logical keys: kept to a charset every data model stores as a plain STRING. A `#` is
 # excluded on purpose -- a value shaped like a RID (`#1:0`) is auto-converted to a LINK
 # by the SQL layer inside an embedded document (probed), and the key travels inside
-# link entries on the doc side.
+# link entries on the doc data model.
 _KEY_RE = re.compile(r"^[^#\x00]{1,200}$")
 
 
@@ -133,7 +133,7 @@ def is_valid_key(key: str) -> bool:
 #                          SQL-interpolated)
 #                "content" UPDATE t CONTENT :doc WHERE id = :id (whole document; a
 #                          vertex keeps its edge bags through CONTENT, probed, and the
-#                          doc side's link lists are carried in the document)
+#                          doc data model's link lists are carried in the document)
 #                "upsert"  UPDATE t SET ... UPSERT WHERE id = :id
 #                "arith"   UPDATE t SET f = f + :d, g = :g WHERE id = :id -- an integer
 #                          field present before and after is written as an ARITHMETIC
@@ -141,7 +141,7 @@ def is_valid_key(key: str) -> bool:
 #                          the new executor, probed); the delta keeps every sum a long
 #   edge_update_form: how an EdgeUpdate reaches the graph E class / the junction:
 #                "set" / "merge" / "content" (`UPDATE EDGE e CONTENT {...}` keeps the
-#                endpoints, probed); the doc side always rewrites the link list
+#                endpoints, probed); the doc data model always rewrites the link list
 #   edge_from:  "ref"      CREATE EDGE e FROM :a TO :b with RID parameters
 #               "subquery" CREATE EDGE e FROM (SELECT FROM t WHERE id = :a) TO (...)
 #   transaction: the data steps run in one script `BEGIN; ...; COMMIT;` instead of
@@ -150,10 +150,10 @@ def is_valid_key(key: str) -> bool:
 #                updates and removes a real one -- none of it may survive.
 #   rebuild_indexes: a trailing `REBUILD INDEX *`, so every index is rebuilt from the
 #                records instead of maintained incrementally through the churn.
-# An EdgeUpdate is `UPDATE EDGE e1 ...` on the graph side (whose CONTENT form keeps
+# An EdgeUpdate is `UPDATE EDGE e1 ...` on the graph data model (whose CONTENT form keeps
 # `out` / `in`, probed), a plain UPDATE of the junction row, and a rewrite of the
-# source's link list on the doc side; a NodeDelete is `DELETE VERTEX` (cascading
-# natively) on the graph side.
+# source's link list on the doc data model; a NodeDelete is `DELETE VERTEX` (cascading
+# natively) on the graph data model.
 INSERT_FORMS = ("set", "content", "values")
 UPDATE_FORMS = ("set", "merge", "content", "upsert", "arith")
 EDGE_UPDATE_FORMS = ("set", "merge", "content")

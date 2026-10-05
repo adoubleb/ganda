@@ -105,18 +105,18 @@ def test_the_collector_attributes_each_window():
     ]
     port, _ = _fake_agent(windows)
     server = SimpleNamespace(coverage_address=lambda: ("127.0.0.1", port))
-    case = SimpleNamespace(template_name="t1")
-    c = Collector(server, "side")
+    case = SimpleNamespace(generator_name="t1")
+    c = Collector(server, "variant")
     c.after_setup()
-    c.after_side(case, "s1")
-    c.after_side(case, "s2")
+    c.after_variant(case, "s1")
+    c.after_variant(case, "s2")
     c.after_seed(42)
     s = c.summary()
     assert s["probes_covered"] == 5 and s["dumps"] == 5 and s["dump_failures"] == 0
-    assert s["templates"]["t1"] == {"covered": 3, "unique": 3, "classes": 2}
-    assert s["templates"]["boot"]["unique"] == 0 and s["templates"]["setup"]["unique"] == 1
-    assert s["sides"]["t1/s1"] == {"covered": 2, "unique": 1}  # A.2 is s2's too
-    assert s["sides"]["t1/s2"] == {"covered": 2, "unique": 1}
+    assert s["generators"]["t1"] == {"covered": 3, "unique": 3, "classes": 2}
+    assert s["generators"]["boot"]["unique"] == 0 and s["generators"]["setup"]["unique"] == 1
+    assert s["variants"]["t1/s1"] == {"covered": 2, "unique": 1}  # A.2 is s2's too
+    assert s["variants"]["t1/s2"] == {"covered": 2, "unique": 1}
     assert s["growth"] == [{"instances": 1, "seed": 42, "elapsed": s["growth"][0]["elapsed"], "probes": 5, "classes": 2}]
 
 

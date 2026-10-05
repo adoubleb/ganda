@@ -1,19 +1,19 @@
-"""Round 5: reversed operands, arithmetic twins, list operators, the transaction
+"""Round 5: reversed operands, arithmetic rewrites, list operators, the transaction
 door, the BFS distances and their guards."""
 import dataclasses
 import random
 
-from ganda.orientdb.generator import GeneratorConfig, build
-from ganda.orientdb.guards import _leaf_served, list_ops_known, o31_known, o32_predicate
+from ganda.orientdb.data_generator import GeneratorConfig, build
+from ganda.orientdb.known_bugs import _leaf_served, list_ops_known, o31_known, o32_predicate
 from ganda.orientdb.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.oracle import is_script, unwrap_script
 from ganda.orientdb.queries import predicates
 from ganda.orientdb.queries.select_support import bfs_distances
 from ganda.orientdb.queries.select_support import tx_rows as _tx_rows
-from ganda.orientdb.queries.osql import render_predicate as render
+from ganda.orientdb.queries.predicate_syntax import render_predicate as render
 from ganda.orientdb.queries.predicates import Compound, Predicate, apply_arith, arithmetic, evaluate, reverse
-from ganda.orientdb.queries.templates import all_cases, reference_for
-from ganda.orientdb.reference import predicate_hit
+from ganda.orientdb.queries.registry import all_cases, reference_for
+from ganda.orientdb.semantics import predicate_hit
 
 
 def _schema(indexes=(), ftype=FieldType.INT):
@@ -71,7 +71,7 @@ def test_arithmetic_twin_is_exact_or_absent():
     assert dp is not None
     dq = arithmetic(Predicate("source", "f1", "<=", "p", 0.3, ftype="decimal"), rng, "ar", FieldType.DECIMAL, [0.25])
     assert dq is None  # a non-dyadic pivot shifts inexactly through the binary expansion (O20)
-    # a shift past year 9999 is no shift: no twin at the upper bound
+    # a shift past year 9999 is no shift: no rewrite at the upper bound
     top = Predicate("source", "f1", "<>", "p", "9999-12-31 23:59:59", ftype="datetime")
     for seed in range(20):
         at = arithmetic(top, random.Random(seed), "ar", FieldType.DATETIME, ["2024-01-01 00:00:00", "9999-12-31 23:59:58"])
@@ -93,7 +93,7 @@ def test_list_operators_reference_and_rewrite():
 
 
 def test_list_ops_guard_names_the_boxed_faces():
-    sch = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.LIST),)),), edge_types=(), indexes=(IndexSpec("n1", "f1", side="rel"),))
+    sch = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.LIST),)),), edge_types=(), indexes=(IndexSpec("n1", "f1", data_model="rel"),))
     boxed = Predicate("source", "f1", "CONTAINSANY", "p", [1, 2], ftype="list")
     assert list_ops_known(sch, "n1", boxed, "doc") == "O7"  # a scan
     assert list_ops_known(sch, "n1", boxed, "rel") is None  # the list index converts the keys
@@ -105,7 +105,7 @@ def test_list_ops_guard_names_the_boxed_faces():
 
 
 def test_reversed_and_arithmetic_leaves_are_never_index_served():
-    sch = _schema([IndexSpec("n1", "f1", side="both")])
+    sch = _schema([IndexSpec("n1", "f1", data_model="both")])
     plain = Predicate("source", "f1", "<", "p", 5, ftype="int")
     assert _leaf_served(sch, "n1", plain, "doc")
     assert not _leaf_served(sch, "n1", reverse(plain), "doc")
@@ -119,7 +119,7 @@ def test_reversed_and_arithmetic_leaves_are_never_index_served():
 
 
 def test_o31_is_a_one_sided_range_after_a_write_of_the_key():
-    sch = _schema([IndexSpec("n1", "f1", side="graph", kind="NOTUNIQUE")])
+    sch = _schema([IndexSpec("n1", "f1", data_model="graph", kind="NOTUNIQUE")])
     p = Predicate("source", "f1", "<", "p", 0, ftype="int")
     assert o31_known(sch, "n1", p, "graph", "update", {"f1"}) == "O31"
     assert o31_known(sch, "n1", p, "graph", "insert", {"f1"}) == "O31"
@@ -128,7 +128,7 @@ def test_o31_is_a_one_sided_range_after_a_write_of_the_key():
     assert o31_known(sch, "n1", p, "doc", "update", {"f1"}) is None  # no index there
     assert o31_known(sch, "n1", Predicate("source", "f1", "=", "p", 0, ftype="int"), "graph", "update", {"f1"}) is None
     assert o31_known(sch, "n1", Predicate("source", "f1", "BETWEEN", "p", [0, 5], ftype="int"), "graph", "update", {"f1"}) is None
-    hsch = _schema([IndexSpec("n1", "f1", side="graph", kind="NOTUNIQUE_HASH_INDEX")])
+    hsch = _schema([IndexSpec("n1", "f1", data_model="graph", kind="NOTUNIQUE_HASH_INDEX")])
     assert o31_known(hsch, "n1", p, "graph", "update", {"f1"}) is None  # a hash index scans a range
 
 
@@ -162,19 +162,19 @@ def test_bfs_distances():
 
 
 def test_order_form_withholds_the_asc_walk_of_a_composite_index_with_a_null_component():
-    from ganda.orientdb.guards import select_shape_known
+    from ganda.orientdb.known_bugs import select_shape_known
     from ganda.orientdb.model import EdgeTypeSpec
-    from ganda.orientdb.queries.select_ir import SelectQuery
-    from ganda.orientdb.queries.select_spellings import Spelling
+    from ganda.orientdb.queries.select_ast import SelectQuery
+    from ganda.orientdb.queries.select_syntax import SelectSyntax
 
     sch = Schema(
         node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f2", FieldType.INT))),),
         edge_types=(EdgeTypeSpec("e1", "n1", "n1", ()),),
-        indexes=(IndexSpec("n1", "f1", side="rel", kind="NOTUNIQUE", extra_fields=("f2",), ignore_nulls=True),),
+        indexes=(IndexSpec("n1", "f1", data_model="rel", kind="NOTUNIQUE", extra_fields=("f2",), ignore_nulls=True),),
     )
     rows = [NodeRow("n1", 0, {"f1": -5}), NodeRow("n1", 1, {"f1": 1, "f2": 10}), NodeRow("n1", 2, {"f1": 7, "f2": 70})]
     inst = Instance(sch, rows, [])
-    order = Spelling(form="order")
+    order = SelectSyntax(form="order")
     for fn in ("max", "min"):
         q = SelectQuery("n1", None, "agg", ("f1",), fn=fn)
         assert select_shape_known(q, order, "rel", sch, inst, [-5, 1, 7]) == "O18", fn
@@ -185,7 +185,7 @@ def test_order_form_withholds_the_asc_walk_of_a_composite_index_with_a_null_comp
 
 
 def test_list_ops_guard_scans_under_not_or_and_on_the_scan_twin():
-    sch = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.LIST), FieldSpec("f2", FieldType.INT))),), edge_types=(), indexes=(IndexSpec("n1", "f1", side="both"),))
+    sch = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.LIST), FieldSpec("f2", FieldType.INT))),), edge_types=(), indexes=(IndexSpec("n1", "f1", data_model="both"),))
     boxed = Predicate("source", "f1", "CONTAINSANY", "p_0", [1, 2], ftype="list")
     other = Predicate("source", "f2", "<=", "p_1", 0, ftype="int")
     assert list_ops_known(sch, "n1", boxed, "graph") is None

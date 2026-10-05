@@ -1,7 +1,7 @@
 """OrientDB SQL text for the abstract predicate IR (`predicates`): the engine's
-parameter syntax (`:p1`), its operator spellings (`m.values() CONTAINS`,
+parameter syntax (`:p1`), its operator concrete syntaxes (`m.values() CONTAINS`,
 `f.toLowerCase() =`, `m[:k]`), the semi-join's subquery and the reversed and
-arithmetic forms. Identical on every side, the field expression being the side's
+arithmetic forms. Identical on every data model, the field expression being the data model's
 own (`f1`, `in.f1`, `$n.f1`) via `prefix`."""
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from ganda.orientdb.queries.predicates import MIRROR, NO_BIND_OPS, Compound
 
 def render_predicate(p, prefix: str = "") -> str:
     """The OrientDB text of a predicate tree; a compound is always parenthesized so
-    the sides never rely on operator precedence."""
+    the data models never rely on operator precedence."""
     if isinstance(p, Compound):
         if p.op == "NOT":
             return f"NOT ({render_predicate(p.children[0], prefix)})"

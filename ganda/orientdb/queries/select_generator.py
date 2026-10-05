@@ -1,10 +1,10 @@
-"""Samples `SelectQuery` shapes, builds their cases through the spelling catalog, and
-registers the `ir_select` family.
+"""Samples `SelectQuery` shapes, builds their cases through the concrete syntax catalog, and
+registers the `ir_select` query generator.
 
 The grammar: a class with records (a subclass or, on the inheritance axis, the base
 class); a filter with `WHERE_PROBABILITY` -- a predicate tree over the class's fields
 (`predicates.draw_over`), or with `COMPOSITE_PROBABILITY` an AND over a composite
-index's fields -- else none; a kind drawn uniformly from `select_ir.KINDS`, its fields
+index's fields -- else none; a kind drawn uniformly from `select_ast.KINDS`, its fields
 and function drawn among the columns that admit them, with fallbacks judged over the records the filter keeps (`sum` only where every partial
 sum stays exact; `avg` / `median` over a present integer column; `max` / `min`
 over an ordered column; a distinct count over a present one -- the function drawn
@@ -28,10 +28,10 @@ promise (the mutation benchmark's drop-first-edge mutants fell to 2/7 without it
 targets crossed with the kinds they admit make a deck -- the filter kinds weighed up
 (`KIND_WEIGHTS`) -- dealt in a shuffled order and reshuffled when spent.
 
-A case is the base spelling on every side (identical text) plus every single-axis
-spelling that applies and up to `MAX_COMBOS` spellings combining two or more axes,
-drawn once for the three sides, so every variant is also compared across databases.
-Every draw comes from this family's own sub-stream; `CASES_PER_INSTANCE` queries per
+A case is the base concrete syntax on every data model (identical text) plus every single-axis
+concrete syntax that applies and up to `MAX_COMBOS` concrete syntaxes combining two or more axes,
+drawn once for the three data models, so every variant is also compared across databases.
+Every draw comes from this query generator's own sub-stream; `CASES_PER_INSTANCE` queries per
 instance, deduplicated on the base text and bind values, prefix-stable (the first n
 of a larger sample are the n).
 """
@@ -42,11 +42,11 @@ import random
 
 from ganda.orientdb.model import COLLECTION_TYPES, INT_TYPES, NUMERIC_TYPES, ORDERED_TYPES, FieldType, Instance, Schema
 from ganda.orientdb.queries import predicates
-from ganda.orientdb.queries.base import SIDES, QueryCase
+from ganda.orientdb.queries.case import DATA_MODELS, QueryCase
 from ganda.orientdb.queries.predicates import Predicate
-from ganda.orientdb.queries.select_ir import AGG_FNS, DIRECTIONS, EDGE_KINDS, GROUP_FNS, JOIN_FORMS, JOIN_OPS, KINDS, SelectQuery, coverage_signature, hits, present_values, reference_ok, shape_signature, target_fields
-from ganda.orientdb.queries.select_spellings import BASE, Twins, applicable, base_sides, render, spellings_for
-from ganda.orientdb.reference import sum_is_exact
+from ganda.orientdb.queries.select_ast import AGG_FNS, DIRECTIONS, EDGE_KINDS, GROUP_FNS, JOIN_FORMS, JOIN_OPS, KINDS, SelectQuery, coverage_signature, hits, present_values, reference_ok, shape_signature, target_fields
+from ganda.orientdb.queries.select_syntax import BASE, Rewrites, applicable, base_data_models, render, syntaxes_for
+from ganda.orientdb.semantics import sum_is_exact
 
 CASES_PER_INSTANCE = 30
 WHERE_PROBABILITY = 0.7
@@ -69,9 +69,9 @@ EDGE_WEIGHT = 1
 
 
 def _indexed(schema: Schema, table: str, fields) -> list:
-    """The fields an index of some side may serve (the lead of a single-field or
+    """The fields an index of some data model may serve (the lead of a single-field or
     composite index, the base class's and a subclass's included)."""
-    return [f for f in fields if any(schema.node_indexes(table, f.name, side) for side in ("doc", "graph", "rel"))]
+    return [f for f in fields if any(schema.node_indexes(table, f.name, data_model) for data_model in ("doc", "graph", "rel"))]
 
 
 def _prefer_indexed(rng: random.Random, schema: Schema, table: str, fields, edge: bool) -> list:
@@ -138,7 +138,7 @@ def _agg_pick(rng: random.Random, fn: str, pool: list, present) -> "tuple[str, o
 
 
 def _walk_pool(schema: Schema, table: str) -> list:
-    """The `keys` fields an index of some side may walk (numeric or boolean, indexed)."""
+    """The `keys` fields an index of some data model may walk (numeric or boolean, indexed)."""
     pool = [f for f in schema.query_fields(table) if f.type in NUMERIC_TYPES or f.type is FieldType.BOOL]
     return _indexed(schema, table, pool)
 
@@ -264,7 +264,7 @@ def _tx_admits(q: SelectQuery, schema: Schema, instance: Instance) -> bool:
     """Whether the question's exactness conditions -- judged when it was realized,
     over the records before the write -- still hold over the transaction's view: an
     aggregate's (`_admits`), a method's mirror guard."""
-    from ganda.orientdb.queries.select_ir import column
+    from ganda.orientdb.queries.select_ast import column
     from ganda.orientdb.queries.select_support import METHODS
 
     rows = hits(q, instance)
@@ -282,34 +282,34 @@ def _tx_admits(q: SelectQuery, schema: Schema, instance: Instance) -> bool:
     return True
 
 
-def _door(p, table: str, schema: Schema, instance: Instance, side: str) -> "tuple | None":
+def _door(p, table: str, schema: Schema, instance: Instance, data_model: str) -> "tuple | None":
     """The `index:` door of `select_support.index_door` where it answers every matching
-    record (`door_complete`), its own bind variable renamed per side (two sides'
+    record (`door_complete`), its own bind variable renamed per data model (two data models'
     composite indexes may order the same key differently)."""
     from ganda.orientdb.queries.select_support import door_complete, index_door as _index_door
 
-    door = _index_door(p, table, schema, side)
+    door = _index_door(p, table, schema, data_model)
     if door is None or not door_complete(door[2], table, p, instance):
         return None
     text, extra, ix = door
     renamed = {}
     for k, v in extra.items():
         assert text.endswith(f":{k}"), text
-        text = text[: -len(k)] + f"{k}_{side}"
-        renamed[f"{k}_{side}"] = v
+        text = text[: -len(k)] + f"{k}_{data_model}"
+        renamed[f"{k}_{data_model}"] = v
     return text, renamed, ix
 
 
-def build_twins(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> Twins:
-    from ganda.orientdb.queries.select_ir import records, view
+def build_rewrites(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> Rewrites:
+    from ganda.orientdb.queries.select_ast import records, view
     from ganda.orientdb.queries.select_support import literal_pred as _literal_pred
 
-    twins = Twins(present=present_values(q, instance) if q.kind == "agg" else [])
+    rewrites = Rewrites(present=present_values(q, instance) if q.kind == "agg" else [])
     p = q.where
     if p is None:
-        return twins
-    twins.rw = predicates.rewrite(p, rng, "q")
-    twins.rev = predicates.reverse(p)
+        return rewrites
+    rewrites.rw = predicates.rewrite(p, rng, "q")
+    rewrites.rev = predicates.reverse(p)
     if isinstance(p, Predicate) and p.sub is None:
         try:
             ftype = schema.field(q.table, p.field, edge=q.edge).type
@@ -319,72 +319,72 @@ def build_twins(q: SelectQuery, rng: random.Random, schema: Schema, instance: In
             # exact on every value the read may meet: the transaction's written one
             # too
             stored = [n.values.get(p.field) for n in records(q, instance) + (records(q, view(q, instance)) if q.tx else []) if p.field in n.values]
-            twins.arith = predicates.arithmetic(p, rng, "ar", ftype, stored)
-    twins.literal = _literal_pred(p)
+            rewrites.arith = predicates.arithmetic(p, rng, "ar", ftype, stored)
+    rewrites.literal = _literal_pred(p)
     if q.kind == "ids" and not q.edge:
-        for side in SIDES:
-            door = _door(p, q.table, schema, instance, side)
+        for data_model in DATA_MODELS:
+            door = _door(p, q.table, schema, instance, data_model)
             if door is not None:
-                twins.door[side] = door
-    return twins
+                rewrites.door[data_model] = door
+    return rewrites
 
 
 def build_case(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> QueryCase:
-    from ganda.orientdb.guards import select_known
+    from ganda.orientdb.known_bugs import select_known
 
     from ganda.orientdb.queries.select_support import tx_binds
 
-    twins = build_twins(q, rng, schema, instance)
+    rewrites = build_rewrites(q, rng, schema, instance)
     bind = q.bind_vars
-    for twin in (twins.rw, twins.rev, twins.arith):
-        if twin is not None:
-            bind.update(twin.bind_vars)
-    for _text, extra, _ix in twins.door.values():
+    for rewritten in (rewrites.rw, rewrites.rev, rewrites.arith):
+        if rewritten is not None:
+            bind.update(rewritten.bind_vars)
+    for _text, extra, _ix in rewrites.door.values():
         bind.update(extra)
     if schema.base is not None and not q.edge and not schema.is_base(q.table):
         bind.update({"cls": q.table, "clsl": [q.table]})
     if q.tx:
         bind.update(tx_binds(q.tx))
-    # one draw of spellings for the three sides: every single-axis spelling that
+    # one draw of concrete syntaxes for the three data models: every single-axis concrete syntax that
     # applies anywhere, and a few combinations
     options: list = []
-    for side in SIDES:
-        for sp in spellings_for(q, schema, twins, side):
+    for data_model in DATA_MODELS:
+        for sp in syntaxes_for(q, schema, rewrites, data_model):
             if sp not in options:
                 options.append(sp)
     combos = [sp for sp in options if sp.axes > 1]
     rng.shuffle(combos)
     chosen = [sp for sp in options if sp.axes == 1] + combos[:MAX_COMBOS]
     queries: dict = {}
-    known: dict = {}
-    spellings: dict = {}
-    for side in SIDES:
+    known_bugs: dict = {}
+    syntaxes: dict = {}
+    for data_model in DATA_MODELS:
         for sp in [BASE] + chosen:
-            if not applicable(q, schema, sp, twins, side):
+            if not applicable(q, schema, sp, rewrites, data_model):
                 continue
-            name = side if sp == BASE else f"{side}:{sp.tag}"
-            queries[name] = render(q, schema, sp, twins, side)
-            spellings[name] = sp.tag or "base"
-            fid = select_known(q, sp, twins, side, schema, instance)
+            name = data_model if sp == BASE else f"{data_model}:{sp.tag}"
+            queries[name] = render(q, schema, sp, rewrites, data_model)
+            syntaxes[name] = sp.tag or "base"
+            fid = select_known(q, sp, rewrites, data_model, schema, instance)
             if fid:
-                known[name] = fid
+                known_bugs[name] = fid
     params = {
         "shape": shape_signature(q, schema),
         "coverage": coverage_signature(q),
         "select": q.to_params(),
         "reference": reference_ok(q, instance),
         "table": q.table,
-        "spellings": spellings,
+        "concrete_syntax": syntaxes,
     }
-    if set(base_sides(q)) != set(SIDES):
+    if set(base_data_models(q)) != set(DATA_MODELS):
         params["partial"] = True
     for name in ("rw", "rev", "arith"):
-        twin = getattr(twins, name)
-        if twin is not None:
-            params[name] = twin.to_dict()
-    if twins.door:
-        params["index_door"] = {side: d[2].name() for side, d in twins.door.items()}
-    return QueryCase("ir_select", q.table if q.edge else "", q.comparison, queries, bind, params, shape=params["shape"], known=known)
+        rewritten = getattr(rewrites, name)
+        if rewritten is not None:
+            params[name] = rewritten.to_dict()
+    if rewrites.door:
+        params["index_door"] = {data_model: d[2].name() for data_model, d in rewrites.door.items()}
+    return QueryCase("ir_select", q.table if q.edge else "", q.comparison, queries, bind, params, shape=params["shape"], known_bugs=known_bugs)
 
 
 def strata(schema: Schema, instance: Instance) -> list:
@@ -397,7 +397,7 @@ def strata(schema: Schema, instance: Instance) -> list:
     return out
 
 
-def ir_select_cases(rng: random.Random, schema: Schema, instance: Instance, per_instance: int = CASES_PER_INSTANCE) -> list:
+def generate_select_cases(rng: random.Random, schema: Schema, instance: Instance, per_instance: int = CASES_PER_INSTANCE) -> list:
     cases, seen = [], set()
     deck = strata(schema, instance)
     if not deck:
@@ -427,7 +427,7 @@ def ir_select_cases(rng: random.Random, schema: Schema, instance: Instance, per_
         if q is None:
             continue
         case = build_case(q, rng, schema, instance)
-        first = case.sides[0]
+        first = case.variants[0]
         key = (case.queries[first], repr(sorted(case.bind_vars.items(), key=lambda kv: kv[0])))
         if key in seen:
             continue

@@ -2,14 +2,14 @@
 
 An `Instance` is a small labelled property graph: typed node classes and typed edge
 (relationship) classes connecting them, plus concrete row/edge data, materialized three
-equivalent ways (`SIDES`: document, graph, relational).
+equivalent ways (`DATA_MODELS`: document, graph, relational).
 
 Third port of the Ganda model (SurrealDB, ArangoDB, now OrientDB); same class names,
-same churn ops, same `IndexSpec.side` idea, so the three fuzzers read side by side.
+same churn ops, same `IndexSpec.data_model` idea, so the three fuzzers read data model by data model.
 Nothing here is engine vocabulary except the VALUES of a few physical-design knobs --
 `IndexSpec.kind` / `ignore_nulls` / `by`, `Schema.id_index`, `NodeTypeSpec.clusters`,
 the `WriteForm` fields -- which this module carries without interpreting; their
-vocabulary and the engine facts behind every type are `ganda.orientdb.orient`'s.
+vocabulary and the engine facts behind every type are `ganda.orientdb.dialect`'s.
 """
 from __future__ import annotations
 
@@ -76,17 +76,17 @@ class FieldSpec:
 class IndexSpec:
     """A secondary index on node field `field` (plus `extra_fields`, a composite) of
     class `table` (or, with `target == "edge"`, on attribute `field` of edge type
-    `table`: the graph side's edge class and the relational side's junction table; the
-    doc side has none). `side` picks which materialization defines it: "doc", "graph",
-    "rel" or "both" (= every side). A one-sided index turns every identical-text case
+    `table`: the graph data model's edge class and the relational data model's junction table; the
+    doc data model has none). `data_model` picks which materialization defines it: "doc", "graph",
+    "rel" or "both" (= every data model). A one-sided index turns every identical-text case
     whose WHERE touches the field into an index-vs-scan oracle across two databases
     holding the same node data. `kind`, `ignore_nulls` (whether a record with a null
-    key gets an entry) and `by` (a map index's key or value side) are engine options
+    key gets an entry) and `by` (a map index's key or value data model) are engine options
     (`orient.INDEX_KINDS`)."""
 
     table: str
     field: str
-    side: str = "both"
+    data_model: str = "both"
     kind: str = "NOTUNIQUE"
     extra_fields: tuple = ()
     ignore_nulls: bool = True
@@ -98,10 +98,10 @@ class IndexSpec:
     def all_fields(self) -> tuple:
         return (self.field,) + tuple(self.extra_fields)
 
-    def applies_to(self, side: str) -> bool:
-        if self.target == "edge" and side == "doc":
+    def applies_to(self, data_model: str) -> bool:
+        if self.target == "edge" and data_model == "doc":
             return False
-        return self.side == "both" or self.side == side
+        return self.data_model == "both" or self.data_model == data_model
 
     def name(self) -> str:
         return f"ix_{self.table}_{'_'.join(self.all_fields)}" + (f"_by{self.by.lower()}" if self.by else "")
@@ -124,7 +124,7 @@ class EdgeTypeSpec:
     fields: tuple  # attributes attached to the relationship itself
 
 
-SIDES = ("doc", "graph", "rel")
+DATA_MODELS = ("doc", "graph", "rel")
 
 
 @dataclass(frozen=True)
@@ -132,8 +132,8 @@ class Schema:
     node_types: tuple
     edge_types: tuple
     indexes: tuple = ()
-    # side -> the kind of index on `id` (an engine option, `orient.ID_INDEX_KINDS`;
-    # "none": no index); a missing side means "UNIQUE".
+    # data model -> the kind of index on `id` (an engine option, `orient.ID_INDEX_KINDS`;
+    # "none": no index); a missing data model means "UNIQUE".
     id_index: dict = field(default_factory=dict)
     # The inheritance axis: an ABSTRACT base class every node class extends, declaring
     # `id` and `base.fields` (`b1`, ...), so a query on the base is polymorphic over
@@ -188,11 +188,11 @@ class Schema:
     def edge_types_to(self, node_type: str) -> list:
         return [et for et in self.edge_types if et.to_type == node_type]
 
-    def id_index_kind(self, side: str) -> str:
-        return self.id_index.get(side, "UNIQUE")
+    def id_index_kind(self, data_model: str) -> str:
+        return self.id_index.get(data_model, "UNIQUE")
 
-    def node_indexes(self, table: str, field_name: str, side: str) -> list:
-        """Every index on `side` whose LEAD field can serve a predicate on `field` of
+    def node_indexes(self, table: str, field_name: str, data_model: str) -> list:
+        """Every index on `data_model` whose LEAD field can serve a predicate on `field` of
         a query over `table` (a composite index serves its first field): the indexes on
         the table itself, those on the base class (which cover every subclass), and for
         a query on the base class those on any subclass (a query on the base is treated
@@ -203,12 +203,12 @@ class Schema:
                 tables |= {nt.name for nt in self.node_types}
             else:
                 tables.add(self.base.name)
-        return [ix for ix in self.indexes if ix.target == "node" and ix.table in tables and ix.field == field_name and ix.applies_to(side)]
+        return [ix for ix in self.indexes if ix.target == "node" and ix.table in tables and ix.field == field_name and ix.applies_to(data_model)]
 
-    def has_index(self, table: str, field_name: str, side: str) -> bool:
+    def has_index(self, table: str, field_name: str, data_model: str) -> bool:
         if field_name == "id":
-            return self.id_index_kind(side) != "none"
-        return bool(self.node_indexes(table, field_name, side))
+            return self.id_index_kind(data_model) != "none"
+        return bool(self.node_indexes(table, field_name, data_model))
 
 
 @dataclass(frozen=True)
@@ -241,7 +241,7 @@ class EdgeRow:
 
     @property
     def record_id(self) -> str:
-        """The edge's logical id, stored as `eid` on every side."""
+        """The edge's logical id, stored as `eid` on every data model."""
         return f"{self.type_name}/{self.key}"
 
 
@@ -265,8 +265,8 @@ class EdgeDelete:
 @dataclass(frozen=True)
 class EdgeUpdate:
     """The relationship was first written with `initial_values` and then updated to
-    its final `EdgeRow.values` -- the graph side's edge, the junction row, the doc
-    side's link list -- so an edge index is maintained through an update, not only a
+    its final `EdgeRow.values` -- the graph data model's edge, the junction row, the doc
+    data model's link list -- so an edge index is maintained through an update, not only a
     create."""
 
     edge: EdgeRow
@@ -277,8 +277,8 @@ class EdgeUpdate:
 class NodeDelete:
     """The node was written (with its incident edges) and then deleted; neither it nor
     its incident edges are in `Instance.nodes`/`Instance.edges`. The cascade differs per
-    representation: the vertex delete cascades natively on the graph side, the doc side
-    rewrites the link lists that pointed at the node, the relational side removes the
+    representation: the vertex delete cascades natively on the graph data model, the doc data model
+    rewrites the link lists that pointed at the node, the relational data model removes the
     junction rows."""
 
     node: NodeRow
@@ -287,7 +287,7 @@ class NodeDelete:
 
 @dataclass(frozen=True)
 class WriteForm:
-    """How one side's setup script spells its steps: every combination reaches a
+    """How one side's setup script renders its steps: every combination reaches a
     different engine write path while the final state stays the same. The fields'
     vocabulary is the engine's (`orient`'s write forms)."""
 
@@ -313,8 +313,8 @@ class Instance:
     graph_write_form: WriteForm = PLAIN_WRITE_FORM
     rel_write_form: WriteForm = PLAIN_WRITE_FORM
 
-    def write_form(self, side: str) -> WriteForm:
-        return {"doc": self.doc_write_form, "graph": self.graph_write_form, "rel": self.rel_write_form}[side]
+    def write_form(self, data_model: str) -> WriteForm:
+        return {"doc": self.doc_write_form, "graph": self.graph_write_form, "rel": self.rel_write_form}[data_model]
 
     def nodes_of(self, type_name: str) -> list:
         if self.schema.is_base(type_name):
@@ -354,7 +354,7 @@ class Instance:
 
 def hashable_value(v: Any):
     """A hashable stand-in for a JSON value, for dict keys and Counters. It does NOT
-    collapse `1.0` onto `1`: every column has one declared type on every side, so an
+    collapse `1.0` onto `1`: every column has one declared type on every data model, so an
     integer and a float answer for the same expression is a divergence, not a wire
     artifact."""
     if isinstance(v, bool):

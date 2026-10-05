@@ -5,7 +5,7 @@ answer."""
 
 import random
 
-from ganda.orientdb.guards import (
+from ganda.orientdb.known_bugs import (
     map_value_index_known,
     o5_poly_sibling_index,
     o5_sibling_filter,
@@ -16,11 +16,11 @@ from ganda.orientdb.guards import (
 )
 from ganda.orientdb.java_hash import distinct_collides, java_hash, string_hash
 from ganda.orientdb.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
-from ganda.orientdb.queries.ir import Hop, TraversalQuery
+from ganda.orientdb.queries.traversal_ast import Hop, TraversalQuery
 from ganda.orientdb.queries.predicates import Compound, Predicate, arithmetic
-from ganda.orientdb.reference import like_hit
+from ganda.orientdb.semantics import like_hit
 
-# the 66 LONG values the live minimizer kept: DISTINCT over them answers a duplicate,
+# the 66 LONG values the live reducer kept: DISTINCT over them answers a duplicate,
 # over any 65 of them it does not
 DISTINCT_REPRO = [-290, None, 2**63 - 1, None, -(2**63), -364, -642, -122, -364, None, 794, 2**63 - 1, -874, -33, 492, -987, 592, 772, -(2**31), 484, 957, -903, 40, 2**53 + 1, 7, -482, -(2**62), -749, 2**53 + 1, None, -820, None, 568, None, 274, None, 703, 2**31, None, -693, 2**31 - 1, -51, -564, 1, 714, 2**63 - 1, -893, 304, -(2**31), None, -700, 603, -642, 939, 794, -33, None, 2**53, -745, 496, None, -894, 609, -291, -1, 0]
 
@@ -94,11 +94,11 @@ def test_o5_sibling_faces():
     assert not o5_sibling_filter(_inheritance_schema([]), "n1", tree, "doc")
     # a sibling's LIST index on the same-named field converts a date pivot
     eq = Predicate("source", "f2", "=", "p", "2024-08-18 08:18:40", ftype="datetime")
-    both = [IndexSpec("n1", "f2", side="graph"), IndexSpec("n2", "f2", side="graph")]
+    both = [IndexSpec("n1", "f2", data_model="graph"), IndexSpec("n2", "f2", data_model="graph")]
     assert o5_poly_sibling_index(_inheritance_schema(both), "n1", eq, "graph")
     assert not o5_poly_sibling_index(_inheritance_schema(both), "n1", eq, "doc")
     # probed: the sibling's index alone, or a range, answers
-    assert not o5_poly_sibling_index(_inheritance_schema([IndexSpec("n2", "f2", side="graph")]), "n1", eq, "graph")
+    assert not o5_poly_sibling_index(_inheritance_schema([IndexSpec("n2", "f2", data_model="graph")]), "n1", eq, "graph")
     assert not o5_poly_sibling_index(_inheritance_schema(both), "n1", Predicate("source", "f2", ">", "p", "2024-08-18 08:18:40", ftype="datetime"), "graph")
     # CONTAINSVALUE through a BY VALUE hash or dictionary map index: a 501
     cv = Predicate("source", "m", "CONTAINSVALUE", "p", 2**31, ftype="map")

@@ -1,4 +1,4 @@
-"""Finding quarantine (the G2 rule): bug frequency is a power law, so one defect
+"""Finding deduplication (the G2 rule): bug frequency is a power law, so one defect
 re-found on every instance would bury a second one. A finding is keyed by
 `(template, shape, failing pairs, class)`; the first occurrence of a key is bundled,
 later ones are counted. The key deliberately keeps the *pair set* and the *shape* so a
@@ -10,7 +10,7 @@ import threading
 from collections import Counter
 
 
-class Quarantine:
+class BugDeduplicator:
     def __init__(self):
         self._seen: Counter = Counter()
         self._lock = threading.Lock()
@@ -20,14 +20,14 @@ class Quarantine:
         cls = result.finding_class or "ok"
         pairs = tuple(result.failing_pairs)
         if cls == "reference_mismatch":
-            pairs = tuple(sorted({m.side for m in result.reference_mismatches}))
+            pairs = tuple(sorted({m.data_model for m in result.reference_mismatches}))
         elif cls == "error_asymmetry":
-            pairs = tuple(sorted(s for s in result.sides if result.errors.get(s)))
+            pairs = tuple(sorted(s for s in result.variants if result.errors.get(s)))
         elif cls == "internal_error":
             pairs = tuple(sorted(s for s, i in result.internal.items() if i))
         elif cls == "duplicate_id_rows":
-            pairs = tuple(sorted({d.side for d in result.duplicate_id_rows}))
-        return (result.case.template_name, result.case.shape, pairs, cls)
+            pairs = tuple(sorted({d.data_model for d in result.duplicate_id_rows}))
+        return (result.case.generator_name, result.case.shape, pairs, cls)
 
     def admit(self, result) -> "tuple[bool, int]":
         """(first time seen, times seen so far including this one)."""

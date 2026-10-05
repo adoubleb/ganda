@@ -1,8 +1,8 @@
 import dataclasses
 
-from ganda.orientdb.generator import GeneratorConfig, build, initial_node_values, write_order_states
+from ganda.orientdb.data_generator import GeneratorConfig, build, initial_node_values, write_order_states
 from ganda.orientdb.model import FieldType, NodeDelete, NodeUpdate
-from ganda.orientdb.orient import is_valid_key
+from ganda.orientdb.dialect import is_valid_key
 
 
 def test_build_is_deterministic():
@@ -115,24 +115,24 @@ def test_inheritance_axis_is_a_tail_axis():
     assert schema.base in schema.query_tables()
     for ix in schema.indexes:
         if ix.table == schema.base.name:
-            assert schema.node_indexes("n1", ix.field, ix.side if ix.side != "both" else "doc")
-            assert schema.node_indexes(schema.base.name, ix.field, ix.side if ix.side != "both" else "doc")
+            assert schema.node_indexes("n1", ix.field, ix.data_model if ix.data_model != "both" else "doc")
+            assert schema.node_indexes(schema.base.name, ix.field, ix.data_model if ix.data_model != "both" else "doc")
 
 
 def test_inheritance_ddl_and_cases():
-    from ganda.orientdb.materialize import BUILDERS
-    from ganda.orientdb.queries.templates import all_cases, reference_for
+    from ganda.orientdb.mapping import MAPPERS
+    from ganda.orientdb.queries.registry import all_cases, reference_for
 
     found_poly = False
     for seed in range(1, 12):
         schema, inst, rng = build(seed, GeneratorConfig(inheritance_probability=1.0))
-        for side, builder in BUILDERS.items():
-            plan = builder(inst)
+        for data_model, mapper in MAPPERS.items():
+            plan = mapper(inst)
             texts = [s.command for s in plan if hasattr(s, "command")]
             assert any(t.startswith("CREATE CLASS N0") and t.endswith("ABSTRACT") for t in texts)
             assert all(f"EXTENDS N0" in t for t in texts if t.startswith("CREATE CLASS n"))
             assert not any(t.startswith("CREATE PROPERTY n") and t.endswith(".id STRING") for t in texts)
-        for c in all_cases(rng, schema, inst, ir_cases=0, select_cases=30):
+        for c in all_cases(rng, schema, inst, traversal_cases=0, select_cases=30):
             has, ref = reference_for(c, inst)
             assert has or c.params.get("reference") is False
             if c.params.get("table") == "N0":
@@ -172,8 +172,8 @@ def test_new_axes_are_tail_axes():
             elif f.type is FieldType.DECIMAL:
                 assert float(Decimal(repr(v))) == v and repr(v) != "-0.0"
     assert any(isinstance(op, EdgeUpdate) for op in tail.churn)
-    for side in ("doc", "graph", "rel"):
-        form = tail.write_form(side)
+    for data_model in ("doc", "graph", "rel"):
+        form = tail.write_form(data_model)
         assert form.edge_update_form in ("set", "merge", "content")
     # the untouched fields keep their values
     for a, b in zip(base.nodes, tail.nodes):
@@ -184,25 +184,25 @@ def test_new_axes_are_tail_axes():
 
 
 def test_new_axes_ddl_and_churn():
-    from ganda.orientdb.materialize import BUILDERS
+    from ganda.orientdb.mapping import MAPPERS
 
     schema, inst, _ = build(32, GeneratorConfig(narrow_type_probability=1.0, collate_probability=1.0, clusters_probability=1.0, churn_edge_update_probability=0.5, write_form_probability=0.0))
-    for side, builder in BUILDERS.items():
-        texts = [s.command for s in builder(inst) if hasattr(s, "command")]
+    for data_model, mapper in MAPPERS.items():
+        texts = [s.command for s in mapper(inst) if hasattr(s, "command")]
         assert any("CLUSTERS" in t for t in texts if t.startswith("CREATE CLASS n"))
         assert any(t.startswith("ALTER PROPERTY") and t.endswith("COLLATE ci") for t in texts)
         assert any(" INTEGER" in t or " FLOAT" in t or " DECIMAL" in t for t in texts if t.startswith("CREATE PROPERTY"))
-        if side == "graph":
+        if data_model == "graph":
             assert any(t.startswith("UPDATE EDGE") for t in texts)
-        elif side == "rel":
+        elif data_model == "rel":
             assert any(t.startswith("UPDATE e") and "WHERE eid = :k" in t for t in texts)
 
 
 def test_date_and_map_axes():
     import datetime as _dt
 
-    from ganda.orientdb.materialize import BUILDERS
-    from ganda.orientdb.queries.templates import all_cases, reference_for
+    from ganda.orientdb.mapping import MAPPERS
+    from ganda.orientdb.queries.registry import all_cases, reference_for
 
     base = build(41, GeneratorConfig())[1]
     tail = build(41, GeneratorConfig(date_map_probability=1.0, list_index_probability=1.0))[1]
@@ -223,19 +223,19 @@ def test_date_and_map_axes():
     mapped = next(build(seed, GeneratorConfig(date_map_probability=1.0, list_index_probability=1.0))[1] for seed in range(41, 80) if any(f.type is FieldType.LIST for nt in build(seed, GeneratorConfig())[0].node_types for f in nt.fields))
     assert any(ix.by in ("KEY", "VALUE") for ix in mapped.schema.indexes)
     ddl = []
-    for side, builder in BUILDERS.items():
-        texts = [s.command for s in builder(tail) if hasattr(s, "command")]
+    for data_model, mapper in MAPPERS.items():
+        texts = [s.command for s in mapper(tail) if hasattr(s, "command")]
         assert any(" DATETIME" in t or " DATE" in t for t in texts if t.startswith("CREATE PROPERTY"))
-        texts = [s.command for s in builder(mapped) if hasattr(s, "command")]
+        texts = [s.command for s in mapper(mapped) if hasattr(s, "command")]
         assert any("EMBEDDEDMAP LONG" in t for t in texts)
         ddl += texts
-    # the map index sits on the side(s) its spec names
+    # the map index sits on the data model(s) its spec names
     assert any(" BY KEY)" in t or " BY VALUE)" in t for t in ddl if t.startswith("CREATE INDEX"))
     seen = set()
     for seed in range(41, 47):
         schema, inst, rng = build(seed, GeneratorConfig(date_map_probability=0.7, list_index_probability=1.0, index_probability=0.6, inheritance_probability=0.5))
         for c in all_cases(rng, schema, inst, select_cases=30):
             has, ref = reference_for(c, inst)
-            assert has or c.params.get("reference") is False, c.template_name
+            assert has or c.params.get("reference") is False, c.generator_name
             seen |= {s_.split(":", 1)[1] for s_ in c.queries if ":" in s_}
     assert {"index", "poly", "polyin"} <= seen

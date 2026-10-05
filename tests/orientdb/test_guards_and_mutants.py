@@ -1,10 +1,10 @@
-from ganda.orientdb.generator import GeneratorConfig, build
-from ganda.orientdb.guards import o1_shape, o2_shape
+from ganda.orientdb.data_generator import GeneratorConfig, build
+from ganda.orientdb.known_bugs import o1_shape, o2_shape
 from ganda.orientdb.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeTypeSpec, Schema
 from ganda.orientdb.mutants import MUTANTS
-from ganda.orientdb.queries.ir import Hop, TraversalQuery
+from ganda.orientdb.queries.traversal_ast import Hop, TraversalQuery
 from ganda.orientdb.queries.predicates import Predicate
-from ganda.orientdb.queries.templates import all_cases
+from ganda.orientdb.queries.registry import all_cases
 
 
 def _schema(indexes=()):
@@ -18,10 +18,10 @@ def _schema(indexes=()):
 def test_o1_shape_is_correlated_plus_indexed_source_predicate():
     sp = Predicate("source", "f1", ">", "p0", 0)
     q = TraversalQuery("n1", (Hop("e1", "out"),), "ids", None, sp)
-    assert o1_shape(q, _schema([IndexSpec("n1", "f1", side="rel")]), "rel", "let")
-    assert not o1_shape(q, _schema([IndexSpec("n1", "f1", side="doc")]), "rel", "let")
-    assert not o1_shape(q, _schema([IndexSpec("n1", "f1", side="rel")]), "graph", "chain")
-    assert not o1_shape(TraversalQuery("n1", (Hop("e1", "out"),), "ids"), _schema([IndexSpec("n1", "f1", side="rel")]), "rel", "let")
+    assert o1_shape(q, _schema([IndexSpec("n1", "f1", data_model="rel")]), "rel", "let")
+    assert not o1_shape(q, _schema([IndexSpec("n1", "f1", data_model="doc")]), "rel", "let")
+    assert not o1_shape(q, _schema([IndexSpec("n1", "f1", data_model="rel")]), "graph", "chain")
+    assert not o1_shape(TraversalQuery("n1", (Hop("e1", "out"),), "ids"), _schema([IndexSpec("n1", "f1", data_model="rel")]), "rel", "let")
     # flat: an IN-subquery predicate on the FK next to a correlated LET
     assert o1_shape(TraversalQuery("n1", (Hop("e1", "out"),), "field", "f1", sp), _schema(), "rel", "flat")
     assert not o1_shape(TraversalQuery("n1", (Hop("e1", "out"),), "ids", None, sp), _schema(), "rel", "flat")
@@ -30,14 +30,14 @@ def test_o1_shape_is_correlated_plus_indexed_source_predicate():
 def test_o2_shape_is_correlated_plus_indexed_second_predicate():
     tp = Predicate("target", "f1", ">", "p1", 0)
     q = TraversalQuery("n1", (Hop("e1", "out", tp),), "ids")
-    assert o2_shape(q, _schema([IndexSpec("n1", "f1", side="both")]), "rel", "let")
+    assert o2_shape(q, _schema([IndexSpec("n1", "f1", data_model="both")]), "rel", "let")
     assert not o2_shape(q, _schema(), "rel", "let")
     ep = Predicate("edge", "w", "=", "p1", 0)
     q = TraversalQuery("n1", (Hop("e1", "out", ep),), "ids")
-    assert o2_shape(q, _schema([IndexSpec("e1", "w", side="rel", target="edge")]), "rel", "let")
-    assert not o2_shape(q, _schema([IndexSpec("e1", "w", side="graph", target="edge")]), "rel", "let")
+    assert o2_shape(q, _schema([IndexSpec("e1", "w", data_model="rel", target="edge")]), "rel", "let")
+    assert not o2_shape(q, _schema([IndexSpec("e1", "w", data_model="graph", target="edge")]), "rel", "let")
     null = Predicate("target", "f1", "IS NULL", "", None)
-    assert o2_shape(TraversalQuery("n1", (Hop("e1", "out", null),), "ids"), _schema([IndexSpec("n1", "f1", side="both")]), "rel", "let")
+    assert o2_shape(TraversalQuery("n1", (Hop("e1", "out", null),), "ids"), _schema([IndexSpec("n1", "f1", data_model="both")]), "rel", "let")
 
 
 def test_known_sides_are_marked_on_generated_cases():
@@ -45,16 +45,16 @@ def test_known_sides_are_marked_on_generated_cases():
     for seed in range(1, 40):
         schema, inst, rng = build(seed, GeneratorConfig(index_probability=0.9))
         for c in all_cases(rng, schema, inst):
-            marked += len(c.known)
-            for side in c.known:
-                assert side in c.queries
+            marked += len(c.known_bugs)
+            for data_model in c.known_bugs:
+                assert data_model in c.queries
     assert marked > 0
 
 
 def test_mutants_change_something():
     schema, inst, _ = build(2, GeneratorConfig(churn_update_probability=0.5, churn_delete_probability=0.4, churn_node_delete_probability=0.4, churn_edge_update_probability=0.5))
     for m in MUTANTS:
-        for side, fn in m.instance_for_side.items():
+        for data_model, fn in m.instance_for_data_model.items():
             out = fn(inst)
             changed = out.edges != inst.edges or out.nodes != inst.nodes or out.churn != inst.churn
             assert changed, m.name
@@ -63,21 +63,21 @@ def test_mutants_change_something():
 
 
 def test_every_read_ir_emits_and_references():
-    from ganda.orientdb.queries.templates import reference_for
+    from ganda.orientdb.queries.registry import reference_for
 
     schema, inst, rng = build(4, GeneratorConfig())
     cases = all_cases(rng, schema, inst, select_cases=30, path_cases=3)
-    assert {c.template_name for c in cases} == {"ir_traversal", "ir_select", "ir_path"}
+    assert {c.generator_name for c in cases} == {"ir_traversal", "ir_select", "ir_path"}
     for c in cases:
         has, ref = reference_for(c, inst)
         assert has
 
 
 def test_guards_see_leaves_inside_compounds():
-    from ganda.orientdb.guards import node_case_known, o10_predicate, o12_literal
+    from ganda.orientdb.known_bugs import node_case_known, o10_predicate, o12_literal
     from ganda.orientdb.queries.predicates import Compound
 
-    schema = _schema([IndexSpec("n1", "f1", side="rel")])
+    schema = _schema([IndexSpec("n1", "f1", data_model="rel")])
     inner = Predicate("target", "f1", ">", "p1_0", 0)
     tp = Compound("target", "OR", (Predicate("target", "f1", "IS NULL", "", None), inner))
     q = TraversalQuery("n1", (Hop("e1", "out", tp),), "ids")
@@ -91,23 +91,23 @@ def test_guards_see_leaves_inside_compounds():
 
 
 def test_hoisted_sides_are_judged_without_the_source_predicate():
-    from ganda.orientdb.guards import known_findings
-    from ganda.orientdb.queries.base import Comparison, QueryCase
+    from ganda.orientdb.known_bugs import mark_known_bugs
+    from ganda.orientdb.queries.case import Comparison, QueryCase
 
-    schema = _schema([IndexSpec("n1", "f1", side="rel")])
+    schema = _schema([IndexSpec("n1", "f1", data_model="rel")])
     sp = Predicate("source", "f1", ">", "p0", 0)
     q = TraversalQuery("n1", (Hop("e1", "out"),), "ids", None, sp)
-    case = QueryCase("ir_traversal", "e1", Comparison.MULTISET_BY_ID, {"doc": "d", "graph": "g", "rel": "r", "rel:hoist": "h"}, params={"spellings": {"doc": "path", "graph": "chain", "rel": "let", "rel:hoist": "let"}, "hoisted": ["rel:hoist"]})
+    case = QueryCase("ir_traversal", "e1", Comparison.MULTISET_BY_ID, {"doc": "d", "graph": "g", "rel": "r", "rel:pull_up": "h"}, params={"concrete_syntax": {"doc": "path", "graph": "chain", "rel": "let", "rel:pull_up": "let"}, "pulled_up": ["rel:pull_up"]})
     inst = build(3, GeneratorConfig())[1]
-    out = known_findings(case, q, schema, inst)
-    assert out.known == {"rel": "O1"}
+    out = mark_known_bugs(case, q, schema, inst)
+    assert out.known_bugs == {"rel": "O1"}
 
 
 def test_cross_type_guards_o16_o17():
-    from ganda.orientdb.guards import edge_case_known, node_case_known, o16_predicate, o17_predicate
+    from ganda.orientdb.known_bugs import edge_case_known, node_case_known, o16_predicate, o17_predicate
 
     inst = build(3, GeneratorConfig())[1]
-    schema = _schema([IndexSpec("n1", "f1", side="rel", kind="NOTUNIQUE_HASH_INDEX"), IndexSpec("n1", "f1", side="doc", kind="NOTUNIQUE")])
+    schema = _schema([IndexSpec("n1", "f1", data_model="rel", kind="NOTUNIQUE_HASH_INDEX"), IndexSpec("n1", "f1", data_model="doc", kind="NOTUNIQUE")])
     eq = Predicate("source", "f1", "=", "p", 5.5)
     lt = Predicate("source", "f1", "<", "p", 5.5)
     assert o16_predicate(schema, "n1", eq, "rel") and o16_predicate(schema, "n1", eq, "doc") and not o16_predicate(schema, "n1", eq, "graph")
@@ -119,15 +119,15 @@ def test_cross_type_guards_o16_o17():
     assert node_case_known("n1", bt, schema, inst) == {"doc": "O17", "graph": "O17", "rel": "O17"}
     ebt = Predicate("edge", "w", "BETWEEN", "p", [0.5, 5])
     assert edge_case_known("e1", ebt, schema, inst) == {"doc": "O17", "graph": "O17", "rel": "O17"}
-    assert edge_case_known("e1", Predicate("edge", "w", "=", "p", 5.5), _schema([IndexSpec("e1", "w", side="graph", target="edge")]), inst) == {"graph": "O16"}
+    assert edge_case_known("e1", Predicate("edge", "w", "=", "p", 5.5), _schema([IndexSpec("e1", "w", data_model="graph", target="edge")]), inst) == {"graph": "O16"}
 
 
 def test_o18_withholds_the_desc_order_side_under_an_index_that_ignores_nulls():
-    from ganda.orientdb.guards import select_shape_known
-    from ganda.orientdb.queries.select_ir import SelectQuery
-    from ganda.orientdb.queries.select_spellings import Spelling
+    from ganda.orientdb.known_bugs import select_shape_known
+    from ganda.orientdb.queries.select_ast import SelectQuery
+    from ganda.orientdb.queries.select_syntax import SelectSyntax
 
-    order = Spelling(form="order")
+    order = SelectSyntax(form="order")
     found = {"O18": 0, "plain": 0}
     for seed in range(1, 60):
         schema, inst, _ = build(seed, GeneratorConfig(index_probability=0.9))
@@ -137,9 +137,9 @@ def test_o18_withholds_the_desc_order_side_under_an_index_that_ignores_nulls():
                     continue
                 q = SelectQuery(nt.name, None, "agg", (f.name,), fn="max")
                 present = [n.values[f.name] for n in inst.nodes_of(nt.name) if n.values.get(f.name) is not None]
-                for side in ("doc", "graph", "rel"):
-                    ignoring = any(ix.kind in ("NOTUNIQUE", "UNIQUE", "DICTIONARY") and ix.ignore_nulls for ix in schema.node_indexes(nt.name, f.name, side))
-                    fid = select_shape_known(q, order, side, schema, inst, present)
+                for data_model in ("doc", "graph", "rel"):
+                    ignoring = any(ix.kind in ("NOTUNIQUE", "UNIQUE", "DICTIONARY") and ix.ignore_nulls for ix in schema.node_indexes(nt.name, f.name, data_model))
+                    fid = select_shape_known(q, order, data_model, schema, inst, present)
                     if ignoring:
                         assert fid == "O18"
                         found["O18"] += 1
@@ -150,14 +150,14 @@ def test_o18_withholds_the_desc_order_side_under_an_index_that_ignores_nulls():
 
 
 def test_new_type_and_collation_guards():
-    from ganda.orientdb.guards import node_case_known, o11_predicate, o16_predicate, o17_predicate, o20_predicate, o21_predicate, ordered_keys_known
+    from ganda.orientdb.known_bugs import node_case_known, o11_predicate, o16_predicate, o17_predicate, o20_predicate, o21_predicate, ordered_keys_known
     from ganda.orientdb.queries.predicates import Compound
 
     inst = build(3, GeneratorConfig())[1]
     schema = Schema(
         node_types=(NodeTypeSpec("n1", (FieldSpec("i", FieldType.INT32), FieldSpec("f", FieldType.FLOAT32), FieldSpec("d", FieldType.DECIMAL), FieldSpec("s", FieldType.STRING, collate="ci"), FieldSpec("g", FieldType.INT))),),
         edge_types=(EdgeTypeSpec("e1", "n1", "n1", ()),),
-        indexes=(IndexSpec("n1", "i", side="rel"), IndexSpec("n1", "f", side="doc", kind="NOTUNIQUE_HASH_INDEX"), IndexSpec("n1", "d", side="graph"), IndexSpec("n1", "s", side="rel"), IndexSpec("n1", "s", side="doc", kind="NOTUNIQUE_HASH_INDEX")),
+        indexes=(IndexSpec("n1", "i", data_model="rel"), IndexSpec("n1", "f", data_model="doc", kind="NOTUNIQUE_HASH_INDEX"), IndexSpec("n1", "d", data_model="graph"), IndexSpec("n1", "s", data_model="rel"), IndexSpec("n1", "s", data_model="doc", kind="NOTUNIQUE_HASH_INDEX")),
     )
     # O16: a Long that wraps on an INTEGER index, a double that rounds on a FLOAT index
     assert o16_predicate(schema, "n1", Predicate("source", "i", "=", "p", 2**32 + 5), "rel") and not o16_predicate(schema, "n1", Predicate("source", "i", "=", "p", 5), "rel")
@@ -177,7 +177,7 @@ def test_new_type_and_collation_guards():
     assert node_case_known("n1", Predicate("source", "s", "IN", "p", ["a"]), schema, inst) == {"doc": "O21", "rel": "O21"}
     # O11: `<` on the second field of a composite index next to an equality on its lead
     inst2 = build(3, GeneratorConfig())[1]
-    comp = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f2", FieldType.INT))),), edge_types=(), indexes=(IndexSpec("n1", "f1", extra_fields=("f2",), side="both"),))
+    comp = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f2", FieldType.INT))),), edge_types=(), indexes=(IndexSpec("n1", "f1", extra_fields=("f2",), data_model="both"),))
     from ganda.orientdb.model import NodeRow
 
     rows = Instance(comp, [NodeRow("n1", 0, {"f1": 1}), NodeRow("n1", 1, {"f1": 1, "f2": 0})], [])
@@ -188,15 +188,15 @@ def test_new_type_and_collation_guards():
     assert ordered_keys_known(comp, rows, "n1", ["f1", "f2"], ["ASC", "ASC"], "doc") == "O18"
     assert ordered_keys_known(comp, rows, "n1", ["f1"], ["DESC"], "doc") == "O18"
     assert ordered_keys_known(comp, rows, "n1", ["f1", "f2"], ["ASC", "DESC"], "doc") is None
-    keep = Schema(node_types=comp.node_types, edge_types=(), indexes=(IndexSpec("n1", "f1", extra_fields=("f2",), side="both", ignore_nulls=False),))
+    keep = Schema(node_types=comp.node_types, edge_types=(), indexes=(IndexSpec("n1", "f1", extra_fields=("f2",), data_model="both", ignore_nulls=False),))
     assert ordered_keys_known(keep, rows, "n1", ["f1", "f2"], ["ASC", "ASC"], "doc") == "O23"
     assert ordered_keys_known(keep, rows, "n1", ["f2"], ["ASC"], "doc") is None
-    single = Schema(node_types=comp.node_types, edge_types=(), indexes=(IndexSpec("n1", "f1", side="both", ignore_nulls=False),))
+    single = Schema(node_types=comp.node_types, edge_types=(), indexes=(IndexSpec("n1", "f1", data_model="both", ignore_nulls=False),))
     assert ordered_keys_known(single, rows, "n1", ["f1"], ["ASC"], "doc") is None
 
 
 def test_o25_withholds_bracket_spellings_on_ci_targets():
-    from ganda.orientdb.guards import o25_shape
+    from ganda.orientdb.known_bugs import o25_shape
 
     schema = Schema(
         node_types=(NodeTypeSpec("n1", (FieldSpec("s", FieldType.STRING, collate="ci"),)),),
@@ -213,13 +213,13 @@ def test_o25_withholds_bracket_spellings_on_ci_targets():
 
 
 def test_o36_between_on_a_composite_lead_next_to_a_later_field():
-    from ganda.orientdb.guards import o36_predicate
+    from ganda.orientdb.known_bugs import o36_predicate
     from ganda.orientdb.queries.predicates import Compound
 
     schema = Schema(
         node_types=(NodeTypeSpec("n1", (FieldSpec("f", FieldType.INT), FieldSpec("g", FieldType.INT), FieldSpec("h", FieldType.INT))),),
         edge_types=(),
-        indexes=(IndexSpec("n1", "f", side="rel", kind="NOTUNIQUE", extra_fields=("g",)), IndexSpec("n1", "h", side="graph", kind="NOTUNIQUE_HASH_INDEX", extra_fields=("g",))),
+        indexes=(IndexSpec("n1", "f", data_model="rel", kind="NOTUNIQUE", extra_fields=("g",)), IndexSpec("n1", "h", data_model="graph", kind="NOTUNIQUE_HASH_INDEX", extra_fields=("g",))),
     )
     between = Predicate("source", "f", "BETWEEN", "p", [1, 3], ftype="int")
     later = Predicate("source", "g", ">=", "q", 20, ftype="int")
@@ -229,6 +229,6 @@ def test_o36_between_on_a_composite_lead_next_to_a_later_field():
     assert not o36_predicate(schema, "n1", between, "rel")  # the lead alone
     assert not o36_predicate(schema, "n1", Compound("source", "OR", (between, later)), "rel")  # not conjuncts
     ge = Compound("source", "AND", (Predicate("source", "f", ">=", "a", 1, ftype="int"), Predicate("source", "f", "<=", "b", 3, ftype="int"), later))
-    assert not o36_predicate(schema, "n1", ge, "rel")  # the same range spelled >= / <=
+    assert not o36_predicate(schema, "n1", ge, "rel")  # the same range rendered >= / <=
     hb = Compound("source", "AND", (Predicate("source", "h", "BETWEEN", "p", [1, 3], ftype="int"), later))
     assert not o36_predicate(schema, "n1", hb, "graph")  # a hash composite does not serve the range

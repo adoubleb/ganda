@@ -1,4 +1,4 @@
-"""The building blocks of the SELECT and PATH IRs: a predicate's literal spelling,
+"""The building blocks of the SELECT and PATH IRs: a predicate's literal concrete syntax,
 the AND over a composite index's fields, the `index:` door, the method catalog with
 its Python mirrors, the per-key sort key, the transaction door's rows and the BFS
 distances."""
@@ -7,10 +7,10 @@ from __future__ import annotations
 import dataclasses
 
 from ganda.orientdb.model import FieldType, Instance, NodeRow, Schema
-from ganda.orientdb.orient import HASH_KINDS, UNIQUE_KINDS
+from ganda.orientdb.dialect import HASH_KINDS, UNIQUE_KINDS
 from ganda.orientdb.queries import predicates
 from ganda.orientdb.queries.predicates import Compound, Predicate
-from ganda.orientdb.reference import decimal_of, orient_key
+from ganda.orientdb.semantics import decimal_of, orient_key
 
 
 def _hits(instance: Instance, table: str, p) -> list:
@@ -56,19 +56,19 @@ def composite_and(rng, fields, values_of) -> "Compound | None":
 
 
 # The findings a class SCAN shares with every other path of the same question --
-# the ones a reversed (`:p > f`) or arithmetic (`f + :c > :p`) spelling inherits
+# the ones a reversed (`:p > f`) or arithmetic (`f + :c > :p`) concrete syntax inherits
 # from the plain predicate (the index-served ones it does not: it is never served).
 SCAN_SIDE_FINDINGS = ("O7", "O17", "O27", "O32")
 
 
-def index_door(p, table: str, schema: Schema, side: str) -> "tuple[str, dict, object] | None":
+def index_door(p, table: str, schema: Schema, data_model: str) -> "tuple[str, dict, object] | None":
     """`SELECT rid.id AS id FROM index:<name> WHERE key ...` for a leaf `=` / `IN` /
-    `BETWEEN` on a field the table itself indexes on `side` (a base-class index
+    `BETWEEN` on a field the table itself indexes on `data_model` (a base-class index
     covers other classes and the door cannot filter by class, probed), or `key =
     [a, b]` for an AND of equalities over a composite index's fields (a prefix of
     them too). A range through the door is O3's ClassCastException, a BETWEEN through
     a hash index an O5 501: neither is emitted."""
-    own = [ix for ix in schema.indexes if ix.target == "node" and ix.table == table and ix.applies_to(side) and ix.by is None]
+    own = [ix for ix in schema.indexes if ix.target == "node" and ix.table == table and ix.applies_to(data_model) and ix.by is None]
     if isinstance(p, Predicate):
         if p.key is not None or p.op not in ("=", "IN", "BETWEEN") or p.ftype in ("list", "map"):
             return None
@@ -301,18 +301,18 @@ def method_fn(template: str, ftype: FieldType):
 TX_WRITES = ("update", "update", "insert", "delete")
 
 
-def _unique_on_any_side(schema: Schema, table: str, field_name: str) -> bool:
-    return any(ix.kind in UNIQUE_KINDS for side in ("doc", "graph", "rel") for ix in schema.node_indexes(table, field_name, side))
+def _unique_on_any_data_model(schema: Schema, table: str, field_name: str) -> bool:
+    return any(ix.kind in UNIQUE_KINDS for data_model in ("doc", "graph", "rel") for ix in schema.node_indexes(table, field_name, data_model))
 
 
 def draw_tx(rng, schema: Schema, instance: Instance, table: str, where) -> "dict | None":
     """One write for the transaction door (`SelectQuery.tx`): a record of `table` updated
     (a field set -- most often one the filter reads -- set to null, or removed),
     inserted with one field, or deleted. A value reused from another record is never
-    written to a column a UNIQUE index of any side covers (a duplicate key inside
+    written to a column a UNIQUE index of any data model covers (a duplicate key inside
     the transaction raises nothing before COMMIT, and the unique lookup answers one
     of the two)."""
-    from ganda.orientdb.generator import random_value
+    from ganda.orientdb.data_generator import random_value
 
     fields = schema.query_fields(table)
     rows = instance.nodes_of(table)
@@ -327,7 +327,7 @@ def draw_tx(rng, schema: Schema, instance: Instance, table: str, where) -> "dict
         return tx
     roll = rng.random()
     present = [n.values.get(f.name) for n in rows if n.values.get(f.name) is not None]
-    unique = _unique_on_any_side(schema, table, f.name)
+    unique = _unique_on_any_data_model(schema, table, f.name)
     if write == "update" and roll < 0.15:
         tx["remove"] = True
     elif write == "update" and roll < 0.25:
@@ -354,14 +354,14 @@ def tx_binds(tx: dict) -> dict:
     return {"tid": tx["tid"]} if tx["write"] == "delete" else {"tid": tx["tid"], "tv": tx["tv"]}
 
 
-def tx_write(tx: dict, side: str) -> str:
-    """The write's text on `side`: a vertex is created and deleted through `CREATE
+def tx_write(tx: dict, data_model: str) -> str:
+    """The write's text on `data_model`: a vertex is created and deleted through `CREATE
     VERTEX` / `DELETE VERTEX` (a `DELETE FROM` a vertex class is refused)."""
     t, f = tx["table"], tx["field"]
     if tx["write"] == "delete":
-        return f"DELETE VERTEX {t} WHERE id = :tid" if side == "graph" else f"DELETE FROM {t} WHERE id = :tid"
+        return f"DELETE VERTEX {t} WHERE id = :tid" if data_model == "graph" else f"DELETE FROM {t} WHERE id = :tid"
     if tx["write"] == "insert":
-        return ("CREATE VERTEX" if side == "graph" else "INSERT INTO") + f" {t} SET id = :tid, {f} = :tv"
+        return ("CREATE VERTEX" if data_model == "graph" else "INSERT INTO") + f" {t} SET id = :tid, {f} = :tv"
     if tx["remove"]:
         return f"UPDATE {t} REMOVE {f} WHERE id = :tid"
     return f"UPDATE {t} SET {f} = :tv WHERE id = :tid"

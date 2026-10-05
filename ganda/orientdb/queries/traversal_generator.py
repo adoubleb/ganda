@@ -1,5 +1,5 @@
 """Samples `TraversalQuery` shapes from the grammar the schema admits, chooses the
-spellings, and registers the `ir_traversal` family.
+concrete syntaxes, and registers the `ir_traversal` query generator.
 
 The grammar: a start class that some edge type leaves or reaches; one to `MAX_HOPS`
 hops, each an edge type that chains from the current class (outgoing: its `from_type`
@@ -14,15 +14,15 @@ the field kinds falling back to `ids` when the final class has no eligible field
 DECIMAL one whose multisets sum exactly) and the four edge kinds
 (`efield`/`emax`/`emin`/`esum`, over the last hop's relationship attribute) likewise
 over the last edge type's fields -- an edge projection drops the last hop's target
-predicate, which no spelling can carry next to it.
+predicate, which no concrete syntax can carry next to it.
 
-A sampled query is kept only if EVERY base side has at least one applicable spelling
-(`spellings.applicable`). Each base side draws one of its applicable spellings as its
-base text and every other applicable spelling becomes a variant side `<side>:<sp>`,
-plus the base spelling's HOISTED form as `<side>:hoist` when the query carries a
+A sampled query is kept only if EVERY data model has at least one applicable concrete syntax
+(`syntaxes.applicable`). Each data model draws one of its applicable concrete syntaxes as its
+base text and every other applicable concrete syntax becomes a variant `<data_model>:<sp>`,
+plus the base concrete syntax's PULLED-UP form as `<data_model>:pull_up` when the query carries a
 source predicate, so one question runs through every engine path the catalog knows.
 
-Every draw comes from this family's own sub-stream, `CASES_PER_INSTANCE` queries per
+Every draw comes from this query generator's own sub-stream, `CASES_PER_INSTANCE` queries per
 instance (deduplicated on the rendered texts and bind values), and every value travels
 as a bind variable.
 """
@@ -32,9 +32,9 @@ import random
 
 from ganda.orientdb.model import INT_TYPES, ORDERED_TYPES, FieldType, Instance, Schema
 from ganda.orientdb.queries import predicates
-from ganda.orientdb.queries.base import QueryCase
-from ganda.orientdb.queries.ir import EDGE_PROJECTIONS, MAX_HOPS, PLACEMENTS, PROJECTIONS, REACH_PROJECTIONS, Hop, TraversalQuery, shape_signature, sums_exactly
-from ganda.orientdb.queries.spellings import hoistable, render, spellings_for
+from ganda.orientdb.queries.case import QueryCase
+from ganda.orientdb.queries.traversal_ast import EDGE_PROJECTIONS, MAX_HOPS, PLACEMENTS, PROJECTIONS, REACH_PROJECTIONS, Hop, TraversalQuery, shape_signature, sums_exactly
+from ganda.orientdb.queries.traversal_syntax import can_pull_up, render, syntaxes_for
 
 CASES_PER_INSTANCE = 10
 SOURCE_PREDICATE_PROBABILITY = 0.3
@@ -118,7 +118,7 @@ def _draw_source_predicate(rng: random.Random, schema: Schema, instance: Instanc
 def _reach_ok(schema: Schema, hops: list) -> bool:
     """Whether a chain can be asked as a reach question: one outgoing hop over a
     self-typed edge type, so the hop can be repeated from every record it reaches
-    (the doc side follows links `out` only)."""
+    (the doc data model follows links `out` only)."""
     et = schema.edge_type(hops[0].edge_type)
     return len(hops) == 1 and hops[0].direction == "out" and et.from_type == et.to_type
 
@@ -165,39 +165,39 @@ def sample_query(rng: random.Random, schema: Schema, instance: Instance, max_hop
 
 
 def build_case(q: TraversalQuery, rng: random.Random, schema: Schema, instance: Instance) -> "QueryCase | None":
-    from ganda.orientdb.guards import known_findings
+    from ganda.orientdb.known_bugs import mark_known_bugs
 
     queries: dict = {}
     chosen: dict = {}
-    hoisted: list = []
-    for side in ("doc", "graph", "rel"):
-        options = spellings_for(q, schema, side)
+    pulled_up: list = []
+    for data_model in ("doc", "graph", "rel"):
+        options = syntaxes_for(q, schema, data_model)
         if not options:
             return None
         base = rng.choice(options)
-        chosen[side] = base
-        queries[side] = render(q, schema, side, base)
+        chosen[data_model] = base
+        queries[data_model] = render(q, schema, data_model, base)
         others = [s for s in options if s != base]
         rng.shuffle(others)
         for sp in others[:MAX_VARIANTS_PER_SIDE]:
-            queries[f"{side}:{sp}"] = render(q, schema, side, sp)
-            chosen[f"{side}:{sp}"] = sp
-        if hoistable(q):
-            queries[f"{side}:hoist"] = render(q, schema, side, base, hoist=True)
-            chosen[f"{side}:hoist"] = base
-            hoisted.append(f"{side}:hoist")
+            queries[f"{data_model}:{sp}"] = render(q, schema, data_model, sp)
+            chosen[f"{data_model}:{sp}"] = sp
+        if can_pull_up(q):
+            queries[f"{data_model}:pull_up"] = render(q, schema, data_model, base, pull_up=True)
+            chosen[f"{data_model}:pull_up"] = base
+            pulled_up.append(f"{data_model}:pull_up")
     params = {
         "shape": shape_signature(q),
-        "ir": q.to_params(),
+        "traversal": q.to_params(),
         "reference": q.reference,
         "projection": q.projection,
         "field": q.field,
-        "spellings": chosen,
-        "hoisted": hoisted,
+        "concrete_syntax": chosen,
+        "pulled_up": pulled_up,
         "predicates": [p.signature for p in q.predicates],
     }
     case = QueryCase(
-        template_name="ir_traversal",
+        generator_name="ir_traversal",
         edge_type=q.hops[0].edge_type,
         comparison=q.comparison,
         queries=queries,
@@ -205,10 +205,10 @@ def build_case(q: TraversalQuery, rng: random.Random, schema: Schema, instance: 
         params=params,
         shape=shape_signature(q),
     )
-    return known_findings(case, q, schema, instance)
+    return mark_known_bugs(case, q, schema, instance)
 
 
-def ir_traversal_cases(rng: random.Random, schema: Schema, instance: Instance, per_instance: int = CASES_PER_INSTANCE) -> list:
+def generate_traversal_cases(rng: random.Random, schema: Schema, instance: Instance, per_instance: int = CASES_PER_INSTANCE) -> list:
     cases, seen = [], set()
     for _ in range(per_instance * 4):
         if len(cases) >= per_instance:

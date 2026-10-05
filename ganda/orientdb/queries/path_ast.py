@@ -1,5 +1,5 @@
 """The PATH IR (`ir_path`): the hop count of a shortest path between two records, as
-data, spelled through every engine path each storage model offers.
+data, rendered through every engine path each storage model offers.
 
 A `PathQuery` is a start record, a goal record, a direction (`OUT`, `IN`, `BOTH`), an
 edge type (None: every type) and a depth bound `k` of 1..3. The answer is the path's
@@ -7,7 +7,7 @@ VERTEX count (the hop count plus one, what `shortestPath(...).size()` answers), 
 row, or NO row when the goal is unreachable or farther than `k` (every form is
 wrapped to answer nothing there: an aggregate over no rows answers no row, probed).
 
-    side   spelling    the text
+    data model   concrete syntax    the text
     graph  (base)      `shortestPath(start, goal, :dir, 'e' | null, {maxDepth: k})
                        .size()` (O35: finds paths of at most k - 1 hops, withheld
                        where the distance is exactly k)
@@ -22,7 +22,7 @@ wrapped to answer nothing there: an aggregate over no rows answers no row, probe
     doc    (base)      TRAVERSE over the source records' link lists: `TRAVERSE e,
                        target FROM (...) MAXDEPTH k STRATEGY BREADTH_FIRST` (an
                        embedded link document adds no depth, probed); `OUT` only --
-                       the doc side keeps no reverse links; `deep` as the graph's
+                       the doc data model keeps no reverse links; `deep` as the graph's
            (every type) the traversed fields are every edge type's list
     rel    (base)      the junction LEVELS unioned: level d holds the rows whose
                        source is among level d - 1's targets (nested `IN (SELECT
@@ -35,7 +35,7 @@ wrapped to answer nothing there: an aggregate over no rows answers no row, probe
                        (rel: one edge type, `OUT` / `IN`; a `BOTH` level would be a
                        union inside an `IN (subquery)`: O26 / O40 territory)
 
-A question only some models can spell is `partial`: the pairs run among the sides
+A question only some models can render is `partial`: the pairs run among the data models
 present, plus the reference (the BFS distance, `select_support.bfs_distances`).
 """
 from __future__ import annotations
@@ -44,7 +44,7 @@ import random
 from dataclasses import dataclass
 
 from ganda.orientdb.model import Instance, Schema
-from ganda.orientdb.queries.base import Comparison, QueryCase
+from ganda.orientdb.queries.case import Comparison, QueryCase
 from ganda.orientdb.queries.select_support import bfs_distances
 
 DIRECTIONS = ("OUT", "IN", "BOTH")
@@ -97,7 +97,7 @@ def all_coverage_signatures() -> list:
 COVERAGE_DENOMINATOR = len(all_coverage_signatures())
 
 
-# --- spellings --------------------------------------------------------------------------------
+# --- concrete syntaxes --------------------------------------------------------------------------------
 
 
 def _start(q: PathQuery) -> str:
@@ -174,8 +174,8 @@ def o40_asc(q: PathQuery, d: "int | None") -> bool:
     return d is not None and 3 <= d <= q.depth
 
 
-def spell(q: PathQuery, schema: Schema, instance: Instance) -> "tuple[dict, dict]":
-    """(queries, known) for every side that spells the question."""
+def render_all(q: PathQuery, schema: Schema, instance: Instance) -> "tuple[dict, dict]":
+    """(queries, known) for every data model that renders the question."""
     d = distance(q, instance)
     queries = _graph(q, True)
     unbounded = d is None or d <= q.depth
@@ -188,12 +188,12 @@ def spell(q: PathQuery, schema: Schema, instance: Instance) -> "tuple[dict, dict
             queries["doc:deep"] = _doc(q, schema, n)
     if q.edge_type is not None and q.direction != "BOTH":
         queries.update(_rel(q))
-    known = {}
+    known_bugs = {}
     if d == q.depth:
-        known["graph"] = "O35"
+        known_bugs["graph"] = "O35"
     if "rel:asc" in queries and o40_asc(q, d):
-        known["rel:asc"] = "O40"
-    return queries, known
+        known_bugs["rel:asc"] = "O40"
+    return queries, known_bugs
 
 
 # --- sampling --------------------------------------------------------------------------------
@@ -224,7 +224,7 @@ def sample_path(rng: random.Random, schema: Schema, instance: Instance) -> "Path
 
 
 def build_case(q: PathQuery, schema: Schema, instance: Instance) -> QueryCase:
-    queries, known = spell(q, schema, instance)
+    queries, known_bugs = render_all(q, schema, instance)
     bind = {"a": q.start, "b": q.goal, "dir": q.direction, "o": {"maxDepth": q.depth}}
     params = {
         "path": q.to_params(),
@@ -234,10 +234,10 @@ def build_case(q: PathQuery, schema: Schema, instance: Instance) -> QueryCase:
     }
     if not all(s in queries for s in ("doc", "graph", "rel")):
         params["partial"] = True
-    return QueryCase("ir_path", q.edge_type or "", Comparison.SINGLE_VALUE, queries, bind, params, shape=params["shape"], known=known)
+    return QueryCase("ir_path", q.edge_type or "", Comparison.SINGLE_VALUE, queries, bind, params, shape=params["shape"], known_bugs=known_bugs)
 
 
-def ir_path_cases(rng: random.Random, schema: Schema, instance: Instance, per_instance: int = CASES_PER_INSTANCE) -> list:
+def generate_path_cases(rng: random.Random, schema: Schema, instance: Instance, per_instance: int = CASES_PER_INSTANCE) -> list:
     cases = []
     for _ in range(per_instance):
         q = sample_path(rng, schema, instance)

@@ -1,11 +1,11 @@
 """The mutation benchmark: for each mutant and each trial seed, materialize the
-instance with the mutant's corruption on its side(s), run every case, and record
+instance with the mutant's corruption on its data model(s), run every case, and record
 which cases caught it. A mutant caught in no trial exits non-zero for the structural
 category. The report (`mutation_reports/<tag>.json`) is the evidence a change to the
 query supply did not lose discrimination: compare catch rates over the SAME mutant set
 and seeds, never the headline mean across sets of different size.
 
-`--no-reference` scores pure cross-model detection (the reference leg switched off),
+`--no-semantics` scores pure cross-model detection (the reference leg switched off),
 which is the mode that isolates what the pairing itself sees.
 """
 from __future__ import annotations
@@ -18,30 +18,30 @@ import sys
 import time
 from collections import defaultdict
 
-from ganda.orientdb.generator import GeneratorConfig, build
-from ganda.orientdb.harness import OrientCrash, OrientError, OrientInstance, cleanup_orphans, db_name
-from ganda.orientdb.materialize import BUILDERS
+from ganda.orientdb.data_generator import GeneratorConfig, build
+from ganda.orientdb.connection import OrientCrash, OrientError, OrientServer, cleanup_orphans, db_name
+from ganda.orientdb.mapping import MAPPERS
 from ganda.orientdb.mutants import MUTANTS, MUTANTS_BY_NAME
 from ganda.orientdb.oracle import run_case
-from ganda.orientdb.queries.templates import all_cases
+from ganda.orientdb.queries.registry import all_cases
 
 
 def _setup(server, ns: str, instance, mutant) -> dict:
     sessions = {}
-    for side in ("doc", "graph", "rel"):
+    for data_model in ("doc", "graph", "rel"):
         inst = instance
-        if mutant is not None and side in mutant.instance_for_side:
-            inst = mutant.instance_for_side[side](instance)
-        s = server.fresh_session(db_name(ns, side))
-        s.apply_setup(BUILDERS[side](inst))
-        sessions[side] = s
+        if mutant is not None and data_model in mutant.instance_for_data_model:
+            inst = mutant.instance_for_data_model[data_model](instance)
+        s = server.fresh_session(db_name(ns, data_model))
+        s.apply_setup(MAPPERS[data_model](inst))
+        sessions[data_model] = s
     return sessions
 
 
 def _drop(server, ns):
-    for side in ("doc", "graph", "rel"):
+    for data_model in ("doc", "graph", "rel"):
         try:
-            server.drop_database(db_name(ns, side))
+            server.drop_database(db_name(ns, data_model))
         except (OrientError, OrientCrash):
             pass
 
@@ -52,9 +52,9 @@ def _write_results(sessions, instance, rng, cfg, args) -> list:
     which says nothing about the write supply."""
     if not cfg.write_cases:
         return []
-    from ganda.orientdb.writes import run_write_phase
+    from ganda.orientdb.write_phase import run_write_phase
 
-    return run_write_phase(sessions, instance, rng.for_template("ir_write"), cfg.write_cases, verify=False, reference=not args.no_reference).results
+    return run_write_phase(sessions, instance, rng.for_generator("ir_write"), cfg.write_cases, verify=False, reference=not args.no_reference).results
 
 
 def run_benchmark(args) -> dict:
@@ -64,7 +64,7 @@ def run_benchmark(args) -> dict:
     report: dict = {"tag": args.tag, "trials": args.trials, "seed": args.seed, "no_reference": args.no_reference, "config": dataclasses.asdict(cfg), "mutants": {}}
     start = time.time()
     ns = f"mut{os.getpid()}"
-    with OrientInstance() as server:
+    with OrientServer() as server:
         # the healthy run: which seeds are clean, so a mutant is only scored on those
         clean: dict = {}
         for seed in seeds:
@@ -75,9 +75,9 @@ def run_benchmark(args) -> dict:
                 print(f"[seed {seed}] healthy setup failed: {str(e)[:120]}", flush=True)
                 _drop(server, ns)
                 continue
-            cases = all_cases(rng, schema, instance, ir_cases=cfg.ir_cases, select_cases=cfg.select_cases, path_cases=cfg.path_cases, card_cases=cfg.card_cases, card_corpus=cfg.card_corpus)
-            bad = [c.template_name for c in cases if not run_case(c, sessions, None if args.no_reference else instance).ok]
-            bad += [r.case.template_name for r in _write_results(sessions, instance, rng, cfg, args) if not r.ok]
+            cases = all_cases(rng, schema, instance, traversal_cases=cfg.traversal_cases, select_cases=cfg.select_cases, path_cases=cfg.path_cases, card_cases=cfg.card_cases, card_corpus=cfg.card_corpus)
+            bad = [c.generator_name for c in cases if not run_case(c, sessions, None if args.no_reference else instance).ok]
+            bad += [r.case.generator_name for r in _write_results(sessions, instance, rng, cfg, args) if not r.ok]
             clean[seed] = not bad
             if bad:
                 print(f"[seed {seed}] healthy run not clean: {sorted(set(bad))}", flush=True)
@@ -93,7 +93,7 @@ def run_benchmark(args) -> dict:
                 except OrientError:
                     _drop(server, ns)
                     continue
-                cases = all_cases(rng, schema, instance, ir_cases=cfg.ir_cases, select_cases=cfg.select_cases, path_cases=cfg.path_cases, card_cases=cfg.card_cases, card_corpus=cfg.card_corpus)
+                cases = all_cases(rng, schema, instance, traversal_cases=cfg.traversal_cases, select_cases=cfg.select_cases, path_cases=cfg.path_cases, card_cases=cfg.card_cases, card_corpus=cfg.card_corpus)
                 hit = False
                 for case in cases:
                     if mutant.rewrite_case is not None:
@@ -102,11 +102,11 @@ def run_benchmark(args) -> dict:
                         case = mutant.rewrite_case_schema(case, schema)
                     r = run_case(case, sessions, None if args.no_reference else instance)
                     if not r.ok:
-                        caught_by[case.template_name] += 1
+                        caught_by[case.generator_name] += 1
                         hit = True
                 for r in _write_results(sessions, instance, rng, cfg, args):
                     if not r.ok:
-                        caught_by[r.case.template_name] += 1
+                        caught_by[r.case.generator_name] += 1
                         hit = True
                 caught_trials += int(hit)
                 _drop(server, ns)

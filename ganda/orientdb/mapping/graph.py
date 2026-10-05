@@ -13,7 +13,7 @@ is `DELETE VERTEX n1 WHERE id = :k`, whose cascade removes the incident edges it
 """
 from __future__ import annotations
 
-from ganda.orientdb.materialize.common import (
+from ganda.orientdb.mapping.common import (
     Ref,
     Sql,
     _set_clause,

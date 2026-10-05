@@ -36,13 +36,13 @@ PROFILES = {
     "default": dict(select_cases=40),
     "axes": dict(AXES, select_cases=40),
     # the sizes every report up to c100e ran with
-    "small": dict(AXES, max_node_types=4, max_edge_types=5, min_nodes_per_type=3, max_nodes_per_type=14, min_edges_per_type=4, max_edges_per_type=20, ir_cases=10, select_cases=180),
+    "small": dict(AXES, max_node_types=4, max_edge_types=5, min_nodes_per_type=3, max_nodes_per_type=14, min_edges_per_type=4, max_edges_per_type=20, traversal_cases=10, select_cases=180),
 }
 
 # legacy dict key / dataclass field -> ganda name
-RENAMED_KEYS: dict = {}
+RENAMED_KEYS: dict = {"spellings": "concrete_syntax", "hoisted": "pulled_up", "keep_known": "keep_known_bugs", "known": "known_bugs", "template_name": "generator_name", "ir": "traversal", "side": "data_model"}
 # legacy variant tag (the part after `<data model>:`) -> ganda tag
-RENAMED_VARIANT_TAGS: dict = {}
+RENAMED_VARIANT_TAGS: dict = {"hoist": "pull_up"}
 
 
 def _rename_string(s: str) -> str:
@@ -103,26 +103,26 @@ def _legacy_api(root: str):
     def write_steps(rng, schema, instance, cfg):
         return _write_steps(rng.for_template("ir_write"), schema, instance, cfg.write_cases, sample_write, apply, writes.build_write_case, writes._readbacks)
 
-    return dict(config=GeneratorConfig, build=build, mappers=BUILDERS, plan_to_dict=plan_to_dict, cases=cases, reference_for=reference_for, write_steps=write_steps)
+    return dict(config_keys={"traversal_cases": "ir_cases"}, config=GeneratorConfig, build=build, mappers=BUILDERS, plan_to_dict=plan_to_dict, cases=cases, reference_for=reference_for, write_steps=write_steps)
 
 
 def _ganda_api():
     sys.path.insert(0, os.path.join(HERE, ".."))
-    from ganda.orientdb import writes
-    from ganda.orientdb.generator import GeneratorConfig, build
-    from ganda.orientdb.materialize import BUILDERS
-    from ganda.orientdb.materialize.common import plan_to_dict
-    from ganda.orientdb.queries.templates import all_cases, reference_for
+    from ganda.orientdb import write_phase as writes
+    from ganda.orientdb.data_generator import GeneratorConfig, build
+    from ganda.orientdb.mapping import MAPPERS
+    from ganda.orientdb.mapping.common import plan_to_dict
+    from ganda.orientdb.queries.registry import all_cases, reference_for
     from ganda.orientdb.queries.write_generator import sample_write
-    from ganda.orientdb.queries.write_ir import apply
+    from ganda.orientdb.queries.write_ast import apply
 
     def cases(rng, schema, instance, cfg):
-        return all_cases(rng, schema, instance, ir_cases=cfg.ir_cases, select_cases=cfg.select_cases, path_cases=cfg.path_cases)
+        return all_cases(rng, schema, instance, traversal_cases=cfg.traversal_cases, select_cases=cfg.select_cases, path_cases=cfg.path_cases)
 
     def write_steps(rng, schema, instance, cfg):
-        return _write_steps(rng.for_template("ir_write"), schema, instance, cfg.write_cases, sample_write, apply, writes.build_write_case, writes._readbacks)
+        return _write_steps(rng.for_generator("ir_write"), schema, instance, cfg.write_cases, sample_write, apply, writes.build_write_case, writes._readbacks)
 
-    return dict(config=GeneratorConfig, build=build, mappers=BUILDERS, plan_to_dict=plan_to_dict, cases=cases, reference_for=reference_for, write_steps=write_steps)
+    return dict(config=GeneratorConfig, build=build, mappers=MAPPERS, plan_to_dict=plan_to_dict, cases=cases, reference_for=reference_for, write_steps=write_steps)
 
 
 def _write_steps(rng, schema, instance, steps, sample_write, apply, build_write_case, readbacks):
@@ -144,7 +144,7 @@ def _write_steps(rng, schema, instance, steps, sample_write, apply, build_write_
 
 
 def snapshot(api: dict, profile: str, seed: int, legacy: bool) -> dict:
-    cfg = api["config"](**PROFILES[profile])
+    cfg = api["config"](**{api.get("config_keys", {}).get(k, k): v for k, v in PROFILES[profile].items()})
     schema, instance, rng = api["build"](seed, cfg)
     cases = api["cases"](rng, schema, instance, cfg)
     writes, final = api["write_steps"](rng, schema, instance, cfg)

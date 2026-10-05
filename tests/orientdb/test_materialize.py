@@ -1,8 +1,8 @@
 import json
 
-from ganda.orientdb.generator import GeneratorConfig, build
-from ganda.orientdb.materialize import BUILDERS
-from ganda.orientdb.materialize.common import Batch, Ref, Script, Sql, _groups, plan_from_dict, plan_to_dict, resolve_refs, wrap_data
+from ganda.orientdb.data_generator import GeneratorConfig, build
+from ganda.orientdb.mapping import MAPPERS
+from ganda.orientdb.mapping.common import Batch, Ref, Script, Sql, _groups, plan_from_dict, plan_to_dict, resolve_refs, wrap_data
 from ganda.orientdb.model import WriteForm
 
 
@@ -17,8 +17,8 @@ def _all_steps(plan):
 def test_plans_round_trip_through_json():
     for seed in range(1, 12):
         _, inst, _ = build(seed, GeneratorConfig(write_form_probability=1.0, custom_key_probability=0.3))
-        for side, builder in BUILDERS.items():
-            plan = builder(inst)
+        for data_model, mapper in MAPPERS.items():
+            plan = mapper(inst)
             encoded = json.dumps(plan_to_dict(plan), ensure_ascii=False)
             assert plan_to_dict(plan_from_dict(json.loads(encoded))) == plan_to_dict(plan)
 
@@ -27,21 +27,21 @@ def test_every_ref_follows_its_capture():
     """A Ref may only appear after the step (or group) that captures its id."""
     for seed in range(1, 25):
         _, inst, _ = build(seed, GeneratorConfig(write_form_probability=1.0, churn_node_delete_probability=0.3))
-        for side, builder in BUILDERS.items():
+        for data_model, mapper in MAPPERS.items():
             captured = set()
-            for step in builder(inst):
+            for step in mapper(inst):
                 units = step.steps if isinstance(step, Batch) else [step]
                 if isinstance(step, Script):
                     refs = _refs(step.params)
-                    assert refs <= captured, (seed, side, refs - captured)
+                    assert refs <= captured, (seed, data_model, refs - captured)
                     captured |= set(step.captures.values())
                     continue
                 if isinstance(step, Batch):
                     refs = set().union(*(_refs(s.params) for s in units)) if units else set()
-                    assert refs <= captured, (seed, side)
+                    assert refs <= captured, (seed, data_model)
                     captured |= {s.capture for s in units if s.capture}
                     continue
-                assert _refs(step.params) <= captured, (seed, side, step.command)
+                assert _refs(step.params) <= captured, (seed, data_model, step.command)
                 if step.capture:
                     captured.add(step.capture)
 
@@ -86,7 +86,7 @@ def test_content_update_carries_no_parameter_and_resets_links():
     import dataclasses
 
     inst = dataclasses.replace(inst, doc_write_form=WriteForm(update_form="content"))
-    plan = BUILDERS["doc"](inst)
+    plan = MAPPERS["doc"](inst)
     contents = [s for s in _all_steps(plan) if isinstance(s, Sql) and " CONTENT " in s.command]
     assert contents
     for s in contents:

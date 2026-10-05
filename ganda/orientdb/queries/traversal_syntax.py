@@ -1,9 +1,9 @@
-"""The spelling catalog: HOW each side -- and each of that side's syntaxes -- asks a
+"""The concrete syntax catalog: HOW each data model -- and each of that data model's syntaxes -- asks a
 `TraversalQuery`. This is the multiplier the earlier fuzzers lacked: one abstract
 question is rendered through every engine path the storage model offers, and each
-rendering is a variant side the oracle compares against every other one.
+rendering is a variant the oracle compares against every other one.
 
-    side   spelling    the engine path
+    data model   concrete syntax    the engine path
     graph  chain       `out('e1')[..].outE('e2')[..].inV()` projection chain over the vertex bags
                        (`both('e1')`, or `unionall(outE()[..].inV(), inE()[..].outV())` under an
                        edge predicate, for the `both` direction)
@@ -30,28 +30,28 @@ rendering is a variant side the oracle compares against every other one.
                        `IN (SELECT id FROM t WHERE ...)` subqueries; `nexists` is the
                        anti-join `id NOT IN (SELECT src_id ...)`
 
-Every spelling also has a HOISTED form (`render(..., hoist=True)`, the `<side>:hoist`
-variant): the source predicate is lifted out of the spelling into an enclosing
-`SELECT id, v FROM (<spelling>) WHERE <source predicate>`, the inner query projecting
+Every concrete syntax also has a PULLED-UP form (`render(..., pull_up=True)`, the `<data_model>:pull_up`
+variant): the source predicate is lifted out of the concrete syntax into an enclosing
+`SELECT id, v FROM (<syntax>) WHERE <source predicate>`, the inner query projecting
 the source fields it needs. The inner query is then never index-served on the source
 predicate, which is the same question through a different plan -- and the workaround
-for issue-drafts/O1, so a hoisted correlated spelling is exact where its plain form is
+for issue-drafts/O1, so a pulled-up correlated concrete syntax is exact where its plain form is
 withheld. `IS [NOT] DEFINED` does not survive a projection (an absent field projects
-as an explicit null, probed), so a source predicate holding one is not hoisted.
+as an explicit null, probed), so a source predicate holding one is not pulled-up.
 
-Every spelling is exact for the shapes `applicable` admits; a shape no spelling of a
-side admits is not sampled (`ir_generator`). Facts each rests on (probed 3.2.56,
+Every concrete syntax is exact for the shapes `applicable` admits; a shape no concrete syntax of a
+data model admits is not sampled (`traversal_generator`). Facts each rests on (probed 3.2.56,
 `scripts/probe_osql.py`): `LET` precedes `WHERE`; `$parent.$current` is the enclosing
 row (and null when the enclosing query is index-served, issue-drafts/O1, which
-`guards.py` withholds at that shape); an absent list reads null, `.size()` on it is 0
+`known_bugs.py` withholds at that shape); an absent list reads null, `.size()` on it is 0
 and a null element is dropped by the oracle's multiset normalization; a nested list
 projection (`e1.target.e1.target.id`) is flattened by that normalization, which is why
 the multi-hop forms are admitted for `ids`/`field`/`efield` only; `expand()` over an
 embedded list wraps each document under `value`, so `let_expand` cannot read an edge
 attribute; a MATCH pattern may return an edge alias's field and may end at an edge
 alias; `unionall` tolerates an absent bag; a bracket filter and a dotted link field
-ignore a property's `ci` collation (O25, `guards.py`); `expand(unionall((a), (b)))`
-of two subqueries is spelled inline, because the same union through `LET $a = (a),
+ignore a property's `ci` collation (O25, `known_bugs.py`); `expand(unionall((a), (b)))`
+of two subqueries is rendered inline, because the same union through `LET $a = (a),
 $b = (b), $c = unionall($a, $b)` answers nothing when a part carries a nested
 correlated LET (O26).
 """
@@ -60,23 +60,23 @@ from __future__ import annotations
 import dataclasses
 
 from ganda.orientdb.model import FieldType, Schema
-from ganda.orientdb.queries.ir import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, FIELD_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, Hop, TraversalQuery
+from ganda.orientdb.queries.traversal_ast import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, FIELD_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, Hop, TraversalQuery
 from ganda.orientdb.queries.predicates import fields_of, has_op
-from ganda.orientdb.queries.osql import render_predicate as render_pred
+from ganda.orientdb.queries.predicate_syntax import render_predicate as render_pred
 
-SPELLINGS = {
+SYNTAXES = {
     "graph": ("chain", "match", "match_opt", "edgescan", "bag", "traverse", "traverse_dfs", "traverse_e"),
     "doc": ("path", "unwind", "let_expand", "inpath", "union"),
     "rel": ("let", "flat"),
 }
-DEFAULT_SPELLING = {"graph": "chain", "doc": "path", "rel": "let"}
-# Spellings whose text is a correlated subquery with `$parent.$current` in the outer
+DEFAULT_SYNTAX = {"graph": "chain", "doc": "path", "rel": "let"}
+# Concrete syntaxes whose text is a correlated subquery with `$parent.$current` in the outer
 # query's scope -- the ones O1 applies to when the outer query is index-served
 # (`traverse` roots its TRAVERSE at `$parent.$current`: campaign c60b, seeds 414, 428
 # and 443, a null root under every index kind).
 CORRELATED = {("doc", "let_expand"), ("doc", "inpath"), ("doc", "union"), ("rel", "let"), ("graph", "traverse"), ("graph", "traverse_dfs"), ("graph", "traverse_e")}
-# Spellings that put a target predicate in a BRACKET filter or behind a dotted link
-# (`in.f`), where a property's `ci` collation is ignored (O25); `edgescan` spells the
+# Concrete syntaxes that put a target predicate in a BRACKET filter or behind a dotted link
+# (`in.f`), where a property's `ci` collation is ignored (O25); `edgescan` renders the
 # source predicate that way too.
 BRACKET = {("graph", "chain"), ("graph", "bag"), ("graph", "edgescan"), ("doc", "path"), ("doc", "unwind"), ("doc", "let_expand"), ("doc", "union")}
 
@@ -105,7 +105,7 @@ def _sp(q: TraversalQuery, prefix: str = "") -> str:
 
 
 def _cols(extra: tuple, prefix: str = "", alias: bool = False) -> str:
-    """The extra source columns a hoisted inner query projects, as `, f1, f2` (or
+    """The extra source columns a pulled-up inner query projects, as `, f1, f2` (or
     `, a.f1 AS f1` when `alias`)."""
     if not extra:
         return ""
@@ -124,7 +124,7 @@ def _set_filter(expr: str, q: TraversalQuery) -> str:
 # --- applicability ----------------------------------------------------------------------------
 
 
-def applicable(q: TraversalQuery, schema: Schema, side: str, spelling: str) -> bool:
+def applicable(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) -> bool:
     n = len(q.hops)
     first, last = q.hops[0], q.hops[-1]
     proj = q.projection
@@ -140,40 +140,40 @@ def applicable(q: TraversalQuery, schema: Schema, side: str, spelling: str) -> b
         # by every executor that answers a distinct set (the start included)
         if n != 1 or first.direction != "out" or first.predicate is not None:
             return False
-        if side == "graph":
-            return spelling in GRAPH_REACH_SPELLINGS
-        if side == "doc":
-            return spelling == "path"
-        return spelling == "let"
-    if spelling in ("traverse_dfs", "traverse_e"):
+        if data_model == "graph":
+            return syntax in GRAPH_REACH_SYNTAXES
+        if data_model == "doc":
+            return syntax == "path"
+        return syntax == "let"
+    if syntax in ("traverse_dfs", "traverse_e"):
         return False
-    if side == "graph":
-        if spelling in ("chain", "bag"):
+    if data_model == "graph":
+        if syntax in ("chain", "bag"):
             return True
-        if spelling in ("match", "match_opt"):
+        if syntax in ("match", "match_opt"):
             # `bothE().bothV()` doubles every row: a `both` hop under an edge predicate
             # has no MATCH form unless the pattern ends at the edge alias
             return proj in _MULTI and not (both and first.edge_predicate is not None and not edge_proj)
-        if spelling == "edgescan":
+        if syntax == "edgescan":
             return proj in _MULTI and (n == 1 or not edge_proj)
-        if spelling == "traverse":
+        if syntax == "traverse":
             et = schema.edge_type(first.edge_type)
             return n == 1 and first.edge_predicate is None and proj in _DISTINCT and et.from_type != et.to_type and not both
-    if side == "doc":
-        if spelling == "path":
+    if data_model == "doc":
+        if syntax == "path":
             return not has_in and not both and (n == 1 or proj in _MULTI)
-        if spelling == "unwind":
+        if syntax == "unwind":
             return not has_in and not both and n == 1 and proj in ("ids", "field", "efield")
-        if spelling == "let_expand":
+        if syntax == "let_expand":
             return not has_in and not both and n == 1 and not edge_proj
-        if spelling == "inpath":
+        if syntax == "inpath":
             return n == 1 and first.direction == "in"
-        if spelling == "union":
+        if syntax == "union":
             return n == 1 and both
-    if side == "rel":
-        if spelling == "let":
+    if data_model == "rel":
+        if syntax == "let":
             return n == 1 or proj in _MULTI or proj in SET_PROJECTIONS
-        if spelling == "flat":
+        if syntax == "flat":
             if proj == "nexists":
                 return n == 1
             if both:
@@ -185,7 +185,7 @@ def applicable(q: TraversalQuery, schema: Schema, side: str, spelling: str) -> b
 _CI_OPS = ("=", "<>", "<", "<=", ">", ">=")
 
 
-def hoistable(q: TraversalQuery) -> bool:
+def can_pull_up(q: TraversalQuery) -> bool:
     """A source predicate can be lifted over a projection unless it tests
     definedness (an absent field projects as an explicit null) or compares a `ci`
     field (a projected value carries no collation: campaign c100, seed 670, an O25
@@ -196,29 +196,29 @@ def hoistable(q: TraversalQuery) -> bool:
     return not any(leaf.ci and leaf.op in _CI_OPS for leaf in p.leaves())
 
 
-def spellings_for(q: TraversalQuery, schema: Schema, side: str) -> list:
-    return [s for s in SPELLINGS[side] if applicable(q, schema, side, s)]
+def syntaxes_for(q: TraversalQuery, schema: Schema, data_model: str) -> list:
+    return [s for s in SYNTAXES[data_model] if applicable(q, schema, data_model, s)]
 
 
 # --- projections ----------------------------------------------------------------------------
 
 
-def _projected(expr: str, q: TraversalQuery, side_field: str = "id", value_field: "str | None" = None, extra: tuple = ()) -> "tuple[str, str]":
+def _projected(expr: str, q: TraversalQuery, data_model_field: str = "id", value_field: "str | None" = None, extra: tuple = ()) -> "tuple[str, str]":
     """(projection text, tail): the projection over the final collection `expr` and the
-    GROUP BY tail an aggregate needs. `side_field` is how an element's id is read,
+    GROUP BY tail an aggregate needs. `data_model_field` is how an element's id is read,
     `value_field` how its projected field is (a LET subquery has already renamed it
     `v`; a record or relationship collection reads `q.field` itself)."""
     proj = q.projection
     vf = value_field or q.field
     kind = proj[1:] if proj in EDGE_PROJECTIONS else proj
     if kind == "ids":
-        return f"{expr}.{side_field}", ""
+        return f"{expr}.{data_model_field}", ""
     if kind == "distinct_ids":
-        return f"{expr}.{side_field}.asSet()", ""
+        return f"{expr}.{data_model_field}.asSet()", ""
     if kind == "count":
         return f"{expr}.size()", ""
     if kind == "distinct_count":
-        return f"{expr}.{side_field}.asSet().size()", ""
+        return f"{expr}.{data_model_field}.asSet().size()", ""
     if kind == "field":
         return f"{expr}.{vf}", ""
     if kind in AGG_PROJECTIONS:
@@ -382,26 +382,26 @@ def _graph_reach_traverse(q: TraversalQuery, extra: tuple, strategy: str = "", f
     return _reach_set("$t.id", q, extra, q.source_table, let)
 
 
-GRAPH_REACH_SPELLINGS = ("chain", "match", "traverse", "traverse_dfs", "traverse_e")
+GRAPH_REACH_SYNTAXES = ("chain", "match", "traverse", "traverse_dfs", "traverse_e")
 
 
-def _graph_reach(q: TraversalQuery, spelling: str, extra: tuple) -> str:
-    if spelling == "chain":
+def _graph_reach(q: TraversalQuery, syntax: str, extra: tuple) -> str:
+    if syntax == "chain":
         return _graph_reach_chain(q, extra)
-    if spelling == "match":
+    if syntax == "match":
         return _graph_reach_match(q, extra)
     # the reach SET under a MAXDEPTH is complete only breadth-first: depth-first
     # (the default) marks a record visited at the depth it first meets it and
     # does not expand it there at the bound, so a record also reachable in
     # fewer hops keeps its children unvisited (O44, cov400 seeds 5242 / 5342);
     # `traverse_dfs` asks the depth-first executor where that cannot happen
-    if spelling == "traverse":
+    if syntax == "traverse":
         return _graph_reach_traverse(q, extra, " STRATEGY BREADTH_FIRST")
-    if spelling == "traverse_dfs":
+    if syntax == "traverse_dfs":
         return _graph_reach_traverse(q, extra, " STRATEGY DEPTH_FIRST")
-    if spelling == "traverse_e":
+    if syntax == "traverse_e":
         return _graph_reach_traverse(q, extra, " STRATEGY BREADTH_FIRST", f"outE('{q.hops[0].edge_type}').inV()")
-    raise ValueError(("graph", spelling))
+    raise ValueError(("graph", syntax))
 
 
 def _doc_reach(q: TraversalQuery, extra: tuple) -> str:
@@ -524,7 +524,7 @@ def _doc_inpath(q: TraversalQuery, schema: Schema, extra: tuple = ()) -> str:
     tgt = q.source_table
     if q.projection in SET_PROJECTIONS:
         return f"SELECT id{_cols(extra)} FROM {tgt} {let}{_where(_sp(q), _set_filter('$s', q))}"
-    proj, tail = _projected("$s", q, side_field="v", value_field="v", extra=extra)
+    proj, tail = _projected("$s", q, data_model_field="v", value_field="v", extra=extra)
     return f"SELECT id{_cols(extra)}, {proj} AS v FROM {tgt} {let}{_where(_sp(q))}{tail}"
 
 
@@ -599,7 +599,7 @@ def _rel_let(q: TraversalQuery, schema: Schema, extra: tuple = ()) -> str:
     if q.projection == "count":
         proj, tail = "$h0.size()", ""
     else:
-        proj, tail = _projected("$h0", q, side_field="v", value_field="v", extra=extra)
+        proj, tail = _projected("$h0", q, data_model_field="v", value_field="v", extra=extra)
     return f"SELECT id{_cols(extra)}, {proj} AS v FROM {src} {let}{_where(_sp(q))}{tail}"
 
 
@@ -681,25 +681,25 @@ _RENDERERS = {
 }
 
 
-def _reach_renderer(side: str, spelling: str):
-    if side == "graph":
-        return lambda q, s, x: _graph_reach(q, spelling, x)
-    if side == "doc":
+def _reach_renderer(data_model: str, syntax: str):
+    if data_model == "graph":
+        return lambda q, s, x: _graph_reach(q, syntax, x)
+    if data_model == "doc":
         return lambda q, s, x: _doc_reach(q, x)
     return lambda q, s, x: _rel_reach(q, x)
 
 
-def render(q: TraversalQuery, schema: Schema, side: str, spelling: str, hoist: bool = False) -> str:
+def render(q: TraversalQuery, schema: Schema, data_model: str, syntax: str, pull_up: bool = False) -> str:
     try:
-        fn = _reach_renderer(side, spelling) if q.projection in REACH_PROJECTIONS else _RENDERERS[(side, spelling)]
+        fn = _reach_renderer(data_model, syntax) if q.projection in REACH_PROJECTIONS else _RENDERERS[(data_model, syntax)]
     except KeyError:
-        raise ValueError((side, spelling)) from None
-    if not hoist:
+        raise ValueError((data_model, syntax)) from None
+    if not pull_up:
         return fn(q, schema, ())
-    if not hoistable(q):
-        raise ValueError("not hoistable")
+    if not can_pull_up(q):
+        raise ValueError("cannot pull up")
     inner_q = dataclasses.replace(q, source_predicate=None)
-    if side == "rel" and spelling == "flat" and q.projection != "nexists":
+    if data_model == "rel" and syntax == "flat" and q.projection != "nexists":
         inner = fn(inner_q, schema, ())
         cond = f"id IN (SELECT id FROM {q.source_table} WHERE {_sp(q)})"
     else:
@@ -709,7 +709,7 @@ def render(q: TraversalQuery, schema: Schema, side: str, spelling: str, hoist: b
     return f"SELECT {cols} FROM ({inner}) WHERE {cond}"
 
 
-def is_folded(q: TraversalQuery, side: str, spelling: str) -> bool:
-    """Whether the spelling answers with one row PER PATH rather than per start record
+def is_folded(q: TraversalQuery, data_model: str, syntax: str) -> bool:
+    """Whether the concrete syntax answers with one row PER PATH rather than per start record
     (the oracle folds those by id; a start record with no path is then absent)."""
-    return spelling in ("match", "edgescan", "unwind", "flat")
+    return syntax in ("match", "edgescan", "unwind", "flat")

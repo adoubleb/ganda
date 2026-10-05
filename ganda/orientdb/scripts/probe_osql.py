@@ -14,7 +14,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from ganda.orientdb.harness import OrientError, OrientInstance  # noqa: E402
+from ganda.orientdb.connection import OrientError, OrientServer  # noqa: E402
 
 DB = "fz_probe_osql"
 failures: list = []
@@ -61,7 +61,7 @@ def err_script(session, text, params=None) -> str:
 
 
 def main() -> int:
-    with OrientInstance() as server:
+    with OrientServer() as server:
         s = server.fresh_session(DB)
         for q in [
             "CREATE CLASS n1", "CREATE PROPERTY n1.id STRING", "CREATE PROPERTY n1.f1 LONG", "CREATE PROPERTY n1.f2 DOUBLE", "CREATE PROPERTY n1.f3 STRING",

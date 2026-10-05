@@ -13,7 +13,7 @@ Three error classes:
   not another. `internal` marks the rejections whose body is a raw Java exception
   (`NullPointerException`, `ClassCastException`, an HTTP 501 `Unsupported
   OperationException`) -- the engine crashed *inside* the request; those are counted
-  and bundled even when every side agrees on them.
+  and bundled even when every data model agrees on them.
 - `OrientCrash`: the server could not be talked to at all (connection refused/reset,
   timeout, garbage instead of JSON). The campaign restarts the server.
 
@@ -39,7 +39,7 @@ from typing import Any
 
 import requests
 
-from ganda.orientdb.materialize.common import Batch, Script, Sql, resolve_refs
+from ganda.orientdb.mapping.common import Batch, Script, Sql, resolve_refs
 
 
 class OrientError(RuntimeError):
@@ -274,7 +274,7 @@ def _parse_docker_port_output(output: str) -> int:
 
 
 @dataclass
-class OrientInstance:
+class OrientServer:
     """A running OrientDB server. Use as a context manager.
 
     Launched via Docker by default. Set `url` (or `ORIENT_URL`) to attach to an
@@ -298,7 +298,7 @@ class OrientInstance:
     base_url: str = field(default="", init=False)
     coverage_port: "int | None" = field(default=None, init=False)
 
-    def __enter__(self) -> "OrientInstance":
+    def __enter__(self) -> "OrientServer":
         self.start()
         return self
 
@@ -434,5 +434,5 @@ def cleanup_orphans() -> None:
         _container_ids.remove(cid)
 
 
-def db_name(ns: str, side: str) -> str:
-    return f"fz_{ns}_{side}"
+def db_name(ns: str, data_model: str) -> str:
+    return f"fz_{ns}_{data_model}"

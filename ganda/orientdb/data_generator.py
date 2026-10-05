@@ -9,7 +9,7 @@ pipeline relies on:
 - adding a draw to one axis cannot reshuffle another axis's output, so a before/after
   mutation-benchmark comparison A/Bs exactly the axis that changed;
 - row `i`'s value for field `f` depends only on `(seed, type, i, f)`, so shrinking a
-  bound in the minimizer removes rows instead of regenerating a different instance.
+  bound in the reducer removes rows instead of regenerating a different instance.
 
 Axes that can be switched off (custom keys, write forms, node deletion, the id index
 axis, inheritance, the narrow numeric types, `ci` collation, list indexes, clusters,
@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from ganda.orientdb.model import (
     MAP_KEYS,
     NUMERIC_TYPES,
-    SIDES,
+    DATA_MODELS,
     EdgeDelete,
     EdgeRow,
     EdgeTypeSpec,
@@ -42,7 +42,7 @@ from ganda.orientdb.model import (
     Schema,
     WriteForm,
 )
-from ganda.orientdb.orient import (
+from ganda.orientdb.dialect import (
     EDGE_FROM_FORMS,
     EDGE_UPDATE_FORMS,
     ID_INDEX_KINDS,
@@ -60,17 +60,17 @@ def _stream(seed: int, *parts) -> random.Random:
     return random.Random(f"{seed}:{':'.join(str(p) for p in parts)}")
 
 
-class TemplateRng(random.Random):
-    """The rng handed to `all_cases()`; `for_template(name)` gives each family its own
-    independent sub-stream, so a family can be sampled, skipped or added without
-    perturbing any other family's draws, and the minimizer can reconstruct the exact
+class QueryRng(random.Random):
+    """The rng handed to `all_cases()`; `for_generator(name)` gives each query generator its own
+    independent sub-stream, so a query generator can be sampled, skipped or added without
+    perturbing any other query generator's draws, and the reducer can reconstruct the exact
     case that failed."""
 
     def __init__(self, seed: int):
         super().__init__(f"{seed}:queries")
         self._template_seed = seed
 
-    def for_template(self, name: str) -> random.Random:
+    def for_generator(self, name: str) -> random.Random:
         return _stream(self._template_seed, "queries", name)
 
 
@@ -151,7 +151,7 @@ def random_datetime(rng: random.Random, date_only: bool = False) -> str:
     return format_datetime(t)
 # A value shaped like a RID (`#1:0`) is deliberately NOT in the string pool: the SQL
 # layer converts it to a LINK inside an embedded document (probed), so it would make
-# the doc side's link entries type-divergent by construction. It belongs to a
+# the doc data model's link entries type-divergent by construction. It belongs to a
 # schemaless-class axis, not to this pool.
 
 _ARRAY_MAX_LEN = 4
@@ -212,7 +212,7 @@ class GeneratorConfig:
     boundary_value_probability: float = 0.2
     value_reuse_probability: float = 0.2
     cardinality_control_probability: float = 0.3
-    # Indexes: per scalar node field; side drawn from doc/graph/rel/both; kind drawn
+    # Indexes: per scalar node field; data model drawn from doc/graph/rel/both; kind drawn
     # from `_INDEX_KIND_WEIGHTS`.
     index_probability: float = 0.35
     composite_index_probability: float = 0.15
@@ -229,7 +229,7 @@ class GeneratorConfig:
     # Tail-stream axes (0.0 reproduces prior generation exactly).
     custom_key_probability: float = 0.0
     write_form_probability: float = 0.5
-    # The `id` index kind per side (`ID_INDEX_KINDS`); at 0 every side gets UNIQUE.
+    # The `id` index kind per data model (`ID_INDEX_KINDS`); at 0 every data model gets UNIQUE.
     id_index_probability: float = 0.5
     # An abstract base class every node class extends, with 1-3 fields of its own
     # (`b1`, ...) that every node carries, and indexes on those fields placed on the
@@ -253,23 +253,23 @@ class GeneratorConfig:
     # CONTAINSKEY) or `BY VALUE` (serves CONTAINSVALUE).
     list_index_probability: float = 0.0
     # Per edge: the relationship is written with initial attribute values and then
-    # updated to its final ones (`EdgeUpdate`), through the side's edge update form.
+    # updated to its final ones (`EdgeUpdate`), through the data model's edge update form.
     churn_edge_update_probability: float = 0.0
     # The case supply per instance (draws nothing from the instance's streams):
     # grammar-sampled traversal questions (a prefix-stable sample: the first 10 of 30
     # are the 10). Here so a bundle's `repro.py` and a mutation report carry them.
-    ir_cases: int = 30
+    traversal_cases: int = 30
     # grammar-sampled single-class questions (`ir_select`, its own sub-stream: adding
-    # them moves no other case), prefix-stable like `ir_cases`
+    # them moves no other case), prefix-stable like `traversal_cases`
     select_cases: int = 180
-    # the shortest-path questions (`ir_path`, `queries/path_ir.py`): its own
+    # the shortest-path questions (`ir_path`, `queries/path_ast.py`): its own
     # sub-stream after the select supply, 0 reproduces a run from before it
     path_cases: int = 3
-    # the write phase (`ganda.orientdb.writes`, `ir_write`): this many predicate-targeted
+    # the write phase (`ganda.orientdb.write_phase`, `ir_write`): this many predicate-targeted
     # writes after every read case, each checked (answers, state, read-back) and
     # applied to the Instance; its own sub-stream, 0 reproduces a run from before it
     write_cases: int = 8
-    # LLM-written template cards (`fuzzer/cards`, family `llm_card`): this many card
+    # LLM-written template cards (`fuzzer/cards`, query generator `llm_card`): this many card
     # instantiations per instance from the JSONL corpus at `card_corpus`, its own
     # sub-stream after every other read supply; 0 reproduces a run from before it
     card_cases: int = 0
@@ -308,7 +308,7 @@ def _base_class(seed: "int | None", cfg: GeneratorConfig, node_names: list) -> "
         if f.type is FieldType.LIST or r.random() >= cfg.index_probability:
             continue
         table = BASE_CLASS if r.random() < 0.5 else r.choice(node_names)
-        indexes.append(IndexSpec(table=table, field=f.name, side=r.choice(("doc", "graph", "rel", "both")), kind=_draw_kind(r), ignore_nulls=r.random() < 0.5))
+        indexes.append(IndexSpec(table=table, field=f.name, data_model=r.choice(("doc", "graph", "rel", "both")), kind=_draw_kind(r), ignore_nulls=r.random() < 0.5))
     return base, indexes
 
 
@@ -335,27 +335,27 @@ def generate_schema(rng: random.Random, cfg: GeneratorConfig, seed: "int | None"
         for i in range(n_edge_types)
     )
 
-    sides = ("doc", "graph", "rel", "both")
+    data_models = ("doc", "graph", "rel", "both")
     indexes = []
     for nt in node_types:
         scalar = [f for f in nt.fields if f.type is not FieldType.LIST]
         for f in scalar:
             if rng.random() < cfg.index_probability:
-                indexes.append(IndexSpec(table=nt.name, field=f.name, side=rng.choice(sides), kind=_draw_kind(rng), ignore_nulls=rng.random() < 0.5))
+                indexes.append(IndexSpec(table=nt.name, field=f.name, data_model=rng.choice(data_models), kind=_draw_kind(rng), ignore_nulls=rng.random() < 0.5))
         if len(scalar) >= 2 and rng.random() < cfg.composite_index_probability:
             a, b = rng.sample(scalar, 2)
-            indexes.append(IndexSpec(table=nt.name, field=a.name, extra_fields=(b.name,), side=rng.choice(sides), kind=rng.choice(("NOTUNIQUE", "NOTUNIQUE_HASH_INDEX"))))
+            indexes.append(IndexSpec(table=nt.name, field=a.name, extra_fields=(b.name,), data_model=rng.choice(data_models), kind=rng.choice(("NOTUNIQUE", "NOTUNIQUE_HASH_INDEX"))))
     for et in edge_types:
         scalar = [f for f in et.fields if f.type is not FieldType.LIST]
         if scalar and rng.random() < cfg.edge_index_probability:
-            indexes.append(IndexSpec(table=et.name, field=rng.choice(scalar).name, side=rng.choice(("graph", "rel", "both")), kind=rng.choice(("NOTUNIQUE", "NOTUNIQUE_HASH_INDEX")), target="edge"))
+            indexes.append(IndexSpec(table=et.name, field=rng.choice(scalar).name, data_model=rng.choice(("graph", "rel", "both")), kind=rng.choice(("NOTUNIQUE", "NOTUNIQUE_HASH_INDEX")), target="edge"))
 
     id_index: dict = {}
     if seed is not None and cfg.id_index_probability > 0:
-        for side in SIDES:
-            r = _stream(seed, "idindex", side)
+        for data_model in DATA_MODELS:
+            r = _stream(seed, "idindex", data_model)
             if r.random() < cfg.id_index_probability:
-                id_index[side] = r.choice(ID_INDEX_KINDS)
+                id_index[data_model] = r.choice(ID_INDEX_KINDS)
     base, base_indexes = _base_class(seed, cfg, names)
     node_types, base = _tail_field_axes(seed, cfg, node_types, base)
     list_indexes = _list_indexes(seed, cfg, node_types, base)
@@ -411,17 +411,17 @@ def _list_indexes(seed: "int | None", cfg: GeneratorConfig, node_types: tuple, b
             r = _stream(seed, "listindex", nt.name, f.name)
             if r.random() < cfg.list_index_probability:
                 by = r.choice(("KEY", "VALUE")) if f.type is FieldType.MAP else None
-                out.append(IndexSpec(table=nt.name, field=f.name, side=r.choice(("doc", "graph", "rel", "both")), kind=r.choice(("NOTUNIQUE", "NOTUNIQUE_HASH_INDEX")), ignore_nulls=r.random() < 0.5, by=by))
+                out.append(IndexSpec(table=nt.name, field=f.name, data_model=r.choice(("doc", "graph", "rel", "both")), kind=r.choice(("NOTUNIQUE", "NOTUNIQUE_HASH_INDEX")), ignore_nulls=r.random() < 0.5, by=by))
     return out
 
 
 def _dedupe_indexes(indexes: list) -> list:
-    """Two specs rendering the same index NAME on some side would fail that side's
+    """Two specs rendering the same index NAME on some data model would fail that data model's
     setup alone (a fuzzer-made asymmetry); the later one is dropped."""
     seen: set = set()
     kept = []
     for ix in indexes:
-        keys = {(s, ix.name()) for s in SIDES if ix.applies_to(s)}
+        keys = {(s, ix.name()) for s in DATA_MODELS if ix.applies_to(s)}
         if keys & seen:
             continue
         seen |= keys
@@ -511,8 +511,8 @@ def _custom_key(seed: int, type_name: str, local_id: int, cfg: GeneratorConfig) 
     return key
 
 
-def _write_form(seed: int, side: str, cfg: GeneratorConfig) -> WriteForm:
-    rng = _stream(seed, "writeform", side)
+def _write_form(seed: int, data_model: str, cfg: GeneratorConfig) -> WriteForm:
+    rng = _stream(seed, "writeform", data_model)
     if rng.random() >= cfg.write_form_probability:
         return WriteForm()
     form = WriteForm(
@@ -704,7 +704,7 @@ def _collides(instance: Instance, ix: IndexSpec) -> bool:
 def edge_value_states(instance: Instance):
     """Every edge-attribute state the setup passes through: the initial values of
     every edge ever written, then the final ones."""
-    from ganda.orientdb.materialize.common import initial_edge_values, initial_edges
+    from ganda.orientdb.mapping.common import initial_edge_values, initial_edges
 
     edges = initial_edges(instance)
     yield initial_edge_values(instance)
@@ -712,7 +712,7 @@ def edge_value_states(instance: Instance):
 
 
 def _edge_collides(instance: Instance, ix: IndexSpec) -> bool:
-    from ganda.orientdb.materialize.common import initial_edges
+    from ganda.orientdb.mapping.common import initial_edges
 
     ids = {e.record_id for e in initial_edges(instance) if e.type_name == ix.table}
     for state in edge_value_states(instance):
@@ -750,4 +750,4 @@ def build(seed: int, cfg: GeneratorConfig) -> "tuple[Schema, Instance, TemplateR
     """The single entry point: (schema, instance, query rng) for a (seed, config)."""
     schema = generate_schema(_stream(seed, "schema"), cfg, seed=seed)
     instance = generate_instance(seed, schema, cfg)
-    return instance.schema, instance, TemplateRng(seed)
+    return instance.schema, instance, QueryRng(seed)

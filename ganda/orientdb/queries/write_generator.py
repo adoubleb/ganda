@@ -1,8 +1,8 @@
-"""Samples `WriteQuery`s and each side's spelling of them (the `ir_write` family).
+"""Samples `WriteQuery`s and each data model's concrete syntax of them (the `ir_write` query generator).
 
 The grammar: with `EDGE_PROBABILITY` an edge type with attributes and relationships,
 else a class with records and fields; an op among those the target admits
-(`write_ir.NODE_OPS` / `EDGE_OPS`); the written field among the columns the op admits
+(`write_ast.NODE_OPS` / `EDGE_OPS`); the written field among the columns the op admits
 (arithmetic: an integer column; MERGE: a scalar one); a filter with
 `WHERE_PROBABILITY` (`predicates.draw_over`, as the select IR draws it) else every
 record; a value from the column's own values or a fresh one of its type
@@ -12,14 +12,14 @@ construction:
 
 - arithmetic stays exact on every matched value (`predicates._arith_exact`: a long
   never wraps, an INTEGER stays int32; `*` on longs only);
-- no unique or dictionary index of any side ends up holding a key twice, and none
+- no unique or dictionary index of any data model ends up holding a key twice, and none
   covering the written field is written through more than one record (a unique
-  index is checked per row, in an order that differs per side, and a failed
+  index is checked per row, in an order that differs per data model, and a failed
   statement keeps what it wrote);
 - an UPSERT names an existing record or a fresh id.
 
-Each side then draws its spelling (`write_spellings`) among the applicable ones no
-guard names (`guards.write_side_known`); if some side has none, the write is drawn
+Each data model then draws its concrete syntax (`write_syntax`) among the applicable ones no
+guard names (`known_bugs.write_known`); if some data model has none, the write is drawn
 again. Every draw comes from the `ir_write` sub-stream.
 """
 from __future__ import annotations
@@ -27,12 +27,12 @@ from __future__ import annotations
 import random
 
 from ganda.orientdb.model import COLLECTION_TYPES, INT_TYPES, FieldType, Instance, Schema
-from ganda.orientdb.orient import UNIQUE_KINDS
+from ganda.orientdb.dialect import UNIQUE_KINDS
 from ganda.orientdb.queries import predicates
-from ganda.orientdb.queries.base import SIDES
+from ganda.orientdb.queries.case import DATA_MODELS
 from ganda.orientdb.queries.predicates import Predicate
-from ganda.orientdb.queries.write_ir import EDGE_OPS, NODE_OPS, RETURNING_OPS, WriteQuery, apply, edge_hits, node_hits
-from ganda.orientdb.queries.write_spellings import WriteTwins, all_spellings, applicable
+from ganda.orientdb.queries.write_ast import EDGE_OPS, NODE_OPS, RETURNING_OPS, WriteQuery, apply, edge_hits, node_hits
+from ganda.orientdb.queries.write_syntax import WriteRewrites, all_syntaxes, applicable
 
 EDGE_PROBABILITY = 0.3
 WHERE_PROBABILITY = 0.85
@@ -47,7 +47,7 @@ def _present(values: list) -> list:
 
 
 def _value(rng: random.Random, ftype: FieldType, column: list):
-    from ganda.orientdb.generator import random_value
+    from ganda.orientdb.data_generator import random_value
 
     present = _present(column)
     if present and rng.random() < PRESENT_VALUE_PROBABILITY:
@@ -70,13 +70,13 @@ def _unique_indexes(schema: Schema, q: WriteQuery) -> list:
     kinds = UNIQUE_KINDS + ("DICTIONARY",)
     if q.edge:
         return [ix for ix in schema.indexes if ix.target == "edge" and ix.table == q.edge_type and ix.kind in kinds]
-    from ganda.orientdb.guards import _poly_tables
+    from ganda.orientdb.known_bugs import _poly_tables
 
     return [ix for ix in schema.indexes if ix.target == "node" and ix.kind in kinds and ix.table in _poly_tables(schema, q.table)]
 
 
 def unique_safe(q: WriteQuery, before: Instance, after: Instance) -> bool:
-    from ganda.orientdb.generator import index_key
+    from ganda.orientdb.data_generator import index_key
 
     schema = before.schema
     ixs = _unique_indexes(schema, q)
@@ -157,13 +157,13 @@ def _draw(rng: random.Random, schema: Schema, instance: Instance, step: int) -> 
     return q
 
 
-def build_twins(q: WriteQuery, rng: random.Random, schema: Schema, instance: Instance) -> WriteTwins:
-    twins = WriteTwins()
+def build_rewrites(q: WriteQuery, rng: random.Random, schema: Schema, instance: Instance) -> WriteRewrites:
+    rewrites = WriteRewrites()
     p = q.where
     if p is None:
-        return twins
-    twins.rw = predicates.rewrite(p, rng, "q")
-    twins.rev = predicates.reverse(p)
+        return rewrites
+    rewrites.rw = predicates.rewrite(p, rng, "q")
+    rewrites.rev = predicates.reverse(p)
     if isinstance(p, Predicate) and not q.edge:
         try:
             ftype = schema.field(q.table, p.field).type
@@ -171,39 +171,39 @@ def build_twins(q: WriteQuery, rng: random.Random, schema: Schema, instance: Ins
             ftype = None
         if ftype is not None:
             stored = [n.values.get(p.field) for n in instance.nodes_of(q.table) if p.field in n.values]
-            twins.ar = predicates.arithmetic(p, rng, "ar", ftype, stored)
-    return twins
+            rewrites.ar = predicates.arithmetic(p, rng, "ar", ftype, stored)
+    return rewrites
 
 
-def choose_spellings(q: WriteQuery, twins: WriteTwins, rng: random.Random, schema: Schema, instance: Instance, keep_known: bool = False) -> "dict | None":
-    """side -> (spelling, known finding or None): a spelling no guard names, drawn
-    uniformly; with `keep_known` any applicable one (the finding recorded)."""
-    from ganda.orientdb.guards import write_side_known
+def choose_syntaxes(q: WriteQuery, rewrites: WriteRewrites, rng: random.Random, schema: Schema, instance: Instance, keep_known_bugs: bool = False) -> "dict | None":
+    """data model -> (concrete syntax, known bug or None): a concrete syntax no guard names, drawn
+    uniformly; with `keep_known_bugs` any applicable one (the finding recorded)."""
+    from ganda.orientdb.known_bugs import write_known
 
     out = {}
-    for side in SIDES:
-        options = [sp for sp in all_spellings(q, side) if applicable(q, sp, twins, side)]
+    for data_model in DATA_MODELS:
+        options = [sp for sp in all_syntaxes(q, data_model) if applicable(q, sp, rewrites, data_model)]
         rng.shuffle(options)
-        judged = [(sp, write_side_known(q, sp, twins, side, schema, instance)) for sp in options]
+        judged = [(sp, write_known(q, sp, rewrites, data_model, schema, instance)) for sp in options]
         safe = [x for x in judged if x[1] is None]
-        if keep_known and judged:
-            out[side] = judged[0]
+        if keep_known_bugs and judged:
+            out[data_model] = judged[0]
         elif safe:
-            out[side] = safe[0]
+            out[data_model] = safe[0]
         else:
             return None
     return out
 
 
-def sample_write(rng: random.Random, schema: Schema, instance: Instance, step: int, keep_known: bool = False) -> "tuple | None":
-    """(query, twins, side -> (spelling, known)), or None after `ATTEMPTS` draws."""
+def sample_write(rng: random.Random, schema: Schema, instance: Instance, step: int, keep_known_bugs: bool = False) -> "tuple | None":
+    """(query, rewrites, data model -> (concrete syntax, known)), or None after `ATTEMPTS` draws."""
     for _ in range(ATTEMPTS):
         q = _draw(rng, schema, instance, step)
         if q is None:
             continue
-        twins = build_twins(q, rng, schema, instance)
-        spellings = choose_spellings(q, twins, rng, schema, instance, keep_known)
-        if spellings is None:
+        rewrites = build_rewrites(q, rng, schema, instance)
+        syntaxes = choose_syntaxes(q, rewrites, rng, schema, instance, keep_known_bugs)
+        if syntaxes is None:
             continue
-        return q, twins, spellings
+        return q, rewrites, syntaxes
     return None

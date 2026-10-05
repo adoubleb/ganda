@@ -2,9 +2,9 @@
 
     bugs/<tag>-<seed>-<template>-<shape slug>/
         README.md          what diverged, in one screen
-        queries.json       every side's text, the bind variables, rows, mismatches
+        queries.json       every data model's text, the bind variables, rows, mismatches
         instance.json      the abstract instance
-        <side>_setup.json  the setup plan per side (RID placeholders as {"$ref": id})
+        <data model>_setup.json  the setup plan per data model (RID placeholders as {"$ref": id})
         repro.py           regenerates the case from (seed, config) and replays it
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ import os
 import re
 from typing import Any
 
-from ganda.orientdb.materialize.common import plan_to_dict
+from ganda.orientdb.mapping.common import plan_to_dict
 from ganda.orientdb.model import FieldType
 
 
@@ -53,10 +53,10 @@ def instance_to_dict(instance) -> dict:
 
 def report_bug(out_dir: str, tag: str, seed: int, cfg, instance, plans: dict, result, times_seen: int = 1) -> str:
     case = result.case
-    d = bundle_dir(out_dir, tag, seed, case.template_name, case.shape)
+    d = bundle_dir(out_dir, tag, seed, case.generator_name, case.shape)
     os.makedirs(d, exist_ok=True)
     queries = {
-        "template": case.template_name,
+        "generator": case.generator_name,
         "shape": case.shape,
         "comparison": case.comparison.value,
         "finding_class": result.finding_class,
@@ -64,7 +64,7 @@ def report_bug(out_dir: str, tag: str, seed: int, cfg, instance, plans: dict, re
         "queries": case.queries,
         "bind_vars": case.bind_vars,
         "params": case.params,
-        "known": case.known,
+        "known_bugs": case.known_bugs,
         "suppressed": result.suppressed,
         "rows": result.rows,
         "errors": result.errors,
@@ -78,8 +78,8 @@ def report_bug(out_dir: str, tag: str, seed: int, cfg, instance, plans: dict, re
         json.dump(queries, fh, indent=2, ensure_ascii=False, default=repr)
     with open(os.path.join(d, "instance.json"), "w") as fh:
         json.dump(instance_to_dict(instance), fh, indent=2, ensure_ascii=False, default=repr)
-    for side, plan in plans.items():
-        with open(os.path.join(d, f"{side}_setup.json"), "w") as fh:
+    for variant, plan in plans.items():
+        with open(os.path.join(d, f"{variant}_setup.json"), "w") as fh:
             json.dump(plan_to_dict(plan), fh, indent=2, ensure_ascii=False, default=repr)
     with open(os.path.join(d, "repro.py"), "w") as fh:
         fh.write(_repro_script(seed, cfg, case))
@@ -95,8 +95,8 @@ def report_setup_problem(out_dir: str, tag: str, seed: int, cfg, instance, plans
         json.dump({"kind": kind, "errors": errors, "state_diffs": {s: x.problems for s, x in diffs.items()}}, fh, indent=2, ensure_ascii=False, default=repr)
     with open(os.path.join(d, "instance.json"), "w") as fh:
         json.dump(instance_to_dict(instance), fh, indent=2, ensure_ascii=False, default=repr)
-    for side, plan in plans.items():
-        with open(os.path.join(d, f"{side}_setup.json"), "w") as fh:
+    for variant, plan in plans.items():
+        with open(os.path.join(d, f"{variant}_setup.json"), "w") as fh:
             json.dump(plan_to_dict(plan), fh, indent=2, ensure_ascii=False, default=repr)
     with open(os.path.join(d, "repro.py"), "w") as fh:
         fh.write(_repro_script(seed, cfg, None, write_step))
@@ -123,7 +123,7 @@ def report_crash(out_dir: str, tag: str, seed: int, cfg, message: str, diagnosti
 
 def _readme(seed, cfg, result, times_seen) -> str:
     case = result.case
-    lines = [f"# {case.template_name} -- {result.finding_class} (seed {seed})", ""]
+    lines = [f"# {case.generator_name} -- {result.finding_class} (seed {seed})", ""]
     lines.append(f"shape: `{case.shape}`  comparison: `{case.comparison.value}`  seen {times_seen}x under this key")
     lines.append("")
     if result.failing_pairs:
@@ -132,8 +132,8 @@ def _readme(seed, cfg, result, times_seen) -> str:
         lines.append(f"withheld sides (known findings): {result.suppressed}")
     lines.append("")
     lines.append("## Queries")
-    for side in case.sides:
-        lines.append(f"- **{side}**: `{case.queries[side]}`")
+    for variant in case.variants:
+        lines.append(f"- **{variant}**: `{case.queries[variant]}`")
     lines.append(f"- bind: `{json.dumps(case.bind_vars, ensure_ascii=False, default=repr)}`")
     lines.append("")
     if any(result.errors.values()):
@@ -150,12 +150,12 @@ def _readme(seed, cfg, result, times_seen) -> str:
     if result.reference_mismatches:
         lines.append("## Reference mismatches (first 12)")
         for m in result.reference_mismatches[:12]:
-            lines.append(f"- `{m.record_id}` {m.side}: got {json.dumps(m.got, ensure_ascii=False, default=repr)[:200]} expected {json.dumps(m.expected, ensure_ascii=False, default=repr)[:200]}")
+            lines.append(f"- `{m.record_id}` {m.variant}: got {json.dumps(m.got, ensure_ascii=False, default=repr)[:200]} expected {json.dumps(m.expected, ensure_ascii=False, default=repr)[:200]}")
         lines.append("")
     if result.duplicate_id_rows:
         lines.append("## Duplicate id rows")
         for x in result.duplicate_id_rows:
-            lines.append(f"- {x.side}: `{x.record_id}` x{x.count}")
+            lines.append(f"- {x.variant}: `{x.record_id}` x{x.count}")
         lines.append("")
     lines.append(f"config: `{json.dumps(dataclasses.asdict(cfg))}`")
     return "\n".join(lines) + "\n"
@@ -163,28 +163,28 @@ def _readme(seed, cfg, result, times_seen) -> str:
 
 def _repro_script(seed: int, cfg, case, write_step: "int | None" = None) -> str:
     cfg_json = json.dumps(dataclasses.asdict(cfg))
-    key_side = next((x for x in ("doc", "graph", "rel") if x in case.queries), None) if case else None
-    key = {"template": case.template_name, "shape": case.shape, "side": key_side, "text": case.queries[key_side]} if case else None
+    key_variant = next((x for x in ("doc", "graph", "rel") if x in case.queries), None) if case else None
+    key = {"generator": case.generator_name, "shape": case.shape, "variant": key_variant, "text": case.queries[key_variant]} if case else None
     # a write-phase case (or a read-back after one) replays the phase up to its step
     step = write_step
-    keep_known = False
-    if case is not None and (case.template_name == "ir_write" or "after_write" in case.params):
+    keep_known_bugs = False
+    if case is not None and (case.generator_name == "ir_write" or "after_write" in case.params):
         step = case.params.get("step", case.params.get("after_write"))
-        keep_known = case.params.get("keep_known", False)
+        keep_known_bugs = case.params.get("keep_known_bugs", False)
     if step is not None:
-        key = {**(key or {}), "write_step": step, "keep_known": keep_known}
+        key = {**(key or {}), "write_step": step, "keep_known_bugs": keep_known_bugs}
     key = json.dumps(key)
     return f'''#!/usr/bin/env python3
 """Replay: regenerate the instance from (seed, config), materialize it three ways on a
 fresh server (Docker, or ORIENT_URL/ORIENT_PASSWORD), and re-run the case."""
 import json, os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-from ganda.orientdb.generator import GeneratorConfig, build
-from ganda.orientdb.harness import OrientInstance, db_name
-from ganda.orientdb.materialize import BUILDERS
+from ganda.orientdb.data_generator import GeneratorConfig, build
+from ganda.orientdb.connection import OrientInstance, db_name
+from ganda.orientdb.mapping import BUILDERS
 from ganda.orientdb.oracle import run_case
-from ganda.orientdb.queries.templates import all_cases
-from ganda.orientdb.state import verify_state
+from ganda.orientdb.queries.registry import all_cases
+from ganda.orientdb.state_check import verify_state
 
 SEED = {seed}
 CFG = GeneratorConfig(**json.loads({cfg_json!r}))
@@ -201,7 +201,7 @@ with OrientInstance() as server:
         sessions[side] = s
     if KEY and KEY.get("write_step") is not None:
         # the write phase up to the step: every write, its answers and state check
-        from ganda.orientdb.writes import run_write_phase
+        from ganda.orientdb.write_phase import run_write_phase
 
         wp = run_write_phase(sessions, instance, rng.for_template("ir_write"), CFG.write_cases, keep_known=KEY["keep_known"], stop_after=KEY["write_step"])
         for r in wp.results:

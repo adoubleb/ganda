@@ -6,40 +6,40 @@ from __future__ import annotations
 
 import dataclasses
 
-from ganda.orientdb.generator import GeneratorConfig, build
-from ganda.orientdb.materialize import BUILDERS
+from ganda.orientdb.data_generator import GeneratorConfig, build
+from ganda.orientdb.mapping import MAPPERS
 from ganda.orientdb.oracle import run_case
-from ganda.orientdb.quarantine import Quarantine
-from ganda.orientdb.queries.templates import all_cases
+from ganda.orientdb.dedup import BugDeduplicator
+from ganda.orientdb.queries.registry import all_cases
 
 _SHRINK_FIELDS = ("max_node_types", "max_edge_types", "max_fields_per_type", "max_nodes_per_type", "max_edges_per_type")
 
 
 def _reproduces(server, seed: int, cfg: GeneratorConfig, key: tuple, ns: str) -> bool:
-    from ganda.orientdb.harness import OrientError, db_name
+    from ganda.orientdb.connection import OrientError, db_name
 
     schema, instance, rng = build(seed, cfg)
     sessions = {}
     try:
-        for side in ("doc", "graph", "rel"):
-            s = server.fresh_session(db_name(ns, side))
-            s.apply_setup(BUILDERS[side](instance))
-            sessions[side] = s
-        for case in all_cases(rng, schema, instance, ir_cases=cfg.ir_cases, select_cases=cfg.select_cases, path_cases=cfg.path_cases, card_cases=cfg.card_cases, card_corpus=cfg.card_corpus):
-            if case.template_name != key[0] or case.shape != key[1]:
+        for data_model in ("doc", "graph", "rel"):
+            s = server.fresh_session(db_name(ns, data_model))
+            s.apply_setup(MAPPERS[data_model](instance))
+            sessions[data_model] = s
+        for case in all_cases(rng, schema, instance, traversal_cases=cfg.traversal_cases, select_cases=cfg.select_cases, path_cases=cfg.path_cases, card_cases=cfg.card_cases, card_corpus=cfg.card_corpus):
+            if case.generator_name != key[0] or case.shape != key[1]:
                 continue
             r = run_case(case, sessions, instance)
-            if not r.ok and Quarantine.key(r) == key:
+            if not r.ok and BugDeduplicator.key(r) == key:
                 return True
         return False
     except OrientError:
         return False
     finally:
-        for side in ("doc", "graph", "rel"):
-            server.drop_database(db_name(ns, side))
+        for data_model in ("doc", "graph", "rel"):
+            server.drop_database(db_name(ns, data_model))
 
 
-def minimize(server, seed: int, cfg: GeneratorConfig, key: tuple, ns: str = "min") -> GeneratorConfig:
+def reduce(server, seed: int, cfg: GeneratorConfig, key: tuple, ns: str = "min") -> GeneratorConfig:
     """Greedy: for each bound, halve toward its minimum while the key reproduces."""
     current = cfg
     for name in _SHRINK_FIELDS:

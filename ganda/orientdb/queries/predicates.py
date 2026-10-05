@@ -1,11 +1,11 @@
 """Predicate drawing and evaluation, shared by the IRs (the OrientDB text is
-`osql.render_predicate`).
+`predicate_syntax.render_predicate`).
 
 A predicate is a tree: a `Predicate` LEAF is `(op, pivot)` over one field; a `Compound`
 joins children with `AND` / `OR` or negates one with `NOT`. The pivot of a leaf sits ON
 a stored value, ADJACENT to one, or OUTSIDE the range (the SurrealDB/ArangoDB
 discipline: bugs live at boundaries). Every op has an exact Python mirror in
-`reference.predicate_hit`, and `evaluate` folds the tree with OrientDB's two-valued
+`semantics.predicate_hit`, and `evaluate` folds the tree with OrientDB's two-valued
 boolean logic (probed 3.2.56: `NOT (f > 5)` holds for a null `f`, `a OR b AND c`
 binds AND first -- every rendered compound is parenthesized anyway).
 
@@ -14,11 +14,11 @@ Two adversarial axes a leaf can carry:
 - a CROSS-TYPE numeric pivot (`cross_type_probability`): a double pivot on a LONG
   column (`5.5`, `5.0`) or an integral pivot on a DOUBLE column. OrientDB compares
   the two through double (probed: `2^53 + 1 = 9007199254740992.0`), which the
-  reference reproduces (`reference.lt`/`eq` convert), and the index-vs-scan oracle
+  reference reproduces (`semantics.lt`/`eq` convert), and the index-vs-scan oracle
   says whether an index lookup agrees with that comparison;
 - a NULL pivot never arises from drawing (the null rules are asked through the
-  `IS NULL` family), but the value-join family binds a record's own field, which may
-  be null; `reference.predicate_hit` models what a scan answers for it.
+  `IS NULL` query generator), but the value-join query generator binds a record's own field, which may
+  be null; `semantics.predicate_hit` models what a scan answers for it.
 
 A leaf's `bind` is a bare parameter NAME (`p1`); the engine's parameter syntax is
 the renderer's. A SEMI-JOIN leaf (`INSUB`, the select IR only) asks whether `f` is
@@ -72,12 +72,12 @@ class Predicate:
     key_bind: str = ""
     # REVERSED operands: the pivot on the left (`:p > f` for `f < :p`, `:p IN f` for
     # `f CONTAINS :p`) -- the same comparison the planner never serves from an index
-    # (probed: every reversed leaf is a scan), so a `<side>:rev` variant is the
+    # (probed: every reversed leaf is a scan), so a `<data_model>:rev` variant is the
     # index-vs-scan oracle inside one database. With a STRING pivot on a DATETIME /
     # DATE column the engine compares the date's Java `toString()` (O32, withheld).
     rev: bool = False
     # ARITHMETIC over the field: `(f <sym> :cbind) op :bind` where the pivot is
-    # already shifted (`p + c`), an equivalent spelling wherever the arithmetic is
+    # already shifted (`p + c`), an equivalent concrete syntax wherever the arithmetic is
     # exact on every stored value (`arithmetic()` guards that) -- also never
     # index-served. (sym, cbind, c).
     arith: "tuple | None" = None
@@ -216,8 +216,8 @@ def resolve_subs(p, instance):
 
 
 def evaluate(values: dict, p) -> bool:
-    """Two-valued boolean logic over `reference.predicate_hit` for the leaves."""
-    from ganda.orientdb.reference import predicate_hit
+    """Two-valued boolean logic over `semantics.predicate_hit` for the leaves."""
+    from ganda.orientdb.semantics import predicate_hit
 
     if isinstance(p, Compound):
         if p.op == "NOT":
@@ -246,7 +246,7 @@ _REVERSIBLE = tuple(MIRROR) + ("CONTAINS",)
 def reverse(p):
     """`p` with every reversible leaf's operands swapped (`:p > f`), or None when no
     leaf is reversible (IN, BETWEEN, LIKE, the null tests and the map operators keep
-    their spelling). A leaf that already carries arithmetic is left alone."""
+    their concrete syntax). A leaf that already carries arithmetic is left alone."""
     if isinstance(p, Compound):
         kids = [reverse(c) for c in p.children]
         if all(k is None for k in kids):
@@ -316,7 +316,7 @@ _ARITH_CHOICES = {
 
 
 def arithmetic(p, rng: random.Random, bind: str, ftype: FieldType, values: list):
-    """An equivalent spelling of the leaf `f op :p` as `(f <sym> :c) op' :pc AND f IS
+    """An equivalent concrete syntax of the leaf `f op :p` as `(f <sym> :c) op' :pc AND f IS
     NOT NULL` (`... OR f IS NULL` for `<>`) -- the pivot shifted the same way, the
     operator mirrored under a negative factor, the null rows handled explicitly (a
     null operand is the identity of `+` and `-`, O30: `null + 1 = 1` would match;
@@ -446,7 +446,7 @@ def _pattern_safe(v: str) -> bool:
 
 
 def _cross_type(rng: random.Random, ftype: FieldType, v):
-    """The same pivot spelled in a form the column does not hold exactly: a LONG
+    """The same pivot rendered in a form the column does not hold exactly: a LONG
     pivot as an exact double (`5.0`) or a half-step off it (`5.5`, where an index key
     conversion that truncates would bite); an INTEGER pivot as that, or as a Long
     that wraps onto it (`v + 2^32`) or lies just outside int32; a DOUBLE pivot as
@@ -521,7 +521,7 @@ def draw(rng: random.Random, on: str, f: FieldSpec, values: list, bind: str, cro
         return None
     if f.type is FieldType.LIST:
         # a list equality against a declared list never matches (O7, withheld on
-        # every declared side), so CONTAINS carries most of the weight; CONTAINSANY /
+        # every declared data model), so CONTAINS carries most of the weight; CONTAINSANY /
         # CONTAINSALL take a list of one or two elements (an Integer-boxed element
         # never equals a stored Long on a scan: O7's list face, withheld there)
         roll = rng.random()
@@ -660,7 +660,7 @@ def draw_over(rng: random.Random, on: str, fields, values_of, bind: str, compoun
 
 
 def _sort_key(v):
-    from ganda.orientdb.reference import orient_key
+    from ganda.orientdb.semantics import orient_key
 
     return orient_key(v)
 
@@ -669,7 +669,7 @@ def _sort_key(v):
 
 
 def rewrite(p, rng: random.Random, bind: str):
-    """An equivalent spelling of `p` under OrientDB's semantics (the null rules,
+    """An equivalent concrete syntax of `p` under OrientDB's semantics (the null rules,
     two-valued NOT), or None when it has none. The rewritten leaves bind fresh names
     under `bind`, with the same values. This is the query-rewrite oracle: the pair
     (p, rewrite(p)) is the same question through a different planner path."""
@@ -711,7 +711,7 @@ def rewrite(p, rng: random.Random, bind: str):
             # a ci equality as a function over the lower-cased value: never index-served
             return leaf("LOWER=", bind, pv.lower())
         if p.ci and isinstance(pv, str):
-            # `IN` ignores the collation on a scan (O21): not an equivalent spelling
+            # `IN` ignores the collation on a scan (O21): not an equivalent concrete syntax
             return Compound(on, "NOT", (leaf("<>", bind, pv),))
         return leaf("IN", bind, [pv])
     if op == "<>":
