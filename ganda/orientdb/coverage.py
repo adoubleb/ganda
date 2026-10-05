@@ -27,6 +27,9 @@ import threading
 import time
 from dataclasses import dataclass, field
 
+from ganda.core.coverage import LEVELS  # noqa: F401
+from ganda.core.coverage import Collector as _CoreCollector
+
 JACOCO_VERSION = "0.8.13"
 AGENT_PORT = 6300
 AGENT_INCLUDES = "com.orientechnologies.*"
@@ -44,7 +47,6 @@ MAGIC = 0xC0C0
 FORMAT_VERSION = 0x1007  # every JaCoCo since 0.7.5
 HEADER = struct.pack(">BHH", BLOCK_HEADER, MAGIC, FORMAT_VERSION)
 
-LEVELS = ("off", "seed", "case", "variant")
 
 
 def agent_jar() -> str:
@@ -278,7 +280,7 @@ def unique_counts(labels: dict) -> dict:
     }
 
 
-class Collector:
+class Collector(_CoreCollector):
     """Takes a reset dump after every execution window and attributes it.
 
     `seed`: one window per seed -- the growth curve only, any number of workers.
@@ -399,6 +401,20 @@ class Collector:
             os.makedirs(d, exist_ok=True)
             for name, data in self.templates.items():
                 data.write(os.path.join(d, f"{_safe(name)}.exec"), session=f"{tag}/{name}")
+
+
+    # --- the core's collector protocol -------------------------------------------------
+
+    def write(self, stats_dir: str, tag: str) -> None:
+        self.write_exec(stats_dir, tag)
+
+    def record(self, summary: dict, stats_dir: str, tag: str) -> dict:
+        path = write_summary(summary, stats_dir, tag)
+        print(f"coverage written to {path} (execution data: {tag}-coverage.exec; scripts/coverage_report.py reads it)")
+        return {**{k: summary[k] for k in HEADLINE}, "json": path}
+
+    def print_summary(self, summary: dict) -> None:
+        print_summary(summary)
 
 
 def write_summary(summary: dict, stats_dir: str, tag: str) -> str:

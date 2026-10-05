@@ -40,7 +40,7 @@ from typing import Any
 import requests
 
 from ganda.orientdb.mapping.common import Batch, Script, Sql, resolve_refs
-from ganda.core.provider import EngineCrash, EngineError
+from ganda.core.provider import EngineCrash, EngineError, Server, Session
 
 
 class OrientError(EngineError):
@@ -100,7 +100,7 @@ def unwrap_script(result: list) -> list:
     return result
 
 
-class OrientSession:
+class OrientSession(Session):
     """Talks to one database on a running server. One `requests.Session` per database:
     the server's session cookie is bound to a database, and a cookie left over from a
     dropped database answers 401 for every later request (probed)."""
@@ -267,6 +267,10 @@ class OrientSession:
                     out.append((link.get("eid"), r["id"], tid, {f.name: link.get(f.name) for f in et.fields if f.name in link and link.get(f.name) is not None}))
         return out
 
+    def ping(self):
+        """One trivial query (`ganda orientdb doctor`)."""
+        return self.sql("SELECT 1 AS ok")
+
     def classes(self) -> list:
         rows = self.sql_raw("SELECT name FROM (SELECT expand(classes) FROM metadata:schema) WHERE name NOT LIKE 'O%' AND name NOT IN ['V', 'E']")
         return sorted(r["name"] for r in rows)
@@ -325,7 +329,7 @@ def _parse_docker_port_output(output: str) -> int:
 
 
 @dataclass
-class OrientServer:
+class OrientServer(Server):
     """A running OrientDB server. Use as a context manager.
 
     Launched via Docker by default. Set `url` (or `ORIENT_URL`) to attach to an

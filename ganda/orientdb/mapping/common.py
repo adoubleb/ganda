@@ -38,7 +38,7 @@ from ganda.core.setup_plan import (  # noqa: F401
     plan_from_dict,
     plan_to_dict,
     resolve_refs,
-    step,
+    step as register_step,
     step_from_dict,
 )
 from ganda.core.model import (
@@ -58,7 +58,7 @@ from ganda.orientdb.dialect import ORIENT_TYPES, UNIQUE_KINDS
 
 # --- setup plan vocabulary ---------------------------------------------------------------
 
-@step("sql")
+@register_step("sql")
 @dataclass
 class Sql:
     """One SQL command with named parameters. `capture` is the logical id whose RID
@@ -77,7 +77,7 @@ class Sql:
         return cls(d["command"], decode_refs(d.get("params", {})), d.get("capture"))
 
 
-@step("script")
+@register_step("script")
 @dataclass
 class Script:
     """A multi-statement script (`POST /command/<db>/script`). `params` are shared by
@@ -96,7 +96,7 @@ class Script:
         return cls(d["text"], decode_refs(d.get("params", {})), d.get("captures", {}))
 
 
-@step("batch")
+@register_step("batch")
 @dataclass
 class Batch:
     """The `/batch` endpoint: `steps` are `Sql` commands run in one request, in one

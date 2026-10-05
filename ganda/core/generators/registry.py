@@ -1,22 +1,20 @@
 """Case assembly: every case a (seed, config) produces for one instance.
 
-Four sources, each a registry entry so the reducer, the reporter and the mutation
-benchmark see one list:
+The core's query generators, each on its own random stream so that adding one moves
+no other:
 
-- `ir_traversal` (`traversal_generator`): the grammar-sampled traversal questions, each
-  rendered through every applicable concrete syntax of every data model -- the systematic supply of
-  cross-model pairs, with a shape denominator;
-- `ir_select` (`select_generator`): the grammar-sampled single-class questions (a
-  filter and a result shape: ids, a count, a projection, an aggregate, a grouping,
-  distinct values, an ordering), each through every applicable concrete syntax of the
-  filter, the target and the form -- the index-vs-scan oracle as a product;
-- `ir_path` (`path_ast`): the hop count of a shortest path between two records,
-  through the graph's path functions, the doc data model's TRAVERSE over its link lists and
-  the relational data model's junction levels;
-- `llm_card` (`fuzzer/cards`): LLM-written template cards from a frozen corpus, each
-  rendered 1-3 ways per model, with no Python reference (the pairs are the oracle).
+- `ir_traversal`: sampled traversal questions, each rendered through every applicable
+  concrete syntax of every data model -- the systematic supply of cross-model pairs;
+- `ir_select`: sampled single-class questions (a filter and a result shape), each
+  through every applicable syntax of the filter, the target and the form -- the
+  index-vs-scan oracle as a product;
+- `ir_path`: the vertex count of a shortest path between two records;
+- `ir_write`: predicate-targeted writes, run as a phase after every read case
+  (`write_phase`), not from here.
 
-`reference_for` routes a case to its Python reference.
+A provider adds its own through `Provider.extra_generators` (name -> a function of
+`(rng, schema, instance, cfg)`), with `Provider.reference_for` for their references.
+`reference_for` routes a case to its reference answer.
 """
 from __future__ import annotations
 
@@ -32,7 +30,11 @@ from ganda.core.ast.select import evaluate as evaluate_select
 from ganda.core.ast.select import from_params as select_from_params
 
 
-def all_cases(rng, schema: Schema, instance: Instance, traversal_cases: int = CASES_PER_INSTANCE, select_cases: int = 0, path_cases: int = 0, card_cases: int = 0, card_corpus: str = "") -> list:
+def all_cases(rng, schema: Schema, instance: Instance, traversal_cases: int = CASES_PER_INSTANCE, select_cases: int = 0, path_cases: int = 0, cfg=None) -> list:
+    """Every read case of an instance. With `cfg` the supply is the configuration's
+    (and the provider's extra generators run); the counts are for callers without one."""
+    if cfg is not None:
+        traversal_cases, select_cases, path_cases = cfg.traversal_cases, cfg.select_cases, cfg.path_cases
     cases: list = []
     if traversal_cases:
         sub = rng.for_generator("ir_traversal")
@@ -43,17 +45,14 @@ def all_cases(rng, schema: Schema, instance: Instance, traversal_cases: int = CA
     if path_cases:
         sub = rng.for_generator("ir_path")
         cases.extend(generate_path_cases(sub, schema, instance, per_instance=path_cases))
-    if card_cases and card_corpus:
-        from ganda.orientdb.cards import card_cases as _card_cases
-
-        # each card draws from its own `llm_card/<id>` stream: adding the supply
-        # moves no other case
-        cases.extend(_card_cases(rng, schema, instance, card_cases, card_corpus))
+    if cfg is not None:
+        for name, generate in schema.engine.extra_generators.items():
+            cases.extend(generate(rng.for_generator(name), schema, instance, cfg))
     return cases
 
 
-# `ir_write` is not a read query generator: `ganda.core.generators.write_phase` runs it after every read case
-GENERATOR_NAMES = ["ir_traversal", "ir_select", "ir_path", "ir_write", "llm_card"]
+# `ir_write` is not a read query generator: `write_phase` runs it after every read case
+GENERATOR_NAMES = ["ir_traversal", "ir_select", "ir_path", "ir_write"]
 
 
 def reference_for(case: QueryCase, instance: Instance):
@@ -78,4 +77,7 @@ def reference_for(case: QueryCase, instance: Instance):
         return True, evaluate_select(select_from_params(case.params["select"]), instance)
     if case.generator_name == "ir_path":
         return True, evaluate_path(path_from_params(case.params["path"]), instance)
+    engine = instance.schema.engine
+    if engine is not None and case.generator_name in engine.extra_generators:
+        return engine.reference_for(case, instance)
     return False, None

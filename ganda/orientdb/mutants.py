@@ -25,145 +25,11 @@ arithmetic rewrites are what can see it).
 from __future__ import annotations
 
 import dataclasses
-from dataclasses import dataclass
 import re
-from typing import Callable
 
-from ganda.core.model import EdgeDelete, EdgeRow, EdgeUpdate, FieldType, Instance, NodeDelete, NodeUpdate, Schema
+from ganda.core.model import Schema
+from ganda.core.mutation.mutants import INSTANCE_MUTANTS, Mutant
 from ganda.orientdb.dialect import RANGE_KINDS
-
-
-@dataclass(frozen=True)
-class Mutant:
-    name: str
-    category: str
-    description: str
-    # data model -> function(Instance) -> Instance applied BEFORE that data model is materialized
-    instance_for_data_model: dict = dataclasses.field(default_factory=dict)
-    # function(case) -> case applied to every case (renderer-level corruption)
-    rewrite_case: "Callable | None" = None
-    # the data models whose plan is replaced by the plan of the corrupted instance
-    reference_only: bool = False
-    # function(case, schema) -> case: a renderer-level corruption that needs the
-    # schema (which fields an index of the data model covers)
-    rewrite_case_schema: "Callable | None" = None
-
-
-def _with_edges(instance: Instance, edges: list) -> Instance:
-    return dataclasses.replace(instance, edges=edges)
-
-
-def _drop_first_edge(instance: Instance) -> Instance:
-    return _with_edges(instance, instance.edges[1:]) if instance.edges else instance
-
-
-def _duplicate_edges(instance: Instance) -> Instance:
-    if not instance.edges:
-        return instance
-    e = instance.edges[0]
-    dup = EdgeRow(e.type_name, 10_000 + e.local_id, e.from_record, e.to_record, dict(e.values))
-    return _with_edges(instance, list(instance.edges) + [dup])
-
-
-def _swap_direction(instance: Instance) -> Instance:
-    swapped = []
-    for e in instance.edges:
-        et = instance.schema.edge_type(e.type_name)
-        if et.from_type == et.to_type and e.from_record != e.to_record:
-            swapped.append(EdgeRow(e.type_name, e.local_id, e.to_record, e.from_record, e.values))
-        else:
-            swapped.append(e)
-    return _with_edges(instance, swapped)
-
-
-def _drop_self_loops(instance: Instance) -> Instance:
-    return _with_edges(instance, [e for e in instance.edges if e.from_record != e.to_record])
-
-
-def _collapse_duplicates(instance: Instance) -> Instance:
-    seen, out = set(), []
-    for e in instance.edges:
-        k = (e.type_name, e.from_record, e.to_record)
-        if k in seen:
-            continue
-        seen.add(k)
-        out.append(e)
-    return _with_edges(instance, out)
-
-
-def _truncate_fanout(instance: Instance, limit: int = 1) -> Instance:
-    count: dict = {}
-    out = []
-    for e in instance.edges:
-        k = (e.type_name, e.from_record)
-        count[k] = count.get(k, 0) + 1
-        if count[k] <= limit:
-            out.append(e)
-    return _with_edges(instance, out)
-
-
-def _offset_edge_numeric(instance: Instance) -> Instance:
-    out = []
-    for e in instance.edges:
-        vals = dict(e.values)
-        for f in instance.schema.edge_type(e.type_name).fields:
-            v = vals.get(f.name)
-            if f.type is FieldType.INT and isinstance(v, int) and not isinstance(v, bool) and abs(v) < 2**62:
-                vals[f.name] = v + 1
-        out.append(EdgeRow(e.type_name, e.local_id, e.from_record, e.to_record, vals))
-    return _with_edges(instance, out)
-
-
-def _upper_edge_strings(instance: Instance) -> Instance:
-    out = []
-    for e in instance.edges:
-        vals = {k: (v.upper() if isinstance(v, str) else v) for k, v in e.values.items()}
-        out.append(EdgeRow(e.type_name, e.local_id, e.from_record, e.to_record, vals))
-    return _with_edges(instance, out)
-
-
-def _offset_node_numeric(instance: Instance) -> Instance:
-    out = []
-    for n in instance.nodes:
-        vals = dict(n.values)
-        for f in instance.schema.node_type(n.type_name).fields:
-            v = vals.get(f.name)
-            if f.type is FieldType.INT and isinstance(v, int) and not isinstance(v, bool) and abs(v) < 2**62:
-                vals[f.name] = v + 1
-        out.append(dataclasses.replace(n, values=vals))
-    return dataclasses.replace(instance, nodes=out)
-
-
-def _skip_node_updates(instance: Instance) -> Instance:
-    """The NodeUpdate churn is dropped: the node keeps its INITIAL values."""
-    nodes = list(instance.nodes)
-    for op in instance.churn:
-        if isinstance(op, NodeUpdate):
-            nodes = [dataclasses.replace(n, values=dict(op.initial_values)) if n.record_id == op.node.record_id else n for n in nodes]
-    return dataclasses.replace(instance, nodes=nodes, churn=[op for op in instance.churn if not isinstance(op, NodeUpdate)])
-
-
-def _skip_edge_updates(instance: Instance) -> Instance:
-    """The EdgeUpdate churn is dropped: the relationship keeps its INITIAL attributes."""
-    initial = {op.edge.record_id: op.initial_values for op in instance.churn if isinstance(op, EdgeUpdate)}
-    edges = [EdgeRow(e.type_name, e.local_id, e.from_record, e.to_record, dict(initial[e.record_id])) if e.record_id in initial else e for e in instance.edges]
-    return dataclasses.replace(instance, edges=edges, churn=[op for op in instance.churn if not isinstance(op, EdgeUpdate)])
-
-
-def _skip_edge_deletes(instance: Instance) -> Instance:
-    """Churned edges are never removed."""
-    kept = [op.edge for op in instance.churn if isinstance(op, EdgeDelete)]
-    return dataclasses.replace(instance, edges=list(instance.edges) + kept, churn=[op for op in instance.churn if not isinstance(op, EdgeDelete)])
-
-
-def _dangling_after_node_delete(instance: Instance) -> Instance:
-    """The doc data model's cascade: a deleted node's INCOMING links stay in the sources'
-    lists (a LINK to a removed record, which dereferences to null)."""
-    extra = []
-    for op in instance.churn:
-        if isinstance(op, NodeDelete):
-            extra += [e for e in op.incident_edges if e.from_record != op.node.record_id]
-    return dataclasses.replace(instance, edges=list(instance.edges) + extra)
 
 
 def _first_case_variant_query(case, data_model: str, fn):
@@ -248,23 +114,8 @@ def _desc_as_asc(text: str, fields: list) -> str:
     return text
 
 
-MUTANTS = [
-    Mutant("graph_drop_first_edge", "structural", "the graph side loses the first edge", {"graph": _drop_first_edge}),
-    Mutant("doc_drop_first_edge", "structural", "the doc side loses the first link", {"doc": _drop_first_edge}),
-    Mutant("rel_drop_first_edge", "structural", "the relational side loses the first junction row", {"rel": _drop_first_edge}),
-    Mutant("graph_duplicate_edges", "structural", "the graph side writes the first edge twice", {"graph": _duplicate_edges}),
-    Mutant("rel_swap_direction", "structural", "the relational side reverses self-typed edges", {"rel": _swap_direction}),
-    Mutant("doc_drop_self_loops", "structural", "the doc side loses every self-loop", {"doc": _drop_self_loops}),
-    Mutant("graph_collapse_duplicates", "structural", "the graph side keeps one of each parallel edge", {"graph": _collapse_duplicates}),
-    Mutant("rel_truncate_fanout", "structural", "the relational side keeps at most 1 edge per source", {"rel": _truncate_fanout}),
-    Mutant("doc_offset_edge_numeric", "attribute", "the doc side's INT edge attributes are off by one", {"doc": _offset_edge_numeric}),
-    Mutant("graph_upper_edge_strings", "attribute", "the graph side upper-cases string edge attributes", {"graph": _upper_edge_strings}),
-    Mutant("rel_offset_node_numeric", "attribute", "the relational side's INT node fields are off by one", {"rel": _offset_node_numeric}),
-    Mutant("graph_stale_node_update", "churn", "the graph side never applies the NodeUpdate churn", {"graph": _skip_node_updates}),
-    Mutant("rel_edge_delete_skipped", "churn", "the relational side never removes churned edges", {"rel": _skip_edge_deletes}),
-    Mutant("graph_stale_edge_update", "churn", "the graph side never applies the EdgeUpdate churn (needs --churn-edge-update-probability)", {"graph": _skip_edge_updates}),
-    Mutant("doc_dangling_after_node_delete", "churn", "the doc side leaves links to a deleted node", {"doc": _dangling_after_node_delete}),
-    Mutant("all_sides_drop_edge", "oracle-blind", "every side loses the first edge (only the reference sees it)", {"doc": _drop_first_edge, "graph": _drop_first_edge, "rel": _drop_first_edge}, reference_only=True),
+# the core's instance-level mutants, then OrientDB's corruptions of its own query text
+MUTANTS = INSTANCE_MUTANTS + [
     Mutant("graph_wrong_predicate_op", "render", "the graph side's first comparison operator is loosened/tightened", rewrite_case=_wrong_op_graph),
     Mutant("doc_distinct_projection", "render", "the doc side deduplicates its id projection", rewrite_case=_distinct_on_doc),
     Mutant("graph_index_range_inclusive", "index", "a strict range an SB-tree index of the graph side serves includes its bound", rewrite_case_schema=_index_rewrite("graph", True, _inclusive_range)),

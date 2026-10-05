@@ -18,31 +18,31 @@ import sys
 import time
 from collections import defaultdict
 
-from ganda.orientdb.generate import GeneratorConfig, build
-from ganda.orientdb.connection import OrientCrash, OrientError, OrientServer, cleanup_orphans, db_name
-from ganda.orientdb.mapping import MAPPERS
-from ganda.orientdb.mutants import MUTANTS, MUTANTS_BY_NAME
+from ganda.core.config import add_config_arguments, config_from_args
+from ganda.core.data_generator import build
+from ganda.core.generators.write_phase import run_write_phase
+from ganda.core.provider import EngineCrash, EngineError
 from ganda.core.oracle import run_case
 from ganda.core.generators.registry import all_cases
 
 
-def _setup(server, ns: str, instance, mutant) -> dict:
+def _setup(engine, server, ns: str, instance, mutant) -> dict:
     sessions = {}
-    for data_model in ("doc", "graph", "rel"):
+    for data_model in engine.data_models:
         inst = instance
         if mutant is not None and data_model in mutant.instance_for_data_model:
             inst = mutant.instance_for_data_model[data_model](instance)
-        s = server.fresh_session(db_name(ns, data_model))
-        s.apply_setup(MAPPERS[data_model](inst))
+        s = server.fresh_session(engine.database_name(ns, data_model))
+        s.apply_setup(engine.mappers[data_model](inst))
         sessions[data_model] = s
     return sessions
 
 
-def _drop(server, ns):
-    for data_model in ("doc", "graph", "rel"):
+def _drop(engine, server, ns):
+    for data_model in engine.data_models:
         try:
-            server.drop_database(db_name(ns, data_model))
-        except (OrientError, OrientCrash):
+            server.drop_database(engine.database_name(ns, data_model))
+        except (EngineError, EngineCrash):
             pass
 
 
@@ -52,48 +52,47 @@ def _write_results(sessions, instance, rng, cfg, args) -> list:
     which says nothing about the write supply."""
     if not cfg.write_cases:
         return []
-    from ganda.core.generators.write_phase import run_write_phase
-
     return run_write_phase(sessions, instance, rng.for_generator("ir_write"), cfg.write_cases, verify=False, reference=not args.no_reference).results
 
 
-def run_benchmark(args) -> dict:
-    cfg = GeneratorConfig(**{k: v for k, v in vars(args).items() if k in {f.name for f in dataclasses.fields(GeneratorConfig)}})
-    mutants = [MUTANTS_BY_NAME[n] for n in args.mutants] if args.mutants else list(MUTANTS)
+def run_benchmark(engine, args) -> dict:
+    cfg = config_from_args(engine.config_class, args)
+    by_name = {m.name: m for m in engine.mutants}
+    mutants = [by_name[n] for n in args.mutants] if args.mutants else list(engine.mutants)
     seeds = list(range(args.seed, args.seed + args.trials))
-    report: dict = {"tag": args.tag, "trials": args.trials, "seed": args.seed, "no_reference": args.no_reference, "config": dataclasses.asdict(cfg), "mutants": {}}
+    report: dict = {"engine": engine.name, "tag": args.tag, "trials": args.trials, "seed": args.seed, "no_reference": args.no_reference, "config": dataclasses.asdict(cfg), "mutants": {}}
     start = time.time()
     ns = f"mut{os.getpid()}"
-    with OrientServer() as server:
+    with engine.server(None) as server:
         # the healthy run: which seeds are clean, so a mutant is only scored on those
         clean: dict = {}
         for seed in seeds:
-            schema, instance, rng = build(seed, cfg)
+            schema, instance, rng = build(seed, cfg, engine)
             try:
-                sessions = _setup(server, ns, instance, None)
-            except OrientError as e:
+                sessions = _setup(engine, server, ns, instance, None)
+            except EngineError as e:
                 print(f"[seed {seed}] healthy setup failed: {str(e)[:120]}", flush=True)
-                _drop(server, ns)
+                _drop(engine, server, ns)
                 continue
-            cases = all_cases(rng, schema, instance, traversal_cases=cfg.traversal_cases, select_cases=cfg.select_cases, path_cases=cfg.path_cases, card_cases=cfg.card_cases, card_corpus=cfg.card_corpus)
+            cases = all_cases(rng, schema, instance, cfg=cfg)
             bad = [c.generator_name for c in cases if not run_case(c, sessions, None if args.no_reference else instance).ok]
             bad += [r.case.generator_name for r in _write_results(sessions, instance, rng, cfg, args) if not r.ok]
             clean[seed] = not bad
             if bad:
                 print(f"[seed {seed}] healthy run not clean: {sorted(set(bad))}", flush=True)
-            _drop(server, ns)
+            _drop(engine, server, ns)
         scored = [s for s, ok in clean.items() if ok]
         for mutant in mutants:
             caught_by: dict = defaultdict(int)
             caught_trials = 0
             for seed in scored:
-                schema, instance, rng = build(seed, cfg)
+                schema, instance, rng = build(seed, cfg, engine)
                 try:
-                    sessions = _setup(server, ns, instance, mutant)
-                except OrientError:
-                    _drop(server, ns)
+                    sessions = _setup(engine, server, ns, instance, mutant)
+                except EngineError:
+                    _drop(engine, server, ns)
                     continue
-                cases = all_cases(rng, schema, instance, traversal_cases=cfg.traversal_cases, select_cases=cfg.select_cases, path_cases=cfg.path_cases, card_cases=cfg.card_cases, card_corpus=cfg.card_corpus)
+                cases = all_cases(rng, schema, instance, cfg=cfg)
                 hit = False
                 for case in cases:
                     if mutant.rewrite_case is not None:
@@ -109,7 +108,7 @@ def run_benchmark(args) -> dict:
                         caught_by[r.case.generator_name] += 1
                         hit = True
                 caught_trials += int(hit)
-                _drop(server, ns)
+                _drop(engine, server, ns)
             rate = caught_trials / len(scored) if scored else 0.0
             report["mutants"][mutant.name] = {"category": mutant.category, "caught": caught_trials, "trials": len(scored), "rate": rate, "caught_by": dict(sorted(caught_by.items(), key=lambda kv: -kv[1]))}
             print(f"{mutant.name:32s} {caught_trials:3d}/{len(scored)} ({rate:.2f})  {', '.join(list(dict(sorted(caught_by.items(), key=lambda kv: -kv[1])))[:5])}", flush=True)
@@ -120,25 +119,21 @@ def run_benchmark(args) -> dict:
     return report
 
 
-def main(argv=None) -> int:
-    ap = argparse.ArgumentParser()
+def add_arguments(ap: argparse.ArgumentParser, engine) -> None:
     ap.add_argument("--trials", type=int, default=10)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--tag", default="mutation")
     ap.add_argument("--no-reference", action="store_true")
     ap.add_argument("--mutants", nargs="*")
     ap.add_argument("--out-dir", default="mutation_reports")
-    for f in dataclasses.fields(GeneratorConfig):
-        flag = "--" + f.name.replace("_", "-")
-        if f.type is bool or isinstance(f.default, bool):
-            ap.add_argument(flag, type=lambda s: s.lower() in ("1", "true", "yes"), default=f.default)
-        else:
-            ap.add_argument(flag, type=type(f.default), default=f.default)
-    args = ap.parse_args(argv)
+    add_config_arguments(ap, engine.config_class)
+
+
+def main(engine, args) -> int:
     try:
-        report = run_benchmark(args)
+        report = run_benchmark(engine, args)
     finally:
-        cleanup_orphans()
+        engine.cleanup()
     os.makedirs(args.out_dir, exist_ok=True)
     path = os.path.join(args.out_dir, f"{args.tag}.json")
     with open(path, "w") as fh:
@@ -149,7 +144,3 @@ def main(argv=None) -> int:
         print(f"STRUCTURAL MUTANTS NEVER CAUGHT: {structural_missed}")
         return 1
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
