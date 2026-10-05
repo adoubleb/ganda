@@ -299,7 +299,7 @@ def run_cases(cases: list, sessions: dict, instance: "Instance | None" = None, a
 
 
 def _expected(case: QueryCase, instance: Instance):
-    from ganda.orientdb.queries.registry import reference_for
+    from ganda.core.generators.registry import reference_for
 
     return reference_for(case, instance)
 

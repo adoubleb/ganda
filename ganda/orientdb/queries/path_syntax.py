@@ -36,68 +36,18 @@ wrapped to answer nothing there: an aggregate over no rows answers no row, probe
                        union inside an `IN (subquery)`: O26 / O40 territory)
 
 A question only some models can render is `partial`: the pairs run among the data models
-present, plus the reference (the BFS distance, `select_support.bfs_distances`).
+present, plus the reference (the BFS distance, `ganda.core.generators.support.bfs_distances`).
 """
 from __future__ import annotations
 
-import random
-from dataclasses import dataclass
-
+from ganda.core.ast.path import PathQuery, distance
 from ganda.core.model import Instance, Schema
-from ganda.core.case import Comparison, QueryCase
-from ganda.orientdb.queries.select_support import bfs_distances
 
-DIRECTIONS = ("OUT", "IN", "BOTH")
-DEPTHS = (1, 2, 3)
-REACH = ("same", "yes", "cut", "no")
-CASES_PER_INSTANCE = 3
 _FN = {"OUT": "out", "IN": "in", "BOTH": "both"}
 
 
-@dataclass(frozen=True)
-class PathQuery:
-    start: str
-    start_type: str
-    goal: str
-    goal_type: str
-    direction: str
-    edge_type: "str | None"
-    depth: int
-
-    def to_params(self) -> dict:
-        return {"start": self.start, "start_type": self.start_type, "goal": self.goal, "goal_type": self.goal_type, "direction": self.direction, "edge_type": self.edge_type, "depth": self.depth}
-
-
-def from_params(d: dict) -> PathQuery:
-    return PathQuery(d["start"], d["start_type"], d["goal"], d["goal_type"], d["direction"], d.get("edge_type"), d["depth"])
-
-
-def distance(q: PathQuery, instance: Instance) -> "int | None":
-    return bfs_distances(instance, q.start, q.direction, q.edge_type).get(q.goal)
-
-
-def evaluate(q: PathQuery, instance: Instance) -> list:
-    d = distance(q, instance)
-    return [{"v": d + 1}] if d is not None and d <= q.depth else []
-
-
-def reach(q: PathQuery, instance: Instance) -> str:
-    d = distance(q, instance)
-    return "same" if d == 0 else "no" if d is None else "cut" if d > q.depth else "yes"
-
-
-def coverage_signature(q: PathQuery, instance: Instance) -> str:
-    return f"path dir={q.direction} et={'one' if q.edge_type else 'all'} k={q.depth} reach={reach(q, instance)}"
-
-
-def all_coverage_signatures() -> list:
-    return [f"path dir={d} et={e} k={k} reach={r}" for d in DIRECTIONS for e in ("one", "all") for k in DEPTHS for r in REACH]
-
-
-COVERAGE_DENOMINATOR = len(all_coverage_signatures())
-
-
-# --- concrete syntaxes --------------------------------------------------------------------------------
+def bind_vars(q: PathQuery) -> dict:
+    return {"a": q.start, "b": q.goal, "dir": q.direction, "o": {"maxDepth": q.depth}}
 
 
 def _start(q: PathQuery) -> str:
@@ -196,52 +146,4 @@ def render_all(q: PathQuery, schema: Schema, instance: Instance) -> "tuple[dict,
     return queries, known_bugs
 
 
-# --- sampling --------------------------------------------------------------------------------
 
-
-def sample_path(rng: random.Random, schema: Schema, instance: Instance) -> "PathQuery | None":
-    """A start that has an edge to follow most of the time, a goal among the records
-    it reaches most of the time (the start itself now and then)."""
-    nodes = list(instance.nodes)
-    if not nodes or not schema.edge_types:
-        return None
-    direction = rng.choice(DIRECTIONS)
-    et = rng.choice(schema.edge_types).name if rng.random() < 0.6 else None
-    edges = [e for e in instance.edges if et is None or e.type_name == et]
-    ends = {e.from_record for e in edges} if direction == "OUT" else {e.to_record for e in edges} if direction == "IN" else {e.from_record for e in edges} | {e.to_record for e in edges}
-    starts = [x for x in nodes if x.record_id in ends]
-    a = rng.choice(starts) if starts and rng.random() < 0.85 else rng.choice(nodes)
-    dists = bfs_distances(instance, a.record_id, direction, et)
-    reachable = [x for x in nodes if x.record_id in dists and x.record_id != a.record_id]
-    roll = rng.random()
-    if roll < 0.1:
-        b = a
-    elif reachable and roll < 0.75:
-        b = rng.choice(reachable)
-    else:
-        b = rng.choice(nodes)
-    return PathQuery(a.record_id, a.type_name, b.record_id, b.type_name, direction, et, rng.choice(DEPTHS))
-
-
-def build_case(q: PathQuery, schema: Schema, instance: Instance) -> QueryCase:
-    queries, known_bugs = render_all(q, schema, instance)
-    bind = {"a": q.start, "b": q.goal, "dir": q.direction, "o": {"maxDepth": q.depth}}
-    params = {
-        "path": q.to_params(),
-        "distance": distance(q, instance),
-        "shape": f"path dir={q.direction} et={'one' if q.edge_type else 'all'} k={q.depth} reach={reach(q, instance)} sides={'+'.join(s for s in ('doc', 'graph', 'rel') if s in queries)}",
-        "coverage": coverage_signature(q, instance),
-    }
-    if not all(s in queries for s in ("doc", "graph", "rel")):
-        params["partial"] = True
-    return QueryCase("ir_path", q.edge_type or "", Comparison.SINGLE_VALUE, queries, bind, params, shape=params["shape"], known_bugs=known_bugs)
-
-
-def generate_path_cases(rng: random.Random, schema: Schema, instance: Instance, per_instance: int = CASES_PER_INSTANCE) -> list:
-    cases = []
-    for _ in range(per_instance):
-        q = sample_path(rng, schema, instance)
-        if q is None:
-            break
-        cases.append(build_case(q, schema, instance))
-    return cases

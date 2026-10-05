@@ -16,7 +16,7 @@ from ganda.orientdb.known_bugs import (
 )
 from ganda.orientdb.java_hash import distinct_collides, java_hash, string_hash
 from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
-from ganda.orientdb.queries.traversal_ast import Hop, TraversalQuery
+from ganda.core.ast.traversal import Hop, TraversalQuery
 from ganda.orientdb.queries.predicates import Compound, Predicate, arithmetic
 from ganda.orientdb.semantics import like_hit
 

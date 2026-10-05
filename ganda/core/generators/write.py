@@ -27,12 +27,8 @@ from __future__ import annotations
 import random
 
 from ganda.core.model import COLLECTION_TYPES, INT_TYPES, FieldType, Instance, Schema
-from ganda.orientdb.dialect import UNIQUE_KINDS
-from ganda.orientdb.queries import predicates
-from ganda.core.case import DATA_MODELS
-from ganda.orientdb.queries.predicates import Predicate
-from ganda.orientdb.queries.write_ast import EDGE_OPS, NODE_OPS, RETURNING_OPS, WriteQuery, apply, edge_hits, node_hits
-from ganda.orientdb.queries.write_syntax import WriteRewrites, all_syntaxes, applicable
+from ganda.core.ast import predicates
+from ganda.core.ast.write import EDGE_OPS, NODE_OPS, RETURNING_OPS, WriteQuery, apply, edge_hits, node_hits
 
 EDGE_PROBABILITY = 0.3
 WHERE_PROBABILITY = 0.85
@@ -47,7 +43,7 @@ def _present(values: list) -> list:
 
 
 def _value(rng: random.Random, ftype: FieldType, column: list):
-    from ganda.orientdb.data_generator import random_value
+    from ganda.orientdb.data_generator import random_value  # TODO(core): the data generator
 
     present = _present(column)
     if present and rng.random() < PRESENT_VALUE_PROBABILITY:
@@ -67,16 +63,14 @@ def _field_pool(op: str, fields) -> list:
 
 
 def _unique_indexes(schema: Schema, q: WriteQuery) -> list:
-    kinds = UNIQUE_KINDS + ("DICTIONARY",)
+    one_per_key = schema.engine.physical_design.holds_one_record_per_key
     if q.edge:
-        return [ix for ix in schema.indexes if ix.target == "edge" and ix.table == q.edge_type and ix.kind in kinds]
-    from ganda.orientdb.known_bugs import _poly_tables
-
-    return [ix for ix in schema.indexes if ix.target == "node" and ix.kind in kinds and ix.table in _poly_tables(schema, q.table)]
+        return [ix for ix in schema.indexes if ix.target == "edge" and ix.table == q.edge_type and one_per_key(ix)]
+    return [ix for ix in schema.indexes if ix.target == "node" and one_per_key(ix) and ix.table in schema.poly_tables(q.table)]
 
 
 def unique_safe(q: WriteQuery, before: Instance, after: Instance) -> bool:
-    from ganda.orientdb.data_generator import index_key
+    from ganda.orientdb.data_generator import index_key  # TODO(core): the data generator
 
     schema = before.schema
     ixs = _unique_indexes(schema, q)
@@ -98,8 +92,8 @@ def unique_safe(q: WriteQuery, before: Instance, after: Instance) -> bool:
     return True
 
 
-def _arith_ok(ftype: FieldType, sym: str, c: int, values: list) -> bool:
-    return all(predicates._arith_exact(v, sym, c, ftype) for v in values if v is not None)
+def _arith_ok(engine, ftype: FieldType, sym: str, c: int, values: list) -> bool:
+    return all(engine.rewrites.arith_exact(v, sym, c, ftype) for v in values if v is not None)
 
 
 def _draw(rng: random.Random, schema: Schema, instance: Instance, step: int) -> "WriteQuery | None":
@@ -128,7 +122,7 @@ def _draw(rng: random.Random, schema: Schema, instance: Instance, step: int) -> 
     values_of = lambda f: [r.get(f.name) for r in rows if f.name in r]  # noqa: E731
     where = None
     if op != "upsert" and rng.random() < WHERE_PROBABILITY:
-        where = predicates.draw_over(rng, on, fields, values_of, "p")
+        where = predicates.draw_over(rng, on, fields, values_of, "p", schema.engine)
     kw: dict = dict(target, op=op, where=where, field=field.name if field else None)
     if op in ("set", "merge", "upsert", "edge_set"):
         kw["value"] = _value(rng, field.type, values_of(field))
@@ -150,39 +144,20 @@ def _draw(rng: random.Random, schema: Schema, instance: Instance, step: int) -> 
     q = WriteQuery(**kw)
     if op in ("arith", "edge_arith"):
         hits = edge_hits(q, instance) if q.edge else node_hits(q, instance)
-        if not _arith_ok(field.type, q.sym, q.value, [(e.values if q.edge else e.values).get(q.field) for e in hits]):
+        if not _arith_ok(schema.engine, field.type, q.sym, q.value, [(e.values if q.edge else e.values).get(q.field) for e in hits]):
             return None
     if not unique_safe(q, instance, apply(q, instance)):
         return None
     return q
 
 
-def build_rewrites(q: WriteQuery, rng: random.Random, schema: Schema, instance: Instance) -> WriteRewrites:
-    rewrites = WriteRewrites()
-    p = q.where
-    if p is None:
-        return rewrites
-    rewrites.rw = predicates.rewrite(p, rng, "q")
-    rewrites.rev = predicates.reverse(p)
-    if isinstance(p, Predicate) and not q.edge:
-        try:
-            ftype = schema.field(q.table, p.field).type
-        except KeyError:
-            ftype = None
-        if ftype is not None:
-            stored = [n.values.get(p.field) for n in instance.nodes_of(q.table) if p.field in n.values]
-            rewrites.ar = predicates.arithmetic(p, rng, "ar", ftype, stored)
-    return rewrites
-
-
-def choose_syntaxes(q: WriteQuery, rewrites: WriteRewrites, rng: random.Random, schema: Schema, instance: Instance, keep_known_bugs: bool = False) -> "dict | None":
+def choose_syntaxes(q: WriteQuery, rewrites, rng: random.Random, schema: Schema, instance: Instance, keep_known_bugs: bool = False) -> "dict | None":
     """data model -> (concrete syntax, known bug or None): a concrete syntax no guard names, drawn
     uniformly; with `keep_known_bugs` any applicable one (the finding recorded)."""
-    from ganda.orientdb.known_bugs import write_known
-
+    syn, write_known = schema.engine.write_syntax, schema.engine.known_bugs.write_known
     out = {}
-    for data_model in DATA_MODELS:
-        options = [sp for sp in all_syntaxes(q, data_model) if applicable(q, sp, rewrites, data_model)]
+    for data_model in schema.engine.data_models:
+        options = [sp for sp in syn.all_syntaxes(q, data_model) if syn.applicable(q, sp, rewrites, data_model)]
         rng.shuffle(options)
         judged = [(sp, write_known(q, sp, rewrites, data_model, schema, instance)) for sp in options]
         safe = [x for x in judged if x[1] is None]
@@ -201,7 +176,7 @@ def sample_write(rng: random.Random, schema: Schema, instance: Instance, step: i
         q = _draw(rng, schema, instance, step)
         if q is None:
             continue
-        rewrites = build_rewrites(q, rng, schema, instance)
+        rewrites = schema.engine.write_syntax.build_rewrites(q, rng, schema, instance)
         syntaxes = choose_syntaxes(q, rewrites, rng, schema, instance, keep_known_bugs)
         if syntaxes is None:
             continue

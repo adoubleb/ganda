@@ -23,7 +23,7 @@ from ganda.orientdb.connection import OrientCrash, OrientError, OrientServer, cl
 from ganda.orientdb.mapping import MAPPERS
 from ganda.orientdb.mutants import MUTANTS, MUTANTS_BY_NAME
 from ganda.orientdb.oracle import run_case
-from ganda.orientdb.queries.registry import all_cases
+from ganda.core.generators.registry import all_cases
 
 
 def _setup(server, ns: str, instance, mutant) -> dict:

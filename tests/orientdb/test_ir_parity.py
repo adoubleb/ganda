@@ -10,14 +10,15 @@ from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexS
 from ganda.orientdb.mutants import MUTANTS_BY_NAME
 from ganda.orientdb.queries import predicates
 from ganda.core.case import Comparison, QueryCase
-from ganda.orientdb.queries.path_ast import PathQuery, evaluate as evaluate_path, render_all
+from ganda.core.ast.path import PathQuery, evaluate as evaluate_path
+from ganda.orientdb.queries.path_syntax import render_all
 from ganda.orientdb.queries.predicate_syntax import render_predicate as render
 from ganda.orientdb.queries.predicates import Compound, Predicate
-from ganda.orientdb.queries.select_generator import KIND_WEIGHTS, build_case, strata
-from ganda.orientdb.queries.select_ast import KINDS, SelectQuery, evaluate, tx_instance
+from ganda.core.generators.select import KIND_WEIGHTS, build_case, strata
+from ganda.core.ast.select import KINDS, SelectQuery, evaluate, tx_instance
 from ganda.orientdb.queries.select_syntax import BASE, SelectSyntax, Rewrites, applicable, render as render_select
 from ganda.orientdb.queries.select_support import tx_write
-from ganda.orientdb.queries.registry import all_cases
+from ganda.core.generators.registry import all_cases
 
 from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
 
@@ -179,7 +180,7 @@ def test_deck_weights_and_supply():
 def test_walk_tier_orders_every_indexed_class_both_ways():
     ix = IndexSpec("n1", "f1", data_model="doc", kind="NOTUNIQUE")
     schema, inst = _fixture([ix])
-    from ganda.orientdb.queries.select_generator import generate_select_cases
+    from ganda.core.generators.select import generate_select_cases
 
     cases = generate_select_cases(random.Random(3), schema, inst, per_instance=6)
     walks = [c.params["select"] for c in cases if c.params["select"]["kind"] == "keys" and c.params["select"]["where"] is None]
@@ -190,7 +191,7 @@ def test_tier_lists_every_edge_type_whole_and_filtered():
     # the tier is six questions here: n1, n2, e1 twice, n1's two walks
     ix = IndexSpec("n1", "f1", data_model="doc", kind="NOTUNIQUE")
     schema, inst = _fixture([ix])
-    from ganda.orientdb.queries.select_generator import generate_select_cases
+    from ganda.core.generators.select import generate_select_cases
 
     for seed in range(8):
         cases = generate_select_cases(random.Random(seed), schema, inst, per_instance=6)

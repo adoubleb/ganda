@@ -373,6 +373,26 @@ def evaluate(values: dict, p) -> bool:
     return predicate_hit(present, v, p.op, p.pivot, p.ftype, p.ci, p.key)
 
 
+def order_key(v, desc: bool):
+    """A per-key sort key with OrientDB's null placement (last ascending, first
+    descending) and the key order reversed for DESC."""
+    if v is None:
+        return (0 if desc else 1, ())
+    k = orient_key(v)
+    if desc:
+        return (1, negate_key(k))
+    return (0, k)
+
+
+def negate_key(k):
+    """The reverse of `orient_key`'s order for a numeric or boolean value."""
+    if k[0] == 1:
+        return (-k[1],)
+    if k[0] == 2:
+        return (-k[1], -k[2])
+    raise ValueError(k)
+
+
 class OrientSemantics(Semantics):
     """OrientDB's value semantics as the core's `Semantics`: this module's functions."""
 
@@ -385,6 +405,17 @@ class OrientSemantics(Semantics):
     agg = staticmethod(agg)
     mean = staticmethod(mean)
     sum_is_exact = staticmethod(sum_is_exact)
+    order_key = staticmethod(order_key)
+
+    def aggregate_over_no_rows(self, fn: str) -> list:
+        return []  # every aggregate but count answers no row over no rows (probed)
+
+    def nulls_first(self, desc: bool) -> bool:
+        return desc  # nulls sort last ascending, first descending
+
+    def orders_exactly(self, ftype, custom_keys: bool) -> bool:
+        # ORDER BY collates a string (O6), and the id tiebreak collates custom keys too
+        return ftype is not FieldType.STRING and not custom_keys
 
 
 SEMANTICS = OrientSemantics()

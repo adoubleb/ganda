@@ -185,6 +185,14 @@ class Schema:
         own = self.node_type(table).fields
         return own + self.base.fields if self.base is not None else own
 
+    def poly_tables(self, table: str) -> set:
+        """The classes whose records a query on `table` may meet through inheritance:
+        the table itself, its base class, and for the base class every subclass."""
+        tables = {table}
+        if self.base is not None:
+            tables |= {nt.name for nt in self.node_types} if self.is_base(table) else {self.base.name}
+        return tables
+
     def edge_types_from(self, node_type: str) -> list:
         return [et for et in self.edge_types if et.from_type == node_type]
 

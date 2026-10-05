@@ -69,12 +69,15 @@ SKIP / LIMIT and every aggregate work over a subquery target.
 from __future__ import annotations
 
 import itertools
+import random
 from dataclasses import dataclass, field
 
-from ganda.core.model import Schema
+from ganda.core.model import Instance, Schema
+from ganda.orientdb.queries import predicates
 from ganda.orientdb.queries.predicate_syntax import render_predicate as render_pred
-from ganda.orientdb.queries.predicates import MIRROR
-from ganda.orientdb.queries.select_ast import DOC_EDGE_KINDS, SelectQuery, notnull_fields
+from ganda.orientdb.queries.predicates import MIRROR, Predicate
+from ganda.orientdb.queries.select_support import METHODS, method_fn  # noqa: F401 -- the method catalog
+from ganda.core.ast.select import DOC_EDGE_KINDS, SelectQuery, notnull_fields
 
 FILTERS = ("plain", "rw", "rev", "arith", "literal")
 POSITIONS = ("table", "scan", "nest", "poly", "polyin", "index")
@@ -288,3 +291,79 @@ def _render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites
         order = ", ".join(f"{k} {d}" for k, d in zip(q.fields, q.directions))
         return f"SELECT {cols} {src} ORDER BY {order}" + (f" SKIP {q.skip}" if q.skip else "") + (f" LIMIT {q.limit}" if q.limit else "")
     raise ValueError(kind)
+
+
+# --- the rewrites of one question ------------------------------------------------
+
+
+def _door(p, table: str, schema: Schema, instance: Instance, data_model: str) -> "tuple | None":
+    """The `index:` door of `select_support.index_door` where it answers every matching
+    record (`door_complete`), its own bind variable renamed per data model (two data models'
+    composite indexes may order the same key differently)."""
+    from ganda.orientdb.queries.select_support import door_complete, index_door as _index_door
+
+    door = _index_door(p, table, schema, data_model)
+    if door is None or not door_complete(door[2], table, p, instance):
+        return None
+    text, extra, ix = door
+    renamed = {}
+    for k, v in extra.items():
+        assert text.endswith(f":{k}"), text
+        text = text[: -len(k)] + f"{k}_{data_model}"
+        renamed[f"{k}_{data_model}"] = v
+    return text, renamed, ix
+
+
+def build_rewrites(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> Rewrites:
+    from ganda.core.ast.select import present_values, records, view
+    from ganda.orientdb.queries.select_support import literal_pred as _literal_pred
+
+    rewrites = Rewrites(present=present_values(q, instance) if q.kind == "agg" else [])
+    p = q.where
+    if p is None:
+        return rewrites
+    rewrites.rw = predicates.rewrite(p, rng, "q")
+    rewrites.rev = predicates.reverse(p)
+    if isinstance(p, Predicate) and p.sub is None:
+        try:
+            ftype = schema.field(q.table, p.field, edge=q.edge).type
+        except KeyError:
+            ftype = None
+        if ftype is not None:
+            # exact on every value the read may meet: the transaction's written one
+            # too
+            stored = [n.values.get(p.field) for n in records(q, instance) + (records(q, view(q, instance)) if q.tx else []) if p.field in n.values]
+            rewrites.arith = predicates.arithmetic(p, rng, "ar", ftype, stored)
+    rewrites.literal = _literal_pred(p)
+    if q.kind == "ids" and not q.edge:
+        for data_model in ("doc", "graph", "rel"):
+            door = _door(p, q.table, schema, instance, data_model)
+            if door is not None:
+                rewrites.door[data_model] = door
+    return rewrites
+
+
+def extra_binds(q: SelectQuery, schema: Schema, rewrites: Rewrites) -> dict:
+    """The bind variables the concrete syntaxes add to the question's own: the
+    rewrites' pivots, the `index:` door's keys and the `@class` filter's names."""
+    bind: dict = {}
+    for rewritten in (rewrites.rw, rewrites.rev, rewrites.arith):
+        if rewritten is not None:
+            bind.update(rewritten.bind_vars)
+    for _text, extra, _ix in rewrites.door.values():
+        bind.update(extra)
+    if schema.base is not None and not q.edge and not schema.is_base(q.table):
+        bind.update({"cls": q.table, "clsl": [q.table]})
+    return bind
+
+
+def rewrite_params(rewrites: Rewrites) -> dict:
+    """What a bundle records of the rewrites."""
+    params: dict = {}
+    for name in ("rw", "rev", "arith"):
+        rewritten = getattr(rewrites, name)
+        if rewritten is not None:
+            params[name] = rewritten.to_dict()
+    if rewrites.door:
+        params["index_door"] = {data_model: d[2].name() for data_model, d in rewrites.door.items()}
+    return params

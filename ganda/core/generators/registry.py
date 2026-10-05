@@ -22,14 +22,14 @@ from __future__ import annotations
 
 from ganda.core.model import Instance, Schema
 from ganda.core.case import QueryCase
-from ganda.orientdb.queries.traversal_ast import SET_PROJECTIONS, evaluate, from_params
-from ganda.orientdb.queries.traversal_generator import CASES_PER_INSTANCE, generate_traversal_cases
-from ganda.orientdb.queries.path_ast import evaluate as evaluate_path
-from ganda.orientdb.queries.path_ast import from_params as path_from_params
-from ganda.orientdb.queries.path_ast import generate_path_cases
-from ganda.orientdb.queries.select_generator import generate_select_cases
-from ganda.orientdb.queries.select_ast import evaluate as evaluate_select
-from ganda.orientdb.queries.select_ast import from_params as select_from_params
+from ganda.core.ast.traversal import SET_PROJECTIONS, evaluate, from_params
+from ganda.core.generators.traversal import CASES_PER_INSTANCE, generate_traversal_cases
+from ganda.core.ast.path import evaluate as evaluate_path
+from ganda.core.ast.path import from_params as path_from_params
+from ganda.core.generators.path import generate_path_cases
+from ganda.core.generators.select import generate_select_cases
+from ganda.core.ast.select import evaluate as evaluate_select
+from ganda.core.ast.select import from_params as select_from_params
 
 
 def all_cases(rng, schema: Schema, instance: Instance, traversal_cases: int = CASES_PER_INSTANCE, select_cases: int = 0, path_cases: int = 0, card_cases: int = 0, card_corpus: str = "") -> list:
@@ -68,8 +68,8 @@ def reference_for(case: QueryCase, instance: Instance):
             return True, [{"id": i} for i in value]
         return True, value
     if case.generator_name == "ir_write":
-        from ganda.orientdb.queries.write_ast import answer
-        from ganda.orientdb.queries.write_ast import from_params as write_from_params
+        from ganda.core.ast.write import answer
+        from ganda.core.ast.write import from_params as write_from_params
 
         # the rows the statement returns over the Instance BEFORE it (the phase
         # passes that one to the oracle)

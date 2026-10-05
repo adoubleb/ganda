@@ -41,12 +41,10 @@ import dataclasses
 import random
 
 from ganda.core.model import COLLECTION_TYPES, INT_TYPES, NUMERIC_TYPES, ORDERED_TYPES, FieldType, Instance, Schema
-from ganda.orientdb.queries import predicates
-from ganda.core.case import DATA_MODELS, QueryCase
-from ganda.orientdb.queries.predicates import Predicate
-from ganda.orientdb.queries.select_ast import AGG_FNS, DIRECTIONS, EDGE_KINDS, GROUP_FNS, JOIN_FORMS, JOIN_OPS, KINDS, SelectQuery, coverage_signature, hits, present_values, reference_ok, shape_signature, target_fields
-from ganda.orientdb.queries.select_syntax import BASE, Rewrites, applicable, base_data_models, render, syntaxes_for
-from ganda.orientdb.semantics import sum_is_exact
+from ganda.core.ast import predicates
+from ganda.core.case import QueryCase
+from ganda.core.ast.select import AGG_FNS, DIRECTIONS, EDGE_KINDS, GROUP_FNS, JOIN_FORMS, JOIN_OPS, KINDS, SelectQuery, coverage_signature, hits, present_values, reference_ok, shape_signature, target_fields
+from ganda.core.generators.support import composite_and as _composite_and, draw_tx, tx_binds
 
 CASES_PER_INSTANCE = 30
 WHERE_PROBABILITY = 0.7
@@ -71,7 +69,7 @@ EDGE_WEIGHT = 1
 def _indexed(schema: Schema, table: str, fields) -> list:
     """The fields an index of some data model may serve (the lead of a single-field or
     composite index, the base class's and a subclass's included)."""
-    return [f for f in fields if any(schema.node_indexes(table, f.name, data_model) for data_model in ("doc", "graph", "rel"))]
+    return [f for f in fields if any(schema.node_indexes(table, f.name, data_model) for data_model in schema.engine.data_models)]
 
 
 def _prefer_indexed(rng: random.Random, schema: Schema, table: str, fields, edge: bool) -> list:
@@ -87,33 +85,32 @@ def _values_of(instance: Instance, table: str, edge: bool = False):
 
 
 def _draw_where(rng: random.Random, schema: Schema, instance: Instance, table: str, focus: "str | None" = None, edge: bool = False):
-    from ganda.orientdb.queries.select_support import composite_and as _composite_and
-
+    engine = schema.engine
     fields = target_fields(schema, table, edge)
     on = "edge" if edge else "source"
     if focus is not None:
         # a read-back after a write: the filter over the written field
         fields = [f for f in fields if f.name == focus] or fields
-        return predicates.draw_over(rng, on, fields, _values_of(instance, table, edge), "p")
+        return predicates.draw_over(rng, on, fields, _values_of(instance, table, edge), "p", engine)
     if edge:
-        return predicates.draw_over(rng, on, fields, _values_of(instance, table, edge), "p")
+        return predicates.draw_over(rng, on, fields, _values_of(instance, table, edge), "p", engine)
     composites = [ix for ix in schema.indexes if ix.target == "node" and ix.extra_fields and ix.table == table]
     if composites and rng.random() < COMPOSITE_PROBABILITY:
         ix = rng.choice(composites)
-        return _composite_and(rng, [f for f in fields if f.name in ix.all_fields], _values_of(instance, table))
+        return _composite_and(rng, [f for f in fields if f.name in ix.all_fields], _values_of(instance, table), engine)
     if rng.random() < INSUB_PROBABILITY:
         # a semi-join, alone or next to a drawn tree
         if rng.random() < 0.6:
             return predicates.draw_insub(rng, schema, instance, table, "p")
         sub = predicates.draw_insub(rng, schema, instance, table, "p_0")
-        other = predicates.draw_over(rng, "source", fields, _values_of(instance, table), "p_1", compound_probability=0.0)
+        other = predicates.draw_over(rng, "source", fields, _values_of(instance, table), "p_1", engine, compound_probability=0.0)
         if sub is None or other is None:
             return sub or other
         return predicates.Compound("source", rng.choice(("AND", "OR")), (sub, other))
-    return predicates.draw_over(rng, "source", _prefer_indexed(rng, schema, table, fields, False), _values_of(instance, table), "p")
+    return predicates.draw_over(rng, "source", _prefer_indexed(rng, schema, table, fields, False), _values_of(instance, table), "p", engine)
 
 
-def _admits(fn: str, f, present: list) -> bool:
+def _admits(fn: str, f, present: list, sum_is_exact) -> bool:
     """Whether aggregate `fn` has an exact reference over column `f` with these
     present values among the matching records."""
     if fn == "sum":
@@ -127,11 +124,11 @@ def _admits(fn: str, f, present: list) -> bool:
     return True
 
 
-def _agg_pick(rng: random.Random, fn: str, pool: list, present) -> "tuple[str, object]":
+def _agg_pick(rng: random.Random, fn: str, pool: list, present, sum_is_exact) -> "tuple[str, object]":
     """(fn, field): the function first, then a column that admits it; with none, the
     fallbacks (`sum` -> `max`, the others -> `count`)."""
     for f_ in (fn, "max" if fn == "sum" else "count", "count"):
-        ok = [f for f in pool if _admits(f_, f, present(f))]
+        ok = [f for f in pool if _admits(f_, f, present(f), sum_is_exact)]
         if ok:
             return f_, rng.choice(ok)
     return "count", rng.choice(pool)
@@ -144,8 +141,8 @@ def _walk_pool(schema: Schema, table: str) -> list:
 
 
 def _realize(rng: random.Random, schema: Schema, instance: Instance, table: str, where, kind: str, edge: bool = False, walk: "str | None" = None) -> "SelectQuery | None":
-    from ganda.orientdb.queries.select_support import METHODS as _METHODS
-
+    _METHODS = schema.engine.select_syntax.METHODS
+    sum_is_exact = schema.engine.semantics.sum_is_exact
     fields = list(target_fields(schema, table, edge))
     rows = hits(SelectQuery(table, where, "ids", edge=edge), instance)
     scalar = [f for f in fields if f.type not in COLLECTION_TYPES]
@@ -180,7 +177,7 @@ def _realize(rng: random.Random, schema: Schema, instance: Instance, table: str,
         pool = [f for f in scalar if f.type is not FieldType.BOOL]
         if not pool:
             return None
-        fn, f = _agg_pick(rng, rng.choice(AGG_FNS), pool, present)
+        fn, f = _agg_pick(rng, rng.choice(AGG_FNS), pool, present, sum_is_exact)
         return make(fields=(f.name,), fn=fn)
     if kind == "group":
         if not scalar:
@@ -193,7 +190,7 @@ def _realize(rng: random.Random, schema: Schema, instance: Instance, table: str,
             if not others:
                 fn = "count_star"
             else:
-                fn, a = _agg_pick(rng, fn, others, present)
+                fn, a = _agg_pick(rng, fn, others, present, sum_is_exact)
                 arg = a.name
         return make(fields=tuple(k.name for k in keys), fn=fn, arg=arg)
     if kind == "distinct":
@@ -241,8 +238,6 @@ def sample_select(rng: random.Random, schema: Schema, instance: Instance, table:
     with `kind`, its filter drawn over the field `focus` if given (the write phase's
     read-back of what it wrote); with `tx_probability` read through the
     transaction door."""
-    from ganda.orientdb.queries.select_support import draw_tx
-
     if table is None:
         tables = [nt for nt in schema.query_tables() if schema.query_fields(nt.name) and instance.nodes_of(nt.name)]
         if not tables:
@@ -264,92 +259,39 @@ def _tx_admits(q: SelectQuery, schema: Schema, instance: Instance) -> bool:
     """Whether the question's exactness conditions -- judged when it was realized,
     over the records before the write -- still hold over the transaction's view: an
     aggregate's (`_admits`), a method's mirror guard."""
-    from ganda.orientdb.queries.select_ast import column
-    from ganda.orientdb.queries.select_support import METHODS
+    from ganda.core.ast.select import column
 
+    METHODS = schema.engine.select_syntax.METHODS
+    sum_is_exact = schema.engine.semantics.sum_is_exact
     rows = hits(q, instance)
 
     def present(f) -> list:
         return [r.values.get(f) for r in rows if r.values.get(f) is not None]
 
     if q.kind == "agg":
-        return _admits(q.fn, column(schema, q, q.field), present(q.field))
+        return _admits(q.fn, column(schema, q, q.field), present(q.field), sum_is_exact)
     if q.kind == "group" and q.fn != "count_star":
-        return _admits(q.fn, column(schema, q, q.arg), present(q.arg))
+        return _admits(q.fn, column(schema, q, q.arg), present(q.arg), sum_is_exact)
     if q.kind == "method":
         guard = next(g for t, _fn, g in METHODS[column(schema, q, q.field).type] if t == q.fn)
         return all(guard(v) for v in present(q.field))
     return True
 
 
-def _door(p, table: str, schema: Schema, instance: Instance, data_model: str) -> "tuple | None":
-    """The `index:` door of `select_support.index_door` where it answers every matching
-    record (`door_complete`), its own bind variable renamed per data model (two data models'
-    composite indexes may order the same key differently)."""
-    from ganda.orientdb.queries.select_support import door_complete, index_door as _index_door
-
-    door = _index_door(p, table, schema, data_model)
-    if door is None or not door_complete(door[2], table, p, instance):
-        return None
-    text, extra, ix = door
-    renamed = {}
-    for k, v in extra.items():
-        assert text.endswith(f":{k}"), text
-        text = text[: -len(k)] + f"{k}_{data_model}"
-        renamed[f"{k}_{data_model}"] = v
-    return text, renamed, ix
-
-
-def build_rewrites(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> Rewrites:
-    from ganda.orientdb.queries.select_ast import records, view
-    from ganda.orientdb.queries.select_support import literal_pred as _literal_pred
-
-    rewrites = Rewrites(present=present_values(q, instance) if q.kind == "agg" else [])
-    p = q.where
-    if p is None:
-        return rewrites
-    rewrites.rw = predicates.rewrite(p, rng, "q")
-    rewrites.rev = predicates.reverse(p)
-    if isinstance(p, Predicate) and p.sub is None:
-        try:
-            ftype = schema.field(q.table, p.field, edge=q.edge).type
-        except KeyError:
-            ftype = None
-        if ftype is not None:
-            # exact on every value the read may meet: the transaction's written one
-            # too
-            stored = [n.values.get(p.field) for n in records(q, instance) + (records(q, view(q, instance)) if q.tx else []) if p.field in n.values]
-            rewrites.arith = predicates.arithmetic(p, rng, "ar", ftype, stored)
-    rewrites.literal = _literal_pred(p)
-    if q.kind == "ids" and not q.edge:
-        for data_model in DATA_MODELS:
-            door = _door(p, q.table, schema, instance, data_model)
-            if door is not None:
-                rewrites.door[data_model] = door
-    return rewrites
-
-
 def build_case(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> QueryCase:
-    from ganda.orientdb.known_bugs import select_known
-
-    from ganda.orientdb.queries.select_support import tx_binds
-
-    rewrites = build_rewrites(q, rng, schema, instance)
+    engine = schema.engine
+    syn = engine.select_syntax
+    data_models = engine.data_models
+    rewrites = syn.build_rewrites(q, rng, schema, instance)
     bind = q.bind_vars
-    for rewritten in (rewrites.rw, rewrites.rev, rewrites.arith):
-        if rewritten is not None:
-            bind.update(rewritten.bind_vars)
-    for _text, extra, _ix in rewrites.door.values():
-        bind.update(extra)
-    if schema.base is not None and not q.edge and not schema.is_base(q.table):
-        bind.update({"cls": q.table, "clsl": [q.table]})
+    bind.update(syn.extra_binds(q, schema, rewrites))
     if q.tx:
         bind.update(tx_binds(q.tx))
     # one draw of concrete syntaxes for the three data models: every single-axis concrete syntax that
     # applies anywhere, and a few combinations
     options: list = []
-    for data_model in DATA_MODELS:
-        for sp in syntaxes_for(q, schema, rewrites, data_model):
+    for data_model in data_models:
+        for sp in syn.syntaxes_for(q, schema, rewrites, data_model):
             if sp not in options:
                 options.append(sp)
     combos = [sp for sp in options if sp.axes > 1]
@@ -358,14 +300,14 @@ def build_case(q: SelectQuery, rng: random.Random, schema: Schema, instance: Ins
     queries: dict = {}
     known_bugs: dict = {}
     syntaxes: dict = {}
-    for data_model in DATA_MODELS:
-        for sp in [BASE] + chosen:
-            if not applicable(q, schema, sp, rewrites, data_model):
+    for data_model in data_models:
+        for sp in [syn.BASE] + chosen:
+            if not syn.applicable(q, schema, sp, rewrites, data_model):
                 continue
-            name = data_model if sp == BASE else f"{data_model}:{sp.tag}"
-            queries[name] = render(q, schema, sp, rewrites, data_model)
+            name = data_model if sp == syn.BASE else f"{data_model}:{sp.tag}"
+            queries[name] = syn.render(q, schema, sp, rewrites, data_model)
             syntaxes[name] = sp.tag or "base"
-            fid = select_known(q, sp, rewrites, data_model, schema, instance)
+            fid = engine.known_bugs.select_known(q, sp, rewrites, data_model, schema, instance)
             if fid:
                 known_bugs[name] = fid
     params = {
@@ -376,15 +318,10 @@ def build_case(q: SelectQuery, rng: random.Random, schema: Schema, instance: Ins
         "table": q.table,
         "concrete_syntax": syntaxes,
     }
-    if set(base_data_models(q)) != set(DATA_MODELS):
+    if set(syn.base_data_models(q)) != set(data_models):
         params["partial"] = True
-    for name in ("rw", "rev", "arith"):
-        rewritten = getattr(rewrites, name)
-        if rewritten is not None:
-            params[name] = rewritten.to_dict()
-    if rewrites.door:
-        params["index_door"] = {data_model: d[2].name() for data_model, d in rewrites.door.items()}
-    return QueryCase("ir_select", q.table if q.edge else "", q.comparison, queries, bind, params, shape=params["shape"], known_bugs=known_bugs)
+    params.update(syn.rewrite_params(rewrites))
+    return QueryCase("ir_select", q.table if q.edge else "", q.comparison, queries, bind, params, shape=params["shape"], known_bugs=known_bugs, data_models=data_models)
 
 
 def strata(schema: Schema, instance: Instance) -> list:

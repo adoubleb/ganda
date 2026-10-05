@@ -2,8 +2,8 @@ from ganda.orientdb.data_generator import GeneratorConfig, build
 from ganda.orientdb.known_bugs import o37_write, write_known
 from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.queries.predicates import Predicate
-from ganda.orientdb.queries.write_generator import sample_write, unique_safe
-from ganda.orientdb.queries.write_ast import COVERAGE_DENOMINATOR, WriteQuery, all_coverage_signatures, answer, apply, coverage_signature, from_params
+from ganda.core.generators.write import sample_write, unique_safe
+from ganda.core.ast.write import COVERAGE_DENOMINATOR, WriteQuery, all_coverage_signatures, answer, apply, coverage_signature, from_params
 from ganda.orientdb.queries.write_syntax import WriteSyntax, WriteRewrites, applicable, render
 from ganda.orientdb.write_phase import build_write_case
 
@@ -134,7 +134,7 @@ def test_sampled_writes_are_well_formed_and_deterministic():
 
 
 def test_write_phase_draws_nothing_from_the_read_streams():
-    from ganda.orientdb.queries.registry import all_cases
+    from ganda.core.generators.registry import all_cases
 
     schema, inst, rng = build(1003, CFG)
     before = [c.queries for c in all_cases(rng, schema, inst, traversal_cases=5, select_cases=5)]

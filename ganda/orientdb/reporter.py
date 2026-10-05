@@ -183,7 +183,7 @@ from ganda.orientdb.data_generator import GeneratorConfig, build
 from ganda.orientdb.connection import OrientInstance, db_name
 from ganda.orientdb.mapping import BUILDERS
 from ganda.orientdb.oracle import run_case
-from ganda.orientdb.queries.registry import all_cases
+from ganda.core.generators.registry import all_cases
 from ganda.orientdb.state_check import verify_state
 
 SEED = {seed}

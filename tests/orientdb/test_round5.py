@@ -12,7 +12,7 @@ from ganda.orientdb.queries.select_support import bfs_distances
 from ganda.orientdb.queries.select_support import tx_rows as _tx_rows
 from ganda.orientdb.queries.predicate_syntax import render_predicate as render
 from ganda.orientdb.queries.predicates import Compound, Predicate, apply_arith, arithmetic, evaluate, reverse
-from ganda.orientdb.queries.registry import all_cases, reference_for
+from ganda.core.generators.registry import all_cases, reference_for
 from ganda.orientdb.semantics import predicate_hit
 
 
@@ -166,7 +166,7 @@ def test_bfs_distances():
 def test_order_form_withholds_the_asc_walk_of_a_composite_index_with_a_null_component():
     from ganda.orientdb.known_bugs import select_shape_known
     from ganda.core.model import EdgeTypeSpec
-    from ganda.orientdb.queries.select_ast import SelectQuery
+    from ganda.core.ast.select import SelectQuery
     from ganda.orientdb.queries.select_syntax import SelectSyntax
 
     sch = Schema(

@@ -7,10 +7,10 @@ from ganda.core.model import FieldSpec, FieldType, IndexSpec, Instance, NodeRow,
 from ganda.orientdb.queries import predicates
 from ganda.core.case import Comparison, QueryCase
 from ganda.orientdb.queries.predicates import Predicate
-from ganda.orientdb.queries.select_generator import build_rewrites
-from ganda.orientdb.queries.select_ast import COVERAGE_DENOMINATOR, SelectQuery, all_coverage_signatures, coverage_signature, evaluate, from_params, records
+from ganda.orientdb.queries.select_syntax import build_rewrites
+from ganda.core.ast.select import COVERAGE_DENOMINATOR, SelectQuery, all_coverage_signatures, coverage_signature, evaluate, from_params, records
 from ganda.orientdb.queries.select_syntax import BASE, SelectSyntax, Rewrites, applicable, render
-from ganda.orientdb.queries.registry import all_cases, reference_for
+from ganda.core.generators.registry import all_cases, reference_for
 
 from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
 

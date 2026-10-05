@@ -43,11 +43,14 @@ takes no TIMEOUT clause, probed).
 from __future__ import annotations
 
 import json
+import random
 from dataclasses import dataclass, field
 
 from ganda.core.model import Instance, Schema
+from ganda.orientdb.queries import predicates
+from ganda.orientdb.queries.predicates import Predicate
 from ganda.orientdb.queries.predicate_syntax import render_predicate as render_pred
-from ganda.orientdb.queries.write_ast import EDGE_OPS, WriteQuery, edge_hits, node_hits
+from ganda.core.ast.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
 
 FILTERS = ("plain", "rw", "rev", "ar")
 TARGETS = ("table", "nest", "sub")
@@ -296,3 +299,21 @@ def render(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_model: 
     if st.main is not None:
         st.main = (st.main[0], {**binds, **st.main[1]})
     return st
+
+
+def build_rewrites(q: WriteQuery, rng: random.Random, schema: Schema, instance: Instance) -> WriteRewrites:
+    rewrites = WriteRewrites()
+    p = q.where
+    if p is None:
+        return rewrites
+    rewrites.rw = predicates.rewrite(p, rng, "q")
+    rewrites.rev = predicates.reverse(p)
+    if isinstance(p, Predicate) and not q.edge:
+        try:
+            ftype = schema.field(q.table, p.field).type
+        except KeyError:
+            ftype = None
+        if ftype is not None:
+            stored = [n.values.get(p.field) for n in instance.nodes_of(q.table) if p.field in n.values]
+            rewrites.ar = predicates.arithmetic(p, rng, "ar", ftype, stored)
+    return rewrites

@@ -10,7 +10,7 @@ from ganda.orientdb.data_generator import GeneratorConfig, build
 from ganda.orientdb.mapping import MAPPERS
 from ganda.orientdb.oracle import run_case
 from ganda.core.dedup import BugDeduplicator
-from ganda.orientdb.queries.registry import all_cases
+from ganda.core.generators.registry import all_cases
 
 _SHRINK_FIELDS = ("max_node_types", "max_edge_types", "max_fields_per_type", "max_nodes_per_type", "max_edges_per_type")
 

@@ -23,11 +23,11 @@ from ganda.orientdb.connection import OrientCrash, OrientError, OrientServer, cl
 from ganda.orientdb.mapping import MAPPERS
 from ganda.orientdb.oracle import is_empty_value, is_script, run_cases
 from ganda.core.dedup import BugDeduplicator
-from ganda.orientdb.queries.traversal_ast import SHAPE_DENOMINATOR
-from ganda.orientdb.queries.path_ast import COVERAGE_DENOMINATOR as PATH_COVERAGE_DENOMINATOR
-from ganda.orientdb.queries.select_ast import COVERAGE_DENOMINATOR as SELECT_COVERAGE_DENOMINATOR
-from ganda.orientdb.queries.write_ast import COVERAGE_DENOMINATOR as WRITE_COVERAGE_DENOMINATOR
-from ganda.orientdb.queries.registry import all_cases
+from ganda.core.ast.traversal import SHAPE_DENOMINATOR
+from ganda.core.ast.path import COVERAGE_DENOMINATOR as PATH_COVERAGE_DENOMINATOR
+from ganda.core.ast.select import COVERAGE_DENOMINATOR as SELECT_COVERAGE_DENOMINATOR
+from ganda.core.ast.write import COVERAGE_DENOMINATOR as WRITE_COVERAGE_DENOMINATOR
+from ganda.core.generators.registry import all_cases
 from ganda.orientdb.reporter import report_bug, report_crash, report_setup_problem
 from ganda.orientdb.state_check import verify_state
 

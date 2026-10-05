@@ -26,10 +26,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from ganda.core.model import Instance
-from ganda.orientdb.queries import predicates
+from ganda.core.ast import predicates
 from ganda.core.case import Comparison
-from ganda.orientdb.queries.predicates import Predicate
-from ganda.orientdb.semantics import agg, sum_is_exact
+from ganda.core.ast.predicates import Predicate
 
 DIRECTIONS = ("out", "in", "both")
 PLACEMENTS = ("-", "e", "t")
@@ -163,8 +162,8 @@ SHAPE_DENOMINATOR = len(all_signatures())
 # --- the reference leg -----------------------------------------------------------------------
 
 
-def _hit(values: dict, p) -> bool:
-    return predicates.evaluate(values, p)
+def _hit(instance: Instance, values: dict, p) -> bool:
+    return predicates.evaluate(values, p, instance.schema.engine.semantics)
 
 
 def _edges(instance: Instance, hop: Hop, cur: str) -> list:
@@ -185,11 +184,11 @@ def final_paths(q: TraversalQuery, instance: Instance, start: str) -> list:
         for cur, _ in frontier:
             for e, target in _edges(instance, hop, cur):
                 p = hop.predicate
-                if p is not None and p.on == "edge" and not _hit(e.values, p):
+                if p is not None and p.on == "edge" and not _hit(instance, e.values, p):
                     continue
                 if p is not None and p.on == "target":
                     node = instance.node_by_id(target)
-                    if node is None or not _hit(node.values, p):
+                    if node is None or not _hit(instance, node.values, p):
                         continue
                 nxt.append((target, e))
         frontier = nxt
@@ -247,14 +246,14 @@ def evaluate(q: TraversalQuery, instance: Instance) -> Any:
     bare: list = []
     if q.projection in REACH_PROJECTIONS:
         for n in instance.nodes_of(q.source_table):
-            if q.source_predicate is not None and not _hit(n.values, q.source_predicate):
+            if q.source_predicate is not None and not _hit(instance, n.values, q.source_predicate):
                 continue
             r = reach(q, instance, n.record_id)
             out[n.record_id] = r if q.projection.endswith(("2", "3")) else len(r)
         return out
     ftype = projected_type(q, instance) if q.projection in AGG_PROJECTIONS or q.projection in EDGE_AGG_PROJECTIONS else None
     for n in instance.nodes_of(q.source_table):
-        if q.source_predicate is not None and not _hit(n.values, q.source_predicate):
+        if q.source_predicate is not None and not _hit(instance, n.values, q.source_predicate):
             continue
         paths = final_paths(q, instance, n.record_id)
         ids = [t for t, _ in paths]
@@ -272,7 +271,7 @@ def evaluate(q: TraversalQuery, instance: Instance) -> Any:
             v = len(set(ids))
         else:
             values = _projected_values(q, instance, paths)
-            v = values if q.projection in ("field", "efield") else agg(q.projection.lstrip("e") if q.edge_projection else q.projection, values, ftype)
+            v = values if q.projection in ("field", "efield") else instance.schema.engine.semantics.agg(q.projection.lstrip("e") if q.edge_projection else q.projection, values, ftype)
         out[n.record_id] = v
     if q.projection in SET_PROJECTIONS:
         return sorted(bare)
@@ -283,6 +282,6 @@ def sums_exactly(q: TraversalQuery, instance: Instance) -> bool:
     ftype = projected_type(q, instance)
     for n in instance.nodes_of(q.source_table):
         vals = _projected_values(q, instance, final_paths(q, instance, n.record_id))
-        if not sum_is_exact([v for v in vals if v is not None], ftype):
+        if not instance.schema.engine.semantics.sum_is_exact([v for v in vals if v is not None], ftype):
             return False
     return True

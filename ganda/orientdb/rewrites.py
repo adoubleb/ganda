@@ -15,7 +15,7 @@ from ganda.orientdb.pivots import lossy_pivot
 from ganda.orientdb.semantics import apply_arith
 
 
-def _arith_exact(v, sym: str, c, ftype: FieldType) -> bool:
+def arith_exact(v, sym: str, c, ftype: FieldType) -> bool:
     """Whether `v <sym> c` is computed exactly in the column's Java box: an int
     (INTEGER `*` wraps in 32 bits, `+` / `-` wrap on a negative overflow, O29),
     a long, a float32-exact float, a double scaled by a power of two, a decimal
@@ -80,7 +80,7 @@ def arithmetic(p, rng: random.Random, bind: str, ftype: FieldType, values: list)
         if not isinstance(pv, str) or len(pv) != 19:
             return None
     sym, c = rng.choice(_ARITH_CHOICES[ftype])
-    if not all(_arith_exact(v, sym, c, ftype) for v in values) or not _arith_exact(pv, sym, c, ftype):
+    if not all(arith_exact(v, sym, c, ftype) for v in values) or not arith_exact(pv, sym, c, ftype):
         return None
     if sym in ("+", "-") and ftype in (FieldType.FLOAT, FieldType.FLOAT32, FieldType.DECIMAL):
         # a sum erases the sign of zero, which the comparison keeps (`-0.0 < 0.0`,
@@ -178,3 +178,6 @@ def rewrite(p, rng: random.Random, bind: str):
 
 def _negate(p):
     return Compound(p.on, "NOT", (p,))
+
+
+_arith_exact = arith_exact

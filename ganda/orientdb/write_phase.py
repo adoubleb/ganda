@@ -30,8 +30,8 @@ from ganda.orientdb.connection import OrientCrash, OrientError
 from ganda.core.model import Instance
 from ganda.orientdb.oracle import build_result, run_case, unwrap_script
 from ganda.core.case import DATA_MODELS, QueryCase
-from ganda.orientdb.queries.write_ast import apply, comparison, coverage_signature, shape_signature, touched
-from ganda.orientdb.queries.write_generator import sample_write
+from ganda.core.ast.write import apply, comparison, coverage_signature, shape_signature, touched
+from ganda.core.generators.write import sample_write
 from ganda.orientdb.queries.write_syntax import render
 from ganda.orientdb.state_check import StateDiff, verify_state
 
@@ -64,7 +64,7 @@ def _execute(session, st) -> list:
 
 
 def _readbacks(q, rng: random.Random, instance: Instance, step: int) -> list:
-    from ganda.orientdb.queries.select_generator import build_case, sample_select
+    from ganda.core.generators.select import build_case, sample_select
 
     out = []
     for _ in range(READBACKS):

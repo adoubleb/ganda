@@ -31,10 +31,9 @@ from __future__ import annotations
 import random
 
 from ganda.core.model import INT_TYPES, ORDERED_TYPES, FieldType, Instance, Schema
-from ganda.orientdb.queries import predicates
+from ganda.core.ast import predicates
 from ganda.core.case import QueryCase
-from ganda.orientdb.queries.traversal_ast import EDGE_PROJECTIONS, MAX_HOPS, PLACEMENTS, PROJECTIONS, REACH_PROJECTIONS, Hop, TraversalQuery, shape_signature, sums_exactly
-from ganda.orientdb.queries.traversal_syntax import can_pull_up, render, syntaxes_for
+from ganda.core.ast.traversal import EDGE_PROJECTIONS, MAX_HOPS, PLACEMENTS, PROJECTIONS, REACH_PROJECTIONS, Hop, TraversalQuery, shape_signature, sums_exactly
 
 CASES_PER_INSTANCE = 10
 SOURCE_PREDICATE_PROBABILITY = 0.3
@@ -88,13 +87,13 @@ def _draw_hops(rng: random.Random, schema: Schema, instance: Instance, start: st
             def edge_values(f):
                 return _edge_values(instance, et.name, f.name)
 
-            pred = predicates.draw_over(rng, "edge", et.fields, values_of=edge_values, bind=f"p{k}")
+            pred = predicates.draw_over(rng, "edge", et.fields, values_of=edge_values, bind=f"p{k}", engine=schema.engine)
         elif placement == "t" and schema.query_fields(nxt):
 
             def target_values(f):
                 return _node_values(instance, nxt, f.name)
 
-            pred = predicates.draw_over(rng, "target", schema.query_fields(nxt), values_of=target_values, bind=f"p{k}")
+            pred = predicates.draw_over(rng, "target", schema.query_fields(nxt), values_of=target_values, bind=f"p{k}", engine=schema.engine)
         hops.append(Hop(et.name, direction, pred))
         cur = nxt
         if direction == "both":
@@ -112,7 +111,7 @@ def _draw_source_predicate(rng: random.Random, schema: Schema, instance: Instanc
     def source_values(f):
         return _node_values(instance, table, f.name)
 
-    return predicates.draw_over(rng, "source", fields, values_of=source_values, bind="p0")
+    return predicates.draw_over(rng, "source", fields, values_of=source_values, bind="p0", engine=schema.engine)
 
 
 def _reach_ok(schema: Schema, hops: list) -> bool:
@@ -165,25 +164,24 @@ def sample_query(rng: random.Random, schema: Schema, instance: Instance, max_hop
 
 
 def build_case(q: TraversalQuery, rng: random.Random, schema: Schema, instance: Instance) -> "QueryCase | None":
-    from ganda.orientdb.known_bugs import mark_known_bugs
-
+    syn = schema.engine.traversal_syntax
     queries: dict = {}
     chosen: dict = {}
     pulled_up: list = []
-    for data_model in ("doc", "graph", "rel"):
-        options = syntaxes_for(q, schema, data_model)
+    for data_model in schema.engine.data_models:
+        options = syn.syntaxes_for(q, schema, data_model)
         if not options:
             return None
         base = rng.choice(options)
         chosen[data_model] = base
-        queries[data_model] = render(q, schema, data_model, base)
+        queries[data_model] = syn.render(q, schema, data_model, base)
         others = [s for s in options if s != base]
         rng.shuffle(others)
         for sp in others[:MAX_VARIANTS_PER_SIDE]:
-            queries[f"{data_model}:{sp}"] = render(q, schema, data_model, sp)
+            queries[f"{data_model}:{sp}"] = syn.render(q, schema, data_model, sp)
             chosen[f"{data_model}:{sp}"] = sp
-        if can_pull_up(q):
-            queries[f"{data_model}:pull_up"] = render(q, schema, data_model, base, pull_up=True)
+        if syn.can_pull_up(q):
+            queries[f"{data_model}:pull_up"] = syn.render(q, schema, data_model, base, pull_up=True)
             chosen[f"{data_model}:pull_up"] = base
             pulled_up.append(f"{data_model}:pull_up")
     params = {
@@ -204,8 +202,9 @@ def build_case(q: TraversalQuery, rng: random.Random, schema: Schema, instance: 
         bind_vars=q.bind_vars,
         params=params,
         shape=shape_signature(q),
+        data_models=schema.engine.data_models,
     )
-    return mark_known_bugs(case, q, schema, instance)
+    return schema.engine.known_bugs.mark_known_bugs(case, q, schema, instance)
 
 
 def generate_traversal_cases(rng: random.Random, schema: Schema, instance: Instance, per_instance: int = CASES_PER_INSTANCE) -> list:
@@ -219,7 +218,7 @@ def generate_traversal_cases(rng: random.Random, schema: Schema, instance: Insta
         case = build_case(q, rng, schema, instance)
         if case is None:
             continue
-        key = (case.queries["doc"], case.queries["graph"], case.queries["rel"], repr(sorted(case.bind_vars.items(), key=lambda kv: kv[0])))
+        key = (*(case.queries[dm] for dm in schema.engine.data_models), repr(sorted(case.bind_vars.items(), key=lambda kv: kv[0])))
         if key in seen:
             continue
         seen.add(key)

@@ -39,9 +39,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from ganda.core.model import Instance, NodeRow, Schema
-from ganda.orientdb.queries import predicates
+from ganda.core.ast import predicates
 from ganda.core.case import Comparison
-from ganda.orientdb.queries.predicates import Predicate, apply_arith
+from ganda.core.ast.predicates import Predicate
 
 NODE_OPS = ("set", "arith", "null", "remove", "merge", "delete", "upsert")
 EDGE_OPS = ("edge_set", "edge_arith", "edge_remove", "edge_delete")
@@ -116,20 +116,20 @@ def comparison(q: WriteQuery) -> Comparison:
 # --- the reference leg -----------------------------------------------------------------------
 
 
-def _match(values: dict, q: WriteQuery) -> bool:
+def _match(values: dict, q: WriteQuery, sem) -> bool:
     if q.extra_notnull and values.get(q.field) is None:
         return False
-    return q.where is None or predicates.evaluate(values, q.where)
+    return q.where is None or predicates.evaluate(values, q.where, sem)
 
 
 def node_hits(q: WriteQuery, instance: Instance) -> list:
     if q.op == "upsert":
         return [n for n in instance.nodes_of(q.table) if n.record_id == q.target_id]
-    return [n for n in instance.nodes_of(q.table) if _match(n.values, q)]
+    return [n for n in instance.nodes_of(q.table) if _match(n.values, q, instance.schema.engine.semantics)]
 
 
 def edge_hits(q: WriteQuery, instance: Instance) -> list:
-    return [e for e in instance.edges_of(q.edge_type) if _match(e.values, q)]
+    return [e for e in instance.edges_of(q.edge_type) if _match(e.values, q, instance.schema.engine.semantics)]
 
 
 def _field_type(q: WriteQuery, schema: Schema) -> str:
@@ -138,13 +138,13 @@ def _field_type(q: WriteQuery, schema: Schema) -> str:
     return schema.field(q.table, q.field).type.value
 
 
-def _new_values(q: WriteQuery, values: dict, ftype: "str | None") -> dict:
+def _new_values(q: WriteQuery, values: dict, ftype: "str | None", sem) -> dict:
     out = dict(values)
     op = q.op.removeprefix("edge_")
     if op in ("set", "merge", "upsert"):
         out[q.field] = q.value
     elif op == "arith":
-        out[q.field] = apply_arith(values[q.field], q.sym, q.value, ftype)
+        out[q.field] = sem.apply_arith(values[q.field], q.sym, q.value, ftype)
     elif op == "null":
         out[q.field] = None
     elif op == "remove":
@@ -169,7 +169,7 @@ def apply(q: WriteQuery, instance: Instance) -> Instance:
             if e.record_id not in hit:
                 edges.append(e)
             elif q.op != "edge_delete":
-                edges.append(dataclasses.replace(e, values=_new_values(q, e.values, ftype)))
+                edges.append(dataclasses.replace(e, values=_new_values(q, e.values, ftype, instance.schema.engine.semantics)))
         return dataclasses.replace(instance, edges=edges)
     hits = node_hits(q, instance)
     if q.op == "upsert" and not hits:
@@ -180,7 +180,7 @@ def apply(q: WriteQuery, instance: Instance) -> Instance:
         edges = [e for e in instance.edges if e.from_record not in hit and e.to_record not in hit]
         return dataclasses.replace(instance, nodes=nodes, edges=edges)
     ftype = _field_type(q, schema)
-    nodes = [dataclasses.replace(n, values=_new_values(q, n.values, ftype)) if n.record_id in hit else n for n in instance.nodes]
+    nodes = [dataclasses.replace(n, values=_new_values(q, n.values, ftype, instance.schema.engine.semantics)) if n.record_id in hit else n for n in instance.nodes]
     return dataclasses.replace(instance, nodes=nodes)
 
 
@@ -196,7 +196,7 @@ def answer(q: WriteQuery, instance: Instance) -> list:
     ftype = _field_type(q, instance.schema)
     if q.returning == "before":
         return [{"id": n.record_id, "v": n.values.get(q.field)} for n in hits]
-    return [{"id": n.record_id, "v": _new_values(q, n.values, ftype).get(q.field)} for n in hits]
+    return [{"id": n.record_id, "v": _new_values(q, n.values, ftype, instance.schema.engine.semantics).get(q.field)} for n in hits]
 
 
 def touched(q: WriteQuery, instance: Instance) -> "tuple[set, set]":

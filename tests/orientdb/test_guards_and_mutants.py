@@ -2,9 +2,9 @@ from ganda.orientdb.data_generator import GeneratorConfig, build
 from ganda.orientdb.known_bugs import o1_shape, o2_shape
 from ganda.core.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeTypeSpec, Schema
 from ganda.orientdb.mutants import MUTANTS
-from ganda.orientdb.queries.traversal_ast import Hop, TraversalQuery
+from ganda.core.ast.traversal import Hop, TraversalQuery
 from ganda.orientdb.queries.predicates import Predicate
-from ganda.orientdb.queries.registry import all_cases
+from ganda.core.generators.registry import all_cases
 
 
 from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
@@ -65,7 +65,7 @@ def test_mutants_change_something():
 
 
 def test_every_read_ir_emits_and_references():
-    from ganda.orientdb.queries.registry import reference_for
+    from ganda.core.generators.registry import reference_for
 
     schema, inst, rng = build(4, GeneratorConfig())
     cases = all_cases(rng, schema, inst, select_cases=30, path_cases=3)
@@ -126,7 +126,7 @@ def test_cross_type_guards_o16_o17():
 
 def test_o18_withholds_the_desc_order_side_under_an_index_that_ignores_nulls():
     from ganda.orientdb.known_bugs import select_shape_known
-    from ganda.orientdb.queries.select_ast import SelectQuery
+    from ganda.core.ast.select import SelectQuery
     from ganda.orientdb.queries.select_syntax import SelectSyntax
 
     order = SelectSyntax(form="order")

@@ -58,3 +58,21 @@ class Semantics:
     def sum_is_exact(self, values: list, ftype: "str | None" = "int") -> bool:
         """Whether the engine's sum of `values` is exact in every order."""
         raise NotImplementedError
+
+    def aggregate_over_no_rows(self, fn: str) -> list:
+        """The rows an aggregate other than a count answers over no input rows."""
+        raise NotImplementedError
+
+    def nulls_first(self, desc: bool) -> bool:
+        """Whether an ORDER BY puts the null keys first in this direction."""
+        raise NotImplementedError
+
+    def order_key(self, v: Any, desc: bool):
+        """A per-key sort key for an ORDER BY: `key` with the engine's null placement,
+        reversed for a descending key."""
+        raise NotImplementedError
+
+    def orders_exactly(self, ftype, custom_keys: bool) -> bool:
+        """Whether the reference reproduces an id-tiebroken ORDER BY on a column of
+        `ftype` (a collation the reference does not model makes it inexact)."""
+        raise NotImplementedError

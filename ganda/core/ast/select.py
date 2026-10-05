@@ -56,10 +56,9 @@ import itertools
 from dataclasses import dataclass
 
 from ganda.core.model import FieldType, Instance, Schema
-from ganda.orientdb.queries import predicates
+from ganda.core.ast import predicates
 from ganda.core.case import Comparison
-from ganda.orientdb.queries.predicates import Compound, Predicate
-from ganda.orientdb.semantics import agg, mean, orient_key
+from ganda.core.ast.predicates import Compound, Predicate
 
 KINDS = ("ids", "count", "field", "method", "agg", "group", "distinct", "page", "keys", "join")
 # the kinds over an edge type (a join correlates a class with itself: nodes only)
@@ -158,7 +157,7 @@ def records(q: SelectQuery, instance: Instance) -> list:
 def tx_instance(instance: Instance, tx: dict) -> Instance:
     """The Instance as the transaction sees it after its write (`select_support.
     tx_rows` on the written class; every other record unchanged)."""
-    from ganda.orientdb.queries.select_support import tx_rows
+    from ganda.core.generators.support import tx_rows
 
     table = tx["table"]
     rows = tx_rows(instance, tx)
@@ -202,7 +201,7 @@ def hits(q: SelectQuery, instance: Instance) -> list:
     if q.where is None:
         return rows
     where = predicates.resolve_subs(q.where, inst) if predicates.subqueries(q.where) else q.where
-    return [n for n in rows if predicates.evaluate(n.values, where)]
+    return [n for n in rows if predicates.evaluate(n.values, where, instance.schema.engine.semantics)]
 
 
 def present_values(q: SelectQuery, instance: Instance, field_name: "str | None" = None) -> list:
@@ -275,24 +274,18 @@ def shape_signature(q: SelectQuery, schema: Schema) -> str:
 # --- the reference leg -----------------------------------------------------------------------
 
 
-def _order_key(v, desc: bool):
-    """A per-key sort key with OrientDB's null placement (last ascending, first
-    descending) and the key order reversed for DESC."""
-    from ganda.orientdb.queries.select_support import order_key as key
-
-    return key(v, desc)
-
-
 def _agg(q: SelectQuery, instance: Instance, rows: list) -> list:
+    sem = instance.schema.engine.semantics
+    value_key, mean, agg = sem.key, sem.mean, sem.agg
     fn, f = q.fn, q.field
     values = [n.values.get(f) for n in rows]
     present = [v for v in values if v is not None]
     if fn == "count":
         return [{"v": len(present)}]
     if not rows:
-        return []  # every aggregate but count answers no row over no rows (probed)
+        return sem.aggregate_over_no_rows(fn)
     if fn == "distinct_count":
-        return [{"v": len({orient_key(v) for v in present})}]
+        return [{"v": len({value_key(v) for v in present})}]
     if fn == "avg":
         return [{"v": mean(present)}] if present else [{"v": None}]
     if fn == "median":
@@ -304,7 +297,7 @@ def _agg(q: SelectQuery, instance: Instance, rows: list) -> list:
     if fn == "set":
         seen: dict = {}
         for v in present:
-            seen.setdefault(orient_key(v), v)
+            seen.setdefault(value_key(v), v)
         return [{"v": v} for v in seen.values()]
     if fn == "list":
         return [{"v": v} for v in present]
@@ -312,10 +305,12 @@ def _agg(q: SelectQuery, instance: Instance, rows: list) -> list:
 
 
 def _group(q: SelectQuery, instance: Instance, rows: list) -> list:
+    sem = instance.schema.engine.semantics
+    value_key, agg = sem.key, sem.agg
     groups: dict = {}
     for n in rows:
         keys = tuple(n.values.get(k) for k in q.fields)
-        groups.setdefault(tuple(orient_key(k) for k in keys), [keys, []])[1].append(n)
+        groups.setdefault(tuple(value_key(k) for k in keys), [keys, []])[1].append(n)
     ftype = column(instance.schema, q, q.arg).type.value if q.arg else None
     out = []
     for keys, members in groups.values():
@@ -331,22 +326,23 @@ def _group(q: SelectQuery, instance: Instance, rows: list) -> list:
     return out
 
 
-def _page(q: SelectQuery, rows: list) -> list:
+def _page(q: SelectQuery, rows: list, sem) -> list:
+    value_key = sem.key
     f, desc = q.field, q.directions[0] == "DESC"
     present = [n for n in rows if n.values.get(f) is not None]
     absent = [n for n in rows if n.values.get(f) is None]
-    present.sort(key=lambda n: (orient_key(n.values[f]), orient_key(n.record_id)))
+    present.sort(key=lambda n: (value_key(n.values[f]), value_key(n.record_id)))
     if desc:
         # a DESC order reverses the key order but keeps the id tiebreak ascending
-        present.sort(key=lambda n: orient_key(n.record_id))
-        present.sort(key=lambda n: orient_key(n.values[f]), reverse=True)
-    absent.sort(key=lambda n: orient_key(n.record_id))
-    ordered = (absent + present) if desc else (present + absent)
+        present.sort(key=lambda n: value_key(n.record_id))
+        present.sort(key=lambda n: value_key(n.values[f]), reverse=True)
+    absent.sort(key=lambda n: value_key(n.record_id))
+    ordered = (absent + present) if sem.nulls_first(desc) else (present + absent)
     return [{"id": n.record_id} for n in ordered[q.skip: q.skip + q.limit]]
 
 
-def _keys(q: SelectQuery, rows: list) -> list:
-    ordered = sorted(rows, key=lambda n: tuple(_order_key(n.values.get(k), d == "DESC") for k, d in zip(q.fields, q.directions)))
+def _keys(q: SelectQuery, rows: list, sem) -> list:
+    ordered = sorted(rows, key=lambda n: tuple(sem.order_key(n.values.get(k), d == "DESC") for k, d in zip(q.fields, q.directions)))
     page = ordered[q.skip:]
     if q.limit:
         page = page[: q.limit]
@@ -358,8 +354,7 @@ def _join(q: SelectQuery, instance: Instance, rows: list) -> dict:
     filter of its own) whose `f` compares to its own -- the pivot is the record's
     STORED value (never a converted parameter), so the column type plays no part;
     the collation does (a ci value join is case-insensitive, probed)."""
-    from ganda.orientdb.semantics import predicate_hit
-
+    predicate_hit = instance.schema.engine.semantics.predicate_hit
     f, op = q.field, q.fn
     ci = column(instance.schema, q, f).ci
     inner = records(q, view(q, instance))
@@ -384,24 +379,23 @@ def evaluate(q: SelectQuery, instance: Instance):
     if q.kind == "field":
         return {n.record_id: n.values.get(q.field) for n in rows}
     if q.kind == "method":
-        from ganda.orientdb.queries.select_support import method_fn as _method_fn
-
-        fn = _method_fn(q.fn, column(instance.schema, q, q.field).type)
+        fn = instance.schema.engine.select_syntax.method_fn(q.fn, column(instance.schema, q, q.field).type)
         return {n.record_id: fn(n.values[q.field]) for n in rows if n.values.get(q.field) is not None}
     if q.kind == "agg":
         return _agg(q, instance, rows)
     if q.kind == "group":
         return _group(q, instance, rows)
     if q.kind == "distinct":
+        key = instance.schema.engine.semantics.key
         seen: dict = {}
         for n in rows:
             vals = tuple(n.values.get(f) for f in q.fields)
-            seen.setdefault(tuple(orient_key(v) for v in vals), vals)
+            seen.setdefault(tuple(key(v) for v in vals), vals)
         return [dict(zip(("v", "w"), vals)) for vals in seen.values()]
     if q.kind == "page":
-        return _page(q, rows)
+        return _page(q, rows, instance.schema.engine.semantics)
     if q.kind == "keys":
-        return _keys(q, rows)
+        return _keys(q, rows, instance.schema.engine.semantics)
     raise ValueError(q.kind)
 
 
@@ -413,5 +407,6 @@ def reference_ok(q: SelectQuery, instance: Instance) -> bool:
         return False
     if q.kind == "page":
         ftype = column(instance.schema, q, q.field).type
-        return ftype is not FieldType.STRING and all(getattr(n, "custom_key", None) is None for n in records(q, view(q, instance)))
+        custom_keys = any(getattr(n, "custom_key", None) is not None for n in records(q, view(q, instance)))
+        return instance.schema.engine.semantics.orders_exactly(ftype, custom_keys)
     return True

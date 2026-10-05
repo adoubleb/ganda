@@ -121,7 +121,7 @@ def test_inheritance_axis_is_a_tail_axis():
 
 def test_inheritance_ddl_and_cases():
     from ganda.orientdb.mapping import MAPPERS
-    from ganda.orientdb.queries.registry import all_cases, reference_for
+    from ganda.core.generators.registry import all_cases, reference_for
 
     found_poly = False
     for seed in range(1, 12):
@@ -202,7 +202,7 @@ def test_date_and_map_axes():
     import datetime as _dt
 
     from ganda.orientdb.mapping import MAPPERS
-    from ganda.orientdb.queries.registry import all_cases, reference_for
+    from ganda.core.generators.registry import all_cases, reference_for
 
     base = build(41, GeneratorConfig())[1]
     tail = build(41, GeneratorConfig(date_map_probability=1.0, list_index_probability=1.0))[1]

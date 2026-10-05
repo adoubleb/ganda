@@ -116,9 +116,9 @@ def _ganda_api():
     from ganda.orientdb.data_generator import GeneratorConfig, build
     from ganda.orientdb.mapping import MAPPERS
     from ganda.orientdb.mapping.common import plan_to_dict
-    from ganda.orientdb.queries.registry import all_cases, reference_for
-    from ganda.orientdb.queries.write_generator import sample_write
-    from ganda.orientdb.queries.write_ast import apply
+    from ganda.core.generators.registry import all_cases, reference_for
+    from ganda.core.generators.write import sample_write
+    from ganda.core.ast.write import apply
 
     def cases(rng, schema, instance, cfg):
         return all_cases(rng, schema, instance, traversal_cases=cfg.traversal_cases, select_cases=cfg.select_cases, path_cases=cfg.path_cases)
