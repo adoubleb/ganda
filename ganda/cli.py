@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from ganda.core.provider import EngineCrash
 from ganda.registry import PROVIDERS, provider
 
 
@@ -62,7 +63,12 @@ def main(argv=None) -> int:
     sub.add_parser("probe", help="re-check live the engine facts the provider rests on").set_defaults(handler=lambda a: engine.probe())
     sub.add_parser("doctor", help="start a server and answer one query per data model").set_defaults(handler=lambda a: _doctor(engine, a))
     args = ap.parse_args(argv[1:])
-    return args.handler(args)
+    try:
+        return args.handler(args)
+    except EngineCrash as e:
+        # no server to talk to (Docker not running, a bad URL): not a traceback's worth
+        print(f"ganda {engine.name}: {str(e).splitlines()[0]}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

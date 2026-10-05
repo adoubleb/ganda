@@ -44,7 +44,7 @@ def test_reverse_swaps_the_reversible_leaves_only():
     assert d == rp
 
 
-def test_arithmetic_twin_is_exact_or_absent():
+def test_arithmetic_rewrite_is_exact_or_absent():
     rng = random.Random(1)
     p = Predicate("source", "f1", ">", "p", 5, ftype="int")
     ap = arithmetic(p, rng, "ar", FieldType.INT, [1, 5, 9, None])
@@ -186,7 +186,7 @@ def test_order_form_withholds_the_asc_walk_of_a_composite_index_with_a_null_comp
     assert select_shape_known(SelectQuery("n1", None, "agg", ("f1",), fn="min"), order, "rel", sch, full, [-5, 1, 7]) is None
 
 
-def test_list_ops_guard_scans_under_not_or_and_on_the_scan_twin():
+def test_list_ops_guard_scans_under_not_or_and_on_the_scan_rewrite():
     sch = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.LIST), FieldSpec("f2", FieldType.INT))),), edge_types=(), indexes=(IndexSpec("n1", "f1", data_model="both"),))
     boxed = Predicate("source", "f1", "CONTAINSANY", "p_0", [1, 2], ftype="list")
     other = Predicate("source", "f2", "<=", "p_1", 0, ftype="int")

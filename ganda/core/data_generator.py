@@ -60,9 +60,10 @@ I64_MIN = -(2**63)
 F64_INT_EXACT = 2**53
 DBL_MAX = 1.7976931348623157e308
 
-# Adversarial per-type value pools (all live-probed to store and read back unchanged on
-# 3.2.56 through a declared property; NaN/Infinity are excluded because JSON cannot
-# carry them). Strings are built with `chr()` where an editor could normalize them.
+# Adversarial per-type value pools. NaN/Infinity are excluded because JSON cannot carry
+# them; strings are built with `chr()` where an editor could normalize them. A provider
+# whose engine cannot store one of these unchanged gives its own table
+# (`physical_design.BOUNDARY_VALUES`).
 BOUNDARY_VALUES = {
     FieldType.INT: [
         0, 1, -1, 2, 7, 2**31 - 1, -(2**31), 2**31, 2**32, F64_INT_EXACT - 1, F64_INT_EXACT,
@@ -85,8 +86,8 @@ BOUNDARY_VALUES = {
         [], [0], [1], [1, 1], [1, 2, 3], [3, 2, 1], [-1, 0, 1], [I64_MAX], [I64_MIN], [F64_INT_EXACT],
         [F64_INT_EXACT + 1], [0, 0, 0], [2**62, 2**62], [7, -7],
     ],
-    # int32 values: the box boundaries (an index converts a Long key by wrapping, so
-    # 2^31 - 1 next to -2^31 is where `f > 2^31` answers wrong, O16)
+    # int32 values: the boundaries of the type, where a key conversion that wraps or
+    # truncates would show
     FieldType.INT32: [0, 1, -1, 2, 7, 2**31 - 1, -(2**31), 2**31 - 2, -(2**31) + 1, 65536, -65536, 32767, -32768, 255, 256, 1000, 123456789, 2**24, 2**24 + 1],
     # float32 values whose shortest decimal is exact (multiples of 1/8 below 2^10, and
     # 2^24, the last integer a float holds exactly)
@@ -121,10 +122,9 @@ def random_datetime(rng: random.Random, date_only: bool = False) -> str:
     if date_only:
         t = t.replace(hour=0, minute=0, second=0)
     return format_datetime(t)
-# A value shaped like a RID (`#1:0`) is deliberately NOT in the string pool: the SQL
-# layer converts it to a LINK inside an embedded document (probed), so it would make
-# the doc data model's link entries type-divergent by construction. It belongs to a
-# schemaless-class axis, not to this pool.
+# A value shaped like an engine's own record id is deliberately NOT in the string pool:
+# an engine may convert it to a link inside an embedded document, which would make the
+# doc data model's link entries type-divergent by construction.
 
 _ARRAY_MAX_LEN = 4
 
@@ -185,13 +185,13 @@ class GeneratorConfig:
     value_reuse_probability: float = 0.2
     cardinality_control_probability: float = 0.3
     # Indexes: per scalar node field; data model drawn from doc/graph/rel/both; kind drawn
-    # from `_INDEX_KIND_WEIGHTS`.
+    # by the provider (`physical_design.draw_index_kind`).
     index_probability: float = 0.35
     composite_index_probability: float = 0.15
     # Per edge type: an index on one edge attribute (graph E class / junction class).
     edge_index_probability: float = 0.2
-    # Clears `unique` on an index whose generated values collide and turns a
-    # DICTIONARY index on a column with duplicate values into NOTUNIQUE (O4). Draws
+    # An index that holds one record per key, over generated values that collide, falls
+    # back to the kind its provider names (`physical_design.demoted_kind`). Draws
     # nothing.
     demote_colliding_indexes: bool = True
     # Churn.
@@ -239,9 +239,6 @@ class GeneratorConfig:
     # writes after every read case, each checked (answers, state, read-back) and
     # applied to the Instance; its own sub-stream, 0 reproduces a run from before it
     write_cases: int = 8
-    # LLM-written template cards (`fuzzer/cards`, query generator `llm_card`): this many card
-    # instantiations per instance from the JSONL corpus at `card_corpus`, its own
-    # sub-stream after every other read supply; 0 reproduces a run from before it
 
     def with_(self, **kw) -> "GeneratorConfig":
         return dataclasses.replace(self, **kw)
@@ -615,7 +612,7 @@ def index_key(schema: Schema, ix: IndexSpec, values: dict, edge: bool = False) -
 
 def _collides(instance: Instance, ix: IndexSpec) -> bool:
     """Whether two rows of the class hold the same key in ANY write state (a unique
-    index rejects the second write; a DICTIONARY index keeps one of them, O4)."""
+    index rejects the second write; one that replaces keeps only one of them)."""
     fields = ix.all_fields
     base = instance.schema.is_base(ix.table)
     for state in write_order_states(instance):
@@ -659,11 +656,9 @@ def _edge_collides(instance: Instance, ix: IndexSpec) -> bool:
 
 
 def _demote_colliding_indexes(instance: Instance) -> Schema:
-    """Unique kinds whose values collide become their NOTUNIQUE sibling; a DICTIONARY
-    index over duplicate values becomes NOTUNIQUE (the planner would answer an
-    equality predicate through it and drop rows, issue-drafts/O4). Judged over EVERY
-    write state, in write order -- the mixed states between two updates are where a
-    collision can hide (the ArangoDB port learned that on run6 seed 998235)."""
+    """An index that holds one record per key, over values that collide, becomes the
+    kind its provider demotes it to. Judged over EVERY write state, in write order --
+    the mixed states between two updates are where a collision can hide."""
     schema = instance.schema
     pd = schema.engine.physical_design
     fixed = []

@@ -4,12 +4,11 @@ non-zero if one has changed. Each check is one statement (or a few) with the exp
 answer that was observed on 3.2.56; a change means a template, a guard or the
 reference leg needs a second look before the next campaign.
 
-    python3 scripts/probe_osql.py                  # Docker
-    ORIENT_URL=http://127.0.0.1:2480 ORIENT_PASSWORD=fuzz python3 scripts/probe_osql.py
+    python3 -m ganda orientdb probe                # Docker
+    ORIENT_URL=http://127.0.0.1:2480 ORIENT_PASSWORD=fuzz python3 -m ganda orientdb probe
 """
 from __future__ import annotations
 
-import os
 import sys
 
 from ganda.orientdb.connection import OrientError, OrientServer  # noqa: E402

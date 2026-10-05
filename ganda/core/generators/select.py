@@ -1,22 +1,21 @@
-"""Samples `SelectQuery` shapes, builds their cases through the concrete syntax catalog, and
-registers the `ir_select` query generator.
+"""Samples `SelectQuery` shapes and builds their cases through the provider's concrete
+syntax: the `ir_select` query generator.
 
 The grammar: a class with records (a subclass or, on the inheritance axis, the base
 class); a filter with `WHERE_PROBABILITY` -- a predicate tree over the class's fields
 (`predicates.draw_over`), or with `COMPOSITE_PROBABILITY` an AND over a composite
-index's fields -- else none; a kind drawn uniformly from `select_ast.KINDS`, its fields
-and function drawn among the columns that admit them, with fallbacks judged over the records the filter keeps (`sum` only where every partial
-sum stays exact; `avg` / `median` over a present integer column; `max` / `min`
-over an ordered column; a distinct count over a present one -- the function drawn
-first, then a column that admits it, else `sum` falls back to `max` and the others
-to `count`;
-a method only where its Python mirror is exact on every matching value). A kind the
-class cannot realize falls back to `ids`.
+index's fields -- else none; a kind drawn uniformly from `select.KINDS`, its fields and
+function drawn among the columns that admit them, judged over the records the filter
+keeps (`sum` only where every partial sum stays exact; `avg` / `median` over a present
+integer column; `max` / `min` over an ordered column; a distinct count over a present
+one -- the function drawn first, then a column that admits it, else `sum` falls back to
+`max` and the others to `count`; a method only where its mirror is exact on every
+matching value). A kind the class cannot realize falls back to `ids`.
 
-A filter is, with `INSUB_PROBABILITY`, a semi-join leaf (`f IN (SELECT g FROM t2
-[WHERE q])`), alone or joined to a drawn tree. A `join` question correlates the class
-with itself on one field. With `tx_probability` a node question is read inside the
-transaction door (`select_support.draw_tx`: every kind but `join`).
+A filter is, with `INSUB_PROBABILITY`, a semi-join leaf, alone or joined to a drawn
+tree. A `join` question correlates the class with itself on one field. With
+`tx_probability` a node question is read through the transaction door
+(`support.draw_tx`: every kind but `join`).
 
 The supply is STRATIFIED. First a COVERAGE TIER: one `ids` question per target
 (every node class with records and fields, every edge type with records and
@@ -24,16 +23,16 @@ attributes -- an edge type twice: listed whole, unfiltered, and filtered on its
 attributes) and two unfiltered `keys` orderings per node class led by a field an
 index may walk, one ASC and one DESC, in a shuffled order -- every class and edge
 type asked every round, which a sample from a deck of hundreds of strata cannot
-promise (the mutation benchmark's drop-first-edge mutants fell to 2/7 without it). Then the
-targets crossed with the kinds they admit make a deck -- the filter kinds weighed up
-(`KIND_WEIGHTS`) -- dealt in a shuffled order and reshuffled when spent.
+promise. Then the targets crossed with the kinds they admit make a deck -- the filter
+kinds weighed up (`KIND_WEIGHTS`) -- dealt in a shuffled order and reshuffled when
+spent.
 
-A case is the base concrete syntax on every data model (identical text) plus every single-axis
-concrete syntax that applies and up to `MAX_COMBOS` concrete syntaxes combining two or more axes,
-drawn once for the three data models, so every variant is also compared across databases.
-Every draw comes from this query generator's own sub-stream; `CASES_PER_INSTANCE` queries per
-instance, deduplicated on the base text and bind values, prefix-stable (the first n
-of a larger sample are the n).
+A case is the base concrete syntax on every data model plus every single-axis syntax
+that applies and up to `MAX_COMBOS` syntaxes combining two or more axes, drawn once for
+all data models, so every variant is also compared across databases. Every draw comes
+from this query generator's own sub-stream; `CASES_PER_INSTANCE` queries per instance,
+deduplicated on the base text and bind values, prefix-stable (the first n of a larger
+sample are the n).
 """
 from __future__ import annotations
 
@@ -208,7 +207,7 @@ def _realize(rng: random.Random, schema: Schema, instance: Instance, table: str,
         limit = rng.randint(1, max(1, n))
         return make(fields=(f.name,), directions=(direction,), skip=skip, limit=limit)
     if kind == "keys":
-        # numeric or boolean keys: a string order collates (O6) where an index walks
+        # numeric or boolean keys: a string order may collate where an index walks
         # code units
         pool = [f for f in fields if f.type in NUMERIC_TYPES or f.type is FieldType.BOOL]
         if not pool:

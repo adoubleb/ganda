@@ -1,15 +1,16 @@
 """Abstract, storage-agnostic data model -- the pivot every other layer hangs off.
 
 An `Instance` is a small labelled property graph: typed node classes and typed edge
-(relationship) classes connecting them, plus concrete row/edge data, materialized three
-equivalent ways (`DATA_MODELS`: document, graph, relational).
+(relationship) classes connecting them, plus concrete row/edge data. A provider
+materializes it once per data model of its engine (by default `DATA_MODELS`: document,
+graph, relational), and the final stored state of every one IS the Instance.
 
-Third port of the Ganda model (SurrealDB, ArangoDB, now OrientDB); same class names,
-same churn ops, same `IndexSpec.data_model` idea, so the three fuzzers read data model by data model.
 Nothing here is engine vocabulary except the VALUES of a few physical-design knobs --
 `IndexSpec.kind` / `ignore_nulls` / `by`, `Schema.id_index`, `NodeTypeSpec.clusters`,
-the `WriteForm` fields -- which this module carries without interpreting; their
-vocabulary and the engine facts behind every type are `ganda.orientdb.dialect`'s.
+the `WriteForm` fields -- which this module carries without interpreting: a provider's
+`physical_design` draws them and its mapping reads them. A schema knows the provider it
+was generated for (`Schema.engine`), which is how the layers below reach the engine's
+semantics, concrete syntax and known bugs.
 """
 from __future__ import annotations
 
@@ -20,8 +21,8 @@ from typing import Any
 
 class FieldType(Enum):
     """A column's abstract type. Each engine declares it in its own vocabulary
-    (`orient.ORIENT_TYPES`); the values are the model's own names, stored in bundles,
-    predicates and card corpora."""
+    (its `dialect`); the values are the model's own names, stored in bundles and
+    predicates."""
 
     INT = "int"  # a 64-bit signed integer
     FLOAT = "float"  # an IEEE-754 double
@@ -48,7 +49,7 @@ FLOAT_TYPES = (FieldType.FLOAT, FieldType.FLOAT32, FieldType.DECIMAL)
 NUMERIC_TYPES = INT_TYPES + FLOAT_TYPES
 DATE_TYPES = (FieldType.DATETIME, FieldType.DATE)
 COLLECTION_TYPES = (FieldType.LIST, FieldType.MAP)
-# the types with a total order (each engine's is `orient`'s to state); BOOL and the
+# the types with a total order (each engine's is its semantics' to state); BOOL and the
 # collections are equality-only
 ORDERED_TYPES = NUMERIC_TYPES + (FieldType.STRING,) + DATE_TYPES
 # the types a scalar predicate / projection / GROUP BY key may name
@@ -64,7 +65,7 @@ class FieldSpec:
     # what makes GROUP BY keys and predicate collisions happen on purpose.
     cardinality: "int | None" = None
     # "ci": a case-insensitive collation (the `collate_probability` axis, STRING
-    # fields); which operators honour it is the engine's (`orient`)
+    # fields); which operators honour it is the engine's
     collate: "str | None" = None
 
     @property
@@ -82,7 +83,7 @@ class IndexSpec:
     whose WHERE touches the field into an index-vs-scan oracle across two databases
     holding the same node data. `kind`, `ignore_nulls` (whether a record with a null
     key gets an entry) and `by` (a map index's key or value data model) are engine options
-    (`orient.INDEX_KINDS`)."""
+    (the provider's `dialect`)."""
 
     table: str
     field: str
@@ -112,7 +113,7 @@ class NodeTypeSpec:
     name: str  # class name -- synthetic, e.g. "n1"
     fields: tuple
     # an engine option: the number of physical partitions the class's records are
-    # spread over (the `clusters_probability` axis, `orient`)
+    # spread over (a provider's storage axis)
     clusters: int = 1
 
 
@@ -132,7 +133,7 @@ class Schema:
     node_types: tuple
     edge_types: tuple
     indexes: tuple = ()
-    # data model -> the kind of index on `id` (an engine option, `orient.ID_INDEX_KINDS`;
+    # data model -> the kind of index on `id` (an engine option;
     # "none": no index); a missing data model means "UNIQUE".
     id_index: dict = field(default_factory=dict)
     # The inheritance axis: an ABSTRACT base class every node class extends, declaring
@@ -300,7 +301,7 @@ class NodeDelete:
 class WriteForm:
     """How one side's setup script renders its steps: every combination reaches a
     different engine write path while the final state stays the same. The fields'
-    vocabulary is the engine's (`orient`'s write forms)."""
+    vocabulary is the engine's (its `physical_design.draw_write_form`)."""
 
     insert_via: str = "set"
     update_form: str = "set"

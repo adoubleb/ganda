@@ -4,7 +4,7 @@
         README.md          what diverged, in one screen
         queries.json       every data model's text, the bind variables, rows, mismatches
         instance.json      the abstract instance
-        <data model>_setup.json  the setup plan per data model (RID placeholders as {"$ref": id})
+        <data model>_setup.json  the setup plan per data model (engine-id placeholders as {"$ref": id})
         repro.py           regenerates the case from (seed, config) and replays it
 """
 from __future__ import annotations

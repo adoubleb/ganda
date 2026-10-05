@@ -391,7 +391,7 @@ class OrientServer(Server):
         cmd.append(self.image)
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:
-            raise RuntimeError(f"docker run failed: {proc.stderr.strip()}")
+            raise OrientCrash(f"docker run failed: {proc.stderr.strip()}")
         self.container_id = proc.stdout.strip()
         _container_ids.append(self.container_id)
         port_out = subprocess.run(["docker", "port", self.container_name, "2480/tcp"], capture_output=True, text=True)

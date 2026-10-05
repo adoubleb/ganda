@@ -1,35 +1,29 @@
-"""The WRITE IR: data changes that pick their records through the planner -- `UPDATE
-... WHERE p`, `DELETE ... WHERE p`, `UPSERT`, and the relationship-attribute writes --
-where every write the setup issues addresses one record by its `id`.
+"""The write AST: data changes that pick their records through the planner -- an
+update, a delete or an upsert by predicate, and the relationship-attribute writes --
+where every write a setup issues addresses one record by its id.
 
 A `WriteQuery` is an operation on a class (`table`, a node class or the base class)
 or on an edge type (`edge_type`), a predicate tree choosing the records (`where`,
 None for all of them), the written field and its new value or delta, and what the
 statement answers (`returning`):
 
-    op           the statement (node ops on `table`, edge ops on `edge_type`)
-    set          SET f = :v              every match gets the value
-    arith        SET f = f + :d / f * :k  (`AND f IS NOT NULL`: a null operand is the
-                                          identity of `+`, O30)
-    null         SET f = null            an explicit null (IS DEFINED still holds)
-    remove       REMOVE f                the field absent
-    merge        MERGE {"f": v}          a JSON literal (MERGE takes no parameter)
-    delete       DELETE ... WHERE p      the records and every incident relationship
-    upsert       SET f = :v UPSERT WHERE id = :id   an existing record or a new one
+    op           the write (node ops on `table`, edge ops on `edge_type`)
+    set          every match gets the value
+    arith        `f + d` / `f * k` over the matches whose `f` is not null
+    null         an explicit null (the field stays defined)
+    remove       the field absent
+    merge        the value merged in from a document literal
+    delete       the records and every incident relationship
+    upsert       an existing record, or a new one, by id
     edge_set / edge_arith / edge_remove / edge_delete   the same on the relationships
 
     returning    count (every op) | before | after (the node update ops): the matched
                  records' `id` and the written field before / after the write
 
 `apply` is the reference: the Instance with the write applied; `answer` the rows the
-statement must return over the Instance before it. Engine facts (probed 3.2.56,
-`scripts/probe_osql.py`, "the write IR"): UPDATE / DELETE answer `[{"count": n}]`,
-`RETURN BEFORE|AFTER $current.id AS id, $current.f AS v` one row per matched record,
-UPSERT `[{"count": 1}]` whether it updated or inserted (only `WHERE id = :id`: an
-UPSERT on another predicate inserts a record with no `id`); a statement that fails
-half-way keeps the rows it already wrote (no statement atomicity outside a
-transaction), and a UNIQUE index is checked per row, so the generator never writes a
-column a unique or dictionary index covers through more than one record.
+statement must return over the Instance before it (`[{"count": n}]`, or one `{id, v}`
+row per matched record). A provider's `write_syntax` renders the statements, runs them
+and adapts its engine's answer to that shape.
 """
 from __future__ import annotations
 
@@ -74,7 +68,8 @@ class WriteQuery:
 
     @property
     def extra_notnull(self) -> bool:
-        """An arithmetic write filters its null rows out: `null + d` is `d` (O30)."""
+        """An arithmetic write filters its null rows out (what `null + d` is differs per
+        engine)."""
         return self.op in ("arith", "edge_arith")
 
     def to_params(self) -> dict:

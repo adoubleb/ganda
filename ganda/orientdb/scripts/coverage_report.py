@@ -1,15 +1,15 @@
 """Line / branch / method coverage of OrientDB from a campaign's JaCoCo execution data.
 
-`python3 -m ganda.orientdb.campaign --coverage side ...` leaves `campaign_reports/<tag>-coverage.exec`
-(everything) and `campaign_reports/<tag>-coverage/<template>.exec` (per template).
+`ganda orientdb run --coverage variant ...` leaves `campaign_reports/<tag>-coverage.exec`
+(everything) and `campaign_reports/<tag>-coverage/<generator>.exec` (per query generator).
 This script analyzes them against EVERY class of the image's `orientdb-*.jar`s (so the
 denominator is the engine, not the classes the campaign loaded) through
-`scripts/jacoco/CoverageReport.java`, launched as a single-file source program over
+`jacoco/CoverageReport.java` (next to this file), launched as a single-file source program over
 org.jacoco.core / org.jacoco.report / ASM from `~/.m2` -- no build, no download.
 
-    python3 scripts/coverage_report.py report campaign_reports/cov-coverage.exec --out coverage/cov
-    python3 scripts/coverage_report.py report a.exec b.exec --sources ~/src/orientdb/core/src/main/java
-    python3 scripts/coverage_report.py diff campaign_reports/cov-coverage/ir_select.exec \\
+    python3 -m ganda.orientdb.scripts.coverage_report report campaign_reports/cov-coverage.exec --out coverage/cov
+    python3 -m ganda.orientdb.scripts.coverage_report report a.exec b.exec --sources ~/src/orientdb/core/src/main/java
+    python3 -m ganda.orientdb.scripts.coverage_report diff campaign_reports/cov-coverage/ir_select.exec \\
         --base campaign_reports/cov-coverage/ir_traversal.exec  # what ir_select reaches that ir_traversal never does
 
 `report` prints a per-jar and a per-package table and, with `--out`, writes an HTML
@@ -25,12 +25,12 @@ import shutil
 import subprocess
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
-sys.path.insert(0, ROOT)
+from ganda.orientdb.connection import DEFAULT_IMAGE
+from ganda.orientdb.coverage import AGENT_EXCLUDES, JACOCO_VERSION
 
-from ganda.orientdb.coverage import AGENT_EXCLUDES, JACOCO_VERSION  # noqa: E402
-from ganda.orientdb.connection import DEFAULT_IMAGE  # noqa: E402
+HERE = os.path.dirname(os.path.abspath(__file__))
+# the jars copied out of the image and the HTML reports land under the working directory
+ROOT = os.getcwd()
 
 ASM_VERSION = "9.8"  # what org.jacoco.core 0.8.13 is built against
 M2 = os.path.expanduser("~/.m2/repository")

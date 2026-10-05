@@ -1,30 +1,26 @@
-"""Samples `TraversalQuery` shapes from the grammar the schema admits, chooses the
-concrete syntaxes, and registers the `ir_traversal` query generator.
+"""Samples `TraversalQuery` shapes from the grammar the schema admits and builds
+their cases: the `ir_traversal` query generator.
 
 The grammar: a start class that some edge type leaves or reaches; one to `MAX_HOPS`
 hops, each an edge type that chains from the current class (outgoing: its `from_type`
 is the current class; incoming: its `to_type` is; `both`, with `BOTH_PROBABILITY`
 over a self-typed edge type as the only hop), each with a predicate placement drawn
 uniformly from none / edge / target and realized only where the schema has a field
-there and the column has values -- a predicate being a leaf on one field or, with
-`predicates.COMPOUND_PROBABILITY`, an `AND` / `OR` / `NOT` tree over the record's
-fields; a source predicate with probability 0.3; a projection drawn uniformly, with
-the field kinds falling back to `ids` when the final class has no eligible field
-(`field` takes any scalar field, `max`/`min` an ordered one, `sum` an integer or
-DECIMAL one whose multisets sum exactly) and the four edge kinds
-(`efield`/`emax`/`emin`/`esum`, over the last hop's relationship attribute) likewise
-over the last edge type's fields -- an edge projection drops the last hop's target
-predicate, which no concrete syntax can carry next to it.
+there and the column has values; a source predicate with probability 0.3; a projection
+drawn uniformly, with the field kinds falling back to `ids` when the final class has
+no eligible field (`field` takes any scalar field, `max`/`min` an ordered one, `sum`
+one whose multisets sum exactly) and the four edge kinds (`efield`/`emax`/`emin`/
+`esum`, over the last hop's relationship attribute) likewise over the last edge type's
+fields -- an edge projection drops the last hop's target predicate.
 
-A sampled query is kept only if EVERY data model has at least one applicable concrete syntax
-(`syntaxes.applicable`). Each data model draws one of its applicable concrete syntaxes as its
-base text and every other applicable concrete syntax becomes a variant `<data_model>:<sp>`,
-plus the base concrete syntax's PULLED-UP form as `<data_model>:pull_up` when the query carries a
-source predicate, so one question runs through every engine path the catalog knows.
+A sampled query is kept only if EVERY data model has at least one applicable concrete
+syntax. Each data model draws one of them as its base text and every other applicable
+one becomes a variant `<data model>:<syntax>`, plus the base syntax with the source
+predicate PULLED UP into an enclosing query as `<data model>:pull_up`, so one question
+runs through every engine path the provider's catalog knows.
 
-Every draw comes from this query generator's own sub-stream, `CASES_PER_INSTANCE` queries per
-instance (deduplicated on the rendered texts and bind values), and every value travels
-as a bind variable.
+Every draw comes from this query generator's own sub-stream, `CASES_PER_INSTANCE`
+queries per instance (deduplicated on the rendered texts and bind values).
 """
 from __future__ import annotations
 

@@ -51,7 +51,7 @@ def test_reference_leg_sees_shared_corruption():
     assert not r.ok and r.reference_mismatches and not r.mismatches and r.finding_class == "reference_mismatch"
 
 
-def test_quarantine_keys_first_then_counts():
+def test_dedup_keys_first_then_counts():
     case = _case()
     rows = {"doc": [{"id": "a", "v": [1]}], "graph": [{"id": "a", "v": [2]}], "rel": [{"id": "a", "v": [1]}], "graph:match": [{"id": "a", "v": [1]}]}
     r = build_result(case, rows, {s: "" for s in rows}, None)

@@ -1,23 +1,22 @@
-"""The query IR: WHAT a question asks, separate from HOW each storage model -- and each
-of that model's several syntaxes -- renders it.
+"""The traversal AST: WHAT a question asks, separate from HOW each data model -- and
+each of that data model's several concrete syntaxes -- renders it.
 
 A `TraversalQuery` is one question: a start class, an optional predicate on the start
 record, a chain of one to `MAX_HOPS` hops each with a direction (`out`, `in`, or
-`both` -- the latter for a one-hop question over a self-typed edge type, where
-`both()` visits the outgoing edges then the incoming ones and a self-loop twice) and
-an optional predicate on the hop's relationship or on its target, and a projection
-over the final records -- `nexists` being the start records with NO path -- or, for
-the four `e*` projections, over the LAST hop's relationships (its attribute as a
-multiset, or `max`/`min`/`sum` of it). Predicates are trees (`predicates.Compound`):
-`AND` / `OR` / `NOT` over leaves. `syntaxes.render` turns a query into OrientDB SQL
-for a (data model, concrete syntax) pair -- `graph:chain`, `graph:match`, `graph:traverse`,
-`doc:path`, `rel:let`, `rel:flat`, ... -- and `evaluate` answers it in Python (the
-reference leg).
+`both` -- the latter for a one-hop question over a self-typed edge type, visiting the
+outgoing edges then the incoming ones, a self-loop twice) and an optional predicate on
+the hop's relationship or on its target, and a projection over the final records --
+`nexists` being the start records with NO path -- or, for the four `e*` projections,
+over the LAST hop's relationships (its attribute as a multiset, or `max`/`min`/`sum`
+of it). Predicates are trees (`predicates.Compound`). A provider's `traversal_syntax`
+turns a query into text for a (data model, concrete syntax) pair, and `evaluate`
+answers it over the Instance (the reference leg).
 
 `shape_signature` names the structure alone (hop count, per-hop direction and
 predicate placement, source predicate, projection), and `SHAPE_DENOMINATOR` counts what
 the grammar admits, so a campaign reports shape coverage with a denominator. The
-concrete syntaxes multiply that: every shape is asked through several engine paths per data model.
+concrete syntaxes multiply that: every shape is asked through several engine paths per
+data model.
 """
 from __future__ import annotations
 

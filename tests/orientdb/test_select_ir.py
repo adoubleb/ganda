@@ -63,7 +63,7 @@ def test_filtered_shapes():
     assert evaluate(SelectQuery("n1", p, "method", ("f1",), fn="{f} + 1"), inst) == {"n1/r1": 2, "n1/r3": 4, "n1/r4": 8}
 
 
-def test_spelling_tags_and_applicability():
+def test_syntax_tags_and_applicability():
     schema, inst = _fixture()
     q = SelectQuery("n1", _gt("f1", 2), "agg", ("f1",), fn="max")
     rewrites = build_rewrites(q, __import__("random").Random(1), schema, inst)
@@ -91,7 +91,7 @@ def test_order_walk_guards_hold_on_the_class_only():
     assert select_known(keys, SelectSyntax(position="nest"), Rewrites(), "graph", schema, inst) is None
 
 
-def test_scan_target_keeps_only_the_scan_side_findings():
+def test_scan_target_keeps_only_the_scan_only_bugs():
     # a truncation-sensitive double pivot on an indexed INT column is O16 through the
     # index; the subquery target scans it
     ix = IndexSpec("n1", "f1", data_model="rel", kind="NOTUNIQUE")

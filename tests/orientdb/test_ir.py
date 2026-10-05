@@ -57,7 +57,7 @@ def test_shape_denominator():
     assert SHAPE_DENOMINATOR == (9 + 36 + 216) * 2 * (len(PROJECTIONS) - 4) + 2 * 4
 
 
-def test_every_admitted_spelling_renders_every_side():
+def test_every_admitted_syntax_renders_every_data_model():
     schema, inst = _fixture()
     preds = [None, Predicate("edge", "w", ">", "p1", 1), Predicate("target", "f1", "<=", "p1", 1)]
     for n in (1, 2):
@@ -90,7 +90,7 @@ def test_rendered_texts_for_one_question():
     assert render(q, schema, "graph", "match") == "MATCH {class: n1, as: a} .outE('e1') {as: ae1, where: (w > :p1)} .inV() {as: av1} RETURN a.id AS id, av1.id AS v"
 
 
-def test_sampler_only_keeps_questions_every_side_can_spell():
+def test_sampler_only_keeps_questions_every_data_model_can_render():
     for seed in range(1, 30):
         schema, inst, rng = build(seed, GeneratorConfig())
         for case in generate_traversal_cases(rng.for_generator("ir_traversal"), schema, inst):
@@ -132,7 +132,7 @@ def test_compound_predicates_render_and_evaluate():
     assert q.bind_vars == {"p1_0_0": 2}
 
 
-def test_hoisted_form_and_traverse():
+def test_pulled_up_form_and_traverse():
     schema, inst = _fixture()
     sp = Predicate("source", "f1", ">", "p0", 0)
     q = TraversalQuery("n1", (Hop("e2", "out"),), "distinct_ids", None, sp)

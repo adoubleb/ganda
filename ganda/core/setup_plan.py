@@ -5,7 +5,7 @@ The STEPS are the provider's (a statement, a script, an API call): a step class
 registers itself with `@step("<op>")`, serializes with `to_dict()` and is rebuilt by
 `plan_from_dict`, so a bug bundle carries the exact plan that ran.
 
-A step that must name a record the engine identifies by its own id (a RID, a `_id`)
+A step that must name a record the engine identifies by its own id (a record id the engine assigns)
 carries a `Ref(logical id)` instead; the session resolves it from the ids it captured
 while applying earlier steps (`resolve_refs`).
 """

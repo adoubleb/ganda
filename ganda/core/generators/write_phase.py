@@ -1,23 +1,22 @@
-"""The write phase: after every read case of an instance, `write_cases` writes run
-one after another on the three databases, each followed by checks, and the Instance
-the reference uses evolves with them.
+"""The write phase: after every read case of an instance, `write_cases` writes run one
+after another on every data model, each followed by checks, and the Instance the
+reference uses evolves with them.
 
 One step:
-1. draw a write and each data model's concrete syntax (`queries.write_generator`);
-2. run it on every data model -- a cascade prelude and the compared statement, or all of
-   it in `BEGIN; ...; COMMIT;` -- and compare the answers (a count, or the returned
-   records) pair by pair and against the reference over the Instance BEFORE the
-   write (`ir_write`, an ordinary `CaseResult`);
-3. apply the write to the Instance and read the touched classes back on every data model
-   (`state.verify_state`): a data model whose stored state differs is a write-path finding;
-4. read the written field back through the select IR (`READBACKS` questions over the
-   written class, their filter over the written field: plain, `scan`, `nest` ... --
-   a stale index entry is an index-vs-scan disagreement), or the relationship type
-   through its filtered `ids`.
+1. draw a write and each data model's concrete syntax (`generators.write`);
+2. run it on every data model (the provider's `write_syntax.execute`) and compare the
+   answers -- a count, or the returned records -- pair by pair and against the
+   reference over the Instance BEFORE the write (`ir_write`, an ordinary `CaseResult`);
+3. apply the write to the Instance and read the touched classes back on every data
+   model (`state_check.verify_state`): a data model whose stored state differs is a
+   write-path finding;
+4. read the written field back through the select generator (`READBACKS` questions
+   over the written class, their filter over the written field -- a stale index entry
+   is an index-vs-scan disagreement), or the relationship type through its filtered
+   `ids`.
 
-A step that errors on some data model, or leaves some data model's state off the reference,
-ends the phase: the databases no longer hold one state. Every UPDATE carries a
-server-side TIMEOUT (a runaway update would otherwise hold the worker: O37).
+A step that errors on some data model, or leaves some data model's state off the
+reference, ends the phase: the databases no longer hold one state.
 """
 from __future__ import annotations
 

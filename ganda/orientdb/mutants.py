@@ -4,7 +4,7 @@ Each `Mutant` simulates one class of representation-divergence bug by overriding
 single piece of the real pipeline (one side's instance before it is materialized, one
 data model's rendered text, or the oracle's view of one side) while leaving everything else
 untouched. Running a trial through the mutant and through the real implementation
-should disagree -- `ganda.orientdb.mutation_runner` checks that the cases actually notice.
+should disagree -- `ganda.core.mutation.runner` checks that the cases actually notice.
 
 This is the feedback loop for changes to the fuzzer itself: real engine bugs are rare,
 so "bugs found per campaign" cannot tell whether a change to the query supply helped.
@@ -116,11 +116,11 @@ def _desc_as_asc(text: str, fields: list) -> str:
 
 # the core's instance-level mutants, then OrientDB's corruptions of its own query text
 MUTANTS = INSTANCE_MUTANTS + [
-    Mutant("graph_wrong_predicate_op", "render", "the graph side's first comparison operator is loosened/tightened", rewrite_case=_wrong_op_graph),
-    Mutant("doc_distinct_projection", "render", "the doc side deduplicates its id projection", rewrite_case=_distinct_on_doc),
-    Mutant("graph_index_range_inclusive", "index", "a strict range an SB-tree index of the graph side serves includes its bound", rewrite_case_schema=_index_rewrite("graph", True, _inclusive_range)),
-    Mutant("rel_index_null_keys", "index", "a lookup an index of the relational side serves also returns the null-keyed records", rewrite_case_schema=_index_rewrite("rel", False, _null_keys)),
-    Mutant("doc_index_desc_walk", "index", "a DESC order the doc side walks from an SB-tree index comes back ascending", rewrite_case_schema=_index_rewrite("doc", True, _desc_as_asc)),
+    Mutant("graph_wrong_predicate_op", "render", "the graph data model's first comparison operator is loosened/tightened", rewrite_case=_wrong_op_graph),
+    Mutant("doc_distinct_projection", "render", "the doc data model deduplicates its id projection", rewrite_case=_distinct_on_doc),
+    Mutant("graph_index_range_inclusive", "index", "a strict range an SB-tree index of the graph data model serves includes its bound", rewrite_case_schema=_index_rewrite("graph", True, _inclusive_range)),
+    Mutant("rel_index_null_keys", "index", "a lookup an index of the relational data model serves also returns the null-keyed records", rewrite_case_schema=_index_rewrite("rel", False, _null_keys)),
+    Mutant("doc_index_desc_walk", "index", "a DESC order the doc data model walks from an SB-tree index comes back ascending", rewrite_case_schema=_index_rewrite("doc", True, _desc_as_asc)),
 ]
 
 MUTANTS_BY_NAME = {m.name: m for m in MUTANTS}

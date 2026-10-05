@@ -51,7 +51,7 @@ def test_apply_and_answer():
     assert q2 == q
 
 
-def test_spellings_per_model():
+def test_syntaxes_per_model():
     schema, inst = _fixture()
     tw = WriteRewrites()
     q = WriteQuery("set", table="n1", where=_gt("f1", 4), field="f2", value="x", returning="before")

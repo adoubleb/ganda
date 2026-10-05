@@ -42,7 +42,7 @@ def test_o2_shape_is_correlated_plus_indexed_second_predicate():
     assert o2_shape(TraversalQuery("n1", (Hop("e1", "out", null),), "ids"), _schema([IndexSpec("n1", "f1", data_model="both")]), "rel", "let")
 
 
-def test_known_sides_are_marked_on_generated_cases():
+def test_known_variants_are_marked_on_generated_cases():
     marked = 0
     for seed in range(1, 40):
         schema, inst, rng = build(seed, GeneratorConfig(index_probability=0.9))
@@ -64,7 +64,7 @@ def test_mutants_change_something():
     assert len(names) == len(set(names))
 
 
-def test_every_read_ir_emits_and_references():
+def test_every_read_generator_emits_and_references():
     from ganda.core.generators.registry import reference_for
 
     schema, inst, rng = build(4, GeneratorConfig())
@@ -92,7 +92,7 @@ def test_guards_see_leaves_inside_compounds():
     assert node_case_known("n1", None, schema2, inst) == {}
 
 
-def test_hoisted_sides_are_judged_without_the_source_predicate():
+def test_pulled_up_variants_are_judged_without_the_source_predicate():
     from ganda.orientdb.known_bugs import mark_known_bugs
     from ganda.core.case import Comparison, QueryCase
 
@@ -124,7 +124,7 @@ def test_cross_type_guards_o16_o17():
     assert edge_case_known("e1", Predicate("edge", "w", "=", "p", 5.5), _schema([IndexSpec("e1", "w", data_model="graph", target="edge")]), inst) == {"graph": "O16"}
 
 
-def test_o18_withholds_the_desc_order_side_under_an_index_that_ignores_nulls():
+def test_o18_withholds_the_desc_order_variant_under_an_index_that_ignores_nulls():
     from ganda.orientdb.known_bugs import select_shape_known
     from ganda.core.ast.select import SelectQuery
     from ganda.orientdb.concrete_syntax.select import SelectSyntax
@@ -197,7 +197,7 @@ def test_new_type_and_collation_guards():
     assert ordered_keys_known(single, rows, "n1", ["f1"], ["ASC"], "doc") is None
 
 
-def test_o25_withholds_bracket_spellings_on_ci_targets():
+def test_o25_withholds_bracket_syntaxes_on_ci_targets():
     from ganda.orientdb.known_bugs import o25_shape
 
     schema = Schema(

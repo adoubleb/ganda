@@ -101,7 +101,7 @@ def test_join_reference_keeps_the_outer_records_only():
     assert evaluate(kept, inst) == {"n1/r0": 1, "n1/r1": 3, "n1/r3": 1}
 
 
-def test_join_spellings_and_o1():
+def test_join_syntaxes_and_o1():
     ix = IndexSpec("n1", "f2", data_model="rel")
     schema, inst = _fixture([ix])
     where = Predicate("source", "f2", "=", "p", "a", ftype="string")
@@ -120,7 +120,7 @@ def test_join_spellings_and_o1():
 # --- edge-type targets ------------------------------------------------------------------------
 
 
-def test_edge_target_reference_and_doc_spelling():
+def test_edge_target_reference_and_doc_syntax():
     schema, inst = _fixture()
     p = Predicate("edge", "w", ">", "p", 2, ftype="int")
     q = SelectQuery("e1", p, "ids", edge=True)
@@ -209,7 +209,7 @@ def _chain():
     return schema, Instance(schema, nodes, edges)
 
 
-def test_path_ir_answers_and_spellings():
+def test_path_answers_and_syntaxes():
     schema, inst = _chain()
     q = PathQuery("n1/r0", "n1", "n1/r3", "n1", "OUT", "e1", 3)
     assert evaluate_path(q, inst) == [{"v": 4}]
@@ -230,7 +230,7 @@ def test_path_ir_answers_and_spellings():
 # --- the index-level mutants ------------------------------------------------------------------
 
 
-def test_index_mutants_touch_only_servable_spellings():
+def test_index_mutants_touch_only_servable_syntaxes():
     ix = IndexSpec("n1", "f1", data_model="both", kind="NOTUNIQUE")
     schema, _inst = _fixture([ix])
     case = QueryCase("ir_select", "", Comparison.NESTED_VALUE, {

@@ -67,9 +67,8 @@ class Predicate:
     key_bind: str = ""
     # REVERSED operands: the pivot on the left (`:p > f` for `f < :p`, `:p IN f` for
     # `f CONTAINS :p`) -- the same comparison the planner never serves from an index
-    # (probed: every reversed leaf is a scan), so a `<data_model>:rev` variant is the
-    # index-vs-scan oracle inside one database. With a STRING pivot on a DATETIME /
-    # DATE column the engine compares the date's Java `toString()` (O32, withheld).
+    # the way it serves the plain one, so a `<data model>:rev` variant is the
+    # index-vs-scan oracle inside one database.
     rev: bool = False
     # ARITHMETIC over the field: `(f <sym> :cbind) op :bind` where the pivot is
     # already shifted (`p + c`), an equivalent concrete syntax wherever the arithmetic is
@@ -310,10 +309,8 @@ def draw(rng: random.Random, on: str, f: FieldSpec, values: list, bind: str, eng
     if not present:
         return None
     if f.type is FieldType.LIST:
-        # a list equality against a declared list never matches (O7, withheld on
-        # every declared data model), so CONTAINS carries most of the weight; CONTAINSANY /
-        # CONTAINSALL take a list of one or two elements (an Integer-boxed element
-        # never equals a stored Long on a scan: O7's list face, withheld there)
+        # CONTAINS carries most of the weight; a whole-list equality and CONTAINSANY /
+        # CONTAINSALL over one or two elements take the rest
         roll = rng.random()
         if roll < 0.2:
             v = rng.choice(present)
@@ -325,9 +322,8 @@ def draw(rng: random.Random, on: str, f: FieldSpec, values: list, bind: str, eng
             k = rng.randint(1, min(2, len(elems)))
             pivots = [rng.choice(elems) for _ in range(k)]
             if rng.random() < 0.3:
-                # a pivot just past a stored element -- inside the long range: 2^63
-                # is no LONG, and the server cannot even unmarshal the parameter
-                # (write-IR smoke w-smoke4, seed 1124)
+                # a pivot just past a stored element -- inside the 64-bit range, or
+                # the value could not travel as an integer at all
                 pivots[-1] = pivots[-1] + 1 if pivots[-1] < I64_MAX else pivots[-1] - 1
             return leaf(rng.choice(("CONTAINSANY", "CONTAINSALL")), pivots)
         return leaf("CONTAINS", rng.choice(elems))
@@ -377,18 +373,17 @@ def draw(rng: random.Random, on: str, f: FieldSpec, values: list, bind: str, eng
 
 
 def _draw_map(rng: random.Random, on: str, f: FieldSpec, present: list, bind: str, leaf, engine):
-    """A predicate over an EMBEDDEDMAP LONG: `CONTAINSKEY :k` (a stored or absent
-    key), `m.values() CONTAINS :p`, `m CONTAINSVALUE :p` (O7's face on a scan), or a
-    dotted entry comparison `m.k op :p` under the usual operators and null tests --
-    never `IS DEFINED`, which holds for every record through a dotted map key."""
+    """A predicate over a map of integers: `CONTAINSKEY` (a stored or absent key),
+    `VALUES CONTAINS` / `CONTAINSVALUE` (a stored or absent value), or an entry
+    comparison `m.k op p` under the usual operators and null tests -- never a
+    definedness test, which a map entry answers differently per engine."""
     keys = sorted({k for m in present for k in m})
     elems = [x for m in present for x in m.values() if x is not None]
     roll = rng.random()
     if roll < 0.2 or not keys:
         return leaf("CONTAINSKEY", rng.choice(keys) if keys and rng.random() < 0.8 else rng.choice(MAP_KEYS))
     if roll < 0.32 and elems:
-        # an absent value one past a stored one, kept a long (`2^63` is refused by
-        # the HTTP layer's JSON parser: cov400 seeds 5030 / 5108)
+        # an absent value one past a stored one, kept inside the 64-bit range
         return leaf("VALUES CONTAINS", rng.choice(elems) if rng.random() < 0.8 else offset(FieldType.INT, rng.choice(elems), 1))
     if roll < 0.4 and elems:
         return leaf("CONTAINSVALUE", rng.choice(elems))

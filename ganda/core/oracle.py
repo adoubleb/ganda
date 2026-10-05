@@ -20,7 +20,7 @@ Numbers are NOT collapsed across types: every column has one declared type on ev
 data model, so `5` against `5.0` for the same expression is a divergence.
 
 An error on some data models but not all is a finding (`error_asymmetry`); an error on every
-data model is consistent rejection. An *internal* error (a raw Java exception, HTTP 501) is a
+data model is consistent rejection. An *internal* error (a raw exception from inside the engine) is a
 finding of its own class whether or not the data models agree on it. The Python reference
 leg is compared against each data model under the same normalization.
 """
@@ -80,8 +80,8 @@ def normalize_nested(value: Any) -> Any:
 
 
 def normalize_deep(value: Any) -> Any:
-    """Order ignored at EVERY depth, inside a row's values too: a card's NESTED_VALUE
-    (a set-valued column -- `asSet()`, `set()` -- has no order; round 2's card 0185)."""
+    """Order ignored at EVERY depth, inside a row's values too (a set-valued column has
+    no order): a case asks for it with `params["unordered_values"]`."""
     if isinstance(value, list):
         return sorted((normalize_deep(v) for v in value), key=_canon_row)
     if isinstance(value, dict):
@@ -90,7 +90,7 @@ def normalize_deep(value: Any) -> Any:
 
 
 def normalize_bare(case, value: Any) -> Any:
-    """A bare answer's canonical form: the cards compare NESTED_VALUE deep."""
+    """A bare answer's canonical form, under the case's engine's value order."""
     if case.comparison is Comparison.NESTED_VALUE and case.params.get("unordered_values"):
         return normalize_deep(value)
     return normalize(case.comparison, value, _key_of(case))

@@ -1,25 +1,25 @@
-"""Samples `WriteQuery`s and each data model's concrete syntax of them (the `ir_write` query generator).
+"""Samples `WriteQuery`s and each data model's concrete syntax of them: the `ir_write`
+query generator.
 
 The grammar: with `EDGE_PROBABILITY` an edge type with attributes and relationships,
 else a class with records and fields; an op among those the target admits
-(`write_ast.NODE_OPS` / `EDGE_OPS`); the written field among the columns the op admits
-(arithmetic: an integer column; MERGE: a scalar one); a filter with
-`WHERE_PROBABILITY` (`predicates.draw_over`, as the select IR draws it) else every
-record; a value from the column's own values or a fresh one of its type
-(`generator.random_value`, exact on the wire); a `RETURN BEFORE|AFTER` for a node
-update with `RETURNING_PROBABILITY`. A write is kept only if it is safe by
-construction:
+(`write.NODE_OPS` / `EDGE_OPS`); the written field among the columns the op admits
+(arithmetic: an integer column; merge: a scalar one); a filter with
+`WHERE_PROBABILITY` (`predicates.draw_over`, as the select generator draws it) else
+every record; a value from the column's own values or a fresh one of its type; the
+before / after rows instead of a count for a node update with `RETURNING_PROBABILITY`.
+A write is kept only if it is safe by construction:
 
-- arithmetic stays exact on every matched value (`predicates._arith_exact`: a long
-  never wraps, an INTEGER stays int32; `*` on longs only);
-- no unique or dictionary index of any data model ends up holding a key twice, and none
-  covering the written field is written through more than one record (a unique
-  index is checked per row, in an order that differs per data model, and a failed
-  statement keeps what it wrote);
-- an UPSERT names an existing record or a fresh id.
+- arithmetic stays exact on every matched value (the provider's
+  `rewrites.arith_exact`);
+- no index that holds one record per key ends up holding a key twice on any data
+  model, and none covering the written field is written through more than one record
+  (an engine may check uniqueness per row, in an order that differs per data model,
+  and keep what a failed statement already wrote);
+- an upsert names an existing record or a fresh id.
 
-Each data model then draws its concrete syntax (`write_syntax`) among the applicable ones no
-guard names (`known_bugs.write_known`); if some data model has none, the write is drawn
+Each data model then draws its concrete syntax among the applicable ones no known bug
+names (`known_bugs.write_known`); if some data model has none, the write is drawn
 again. Every draw comes from the `ir_write` sub-stream.
 """
 from __future__ import annotations
