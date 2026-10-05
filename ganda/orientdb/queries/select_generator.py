@@ -1,0 +1,436 @@
+"""Samples `SelectQuery` shapes, builds their cases through the spelling catalog, and
+registers the `ir_select` family.
+
+The grammar: a class with records (a subclass or, on the inheritance axis, the base
+class); a filter with `WHERE_PROBABILITY` -- a predicate tree over the class's fields
+(`predicates.draw_over`), or with `COMPOSITE_PROBABILITY` an AND over a composite
+index's fields -- else none; a kind drawn uniformly from `select_ir.KINDS`, its fields
+and function drawn among the columns that admit them, with fallbacks judged over the records the filter keeps (`sum` only where every partial
+sum stays exact; `avg` / `median` over a present integer column; `max` / `min`
+over an ordered column; a distinct count over a present one -- the function drawn
+first, then a column that admits it, else `sum` falls back to `max` and the others
+to `count`;
+a method only where its Python mirror is exact on every matching value). A kind the
+class cannot realize falls back to `ids`.
+
+A filter is, with `INSUB_PROBABILITY`, a semi-join leaf (`f IN (SELECT g FROM t2
+[WHERE q])`), alone or joined to a drawn tree. A `join` question correlates the class
+with itself on one field. With `tx_probability` a node question is read inside the
+transaction door (`select_support.draw_tx`: every kind but `join`).
+
+The supply is STRATIFIED. First a COVERAGE TIER: one `ids` question per target
+(every node class with records and fields, every edge type with records and
+attributes -- an edge type twice: listed whole, unfiltered, and filtered on its
+attributes) and two unfiltered `keys` orderings per node class led by a field an
+index may walk, one ASC and one DESC, in a shuffled order -- every class and edge
+type asked every round, which a sample from a deck of hundreds of strata cannot
+promise (the mutation benchmark's drop-first-edge mutants fell to 2/7 without it). Then the
+targets crossed with the kinds they admit make a deck -- the filter kinds weighed up
+(`KIND_WEIGHTS`) -- dealt in a shuffled order and reshuffled when spent.
+
+A case is the base spelling on every side (identical text) plus every single-axis
+spelling that applies and up to `MAX_COMBOS` spellings combining two or more axes,
+drawn once for the three sides, so every variant is also compared across databases.
+Every draw comes from this family's own sub-stream; `CASES_PER_INSTANCE` queries per
+instance, deduplicated on the base text and bind values, prefix-stable (the first n
+of a larger sample are the n).
+"""
+from __future__ import annotations
+
+import dataclasses
+import random
+
+from ganda.orientdb.model import COLLECTION_TYPES, INT_TYPES, NUMERIC_TYPES, ORDERED_TYPES, FieldType, Instance, Schema
+from ganda.orientdb.queries import predicates
+from ganda.orientdb.queries.base import SIDES, QueryCase
+from ganda.orientdb.queries.predicates import Predicate
+from ganda.orientdb.queries.select_ir import AGG_FNS, DIRECTIONS, EDGE_KINDS, GROUP_FNS, JOIN_FORMS, JOIN_OPS, KINDS, SelectQuery, coverage_signature, hits, present_values, reference_ok, shape_signature, target_fields
+from ganda.orientdb.queries.select_spellings import BASE, Twins, applicable, base_sides, render, spellings_for
+from ganda.orientdb.reference import sum_is_exact
+
+CASES_PER_INSTANCE = 30
+WHERE_PROBABILITY = 0.7
+COMPOSITE_PROBABILITY = 0.3
+INSUB_PROBABILITY = 0.3
+# how often a node filter draws its leaves from the class's INDEXED fields only, and
+# an ordering (`page`, `keys`) orders by an indexed field: the index-vs-scan oracle
+# needs a served leaf to see anything, and the mutation benchmark's index mutants
+# showed the uniform choice reached one on 0.4 % of cases
+INDEX_BIAS = 0.5
+TX_PROBABILITY = 0.25
+TWO_KEYS_PROBABILITY = 0.4
+MAX_COMBOS = 3
+# a stratum's weight in the deck: a node class's filter kinds weigh most, and a
+# node class's kinds weigh three times an edge type's (the schemas hold more edge types than node classes:
+# at one each, edge targets took half the supply)
+KIND_WEIGHTS = {"ids": 6, "count": 4}
+NODE_WEIGHT = 3
+EDGE_WEIGHT = 1
+
+
+def _indexed(schema: Schema, table: str, fields) -> list:
+    """The fields an index of some side may serve (the lead of a single-field or
+    composite index, the base class's and a subclass's included)."""
+    return [f for f in fields if any(schema.node_indexes(table, f.name, side) for side in ("doc", "graph", "rel"))]
+
+
+def _prefer_indexed(rng: random.Random, schema: Schema, table: str, fields, edge: bool) -> list:
+    if edge:
+        return list(fields)
+    ix = _indexed(schema, table, fields)
+    return ix if ix and rng.random() < INDEX_BIAS else list(fields)
+
+
+def _values_of(instance: Instance, table: str, edge: bool = False):
+    rows = instance.edges_of(table) if edge else instance.nodes_of(table)
+    return lambda f: [n.values.get(f.name) for n in rows if f.name in n.values]
+
+
+def _draw_where(rng: random.Random, schema: Schema, instance: Instance, table: str, focus: "str | None" = None, edge: bool = False):
+    from ganda.orientdb.queries.select_support import composite_and as _composite_and
+
+    fields = target_fields(schema, table, edge)
+    on = "edge" if edge else "source"
+    if focus is not None:
+        # a read-back after a write: the filter over the written field
+        fields = [f for f in fields if f.name == focus] or fields
+        return predicates.draw_over(rng, on, fields, _values_of(instance, table, edge), "p")
+    if edge:
+        return predicates.draw_over(rng, on, fields, _values_of(instance, table, edge), "p")
+    composites = [ix for ix in schema.indexes if ix.target == "node" and ix.extra_fields and ix.table == table]
+    if composites and rng.random() < COMPOSITE_PROBABILITY:
+        ix = rng.choice(composites)
+        return _composite_and(rng, [f for f in fields if f.name in ix.all_fields], _values_of(instance, table))
+    if rng.random() < INSUB_PROBABILITY:
+        # a semi-join, alone or next to a drawn tree
+        if rng.random() < 0.6:
+            return predicates.draw_insub(rng, schema, instance, table, "p")
+        sub = predicates.draw_insub(rng, schema, instance, table, "p_0")
+        other = predicates.draw_over(rng, "source", fields, _values_of(instance, table), "p_1", compound_probability=0.0)
+        if sub is None or other is None:
+            return sub or other
+        return predicates.Compound("source", rng.choice(("AND", "OR")), (sub, other))
+    return predicates.draw_over(rng, "source", _prefer_indexed(rng, schema, table, fields, False), _values_of(instance, table), "p")
+
+
+def _admits(fn: str, f, present: list) -> bool:
+    """Whether aggregate `fn` has an exact reference over column `f` with these
+    present values among the matching records."""
+    if fn == "sum":
+        return f.type in INT_TYPES + (FieldType.DECIMAL,) and sum_is_exact(present, f.type.value)
+    if fn in ("avg", "median"):
+        return f.type in INT_TYPES and bool(present) and sum_is_exact(present, f.type.value)
+    if fn in ("max", "min"):
+        return f.type in ORDERED_TYPES
+    if fn == "distinct_count":
+        return bool(present)
+    return True
+
+
+def _agg_pick(rng: random.Random, fn: str, pool: list, present) -> "tuple[str, object]":
+    """(fn, field): the function first, then a column that admits it; with none, the
+    fallbacks (`sum` -> `max`, the others -> `count`)."""
+    for f_ in (fn, "max" if fn == "sum" else "count", "count"):
+        ok = [f for f in pool if _admits(f_, f, present(f))]
+        if ok:
+            return f_, rng.choice(ok)
+    return "count", rng.choice(pool)
+
+
+def _walk_pool(schema: Schema, table: str) -> list:
+    """The `keys` fields an index of some side may walk (numeric or boolean, indexed)."""
+    pool = [f for f in schema.query_fields(table) if f.type in NUMERIC_TYPES or f.type is FieldType.BOOL]
+    return _indexed(schema, table, pool)
+
+
+def _realize(rng: random.Random, schema: Schema, instance: Instance, table: str, where, kind: str, edge: bool = False, walk: "str | None" = None) -> "SelectQuery | None":
+    from ganda.orientdb.queries.select_support import METHODS as _METHODS
+
+    fields = list(target_fields(schema, table, edge))
+    rows = hits(SelectQuery(table, where, "ids", edge=edge), instance)
+    scalar = [f for f in fields if f.type not in COLLECTION_TYPES]
+    n = len(rows)
+    # every non-default field of the question, so a replace keeps the target
+    q0 = SelectQuery(table, where, kind, edge=edge)
+
+    def present(f) -> list:
+        return [r.values.get(f.name) for r in rows if r.values.get(f.name) is not None]
+
+    def make(**kw) -> SelectQuery:
+        return dataclasses.replace(q0, **kw)
+
+    if kind == "join":
+        if edge or not scalar:
+            return None
+        f = rng.choice(scalar)
+        op = rng.choice(JOIN_OPS if f.type in ORDERED_TYPES else JOIN_OPS[:2])
+        return make(fields=(f.name,), fn=op, arg=rng.choice(JOIN_FORMS))
+    if kind == "field":
+        return make(fields=(rng.choice(fields).name,))
+    if kind == "method":
+        f = rng.choice(fields)
+        entries = list(_METHODS.get(f.type, ()))
+        rng.shuffle(entries)
+        values = present(f)
+        for template, _fn, guard in entries:
+            if all(guard(v) for v in values):
+                return make(fields=(f.name,), fn=template)
+        return None
+    if kind == "agg":
+        pool = [f for f in scalar if f.type is not FieldType.BOOL]
+        if not pool:
+            return None
+        fn, f = _agg_pick(rng, rng.choice(AGG_FNS), pool, present)
+        return make(fields=(f.name,), fn=fn)
+    if kind == "group":
+        if not scalar:
+            return None
+        keys = rng.sample(scalar, 2) if len(scalar) >= 2 and rng.random() < TWO_KEYS_PROBABILITY else [rng.choice(scalar)]
+        fn = rng.choice(GROUP_FNS)
+        others = [f for f in scalar if f not in keys]
+        arg = None
+        if fn != "count_star":
+            if not others:
+                fn = "count_star"
+            else:
+                fn, a = _agg_pick(rng, fn, others, present)
+                arg = a.name
+        return make(fields=tuple(k.name for k in keys), fn=fn, arg=arg)
+    if kind == "distinct":
+        if not scalar:
+            return None
+        cols = rng.sample(scalar, 2) if len(scalar) >= 2 and rng.random() < TWO_KEYS_PROBABILITY else [rng.choice(scalar)]
+        return make(fields=tuple(f.name for f in cols))
+    if kind == "page":
+        ordered = [f for f in fields if f.type in ORDERED_TYPES]
+        if not ordered:
+            return None
+        f = rng.choice(_prefer_indexed(rng, schema, table, ordered, edge))
+        direction = rng.choice(DIRECTIONS)
+        skip = rng.randint(0, max(0, n - 1)) if rng.random() < 0.6 else 0
+        limit = rng.randint(1, max(1, n))
+        return make(fields=(f.name,), directions=(direction,), skip=skip, limit=limit)
+    if kind == "keys":
+        # numeric or boolean keys: a string order collates (O6) where an index walks
+        # code units
+        pool = [f for f in fields if f.type in NUMERIC_TYPES or f.type is FieldType.BOOL]
+        if not pool:
+            return None
+        walkable = _walk_pool(schema, table) if walk and not edge else []
+        lead = rng.choice(walkable or _prefer_indexed(rng, schema, table, pool, edge))
+        keys = [lead] + ([rng.choice([f for f in pool if f is not lead])] if len(pool) >= 2 and rng.random() < 0.5 else [])
+        # a walk tier ordering keeps ONE direction on every key (mixed directions
+        # route through a sort): the shape an index walk serves
+        dirs = tuple(walk for _ in keys) if walk else tuple(rng.choice(DIRECTIONS) for _ in keys)
+        skip = rng.randint(0, max(0, n - 1)) if rng.random() < 0.3 else 0
+        limit = rng.randint(1, max(1, n)) if rng.random() < 0.5 else 0
+        return make(fields=tuple(k.name for k in keys), directions=dirs, skip=skip, limit=limit)
+    return q0
+
+
+def _targets(schema: Schema, instance: Instance) -> list:
+    """(table, edge) for every node class with fields and records and every edge
+    type with attributes and records."""
+    out = [(nt.name, False) for nt in schema.query_tables() if schema.query_fields(nt.name) and instance.nodes_of(nt.name)]
+    out += [(et.name, True) for et in schema.edge_types if et.fields and instance.edges_of(et.name)]
+    return out
+
+
+def sample_select(rng: random.Random, schema: Schema, instance: Instance, table: "str | None" = None, focus: "str | None" = None, kind: "str | None" = None, edge: bool = False, tx_probability: float = 0.0, where_probability: float = WHERE_PROBABILITY, walk: "str | None" = None) -> "SelectQuery | None":
+    """A question over a random class, or over `table` (an edge type with `edge`)
+    with `kind`, its filter drawn over the field `focus` if given (the write phase's
+    read-back of what it wrote); with `tx_probability` read through the
+    transaction door."""
+    from ganda.orientdb.queries.select_support import draw_tx
+
+    if table is None:
+        tables = [nt for nt in schema.query_tables() if schema.query_fields(nt.name) and instance.nodes_of(nt.name)]
+        if not tables:
+            return None
+        table = rng.choice(tables).name
+    elif not target_fields(schema, table, edge) or not (instance.edges_of(table) if edge else instance.nodes_of(table)):
+        return None
+    where = _draw_where(rng, schema, instance, table, focus, edge) if rng.random() < where_probability else None
+    kind = kind or rng.choice(EDGE_KINDS if edge else KINDS)
+    q = _realize(rng, schema, instance, table, where, kind, edge, walk) or SelectQuery(table, where, "ids", edge=edge)
+    if tx_probability and not edge and q.kind != "join" and rng.random() < tx_probability:
+        tx = draw_tx(rng, schema, instance, table, where)
+        if tx is not None and _tx_admits(dataclasses.replace(q, tx=tx), schema, instance):
+            q = dataclasses.replace(q, tx=tx)
+    return q
+
+
+def _tx_admits(q: SelectQuery, schema: Schema, instance: Instance) -> bool:
+    """Whether the question's exactness conditions -- judged when it was realized,
+    over the records before the write -- still hold over the transaction's view: an
+    aggregate's (`_admits`), a method's mirror guard."""
+    from ganda.orientdb.queries.select_ir import column
+    from ganda.orientdb.queries.select_support import METHODS
+
+    rows = hits(q, instance)
+
+    def present(f) -> list:
+        return [r.values.get(f) for r in rows if r.values.get(f) is not None]
+
+    if q.kind == "agg":
+        return _admits(q.fn, column(schema, q, q.field), present(q.field))
+    if q.kind == "group" and q.fn != "count_star":
+        return _admits(q.fn, column(schema, q, q.arg), present(q.arg))
+    if q.kind == "method":
+        guard = next(g for t, _fn, g in METHODS[column(schema, q, q.field).type] if t == q.fn)
+        return all(guard(v) for v in present(q.field))
+    return True
+
+
+def _door(p, table: str, schema: Schema, instance: Instance, side: str) -> "tuple | None":
+    """The `index:` door of `select_support.index_door` where it answers every matching
+    record (`door_complete`), its own bind variable renamed per side (two sides'
+    composite indexes may order the same key differently)."""
+    from ganda.orientdb.queries.select_support import door_complete, index_door as _index_door
+
+    door = _index_door(p, table, schema, side)
+    if door is None or not door_complete(door[2], table, p, instance):
+        return None
+    text, extra, ix = door
+    renamed = {}
+    for k, v in extra.items():
+        assert text.endswith(f":{k}"), text
+        text = text[: -len(k)] + f"{k}_{side}"
+        renamed[f"{k}_{side}"] = v
+    return text, renamed, ix
+
+
+def build_twins(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> Twins:
+    from ganda.orientdb.queries.select_ir import records, view
+    from ganda.orientdb.queries.select_support import literal_pred as _literal_pred
+
+    twins = Twins(present=present_values(q, instance) if q.kind == "agg" else [])
+    p = q.where
+    if p is None:
+        return twins
+    twins.rw = predicates.rewrite(p, rng, "q")
+    twins.rev = predicates.reverse(p)
+    if isinstance(p, Predicate) and p.sub is None:
+        try:
+            ftype = schema.field(q.table, p.field, edge=q.edge).type
+        except KeyError:
+            ftype = None
+        if ftype is not None:
+            # exact on every value the read may meet: the transaction's written one
+            # too
+            stored = [n.values.get(p.field) for n in records(q, instance) + (records(q, view(q, instance)) if q.tx else []) if p.field in n.values]
+            twins.arith = predicates.arithmetic(p, rng, "ar", ftype, stored)
+    twins.literal = _literal_pred(p)
+    if q.kind == "ids" and not q.edge:
+        for side in SIDES:
+            door = _door(p, q.table, schema, instance, side)
+            if door is not None:
+                twins.door[side] = door
+    return twins
+
+
+def build_case(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> QueryCase:
+    from ganda.orientdb.guards import select_known
+
+    from ganda.orientdb.queries.select_support import tx_binds
+
+    twins = build_twins(q, rng, schema, instance)
+    bind = q.bind_vars
+    for twin in (twins.rw, twins.rev, twins.arith):
+        if twin is not None:
+            bind.update(twin.bind_vars)
+    for _text, extra, _ix in twins.door.values():
+        bind.update(extra)
+    if schema.base is not None and not q.edge and not schema.is_base(q.table):
+        bind.update({"cls": q.table, "clsl": [q.table]})
+    if q.tx:
+        bind.update(tx_binds(q.tx))
+    # one draw of spellings for the three sides: every single-axis spelling that
+    # applies anywhere, and a few combinations
+    options: list = []
+    for side in SIDES:
+        for sp in spellings_for(q, schema, twins, side):
+            if sp not in options:
+                options.append(sp)
+    combos = [sp for sp in options if sp.axes > 1]
+    rng.shuffle(combos)
+    chosen = [sp for sp in options if sp.axes == 1] + combos[:MAX_COMBOS]
+    queries: dict = {}
+    known: dict = {}
+    spellings: dict = {}
+    for side in SIDES:
+        for sp in [BASE] + chosen:
+            if not applicable(q, schema, sp, twins, side):
+                continue
+            name = side if sp == BASE else f"{side}:{sp.tag}"
+            queries[name] = render(q, schema, sp, twins, side)
+            spellings[name] = sp.tag or "base"
+            fid = select_known(q, sp, twins, side, schema, instance)
+            if fid:
+                known[name] = fid
+    params = {
+        "shape": shape_signature(q, schema),
+        "coverage": coverage_signature(q),
+        "select": q.to_params(),
+        "reference": reference_ok(q, instance),
+        "table": q.table,
+        "spellings": spellings,
+    }
+    if set(base_sides(q)) != set(SIDES):
+        params["partial"] = True
+    for name in ("rw", "rev", "arith"):
+        twin = getattr(twins, name)
+        if twin is not None:
+            params[name] = twin.to_dict()
+    if twins.door:
+        params["index_door"] = {side: d[2].name() for side, d in twins.door.items()}
+    return QueryCase("ir_select", q.table if q.edge else "", q.comparison, queries, bind, params, shape=params["shape"], known=known)
+
+
+def strata(schema: Schema, instance: Instance) -> list:
+    """The deck: (table, edge, kind) for every target and every kind it admits, a
+    kind repeated per its `KIND_WEIGHTS`."""
+    out = []
+    for table, edge in _targets(schema, instance):
+        for kind in EDGE_KINDS if edge else KINDS:
+            out += [(table, edge, kind)] * (EDGE_WEIGHT if edge else KIND_WEIGHTS.get(kind, NODE_WEIGHT))
+    return out
+
+
+def ir_select_cases(rng: random.Random, schema: Schema, instance: Instance, per_instance: int = CASES_PER_INSTANCE) -> list:
+    cases, seen = [], set()
+    deck = strata(schema, instance)
+    if not deck:
+        return cases
+    tier = []
+    for table, edge in _targets(schema, instance):
+        if edge:
+            tier += [(table, True, "ids", None, 0.0), (table, True, "ids", None, 1.0)]
+        else:
+            tier.append((table, False, "ids", None, WHERE_PROBABILITY))
+    tier += [(table, False, "keys", d, 0.0) for table, edge in _targets(schema, instance) if not edge and _walk_pool(schema, table) for d in DIRECTIONS]
+    rng.shuffle(tier)
+    hand: list = []
+    for _ in range(per_instance * 4):
+        if len(cases) >= per_instance:
+            break
+        walk = None
+        if tier:
+            table, edge, kind, walk, where_probability = tier.pop()
+        else:
+            where_probability = WHERE_PROBABILITY
+            if not hand:
+                hand = list(deck)
+                rng.shuffle(hand)
+            table, edge, kind = hand.pop()
+        q = sample_select(rng, schema, instance, table=table, kind=kind, edge=edge, tx_probability=0.0 if walk else TX_PROBABILITY, where_probability=where_probability, walk=walk)
+        if q is None:
+            continue
+        case = build_case(q, rng, schema, instance)
+        first = case.sides[0]
+        key = (case.queries[first], repr(sorted(case.bind_vars.items(), key=lambda kv: kv[0])))
+        if key in seen:
+            continue
+        seen.add(key)
+        cases.append(case)
+    return cases
