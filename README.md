@@ -14,6 +14,7 @@ from the Instance. A disagreement is a finding.
 | OrientDB | full provider, seed-for-seed equal to the legacy `../OrientDB` fuzzer |
 | SurrealDB | skeleton: connection layer and contract, no query supply yet |
 | ArangoDB | skeleton: connection layer and contract, no query supply yet |
+| SAP HANA | full provider (`doc` / `rel` / `rdf`: Document Store, column tables, Knowledge Graph Engine), verified offline only; `ganda/hana/HANDOFF.md` |
 
 ## Running
 
@@ -35,6 +36,27 @@ python3 bugs/<bundle>/repro.py                         # replay one finding
 `run` and `mutate` take one flag per field of the engine's configuration class
 (`--max-node-types`, `--collate-probability`, ...). A server is started in Docker;
 `ORIENT_URL` / `ORIENT_PASSWORD` (`ARANGO_URL`, `SURREAL_URL`) attach to a running one.
+
+## SAP HANA
+
+```bash
+pip install -e ".[dev,hana]"                           # hdbcli, rdflib
+export HANA_HOST=... HANA_PORT=443 HANA_USER=... HANA_PASSWORD=...
+ganda hana doctor                                      # a schema and a graph per data model
+ganda hana probe                                       # every HANA fact the provider rests on
+ganda hana run --iterations 1 --seed 1 --workers 1 --select-cases 30
+python3 -m tests.hana.run_offline --seeds 1 10         # the offline stand-in (SQLite, rdflib)
+```
+
+One SAP HANA Cloud database holds the three data models: the JSON Document Store
+(`doc`, relationships embedded as link arrays), column tables (`rel`, junction tables)
+and the Knowledge Graph Engine's triple store (`rdf`, one named graph; a relationship is
+a resource of its own plus a direct link triple). Each is asked in its own languages:
+collection queries and SQL over views of the collections, SQL, and SPARQL (directly and
+through SQL's `SPARQL_TABLE`). The instance must be HANA Cloud 2025.2 or later with the
+Document Store and the Triple Store enabled (not the free tier). `ganda/hana/HANDOFF.md`
+is the guide to its live development; `ganda/hana/RULES.md` lists every engine fact the
+oracle assumes and which probe checks it.
 
 ## Scale: the storage-engine stress mode
 

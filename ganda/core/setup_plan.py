@@ -66,9 +66,13 @@ _STEP_TYPES: dict = {}
 
 def step(op: str):
     """Register a step class under `op`: it has `to_dict()` (carrying `"op": op`) and a
-    `from_dict(d)` classmethod."""
+    `from_dict(d)` classmethod. The registry is shared by every provider, so an op name
+    another class already holds is refused (a provider prefixes its own: `hana_sql`)."""
 
     def register(cls):
+        held = _STEP_TYPES.get(op)
+        if held is not None and (held.__module__, held.__qualname__) != (cls.__module__, cls.__qualname__):
+            raise ValueError(f"setup step {op!r} is already {held.__module__}.{held.__qualname__}")
         _STEP_TYPES[op] = cls
         return cls
 

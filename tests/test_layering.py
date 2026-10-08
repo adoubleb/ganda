@@ -75,3 +75,16 @@ def test_the_fake_engine_fills_the_same_contract():
     fake = importlib.import_module("tests.fake_engine").FakeProvider()
     assert isinstance(fake, Provider) and isinstance(fake.semantics, Semantics) and isinstance(fake.limits, StorageLimits)
 
+
+
+def test_every_providers_setup_steps_load_side_by_side():
+    # the step registry is shared: two providers' plans must both round-trip in one process
+    from ganda.core.setup_plan import plan_from_dict, plan_to_dict
+
+    for name in PROVIDERS:
+        engine = provider(name)
+        if engine.has_generators:
+            assert engine.mappers
+    from ganda.orientdb.mapping.common import Sql as OrientSql
+
+    assert type(plan_from_dict(plan_to_dict([OrientSql("SELECT 1")]))[0]) is OrientSql

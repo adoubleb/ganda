@@ -11,6 +11,7 @@ PROVIDERS = {
     "orientdb": "ganda.orientdb.provider:PROVIDER",
     "surrealdb": "ganda.surrealdb.provider:PROVIDER",
     "arangodb": "ganda.arangodb.provider:PROVIDER",
+    "hana": "ganda.hana.provider:PROVIDER",
 }
 
 

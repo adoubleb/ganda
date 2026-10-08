@@ -5,8 +5,8 @@ Guidance for Claude Code when working in this repository.
 ## What this is
 
 Ganda: a multi-model metamorphic fuzzer with an engine-agnostic core (`ganda/core`) and
-one provider per DBMS (`ganda/orientdb` full; `ganda/surrealdb`, `ganda/arangodb`
-skeletons). `README.md` has the architecture, the provider contract and the glossary
+one provider per DBMS (`ganda/orientdb` full; `ganda/hana` full but verified offline
+only; `ganda/surrealdb`, `ganda/arangodb` skeletons). `README.md` has the architecture, the provider contract and the glossary
 that maps the legacy ports' terms to the ones used here. The legacy fuzzers
 (`../OrientDB`, `../surrealDB`, `../arangoDB`) are reference material: do not edit them.
 
@@ -84,6 +84,25 @@ Adding a concrete syntax: a choice in the catalog of its module (`SYNTAXES` and
 the probe if a new fact is relied on, a campaign, and the mutation benchmark A/B over
 the same seeds. A new syntax changes the cases, so parity with the legacy tree ends
 there on purpose: record that in the commit.
+
+## SAP HANA
+
+`ganda/hana/HANDOFF.md` is the guide (setup, the order of live work, where each probe
+fact lives in the code); `ganda/hana/RULES.md` lists the engine facts with their status
+(documented, assumed, probed). Data models `doc` (JSON Document Store), `rel` (column
+tables), `rdf` (Knowledge Graph Engine, SPARQL). The provider attaches to a HANA Cloud
+instance (`HANA_HOST`, `HANA_PORT`, `HANA_USER`, `HANA_PASSWORD`); there is no container.
+
+```bash
+pytest tests/hana tests/test_layering.py -q        # no server (test_offline needs rdflib)
+python3 -m tests.hana.run_offline --seeds 1 10     # whole campaigns on SQLite + rdflib through the real session code
+python3 -m ganda hana doctor
+python3 -m ganda hana probe
+```
+
+After any change to a HANA renderer, mapping or semantics: the offline runner first (it
+catches logic mistakes without HANA), then the probe and a small live campaign. A
+probe fact that fails changes the provider, never the probe.
 
 ## Triage of a finding
 
