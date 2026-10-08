@@ -39,7 +39,7 @@ from __future__ import annotations
 import dataclasses
 import random
 
-from ganda.core.model import COLLECTION_TYPES, INT_TYPES, NUMERIC_TYPES, ORDERED_TYPES, FieldType, Instance, Schema
+from ganda.core.model import INT_TYPES, NUMERIC_TYPES, ORDERED_TYPES, SCALAR_TYPES, FieldType, Instance, Schema
 from ganda.core.ast import predicates
 from ganda.core.case import QueryCase
 from ganda.core.ast.select import AGG_FNS, DIRECTIONS, EDGE_KINDS, GROUP_FNS, JOIN_FORMS, JOIN_OPS, KINDS, SelectQuery, coverage_signature, hits, present_values, reference_ok, shape_signature, target_fields
@@ -144,7 +144,9 @@ def _realize(rng: random.Random, schema: Schema, instance: Instance, table: str,
     sum_is_exact = schema.engine.semantics.sum_is_exact
     fields = list(target_fields(schema, table, edge))
     rows = hits(SelectQuery(table, where, "ids", edge=edge), instance)
-    scalar = [f for f in fields if f.type not in COLLECTION_TYPES]
+    # the keys, join and aggregate columns; a `field` projection takes any column
+    scalar = [f for f in fields if f.type in SCALAR_TYPES]
+
     n = len(rows)
     # every non-default field of the question, so a replace keeps the target
     q0 = SelectQuery(table, where, kind, edge=edge)

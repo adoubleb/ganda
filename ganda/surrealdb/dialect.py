@@ -17,7 +17,9 @@ SURREAL_TYPES = {
     FieldType.DECIMAL: "decimal",
     FieldType.DATETIME: "datetime",
     FieldType.MAP: "object",
+    FieldType.BINARY: "bytes",  # the model's base64 text decoded on write, encoded on read
 }
+
 # IndexSpec.kind values this engine defines
 INDEX_KINDS = ("standard", "unique", "search", "hnsw")
 # how a relationship is stored per data model

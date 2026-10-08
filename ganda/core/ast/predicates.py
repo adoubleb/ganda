@@ -33,7 +33,7 @@ import struct
 from dataclasses import dataclass
 from typing import Any
 
-from ganda.core.model import MAP_KEYS, NUMERIC_TYPES, FieldSpec, FieldType
+from ganda.core.model import MAP_KEYS, NUMERIC_TYPES, SCALAR_TYPES, FieldSpec, FieldType
 
 I64_MAX = 2**63 - 1
 I64_MIN = -(2**63)
@@ -308,6 +308,9 @@ def draw(rng: random.Random, on: str, f: FieldSpec, values: list, bind: str, eng
         return leaf(rng.choice(pivots_of.NULL_OPS), None)
     if not present:
         return None
+    if f.type is FieldType.BINARY:
+        # a blob answers the null tests only (above): no comparison names it
+        return None
     if f.type is FieldType.LIST:
         # CONTAINS carries most of the weight; a whole-list equality and CONTAINSANY /
         # CONTAINSALL over one or two elements take the rest
@@ -400,10 +403,11 @@ def draw_insub(rng: random.Random, schema, instance, table: str, bind: str) -> "
     """A semi-join leaf on `table`: `f IN (SELECT g FROM t2 [WHERE q])`, `g` a column
     of `f`'s type on any node class (the same one included), `q` drawn with even odds
     over `t2`'s fields under `<bind>s`. None when no column has a partner."""
-    fields = [f for f in schema.query_fields(table) if f.type not in (FieldType.LIST, FieldType.MAP)]
+    fields = [f for f in schema.query_fields(table) if f.type in SCALAR_TYPES]
     if not fields:
         return None
     f = rng.choice(fields)
+
     partners = [(t2.name, g) for t2 in schema.query_tables() for g in schema.query_fields(t2.name) if g.type is f.type]
     if not partners:
         return None

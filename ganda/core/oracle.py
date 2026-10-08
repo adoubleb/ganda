@@ -21,8 +21,13 @@ data model, so `5` against `5.0` for the same expression is a divergence.
 
 An error on some data models but not all is a finding (`error_asymmetry`); an error on every
 data model is consistent rejection. An *internal* error (a raw exception from inside the engine) is a
-finding of its own class whether or not the data models agree on it. The Python reference
-leg is compared against each data model under the same normalization.
+finding of its own class whether or not the data models agree on it. A variant that TIMES
+OUT (`EngineError.timeout`) is recorded in `CaseResult.timeouts` (the campaign counts
+them) and, by default, read as the rejection it is on a small instance -- a plan that
+never finishes is a finding (O37). With `timeouts_are_errors=False` (the large scale,
+where a data model may simply be slower than the question allows) it gave no answer at
+all: it is left out of every pair. The Python reference leg, when the campaign runs it
+(`instance` given), is compared against each data model under the same normalization.
 """
 from __future__ import annotations
 
@@ -187,6 +192,7 @@ class CaseResult:
     duplicate_id_rows: list = field(default_factory=list)
     plans: dict = field(default_factory=dict)
     suppressed: dict = field(default_factory=dict)  # data model -> known bug id
+    timeouts: dict = field(default_factory=dict)  # variant -> the timeout's message (no answer: not compared)
 
     @property
     def variants(self) -> list:
@@ -240,14 +246,16 @@ class CaseResult:
         return any(not is_empty_value(v) for v in self.compared_values())
 
 
-def run_case(case: QueryCase, sessions: dict, instance: "Instance | None" = None, explain: bool = False, keep_known_bugs: bool = False, after_variant=None) -> CaseResult:
+def run_case(case: QueryCase, sessions: dict, instance: "Instance | None" = None, explain: bool = False, keep_known_bugs: bool = False, after_variant=None, timeouts_are_errors: bool = True) -> CaseResult:
     """`after_variant(case, data_model)` runs once a data model (and its plan) has been asked --
-    a coverage collector closes a window there."""
+    a coverage collector closes a window there. `timeouts_are_errors` False leaves a
+    timed-out variant out of the comparison (see the module)."""
     rows: dict = {}
     errors: dict = {}
     internal: dict = {}
     plans: dict = {}
     suppressed: dict = {}
+    timeouts: dict = {}
     for variant in case.variants:
         if data_model_of(variant) not in sessions:
             continue
@@ -261,10 +269,14 @@ def run_case(case: QueryCase, sessions: dict, instance: "Instance | None" = None
             errors[variant] = ""
             internal[variant] = False
         except EngineError as e:
-            rows[variant] = []
-            errors[variant] = str(e)
-            internal[variant] = e.internal
-        if explain:
+            if e.timeout:
+                timeouts[variant] = str(e)
+            if not e.timeout or timeouts_are_errors:
+                rows[variant] = []
+                errors[variant] = str(e)
+                internal[variant] = e.internal
+        if explain and variant in rows:
+
             try:
                 plan = session.explain(text, case.bind_vars)
             except (EngineError, EngineCrash):
@@ -277,9 +289,11 @@ def run_case(case: QueryCase, sessions: dict, instance: "Instance | None" = None
     result.internal = internal
     result.plans = plans
     result.suppressed = suppressed
+    result.timeouts = timeouts
     if result.internal_error:
         result.ok = False
     return result
+
 
 
 def run_cases(cases: list, sessions: dict, instance: "Instance | None" = None, after_case=None, **kw) -> list:

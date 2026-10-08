@@ -9,9 +9,11 @@ reference leg needs a second look before the next campaign.
 """
 from __future__ import annotations
 
+import base64
 import sys
 
 from ganda.orientdb.connection import OrientError, OrientServer  # noqa: E402
+from ganda.orientdb.limits import HTTP_MAX_LENGTH  # noqa: E402
 
 DB = "fz_probe_osql"
 failures: list = []
@@ -58,7 +60,9 @@ def err_script(session, text, params=None) -> str:
 
 
 def main() -> int:
-    with OrientServer() as server:
+    # the body bound the campaign's servers run with; an attached server (ORIENT_URL)
+    # keeps its own, and the large-data checks below say so when they fail
+    with OrientServer(http_max_length=HTTP_MAX_LENGTH) as server:
         s = server.fresh_session(DB)
         for q in [
             "CREATE CLASS n1", "CREATE PROPERTY n1.id STRING", "CREATE PROPERTY n1.f1 LONG", "CREATE PROPERTY n1.f2 DOUBLE", "CREATE PROPERTY n1.f3 STRING",
@@ -805,7 +809,57 @@ def main() -> int:
               (walk("UPDATE q31 SET f = 500 WHERE id = 'r1'", "f DESC"), walk("INSERT INTO q31 SET id = 'n', f = 500", "f DESC LIMIT 2"),
                walk("UPDATE q31 SET f = 500 WHERE id = 'r1'", "f ASC"), walk("UPDATE q31 SET f = 500 WHERE id = 'r1'", "f DESC, id ASC"), walk("UPDATE q31 SET f = null WHERE id = 'r1'", "f DESC")),
               ([None, 500, 2**63 - 1, 894, 428, -374], [None, 500], [-374, 428, 500, 894, 2**63 - 1, None], [None, 2**63 - 1, 894, 500, 428, -374], [None, None, 2**63 - 1, 894, 428, -374]))
+
+        print("--- large data (ganda/orientdb/limits.py): BINARY, the index key bound, the bulk doors, the request body bound, timeouts")
+        for q in ["CREATE CLASS lg", "CREATE PROPERTY lg.id STRING", "CREATE PROPERTY lg.b BINARY", "CREATE PROPERTY lg.s STRING", "CREATE PROPERTY lg.l EMBEDDEDLIST LONG",
+                  "CREATE INDEX lg_id ON lg (id) UNIQUE", "CREATE INDEX lg_s ON lg (s) NOTUNIQUE METADATA {ignoreNullValues: true}"]:
+            s.sql(q)
+        b64 = base64.b64encode(bytes(range(256))).decode()
+        s.sql("INSERT INTO lg SET id = 'r0', b = :b", {"b": b64})
+        s.sql("INSERT INTO lg SET id = 'r1', b = :b", {"b": ""})
+        s.sql("INSERT INTO lg CONTENT :d", {"d": {"id": "r2", "b": "AA=="}})
+        s.sql("UPDATE lg MERGE {\"b\": \"eno=\"} WHERE id = 'r2'")
+        check("a BINARY takes base64 text (a parameter, a CONTENT document, a MERGE literal) and answers the same text; an EMPTY byte string is stored as null",
+              (col(s, "SELECT b AS v FROM lg WHERE id = 'r0'"), col(s, "SELECT b AS v FROM lg WHERE id = 'r1'"), col(s, "SELECT b AS v FROM lg WHERE id = 'r2'")), ([b64], [None], ["eno="]))
+        check("O46: = on a BINARY matches nothing on a scan (the decoded byte[] is compared by identity) ...", col(s, "SELECT id AS v FROM lg WHERE b = :b", {"b": b64}), [])
+        s.sql("CREATE INDEX lg_b ON lg (b) NOTUNIQUE METADATA {ignoreNullValues: true}")
+        check("O46: ... but matches through an index, whose key is compared by content (issues/O46-binary-equality-scan-vs-index.md; a BINARY column takes no comparison and no index in the model)", col(s, "SELECT id AS v FROM lg WHERE b = :b", {"b": b64}), ["r0"])
+
+        check("an SB-tree index key is at most 10240 bytes, the UTF-8 value plus 16 (OTooBigIndexKeyException; a hash index has no bound)",
+              (err(s, "INSERT INTO lg SET id = 'k1', s = :s", {"s": "a" * 10000}), err(s, "INSERT INTO lg SET id = 'k2', s = :s", {"s": "a" * 10240}), err(s, "INSERT INTO lg SET id = 'k3', s = :s", {"s": chr(0x4E2D) * 3420})),
+              ("ok", "rejected", "rejected"))
+        # the big values go into unindexed columns (an indexed one is bounded above)
+        s.sql("DROP INDEX lg_b")
+        s.sql("DROP INDEX lg_s")
+        big = "x" * (4 * 1024 * 1024)
+        s.sql("INSERT INTO lg SET id = 'big', b = :b", {"b": base64.b64encode(b"\xff" * (3 * 1024 * 1024)).decode()})
+
+        s.sql("UPDATE lg SET l = :l WHERE id = 'big'", {"l": list(range(200000))})
+        s.sql("INSERT INTO lg SET id = 'bigs', s = :s", {"s": big})
+        check("a 4 MB string, a 3 MB binary and a 200,000-element list round-trip (the server runs with network.http.maxLength raised past the image's 1 MB; an attached server must be too)",
+              (col(s, "SELECT s.length() AS v FROM lg WHERE id = 'bigs'"), col(s, "SELECT b.size() AS v FROM lg WHERE id = 'big'"), col(s, "SELECT l.size() AS v FROM lg WHERE id = 'big'")), ([4 * 1024 * 1024], [3 * 1024 * 1024], [200000]))
+        parts, params = [], {}
+        for i in range(500):
+            params[f"s{i}_id"] = f"c{i}"
+            parts.append(f"LET $c{i} = INSERT INTO lg SET id = :s{i}_id;")
+        s.script(" ".join(parts) + " RETURN 1;", params)
+        check("a NON-transactional script of 500 `LET $c = INSERT` statements auto-commits each (the plain door's bulk form)", col(s, "SELECT count(*) AS v FROM lg WHERE id LIKE 'c%'"), [500])
+        check("500 ids resolve in one `id IN :ids` lookup", len(s.sql_raw("SELECT id, @rid FROM lg WHERE id IN :ids", {"ids": [f"c{i}" for i in range(500)]})), 500)
+        rids = [r["@rid"] for r in s.sql_raw("SELECT @rid FROM lg WHERE id LIKE 'c%'")]
+        check("500 record ids resolve in one `@rid IN :r` lookup (the doc data model's link targets)", len(s.sql_raw("SELECT id, @rid FROM lg WHERE @rid IN :r", {"r": rids})), 500)
+        check("count(*) and sum(list.size()) read a class's sizes without its rows (the sampled state check)",
+              (col(s, "SELECT count(*) AS v FROM lg")[0] >= 505, col(s, "SELECT sum(l.size()) AS v FROM lg")), (True, [200000]))
+
+        def timed_out() -> str:
+            try:
+                s.sql("SELECT FROM lg WHERE s LIKE '%zz%' TIMEOUT 1 EXCEPTION", timeout_ms=0)
+                return "answered"
+            except OrientError as e:
+                return "timeout" if e.timeout else "rejected"
+
+        check("a `TIMEOUT ... EXCEPTION` that fires is OTimeoutException, classified as a timeout (no answer), never as a rejection", timed_out() in ("answered", "timeout"), True)
         server.drop_database(DB)
+
     print(f"\n{len(failures)} fact(s) changed" if failures else "\nall facts hold")
     return 1 if failures else 0
 

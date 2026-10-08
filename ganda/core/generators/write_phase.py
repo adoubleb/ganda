@@ -88,9 +88,12 @@ def build_write_case(q, rewrites, syntaxes: dict, step: int, before: Instance, a
     return case, statements
 
 
-def run_write_phase(sessions: dict, instance: Instance, rng: random.Random, steps: int, verify: bool = True, keep_known_bugs: bool = False, stop_after: "int | None" = None, reference: bool = True) -> WritePhase:
-    """`verify` reads the touched classes back after every write; `semantics` False
-    compares the data models only (the mutation benchmark's `--no-semantics`)."""
+def run_write_phase(sessions: dict, instance: Instance, rng: random.Random, steps: int, verify: bool = True, keep_known_bugs: bool = False, stop_after: "int | None" = None, reference: bool = True, state_sample: int = 0, state_rng: "random.Random | None" = None, timeouts_are_errors: bool = True) -> WritePhase:
+    """`verify` reads the touched classes back after every write (by counts and a
+    sample with `state_sample`, `state_check.verify_state`; `state_rng` is the
+    sample's stream, or a function returning a fresh one per check so every data
+    model is sampled alike); `reference` False compares the data models only (the
+    mutation benchmark's `--no-reference`, the large scale)."""
     phase = WritePhase(instance=instance)
     inst = instance
     schema = instance.schema
@@ -134,12 +137,15 @@ def run_write_phase(sessions: dict, instance: Instance, rng: random.Random, step
         phase.instance = inst
         if verify:
             tables, edge_types = touched(q, inst)
-            diffs = {data_model: verify_state(sessions[data_model], data_model, inst, tables=tables, edge_types=edge_types) for data_model in data_models}
+            diffs = {data_model: verify_state(sessions[data_model], data_model, inst, tables=tables, edge_types=edge_types, sample=state_sample, rng=state_rng() if callable(state_rng) else state_rng) for data_model in data_models}
+
+
             if any(not d.ok for d in diffs.values()):
                 phase.diffs = diffs
                 phase.failed_step = step
                 phase.stopped = f"step {step}: state off the reference on {sorted(s for s, d in diffs.items() if not d.ok)}"
                 return phase
         for c in _readbacks(q, rng, inst, step):
-            phase.results.append(run_case(c, sessions, inst if reference else None, keep_known_bugs=keep_known_bugs))
+            phase.results.append(run_case(c, sessions, inst if reference else None, keep_known_bugs=keep_known_bugs, timeouts_are_errors=timeouts_are_errors))
+
     return phase

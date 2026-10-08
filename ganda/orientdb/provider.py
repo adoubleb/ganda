@@ -4,6 +4,7 @@ from __future__ import annotations
 from ganda.core.provider import Provider
 from ganda.orientdb import pivots
 from ganda.orientdb.config import OrientConfig
+from ganda.orientdb.limits import LIMITS
 from ganda.orientdb.semantics import SEMANTICS
 
 
@@ -12,6 +13,7 @@ class OrientDBProvider(Provider):
     title = "OrientDB"
     data_models = ("doc", "graph", "rel")
     config_class = OrientConfig
+    limits = LIMITS
     semantics = SEMANTICS
     pivots = pivots
 
@@ -74,9 +76,20 @@ class OrientDBProvider(Provider):
     # --- the server -----------------------------------------------------------------------
 
     def server(self, args=None):
-        from ganda.orientdb.connection import OrientServer
+        """A server for the campaign's scale: every server takes request bodies up to
+        the declared bound; the large scale gets a bigger heap and the profile's
+        query timeout."""
+        from ganda.core import scale as _scale
+        from ganda.orientdb.connection import LARGE_SCALE_MEMORY, OrientServer
 
-        return OrientServer(coverage=getattr(args, "coverage", "off") != "off")
+        profile = _scale.profile(getattr(args, "scale", None) or "default")
+        return OrientServer(
+            coverage=getattr(args, "coverage", "off") != "off",
+            query_timeout_ms=getattr(args, "query_timeout_ms", None) or profile.query_timeout_ms,
+            http_max_length=LIMITS.max_request_bytes,
+            memory=LARGE_SCALE_MEMORY if profile.name == "large" else None,
+        )
+
 
     def database_name(self, namespace: str, data_model: str) -> str:
         from ganda.orientdb.connection import db_name

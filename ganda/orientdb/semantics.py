@@ -206,6 +206,70 @@ def _convert(v: Any, pivot: Any, ftype: "str | None", ci: bool, op: str):
     return v, pivot
 
 
+# `IN` over a long list (a semi-join's answered values: thousands of them over a large
+# class) is answered through an index over the list, built once per list. It is exact:
+# inside one declared type `eq` IS set membership -- an int or a string or a bool by
+# itself, a double by `orient_key` (which keeps `-0.0` apart from `0.0`), a decimal by
+# the converted `Decimal` the scan compares -- and a list that mixes kinds (a cross-type
+# pivot) keeps the element-by-element path.
+_IN_INDEX: dict = {}
+_IN_INDEX_MAX = 64
+_IN_INDEX_MIN = 8
+
+
+def _in_index(pivot: list, ftype: "str | None", ci: bool):
+    cache_key = (id(pivot), ftype, ci)
+    hit = _IN_INDEX.get(cache_key)
+    if hit is not None and hit[0] is pivot:
+        return hit[1]
+    present = [p for p in pivot if p is not None]
+    index = None
+    try:
+        if ftype == "decimal":
+            if all(_is_number(p) for p in present):
+                index = ("decimal", {decimal_binary(p) for p in present})
+        else:
+            # the pivot's conversion for a non-decimal column reads nothing of the
+            # stored value (`IN` is not collated: O21)
+            converted = [_convert(None, p, ftype, ci, "IN")[1] for p in present]
+            if all(isinstance(c, bool) for c in converted):
+                index = ("bool", set(converted))
+            elif all(isinstance(c, int) and not isinstance(c, bool) for c in converted):
+                index = ("int", set(converted))
+            elif all(isinstance(c, float) for c in converted):
+                index = ("float", {orient_key(c) for c in converted})
+            elif all(isinstance(c, str) for c in converted):
+                index = ("str", set(converted))
+    except (ValueError, OverflowError, TypeError, ArithmeticError):
+        # an element the column's conversion rejects: the element-by-element path
+        # meets it exactly as it did
+        index = None
+
+    if len(_IN_INDEX) >= _IN_INDEX_MAX:
+        _IN_INDEX.clear()
+    _IN_INDEX[cache_key] = (pivot, index)
+    return index
+
+
+def _in_hit(v: Any, pivot: list, ftype: "str | None", ci: bool) -> bool:
+    """`v IN pivot` on a scan: a null element matches nothing."""
+    if len(pivot) >= _IN_INDEX_MIN:
+        index = _in_index(pivot, ftype, ci)
+        if index is not None:
+            kind, members = index
+            if kind == "int" and isinstance(v, int) and not isinstance(v, bool):
+                return v in members
+            if kind == "float" and isinstance(v, float):
+                return orient_key(v) in members
+            if kind == "str" and isinstance(v, str):
+                return v in members
+            if kind == "bool" and isinstance(v, bool):
+                return v in members
+            if kind == "decimal" and _is_number(v):
+                return decimal_of(v) in members
+    return any(p is not None and eq(*_convert(v, p, ftype, ci, "IN")) for p in pivot)
+
+
 def predicate_hit(present: bool, v: Any, op: str, pivot: Any, ftype: "str | None" = None, ci: bool = False, key: "str | None" = None) -> bool:
     """What a class SCAN answers (probed 3.2.56) for a column of `ftype`
     (`FieldType.value`; None for an untyped embedded value) with collation `ci`.
@@ -257,9 +321,10 @@ def predicate_hit(present: bool, v: Any, op: str, pivot: Any, ftype: "str | None
         a, b = _convert(v, pivot, ftype, ci, op)
         return eq(a, b)
     if op == "IN":
-        return any(p is not None and eq(*_convert(v, p, ftype, ci, op)) for p in pivot)
+        return _in_hit(v, pivot, ftype, ci)
     if op == "NOT IN":
-        return not any(p is not None and eq(*_convert(v, p, ftype, ci, op)) for p in pivot)
+        return not _in_hit(v, pivot, ftype, ci)
+
     if op == "BETWEEN":
         lo, hi = pivot
         if lo is None or hi is None:

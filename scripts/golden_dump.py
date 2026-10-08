@@ -45,8 +45,10 @@ RENAMED_KEYS: dict = {"spellings": "concrete_syntax", "hoisted": "pulled_up", "k
 RENAMED_VARIANT_TAGS: dict = {"hoist": "pull_up"}
 
 
-# fields ganda added that the legacy tree has no counterpart for
-GANDA_ONLY_FIELDS = {"engine", "variant_options", "data_models"}
+# fields ganda added that the legacy tree has no counterpart for (`WriteForm.chunk_size`
+# is the `statements_per_request` axis, 0 at the default scale)
+GANDA_ONLY_FIELDS = {"engine", "variant_options", "data_models", "chunk_size"}
+
 
 
 def _rename_string(s: str) -> str:

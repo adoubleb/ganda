@@ -11,12 +11,16 @@ from typing import Any
 
 class EngineError(RuntimeError):
     """The engine rejected a statement. `internal` marks an answer that is a defect in
-    itself (a raw exception from inside the engine), whatever the other variants did."""
+    itself (a raw exception from inside the engine), whatever the other variants did.
+    `timeout` marks a statement the engine gave up on (or the transport did): no
+    answer at all, which the oracle leaves out of the comparison rather than reading
+    as a rejection."""
 
-    def __init__(self, message: str, internal: bool = False, status: int = 0):
+    def __init__(self, message: str, internal: bool = False, status: int = 0, timeout: bool = False):
         super().__init__(message)
         self.internal = internal
         self.status = status
+        self.timeout = timeout
 
 
 class EngineCrash(RuntimeError):
@@ -111,14 +115,26 @@ class Session:
         """A fingerprint of the plan the engine would run, or None when it has none."""
         return None
 
-    def read_nodes(self, table: str) -> dict:
-        """{logical id: stored field values} of a node class (`state_check`)."""
+    def read_nodes(self, table: str, ids: "list | None" = None) -> dict:
+        """{logical id: stored field values} of a node class (`state_check`); with
+        `ids`, those records only (a provider that cannot select by id may answer
+        them all: the caller filters)."""
         raise NotImplementedError
 
-    def read_edges(self, data_model: str, instance, edge_type) -> list:
+    def count_nodes(self, table: str) -> int:
+        """How many records the class holds (a sampled state check reads the count
+        and a sample instead of every record)."""
+        return len(self.read_nodes(table))
+
+    def read_edges(self, data_model: str, instance, edge_type, sources: "list | None" = None) -> list:
         """[(edge id, from id, to id, {attribute: value})] as the data model stores a
-        relationship type (`state_check`)."""
+        relationship type (`state_check`); with `sources`, the relationships leaving
+        those records only (a provider may answer them all: the caller filters)."""
         raise NotImplementedError
+
+    def count_edges(self, data_model: str, instance, edge_type) -> int:
+        """How many relationships of the type the data model holds."""
+        return len(self.read_edges(data_model, instance, edge_type))
 
 
 class Server:
@@ -160,6 +176,8 @@ class Provider:
     data_models     the storage models an instance is materialized in, in comparison order
     config_class    the campaign configuration (`GeneratorConfig` or a subclass adding
                     the engine's own axes); every field is a command-line flag
+    limits          `ganda.core.limits.StorageLimits`: what the engine can hold, which
+                    the large-data axes stay inside (`ganda <engine> limits` prints it)
     semantics       `Semantics`: what the reference interpreter must reproduce
     pivots          predicate sampling: NULL_OPS, ORDERED_OPS, LIKE_WILDCARDS,
                     cross_type(rng, ftype, v), refine(rng, ftype, v)
@@ -195,7 +213,9 @@ class Provider:
     title = ""
     data_models = ("doc", "graph", "rel")
     config_class = None
+    limits = None  # a `StorageLimits`
     semantics: Semantics = None
+
     pivots = None
     physical_design = None
     mappers: dict = {}

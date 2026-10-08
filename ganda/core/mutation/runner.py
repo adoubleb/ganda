@@ -18,8 +18,9 @@ import sys
 import time
 from collections import defaultdict
 
+from ganda.core import scale as _scale
 from ganda.core.config import add_config_arguments, config_from_args
-from ganda.core.data_generator import build
+from ganda.core.data_generator import build, limits_of
 from ganda.core.generators.write_phase import run_write_phase
 from ganda.core.provider import EngineCrash, EngineError
 from ganda.core.oracle import run_case
@@ -56,7 +57,8 @@ def _write_results(sessions, instance, rng, cfg, args) -> list:
 
 
 def run_benchmark(engine, args) -> dict:
-    cfg = config_from_args(engine.config_class, args)
+    cfg = _scale.resolve(config_from_args(engine.config_class, args), limits_of(engine))
+
     by_name = {m.name: m for m in engine.mutants}
     mutants = [by_name[n] for n in args.mutants] if args.mutants else list(engine.mutants)
     seeds = list(range(args.seed, args.seed + args.trials))

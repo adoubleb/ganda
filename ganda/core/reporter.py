@@ -6,6 +6,11 @@
         instance.json      the abstract instance
         <data model>_setup.json  the setup plan per data model (engine-id placeholders as {"$ref": id})
         repro.py           regenerates the case from (seed, config) and replays it
+
+At scale (`embed_data=False`, the `large` profile) a bundle carries the SHAPE of the
+instance and the plans -- the schema, the counts, the first steps -- rather than their
+megabytes of rows, and every recorded value is cut to `max_value_chars`; `repro.py`
+regenerates all of it from the seed.
 """
 from __future__ import annotations
 
@@ -37,6 +42,53 @@ def _slug(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "_", text).strip("_")[:60] or "case"
 
 
+def _truncate(v: Any, n: int) -> Any:
+    """`v` with every string cut to `n` characters (its length noted) and every list
+    cut to `n` elements; 0 leaves it whole."""
+    if not n:
+        return v
+    if isinstance(v, str):
+        return v if len(v) <= n else f"{v[:n]}... [{len(v)} chars]"
+    if isinstance(v, dict):
+        return {k: _truncate(x, n) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        out = [_truncate(x, n) for x in v[:n]]
+        if len(v) > n:
+            out.append(f"... [{len(v)} items]")
+        return out
+    return v
+
+
+def instance_summary(instance) -> dict:
+    """What a slim bundle records of the instance: its schema, its sizes, its write
+    forms, and one row per class (values cut) as a sample of the shape."""
+    counts = {nt.name: len(instance.nodes_of(nt.name)) for nt in instance.schema.node_types}
+    edge_counts = {et.name: len(instance.edges_of(et.name)) for et in instance.schema.edge_types}
+    churn = {}
+    for op in instance.churn:
+        churn[type(op).__name__] = churn.get(type(op).__name__, 0) + 1
+    first = {}
+    for n in instance.nodes:
+        if n.type_name not in first:
+            first[n.type_name] = _truncate(_jsonable(n), 80)
+    return {
+        "summary": "the rows are not embedded (large scale): repro.py regenerates them from the seed",
+        "schema": _jsonable(instance.schema),
+        "nodes": counts,
+        "edges": edge_counts,
+        "churn": churn,
+        "write_forms": {s: _jsonable(form) for s, form in instance.write_forms.items()},
+        "first_rows": first,
+    }
+
+
+def plan_summary(plan: list, keep: int = 12) -> dict:
+    kinds: dict = {}
+    for s in plan:
+        kinds[type(s).__name__] = kinds.get(type(s).__name__, 0) + 1
+    return {"summary": f"{len(plan)} steps; the first {keep} follow, values cut", "steps": kinds, "first_steps": _truncate(plan_to_dict(plan[:keep]), 120)}
+
+
 def bundle_dir(out_dir: str, tag: str, seed: int, template: str, shape: str) -> str:
     return os.path.join(out_dir, f"{tag}-{seed}-{template}-{_slug(shape)}")
 
@@ -51,10 +103,11 @@ def instance_to_dict(instance) -> dict:
     }
 
 
-def report_bug(engine, out_dir: str, tag: str, seed: int, cfg, instance, plans: dict, result, times_seen: int = 1) -> str:
+def report_bug(engine, out_dir: str, tag: str, seed: int, cfg, instance, plans: dict, result, times_seen: int = 1, embed_data: bool = True, max_value_chars: int = 0) -> str:
     case = result.case
     d = bundle_dir(out_dir, tag, seed, case.generator_name, case.shape)
     os.makedirs(d, exist_ok=True)
+    cut = lambda v: _truncate(v, max_value_chars)  # noqa: E731
     queries = {
         "engine": engine.name,
         "generator": case.generator_name,
@@ -63,25 +116,22 @@ def report_bug(engine, out_dir: str, tag: str, seed: int, cfg, instance, plans: 
         "finding_class": result.finding_class,
         "failing_pairs": result.failing_pairs,
         "queries": case.queries,
-        "bind_vars": case.bind_vars,
-        "params": case.params,
+        "bind_vars": cut(case.bind_vars),
+        "params": cut(case.params),
         "known_bugs": case.known_bugs,
         "suppressed": result.suppressed,
-        "rows": result.rows,
+        "timeouts": result.timeouts,
+        "rows": cut(result.rows),
         "errors": result.errors,
         "internal": result.internal,
         "plans": result.plans,
-        "mismatches": [_jsonable(m) for m in result.mismatches],
-        "reference_mismatches": [_jsonable(m) for m in result.reference_mismatches],
+        "mismatches": [cut(_jsonable(m)) for m in result.mismatches],
+        "reference_mismatches": [cut(_jsonable(m)) for m in result.reference_mismatches],
         "duplicate_id_rows": [_jsonable(x) for x in result.duplicate_id_rows],
     }
     with open(os.path.join(d, "queries.json"), "w") as fh:
         json.dump(queries, fh, indent=2, ensure_ascii=False, default=repr)
-    with open(os.path.join(d, "instance.json"), "w") as fh:
-        json.dump(instance_to_dict(instance), fh, indent=2, ensure_ascii=False, default=repr)
-    for variant, plan in plans.items():
-        with open(os.path.join(d, f"{variant}_setup.json"), "w") as fh:
-            json.dump(plan_to_dict(plan), fh, indent=2, ensure_ascii=False, default=repr)
+    _write_data(d, instance, plans, embed_data)
     with open(os.path.join(d, "repro.py"), "w") as fh:
         fh.write(_repro_script(engine, seed, cfg, case))
     with open(os.path.join(d, "README.md"), "w") as fh:
@@ -89,16 +139,20 @@ def report_bug(engine, out_dir: str, tag: str, seed: int, cfg, instance, plans: 
     return d
 
 
-def report_setup_problem(engine, out_dir: str, tag: str, seed: int, cfg, instance, plans: dict, errors: dict, diffs: dict, kind: str, write_step: "int | None" = None) -> str:
+def _write_data(d: str, instance, plans: dict, embed_data: bool) -> None:
+    with open(os.path.join(d, "instance.json"), "w") as fh:
+        json.dump(instance_to_dict(instance) if embed_data else instance_summary(instance), fh, indent=2, ensure_ascii=False, default=repr)
+    for variant, plan in plans.items():
+        with open(os.path.join(d, f"{variant}_setup.json"), "w") as fh:
+            json.dump(plan_to_dict(plan) if embed_data else plan_summary(plan), fh, indent=2, ensure_ascii=False, default=repr)
+
+
+def report_setup_problem(engine, out_dir: str, tag: str, seed: int, cfg, instance, plans: dict, errors: dict, diffs: dict, kind: str, write_step: "int | None" = None, embed_data: bool = True) -> str:
     d = os.path.join(out_dir, f"{tag}-{seed}-{kind}")
     os.makedirs(d, exist_ok=True)
     with open(os.path.join(d, "setup.json"), "w") as fh:
         json.dump({"kind": kind, "errors": errors, "state_diffs": {s: x.problems for s, x in diffs.items()}}, fh, indent=2, ensure_ascii=False, default=repr)
-    with open(os.path.join(d, "instance.json"), "w") as fh:
-        json.dump(instance_to_dict(instance), fh, indent=2, ensure_ascii=False, default=repr)
-    for variant, plan in plans.items():
-        with open(os.path.join(d, f"{variant}_setup.json"), "w") as fh:
-            json.dump(plan_to_dict(plan), fh, indent=2, ensure_ascii=False, default=repr)
+    _write_data(d, instance, plans, embed_data)
     with open(os.path.join(d, "repro.py"), "w") as fh:
         fh.write(_repro_script(engine, seed, cfg, None, write_step))
     with open(os.path.join(d, "README.md"), "w") as fh:
@@ -131,11 +185,14 @@ def _readme(seed, cfg, result, times_seen) -> str:
         lines.append(f"failing pairs: {', '.join(result.failing_pairs)}")
     if result.suppressed:
         lines.append(f"withheld variants (known bugs): {result.suppressed}")
+    if result.timeouts:
+        lines.append(f"timed out (not compared): {sorted(result.timeouts)}")
     lines.append("")
     lines.append("## Queries")
     for variant in case.variants:
         lines.append(f"- **{variant}**: `{case.queries[variant]}`")
-    lines.append(f"- bind: `{json.dumps(case.bind_vars, ensure_ascii=False, default=repr)}`")
+    lines.append(f"- bind: `{json.dumps(_truncate(case.bind_vars, 200), ensure_ascii=False, default=repr)}`")
+
     lines.append("")
     if any(result.errors.values()):
         lines.append("## Errors")

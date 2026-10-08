@@ -97,6 +97,7 @@ def main(argv=None) -> int:
     ap.add_argument("--iterations", type=int, default=100, help="instances, one per seed")
     ap.add_argument("--workers", type=int, default=2, help="parallel workers; each gets its own three databases")
     ap.add_argument("--traversal-cases", type=int, default=None, help="sampled traversal questions per instance (default: the configuration's)")
+    ap.add_argument("--scale", default=None, help="the scale profile: `large` is the storage-engine stress mode (no reference leg, sampled state check)")
     ap.add_argument("--out-dir", default="bugs")
     ap.add_argument("--stats-dir", default="campaign_reports")
     ap.add_argument("--max-findings", type=int, default=0, help="stop after this many new keys (0: run every seed)")
@@ -147,6 +148,8 @@ def main(argv=None) -> int:
            "--run-tag", args.tag]
     if args.traversal_cases is not None:
         cmd += ["--traversal-cases", str(args.traversal_cases)]
+    if args.scale:
+        cmd += ["--scale", args.scale]
     if args.max_findings:
         cmd += ["--max-findings", str(args.max_findings)]
     if args.no_known_bugs:
@@ -176,8 +179,11 @@ def main(argv=None) -> int:
                       "--bundle-all", "--explain"]
             if args.traversal_cases is not None:
                 triage += ["--traversal-cases", str(args.traversal_cases)]
+            if args.scale:
+                triage += ["--scale", args.scale]
             for flag, value in AXES.items():
                 triage += [f"--{flag}", str(value)]
+
             triage += args.extra
             run(triage, log, args.dry_run)
     elif args.dry_run:

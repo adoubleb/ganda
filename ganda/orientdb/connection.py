@@ -15,7 +15,18 @@ Three error classes:
   OperationException`) -- the engine crashed *inside* the request; those are counted
   and bundled even when every data model agrees on them.
 - `OrientCrash`: the server could not be talked to at all (connection refused/reset,
-  timeout, garbage instead of JSON). The campaign restarts the server.
+  garbage instead of JSON). The campaign restarts the server.
+- a TIMEOUT (`OrientError(timeout=True)`): the engine gave up on the statement (the
+  `TIMEOUT ... EXCEPTION` clause every SELECT carries, `OTimeoutException`), or the
+  transport did (an HTTP read timeout while the server still answers a ping). No
+  answer, not a rejection: the oracle leaves the variant out.
+
+**Large data.** The server is started with `network.http.maxLength` raised to the
+declared request bound (`ganda.orientdb.limits.HTTP_MAX_LENGTH`; the image's default is
+1 MB) and, at the large scale, a bigger heap (`LARGE_SCALE_MEMORY`). The state check
+reads counts and samples through `count_nodes` / `read_nodes(ids=...)` /
+`read_edges(sources=...)`, and the doc data model's link targets are resolved in bulk
+(`@rid IN [...]`) rather than one query per link.
 
 OrientDB answers most rejections with HTTP 500 and a JSON `errors` body, so the status
 code alone does not separate a rejection from a crash: a reply that parses as JSON is
@@ -55,6 +66,11 @@ DEFAULT_IMAGE = "orientdb:latest"
 DEFAULT_PASSWORD = "fuzz"
 CONTAINER_LABEL = "orientdb-fuzzer=true"
 DEFAULT_TIMEOUT_MS = 30000
+# the JVM heap at the large scale (`ORIENTDB_OPTS_MEMORY`; the image's default is 2 GB)
+LARGE_SCALE_MEMORY = "-Xms1G -Xmx3G"
+# how many ids one `IN :ids` lookup carries
+_IN_CHUNK = 500
+_TIMEOUT_RE = re.compile(r"OTimeoutException|OCommandInterruptedException")
 
 # A rejection body that is a raw Java exception rather than one of OrientDB's own
 # command/validation exceptions: the request reached code that did not expect it.
@@ -105,10 +121,11 @@ class OrientSession(Session):
     the server's session cookie is bound to a database, and a cookie left over from a
     dropped database answers 401 for every later request (probed)."""
 
-    def __init__(self, base_url: str, password: str, db: str, user: str = "root", timeout: float = 120.0):
+    def __init__(self, base_url: str, password: str, db: str, user: str = "root", timeout: float = 120.0, query_timeout_ms: int = DEFAULT_TIMEOUT_MS):
         self.base_url = base_url.rstrip("/")
         self.db = db
         self.timeout = timeout
+        self.query_timeout_ms = query_timeout_ms
         self._session = requests.Session()
         self._session.auth = (user, password)
         self._session.headers.update({"Accept": "application/json"})
@@ -120,6 +137,10 @@ class OrientSession(Session):
         url = f"{self.base_url}{path}"
         try:
             resp = self._session.request(method, url, json=body, timeout=self.timeout)
+        except requests.exceptions.Timeout as e:
+            if self._alive():
+                raise OrientError(f"{method} {path} gave no answer within {self.timeout:.0f}s (the server still answers)", timeout=True) from e
+            raise OrientCrash(f"could not reach OrientDB at {self.base_url}: {e}") from e
         except requests.exceptions.RequestException as e:
             raise OrientCrash(f"could not reach OrientDB at {self.base_url}: {e}") from e
         if resp.status_code == 204:
@@ -134,15 +155,26 @@ class OrientSession(Session):
             content = resp.text[:2000]
             if isinstance(payload, dict) and payload.get("errors"):
                 content = "; ".join(str(e.get("content", e)) for e in payload["errors"])
-            raise OrientError(f"{method} {path} rejected ({resp.status_code}): {content[:1500]}", internal=classify_error(resp.status_code, content), status=resp.status_code)
+            raise OrientError(f"{method} {path} rejected ({resp.status_code}): {content[:1500]}", internal=classify_error(resp.status_code, content), status=resp.status_code, timeout=bool(_TIMEOUT_RE.search(content)))
         return payload
+
+    def _alive(self) -> bool:
+        """Whether the server answers at all (a read timeout with a live server is a
+        slow statement, not a crash)."""
+        try:
+            return requests.get(f"{self.base_url}/listDatabases", auth=self._session.auth, timeout=5).status_code == 200
+        except requests.exceptions.RequestException:
+            return False
 
     # --- commands -------------------------------------------------------------------
 
-    def sql(self, command: str, params: "dict | None" = None, timeout_ms: int = DEFAULT_TIMEOUT_MS) -> list:
+    def sql(self, command: str, params: "dict | None" = None, timeout_ms: "int | None" = None) -> list:
         """One SQL statement with named parameters; the whole result list, metadata
-        stripped. A read query gets a `TIMEOUT ... EXCEPTION` clause so a runaway plan
-        is a rejection rather than a hung worker."""
+        stripped. A read query gets a `TIMEOUT ... EXCEPTION` clause (the session's
+        `query_timeout_ms` unless given; 0 for none) so a runaway plan is a timeout
+        rather than a hung worker."""
+        if timeout_ms is None:
+            timeout_ms = self.query_timeout_ms
         text = command
         # MATCH and TRAVERSE take no TIMEOUT clause (parse error, probed); only a SELECT gets one
         if timeout_ms and text.lstrip().upper().startswith("SELECT") and " TIMEOUT " not in text.upper():
@@ -229,43 +261,78 @@ class OrientSession(Session):
         for rid_id in ids:
             by_class.setdefault(rid_id.split("/", 1)[0], []).append(rid_id)
         for cls, wanted in by_class.items():
-            rows = self.sql_raw(f"SELECT id, @rid FROM {cls} WHERE id IN :ids", {"ids": wanted})
-            for r in rows:
-                self.rids[r["id"]] = r["@rid"]
+            for rows in self._by_ids(f"SELECT id, @rid FROM {cls}", "id", wanted, raw=True):
+                for r in rows:
+                    self.rids[r["id"]] = r["@rid"]
             # an id the same script inserted AND deleted (a churned-away node) is
             # legitimately absent; a later `Ref` to it raises with a clear message
 
+    def _by_ids(self, select: str, column: str, ids: list, raw: bool = False):
+        """`select` restricted to `column IN :ids`, `_IN_CHUNK` ids at a time (one
+        lookup per chunk, however many ids there are)."""
+        for k in range(0, len(ids), _IN_CHUNK):
+            chunk = list(ids[k : k + _IN_CHUNK])
+            text = f"{select} WHERE {column} IN :ids"
+            yield self.sql_raw(text, {"ids": chunk}) if raw else self.sql(text, {"ids": chunk}, timeout_ms=0)
+
     # --- reading the stored state back (`ganda.core.state_check`) ----------------------
 
-    def read_nodes(self, table: str) -> dict:
-        rows = self.sql(f"SELECT FROM {table}", timeout_ms=0)
+    def read_nodes(self, table: str, ids: "list | None" = None) -> dict:
+        if ids is None:
+            rows = self.sql(f"SELECT FROM {table}", timeout_ms=0)
+        else:
+            rows = [r for chunk in self._by_ids(f"SELECT FROM {table}", "id", list(ids)) for r in chunk]
         return {r["id"]: r for r in rows if "id" in r}
 
+    def count_nodes(self, table: str) -> int:
+        return int(self.sql(f"SELECT count(*) AS v FROM {table}", timeout_ms=0)[0]["v"])
 
-    def read_edges(self, data_model: str, instance, et) -> list:
-        """[(eid, from id, to id, {attrs})] as the data model stores them."""
+    def _resolve_targets(self, to_type: str, targets: list) -> dict:
+        """{RID string: logical id} for the link targets, `_IN_CHUNK` at a time; a
+        dangling link (its record deleted) is absent."""
+        out: dict = {}
+        rids = sorted({t for t in targets if isinstance(t, str) and t.startswith("#")})
+        for k in range(0, len(rids), _IN_CHUNK):
+            chunk = rids[k : k + _IN_CHUNK]
+            for r in self.sql_raw(f"SELECT id, @rid FROM {to_type} WHERE @rid IN :r", {"r": chunk}):
+                out[r["@rid"]] = r.get("id")
+        return out
+
+    def read_edges(self, data_model: str, instance, et, sources: "list | None" = None) -> list:
+        """[(eid, from id, to id, {attrs})] as the data model stores them; with
+        `sources`, those leaving the given records only."""
         out = []
         if data_model == "graph":
-            rows = self.sql(f"SELECT eid, out.id AS s, in.id AS t, * FROM {et.name}", timeout_ms=0)
+            select = f"SELECT eid, out.id AS s, in.id AS t, * FROM {et.name}"
+            rows = self.sql(select, timeout_ms=0) if sources is None else [r for chunk in self._by_ids(select, "out.id", list(sources)) for r in chunk]
             for r in rows:
                 out.append((r.get("eid"), r.get("s"), r.get("t"), {f.name: r.get(f.name) for f in et.fields if f.name in r and r.get(f.name) is not None}))
         elif data_model == "rel":
-            rows = self.sql(f"SELECT FROM {et.name}", timeout_ms=0)
+            select = f"SELECT FROM {et.name}"
+            rows = self.sql(select, timeout_ms=0) if sources is None else [r for chunk in self._by_ids(select, "src_id", list(sources)) for r in chunk]
             for r in rows:
                 out.append((r.get("eid"), r.get("src_id"), r.get("dst_id"), {f.name: r.get(f.name) for f in et.fields if f.name in r and r.get(f.name) is not None}))
         else:
-            rows = self.sql(f"SELECT id, {et.name} AS links FROM {et.from_type}", timeout_ms=0)
+            select = f"SELECT id, {et.name} AS links FROM {et.from_type}"
+            rows = self.sql(select, timeout_ms=0) if sources is None else [r for chunk in self._by_ids(select, "id", list(sources)) for r in chunk]
+            resolved = self._resolve_targets(et.to_type, [link.get("target") for r in rows for link in (r.get("links") or []) if isinstance(link, dict)])
             for r in rows:
                 for link in r.get("links") or []:
                     target = link.get("target")
                     tid = None
                     if isinstance(target, str) and target.startswith("#"):
-                        got = self.sql("SELECT id FROM " + et.to_type + " WHERE @rid = :r", {"r": target}, timeout_ms=0)
-                        tid = got[0]["id"] if got else None
+                        tid = resolved.get(target)
                     elif isinstance(target, dict):
                         tid = target.get("id")
                     out.append((link.get("eid"), r["id"], tid, {f.name: link.get(f.name) for f in et.fields if f.name in link and link.get(f.name) is not None}))
         return out
+
+    def count_edges(self, data_model: str, instance, et) -> int:
+        if data_model == "doc":
+            # an absent list has size 0 (probed); a sum over no rows is 0 or nothing
+            rows = self.sql(f"SELECT sum({et.name}.size()) AS v FROM {et.from_type}", timeout_ms=0)
+            return int(rows[0].get("v") or 0) if rows else 0
+        return int(self.sql(f"SELECT count(*) AS v FROM {et.name}", timeout_ms=0)[0]["v"])
 
     def ping(self):
         """One trivial query (`ganda orientdb doctor`)."""
@@ -340,7 +407,12 @@ class OrientServer(Server):
 
     `coverage=True` mounts the JaCoCo agent into the container and starts the JVM with
     it (`JAVA_OPTS`, which `server.sh` passes through), its TCP port published next to
-    the REST one; an external server's agent is `ORIENT_JACOCO=host:port`."""
+    the REST one; an external server's agent is `ORIENT_JACOCO=host:port`.
+
+    `http_max_length` is the request body bound the server is started with
+    (`network.http.maxLength`, through `ORIENTDB_SETTINGS`); `memory` the JVM heap
+    (`ORIENTDB_OPTS_MEMORY`); `query_timeout_ms` every session's `TIMEOUT` clause, with
+    the HTTP read timeout a minute past it. An external server keeps its own settings."""
 
     image: str = DEFAULT_IMAGE
     password: str = DEFAULT_PASSWORD
@@ -348,6 +420,9 @@ class OrientServer(Server):
     memory_limit: "str | None" = None
     startup_timeout: float = 120.0
     coverage: bool = False  # run the server JVM under the JaCoCo agent (`ganda.orientdb.coverage`)
+    query_timeout_ms: int = DEFAULT_TIMEOUT_MS
+    http_max_length: "int | None" = None
+    memory: "str | None" = None
     container_id: "str | None" = field(default=None, init=False)
     container_name: "str | None" = field(default=None, init=False)
     base_url: str = field(default="", init=False)
@@ -380,6 +455,10 @@ class OrientServer(Server):
         ]
         if self.memory_limit:
             cmd += ["--memory", self.memory_limit]
+        if self.http_max_length:
+            cmd += ["-e", f"ORIENTDB_SETTINGS=-Dnetwork.http.maxLength={self.http_max_length}"]
+        if self.memory:
+            cmd += ["-e", f"ORIENTDB_OPTS_MEMORY={self.memory}"]
         if self.coverage:
             from ganda.orientdb import coverage
 
@@ -474,7 +553,8 @@ class OrientServer(Server):
         return sorted(r.json().get("databases", []))
 
     def session(self, db: str) -> OrientSession:
-        return OrientSession(self.base_url, self.password, db=db)
+        return OrientSession(self.base_url, self.password, db=db, timeout=max(120.0, self.query_timeout_ms / 1000.0 + 60.0), query_timeout_ms=self.query_timeout_ms)
+
 
     def fresh_session(self, db: str) -> OrientSession:
         """Drop-and-create `db`, then return a session on it."""

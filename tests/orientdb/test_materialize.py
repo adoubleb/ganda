@@ -91,3 +91,61 @@ def test_content_update_carries_no_parameter_and_resets_links():
     assert contents
     for s in contents:
         assert ":doc" not in s.command and "Ref(" not in s.command
+
+
+def _statements(script: Script) -> int:
+    """How many statements a folded script carries (every data step has parameters,
+    renamed `s<i>_...` per statement)."""
+    return len({k.split("_", 1)[0] for k in script.params})
+
+
+def test_chunked_doors_fold_every_run_into_bounded_requests():
+    from ganda.orientdb.mapping import common
+
+    steps = [Sql("INSERT INTO n1 SET id = :id, f = :f", {"id": f"n1/r{i}", "f": i}, capture=f"n1/r{i}") for i in range(12)]
+    steps += [Sql("UPDATE n1 SET e1 = :links WHERE id = :id", {"links": [{"target": Ref(f"n1/r{i}")}], "id": f"n1/r{i}"}) for i in range(3)]
+    plain = wrap_data(steps, WriteForm(transaction="none", chunk_size=5))
+    assert all(isinstance(s, Script) and not s.text.startswith("BEGIN;") and s.text.endswith("RETURN 1;") for s in plain)
+    assert [_statements(s) for s in plain] == [5, 5, 2, 3]  # the inserts, then the run the Refs open
+    assert [sorted(s.captures.values()) for s in plain][:1] == [[f"n1/r{i}" for i in range(5)]]
+    tx = wrap_data(steps, WriteForm(transaction="script", chunk_size=5))
+    assert all(isinstance(s, Script) and s.text.startswith("BEGIN;") and "COMMIT;" in s.text for s in tx) and [_statements(s) for s in tx] == [5, 5, 2, 3]
+    batched = wrap_data(steps, WriteForm(transaction="batch", chunk_size=5))
+    assert [len(s.steps) for s in batched if isinstance(s, Batch)] == [5, 5, 2] and sum(isinstance(s, Sql) for s in batched) == 3  # the list parameters run plainly
+    assert wrap_data(steps, WriteForm(transaction="none")) == steps  # no chunk size: the plain door is untouched
+    assert len(wrap_data(steps, WriteForm(transaction="script"))) == 2  # one script per run, as before
+    # the request budget splits a run too: a step too big for it travels alone
+    budget = common._REQUEST_BUDGET
+    common._REQUEST_BUDGET = 400
+    try:
+        heavy = [Sql("INSERT INTO n1 SET id = :id, s = :s", {"id": f"n1/r{i}", "s": "x" * (600 if i == 2 else 10)}, capture=f"n1/r{i}") for i in range(6)]
+        out = wrap_data(heavy, WriteForm(transaction="none", chunk_size=50))
+        assert [_statements(s) for s in out][:3] == [2, 1, 3] or [_statements(s) for s in out] == [2, 1, 2, 1]
+    finally:
+        common._REQUEST_BUDGET = budget
+
+
+def test_chunked_plans_keep_every_ref_after_its_capture_and_round_trip():
+    for seed in range(1, 10):
+        _, inst, _ = build(seed, GeneratorConfig(write_form_probability=1.0, churn_node_delete_probability=0.3, statements_per_request=6, min_nodes_per_type=12, max_nodes_per_type=20))
+        for data_model, mapper in MAPPERS.items():
+            plan = mapper(inst)
+            assert inst.write_form(data_model).chunk_size == 6
+            captured = set()
+            for step in plan:
+                if isinstance(step, Script):
+                    assert _refs(step.params) <= captured, (seed, data_model)
+                    assert _statements(step) <= 6
+                    captured |= set(step.captures.values())
+                elif isinstance(step, Batch):
+                    assert len(step.steps) <= 6 and set().union(*(_refs(s.params) for s in step.steps)) <= captured
+                    captured |= {s.capture for s in step.steps if s.capture}
+                else:
+                    assert _refs(step.params) <= captured
+                    if step.capture:
+                        captured.add(step.capture)
+            data = [s for s in plan if isinstance(s, Sql) and s.command.split()[0] in ("INSERT", "CREATE", "UPDATE", "DELETE") and s.command.split()[1] not in ("CLASS", "PROPERTY", "INDEX")]
+            # under the plain door every data step travels inside a script
+            if inst.write_form(data_model).transaction == "none":
+                assert not data, (seed, data_model, data[:2])
+            assert plan_to_dict(plan_from_dict(json.loads(json.dumps(plan_to_dict(plan), ensure_ascii=False)))) == plan_to_dict(plan)

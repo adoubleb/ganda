@@ -16,7 +16,9 @@ AQL_TYPENAMES = {
     FieldType.BOOL: "bool",
     FieldType.LIST: "array",
     FieldType.MAP: "object",
+    FieldType.BINARY: "string",  # JSON has no byte type: the base64 text is stored as it is
 }
+
 # AQL's order across types (`compare_across_types` in the legacy reference)
 TYPE_ORDER = ("null", "bool", "number", "string", "array", "object")
 # IndexSpec.kind values this engine defines

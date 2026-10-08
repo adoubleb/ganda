@@ -295,3 +295,28 @@ Before relying on a new engine fact, add it to `scripts/probe_osql.py`
   each chunk with a no-op header block (~5 ms now; keep `_AckingReader`). The JavaCC
   lexer `OrientSqlTokenManager` is excluded (a method too large once probed). A unique
   count carries one-time initialization onto whichever template runs first.
+- **Large data (`run --scale large`; the bounds in `limits.py`, each documented or
+  probed on 3.2.57).** A BINARY column takes base64 text -- a bind parameter, a CONTENT
+  document, a MERGE literal -- and answers the same standard base64 text; an EMPTY byte
+  string is stored as NULL, so the model's pool holds none; `b = :p` with a base64
+  pivot matches NOTHING on a scan and matches through an index (O46,
+  `issues/O46-binary-equality-scan-vs-index.md`: `OQueryOperatorEquals.equals` decodes
+  the text to a byte[] and then compares the arrays by identity; the index key is the
+  decoded bytes compared by content), so a BINARY column takes no comparison predicate
+  and no index in the model -- the divergence is on record there and in the probe, not
+  in a campaign. An SB-tree index key is at most 10240 bytes, the
+
+  value's UTF-8 form plus 16 (`OTooBigIndexKeyException`; a hash index has no bound):
+  a grown value on an indexed field stays under `max_index_key_bytes`. The REST body is
+  bounded by `network.http.maxLength` (1 MB in the image): every server the campaign
+  starts runs with 64 MB (`HTTP_MAX_LENGTH`), a request stays under half of it, and a
+  server attached through `ORIENT_URL` must be started with it. The bulk door
+  (`statements_per_request`): a run of data steps travels as `BEGIN ... COMMIT` scripts,
+  `/batch` requests, or -- the plain door -- NON-transactional scripts whose statements
+  the engine auto-commits one by one (500 `LET $c = INSERT` statements in 0.15 s), the
+  captures re-read 500 ids per `IN` lookup. A `TIMEOUT ... EXCEPTION` that fires
+  (`OTimeoutException`) and an HTTP read timeout while the server still answers are
+  TIMEOUTS: no answer, left out of the comparison, never a rejection. The stored state
+  is checked by `count(*)` / `sum(links.size())` and samples read by `id IN :ids` /
+  `out.id IN :ids` / `src_id IN :ids`, the doc data model's link targets resolved 500
+  per `@rid IN :r`.

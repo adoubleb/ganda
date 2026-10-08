@@ -3,23 +3,32 @@ data model into fresh databases on one server of the engine, verify the state, r
 every case, and write a bundle for every NEW finding key (`dedup.BugDeduplicator`).
 Crashes are autopsied and the server is restarted. `--workers N` runs N seed shards as
 threads against the same server (the work is I/O-bound).
+
+The configuration's scale profile (`ganda.core.scale`, `--scale`) decides what a flag
+left unset does: whether the reference leg runs (`--reference` / `--no-reference`),
+whether the stored state is read whole or checked by counts and a sample
+(`--state-sample`), how long a query may run (`--query-timeout-ms`), and whether a
+bundle embeds the data or its shape.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import random
 import threading
 import time
 from collections import Counter
 from typing import NamedTuple
+
+from ganda.core import scale as _scale
 
 from ganda.core.ast.path import COVERAGE_DENOMINATOR as PATH_COVERAGE_DENOMINATOR
 from ganda.core.ast.select import COVERAGE_DENOMINATOR as SELECT_COVERAGE_DENOMINATOR
 from ganda.core.ast.traversal import SHAPE_DENOMINATOR
 from ganda.core.ast.write import COVERAGE_DENOMINATOR as WRITE_COVERAGE_DENOMINATOR
 from ganda.core.config import add_config_arguments, config_from_args
-from ganda.core.data_generator import GeneratorConfig, build
+from ganda.core.data_generator import GeneratorConfig, build, limits_of
 from ganda.core.dedup import BugDeduplicator
 from ganda.core.generators.registry import all_cases
 from ganda.core.generators.write_phase import run_write_phase
@@ -56,6 +65,10 @@ class CampaignStats(NamedTuple):
     distinct_plan_pairs: int
     elapsed: float
     coverage: "dict | None" = None  # the provider's coverage summary under --coverage
+    timeouts: int = 0  # variants that gave no answer in time (left out of their case's comparison)
+    reference: bool = True  # whether the reference leg ran
+    scale: str = "default"
+    state_sample: int = 0  # 0: the stored state was read whole
 
 
 class _Shared:
@@ -80,8 +93,15 @@ def _tpl(shared: _Shared, name: str) -> dict:
     return shared.per_generator.setdefault(name, {"cases": 0, "asserting": 0, "findings": 0, "symmetric_errors": 0, "internal_errors": 0, "suppressed": 0})
 
 
+def _sample_rng(seed: int) -> random.Random:
+    """The state check's sample for one instance: a fresh stream per call, so every
+    data model is checked on the same records."""
+    return random.Random(f"{seed}:statesample")
+
+
 def run_instance(engine, server, seed: int, cfg: GeneratorConfig, args, shared: _Shared, ns: str) -> None:
     schema, instance, rng = build(seed, cfg, engine)
+    reference = instance if args.reference else None
     data_models = engine.data_models
     plans = {data_model: engine.mappers[data_model](instance) for data_model in data_models}
     sessions: dict = {}
@@ -94,7 +114,7 @@ def run_instance(engine, server, seed: int, cfg: GeneratorConfig, args, shared: 
             setup_errors[data_model] = ""
             sessions[data_model] = s
             if args.verify_state:
-                diffs[data_model] = verify_state(s, data_model, instance)
+                diffs[data_model] = verify_state(s, data_model, instance, sample=args.state_sample, rng=_sample_rng(seed))
         except EngineError as e:
             setup_errors[data_model] = str(e)
     cov = shared.coverage
@@ -113,28 +133,29 @@ def run_instance(engine, server, seed: int, cfg: GeneratorConfig, args, shared: 
                 shared.counters["setup_asymmetries"] += 1
                 kind = "setup-asymmetry" if failed else "state-diff"
         if len(failed) < len(data_models) or args.bundle_setup_failures:
-            report_setup_problem(engine, args.out_dir, args.run_tag, seed, cfg, instance, plans, setup_errors, diffs, kind)
+            report_setup_problem(engine, args.out_dir, args.run_tag, seed, cfg, instance, plans, setup_errors, diffs, kind, embed_data=args.embed_data)
             print(f"[seed {seed}] {kind}: {failed or bad_state}", flush=True)
         _drop(engine, server, ns)
         return
 
     cases = all_cases(rng, schema, instance, cfg=cfg)
     hooks = {"after_case": cov.after_case, "after_variant": cov.after_variant} if cov else {}
-    results = run_cases(cases, sessions, instance, explain=args.explain, keep_known_bugs=args.no_known_bugs, **hooks)
+    results = run_cases(cases, sessions, reference, explain=args.explain, keep_known_bugs=args.no_known_bugs, timeouts_are_errors=args.timeouts_are_errors, **hooks)
     if args.verify_state and any(engine.may_write(r.case) for r in results):
         # a read case that writes inside a transaction rolled it back: the live state
         # must still be the Instance on every data model
-        after = {data_model: verify_state(s, data_model, instance) for data_model, s in sessions.items()}
+        after = {data_model: verify_state(s, data_model, instance, sample=args.state_sample, rng=_sample_rng(seed)) for data_model, s in sessions.items()}
         leaked = [data_model for data_model, d in after.items() if not d.ok]
         if leaked:
             with shared.lock:
                 shared.counters["state_leaks"] += 1
-            d = report_setup_problem(engine, args.out_dir, args.run_tag, seed, cfg, instance, plans, {data_model: "" for data_model in sessions}, after, "state-leak")
+            d = report_setup_problem(engine, args.out_dir, args.run_tag, seed, cfg, instance, plans, {data_model: "" for data_model in sessions}, after, "state-leak", embed_data=args.embed_data)
             print(f"[seed {seed}] state-leak after the cases: {leaked} -> {d}", flush=True)
     if cfg.write_cases:
         # the write phase: predicate-targeted writes after every read, each checked
         # and applied to the Instance (`ganda.core.generators.write_phase`)
-        wp = run_write_phase(sessions, instance, rng.for_generator("ir_write"), cfg.write_cases, verify=args.verify_state, keep_known_bugs=args.no_known_bugs)
+        wp = run_write_phase(sessions, instance, rng.for_generator("ir_write"), cfg.write_cases, verify=args.verify_state, keep_known_bugs=args.no_known_bugs, reference=args.reference, state_sample=args.state_sample, state_rng=lambda: _sample_rng(seed), timeouts_are_errors=args.timeouts_are_errors)
+
         results += wp.results
         with shared.lock:
             shared.counters["writes"] += sum(1 for r in wp.results if r.case.generator_name == "ir_write")
@@ -146,7 +167,7 @@ def run_instance(engine, server, seed: int, cfg: GeneratorConfig, args, shared: 
                 shared.counters["write_state_diffs"] += 1
             last = next((r.case for r in reversed(wp.results) if r.case.generator_name == "ir_write"), None)
             wrote = {data_model: f"[{last.params['concrete_syntax'][data_model]}] {last.params['statements'][data_model]}" for data_model in sessions} if last else {data_model: "" for data_model in sessions}
-            d = report_setup_problem(engine, args.out_dir, args.run_tag, seed, cfg, wp.instance, plans, wrote, wp.diffs, f"write-state-{wp.failed_step}", write_step=wp.failed_step)
+            d = report_setup_problem(engine, args.out_dir, args.run_tag, seed, cfg, wp.instance, plans, wrote, wp.diffs, f"write-state-{wp.failed_step}", write_step=wp.failed_step, embed_data=args.embed_data)
             print(f"[seed {seed}] write-state after {wp.stopped} -> {d}", flush=True)
     with shared.lock:
         for r in results:
@@ -163,6 +184,7 @@ def run_instance(engine, server, seed: int, cfg: GeneratorConfig, args, shared: 
             for data_model, fid in r.suppressed.items():
                 shared.known_bugs[fid] += 1
                 t["suppressed"] += 1
+            shared.counters["timeouts"] += len(r.timeouts)
             if r.plans:
                 shared.plan_pairs.add((r.case.shape, tuple(sorted((s, tuple(p)) for s, p in r.plans.items()))))
             for v in r.compared_values():
@@ -192,7 +214,7 @@ def run_instance(engine, server, seed: int, cfg: GeneratorConfig, args, shared: 
             if args.max_findings and shared.counters["findings"] >= args.max_findings:
                 shared.stop = True
         if first or args.bundle_all:
-            d = report_bug(engine, args.out_dir, args.run_tag, seed, cfg, instance, plans, r, times_seen=n)
+            d = report_bug(engine, args.out_dir, args.run_tag, seed, cfg, instance, plans, r, times_seen=n, embed_data=args.embed_data, max_value_chars=args.max_value_chars)
             print(f"[seed {seed}] {r.finding_class} {r.case.generator_name} {r.case.shape} pairs={r.failing_pairs} -> {d}", flush=True)
     _drop(engine, server, ns)
 
@@ -232,9 +254,29 @@ def _worker(engine, worker_id: int, seeds: list, cfg: GeneratorConfig, args, sha
             shared.coverage.after_seed(seed)
 
 
+def apply_profile(args, cfg) -> None:
+    """Fill the campaign settings the scale profile decides wherever the flag was left
+    unset (`args.reference`, `args.state_sample`, `args.query_timeout_ms`), and the two
+    it always decides (`args.embed_data`, `args.max_value_chars`)."""
+    p = _scale.profile_of(cfg)
+    if getattr(args, "reference", None) is None:
+        args.reference = p.reference
+    if getattr(args, "state_sample", None) is None:
+        args.state_sample = p.state_sample
+    if getattr(args, "query_timeout_ms", None) is None:
+        args.query_timeout_ms = p.query_timeout_ms
+    args.embed_data = p.embed_data
+    args.max_value_chars = p.max_bundle_value_chars
+    args.timeouts_are_errors = p.timeouts_are_errors
+    if p.name != "default":
+        state = "read whole" if not args.state_sample else f"checked by counts and a sample of {args.state_sample}"
+        print(f"scale {p.name}: reference leg {'on' if args.reference else 'off'}, stored state {state}, query timeout {args.query_timeout_ms / 1000:.0f} s ({'a finding' if p.timeouts_are_errors else 'left out of the comparison'}), bundles carry the shape of the data", flush=True)
+
+
 def run_campaign(engine, args) -> "tuple[CampaignStats, object]":
     """(the campaign's statistics, the coverage collector or None)."""
-    cfg = engine.configure(args, config_from_args(engine.config_class, args))
+    cfg = _scale.resolve(engine.configure(args, config_from_args(engine.config_class, args)), limits_of(engine))
+    apply_profile(args, cfg)
     shared = _Shared()
     seeds = list(range(args.seed, args.seed + args.iterations))
     start = time.time()
@@ -283,6 +325,10 @@ def run_campaign(engine, args) -> "tuple[CampaignStats, object]":
         distinct_plan_pairs=len(shared.plan_pairs),
         elapsed=time.time() - start,
         coverage=shared.coverage.summary() if shared.coverage else None,
+        timeouts=c["timeouts"],
+        reference=bool(args.reference),
+        scale=cfg.scale,
+        state_sample=args.state_sample,
     )
     return stats, shared.coverage
 
@@ -296,6 +342,8 @@ def print_stats(stats: CampaignStats, dedup_summary: "dict | None" = None, colle
     print(f"known bugs withheld: {stats.known_bugs_suppressed}")
     print(f"distinct shapes: {stats.distinct_shapes}  ir_traversal shape coverage: {stats.traversal_shapes_visited}/{SHAPE_DENOMINATOR}  ir_select coverage: {stats.select_shapes_visited}/{SELECT_COVERAGE_DENOMINATOR}  ir_path coverage: {stats.path_shapes_visited}/{PATH_COVERAGE_DENOMINATOR}  distinct plan pairs: {stats.distinct_plan_pairs}")
     print(f"writes: {stats.writes}  write-state diffs: {stats.write_state_diffs}  ir_write coverage: {stats.write_shapes_visited}/{WRITE_COVERAGE_DENOMINATOR}")
+    if stats.scale != "default" or stats.timeouts or not stats.reference:
+        print(f"scale: {stats.scale}  reference leg: {'on' if stats.reference else 'off'}  state: {'read whole' if not stats.state_sample else f'counts + sample of {stats.state_sample}'}  timeouts: {stats.timeouts}")
     print(f"elapsed: {stats.elapsed:.1f}s")
     for name, t in sorted(stats.per_generator.items()):
         a = 100.0 * t["asserting"] / t["cases"] if t["cases"] else 0.0
@@ -324,7 +372,11 @@ def add_arguments(ap: argparse.ArgumentParser, engine) -> None:
     ap.add_argument("--bundle-all", action="store_true", help="bundle every finding, not only the first per key")
     ap.add_argument("--bundle-setup-failures", action="store_true")
     ap.add_argument("--coverage", choices=engine.coverage_levels, default="off", help="collect the engine's code coverage: seed = the growth curve; case / variant = also attribute it to the query generator / the variant that ran (--workers 1)")
+    ap.add_argument("--reference", action=argparse.BooleanOptionalAction, default=None, help="run the reference leg (default: the scale profile's: on at the default scale, off at the large one)")
+    ap.add_argument("--state-sample", type=int, default=None, help="verify the stored state by counts and this many sampled records per class, 0 reads it whole (default: the scale profile's)")
+    ap.add_argument("--query-timeout-ms", type=int, default=None, help="how long one query may run before it is a timeout, left out of the comparison (default: the scale profile's)")
     engine.add_arguments(ap)
+
     add_config_arguments(ap, engine.config_class)
 
 

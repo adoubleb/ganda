@@ -43,6 +43,13 @@ class FieldType(Enum):
     DATE = "date"
     # string keys from `MAP_KEYS` to INT values
     MAP = "map"
+    # a byte string (the `binary_probability` axis retypes a STRING node field), valued
+    # as its standard base64 text with padding: how it travels on the JSON wire, and
+    # the form a provider stores and reads back. Equality-only in the model, and a
+    # BLOB rather than a scalar: never a predicate's field (how an engine compares a
+    # byte string with its text form is its own business), never a key or an
+    # aggregate's argument; it is written, stored, projected and read back
+    BINARY = "binary"
 
 INT_TYPES = (FieldType.INT, FieldType.INT32)
 FLOAT_TYPES = (FieldType.FLOAT, FieldType.FLOAT32, FieldType.DECIMAL)
@@ -52,8 +59,12 @@ COLLECTION_TYPES = (FieldType.LIST, FieldType.MAP)
 # the types with a total order (each engine's is its semantics' to state); BOOL and the
 # collections are equality-only
 ORDERED_TYPES = NUMERIC_TYPES + (FieldType.STRING,) + DATE_TYPES
-# the types a scalar predicate / projection / GROUP BY key may name
+# the types a scalar predicate / projection / GROUP BY key may name (BINARY is not one:
+# it is projected, never compared or grouped)
 SCALAR_TYPES = ORDERED_TYPES + (FieldType.BOOL,)
+BLOB_TYPES = (FieldType.BINARY,)
+# the types whose values the large-row axis grows to the engine's limits
+GROWABLE_TYPES = (FieldType.STRING, FieldType.BINARY, FieldType.LIST)
 MAP_KEYS = ("k1", "k2", "k3", "k4")
 
 
@@ -310,6 +321,11 @@ class WriteForm:
     cancelled_junk: bool = False
     edge_update_form: str = "set"
     rebuild_indexes: bool = False
+    # the `statements_per_request` axis: the data steps travel in requests of at most
+    # this many statements through the transaction door's own bulk form (0: one request
+    # per step, or whatever the door folds on its own)
+    chunk_size: int = 0
+
 
 
 PLAIN_WRITE_FORM = WriteForm()
@@ -324,30 +340,60 @@ class Instance:
     # data model -> how its setup writes (a missing data model writes plainly)
     write_forms: dict = field(default_factory=dict)
 
+    # The lookups below are answered from indexes built lazily over `nodes` and
+    # `edges` and rebuilt whenever either list is another object or another length
+    # (`dataclasses.replace` gives a new Instance its own), so a traversal over a
+    # large instance costs its paths rather than a scan of every edge per hop. Every
+    # answer is a fresh list in instance order, as the scans gave.
+
+    def __post_init__(self):
+        self._node_index = None
+        self._edge_index = None
+
+    def _nodes_indexed(self) -> tuple:
+        if self._node_index is None or self._node_index[0] is not self.nodes or self._node_index[1] != len(self.nodes):
+            by_id: dict = {}
+            by_type: dict = {}
+            for n in self.nodes:
+                by_id.setdefault(n.record_id, n)
+                by_type.setdefault(n.type_name, []).append(n)
+            self._node_index = (self.nodes, len(self.nodes), by_id, by_type)
+        return self._node_index
+
+    def _edges_indexed(self) -> tuple:
+        if self._edge_index is None or self._edge_index[0] is not self.edges or self._edge_index[1] != len(self.edges):
+            by_type: dict = {}
+            out: dict = {}
+            inc: dict = {}
+            for e in self.edges:
+                by_type.setdefault(e.type_name, []).append(e)
+                out.setdefault((e.type_name, e.from_record), []).append(e)
+                inc.setdefault((e.type_name, e.to_record), []).append(e)
+            self._edge_index = (self.edges, len(self.edges), by_type, out, inc)
+        return self._edge_index
+
     def write_form(self, data_model: str) -> WriteForm:
         return self.write_forms.get(data_model, PLAIN_WRITE_FORM)
 
     def nodes_of(self, type_name: str) -> list:
         if self.schema.is_base(type_name):
             return list(self.nodes)
-        return [n for n in self.nodes if n.type_name == type_name]
+        return list(self._nodes_indexed()[3].get(type_name, ()))
 
     def edges_of(self, type_name: str) -> list:
-        return [e for e in self.edges if e.type_name == type_name]
+        return list(self._edges_indexed()[2].get(type_name, ()))
 
     def node_by_id(self, record_id: str) -> "NodeRow | None":
-        for n in self.nodes:
-            if n.record_id == record_id:
-                return n
-        return None
+        return self._nodes_indexed()[2].get(record_id)
 
     def outgoing(self, edge_type: str, from_record: str) -> list:
         """Ground-truth adjacency: every edge of `edge_type` leaving `from_record`, in
         instance order (parallel edges repeat)."""
-        return [e for e in self.edges if e.type_name == edge_type and e.from_record == from_record]
+        return list(self._edges_indexed()[3].get((edge_type, from_record), ()))
 
     def incoming(self, edge_type: str, to_record: str) -> list:
-        return [e for e in self.edges if e.type_name == edge_type and e.to_record == to_record]
+        return list(self._edges_indexed()[4].get((edge_type, to_record), ()))
+
 
     def both(self, edge_type: str, record: str) -> list:
         """Both directions: the outgoing edges followed by the incoming ones -- a

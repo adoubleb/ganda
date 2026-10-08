@@ -277,9 +277,35 @@ def evaluate(q: TraversalQuery, instance: Instance) -> Any:
     return out
 
 
+# the most paths `sums_exactly` enumerates before declining: far above what any
+# default-size instance holds, far below what a hub of thousands of edges fans out to
+# over two or three hops (where the engine's own answer would be as large)
+MAX_PATHS = 200_000
+
+
+def path_count_bound(q: TraversalQuery, instance: Instance) -> int:
+    """How many paths the hops reach over every source when no predicate prunes them
+    (an upper bound on what `final_paths` enumerates), counted hop by hop rather than
+    listed: the cost is the hops times the edges."""
+    counts = {n.record_id: 1 for n in instance.nodes_of(q.source_table)}
+    for hop in q.hops:
+        nxt: dict = {}
+        for cur, c in counts.items():
+            for _e, target in _edges(instance, hop, cur):
+                nxt[target] = nxt.get(target, 0) + c
+        counts = nxt
+    return sum(counts.values())
+
+
 def sums_exactly(q: TraversalQuery, instance: Instance) -> bool:
+    """Whether every source's sum is exact under the engine's semantics -- shown by
+    enumerating the paths; a question with more than `MAX_PATHS` of them is not shown
+    exact (the generator asks for `max` instead)."""
+    if path_count_bound(q, instance) > MAX_PATHS:
+        return False
     ftype = projected_type(q, instance)
     for n in instance.nodes_of(q.source_table):
+
         vals = _projected_values(q, instance, final_paths(q, instance, n.record_id))
         if not instance.schema.engine.semantics.sum_is_exact([v for v in vals if v is not None], ftype):
             return False

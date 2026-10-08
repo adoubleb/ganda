@@ -1,6 +1,8 @@
 import dataclasses
+from collections import Counter
 
 from ganda.orientdb.generate import GeneratorConfig, build, initial_node_values, write_order_states
+
 from ganda.core.model import FieldType, NodeDelete, NodeUpdate
 from ganda.orientdb.dialect import is_valid_key
 
@@ -239,3 +241,64 @@ def test_date_and_map_axes():
             assert has or c.params.get("reference") is False, c.generator_name
             seen |= {s_.split(":", 1)[1] for s_ in c.queries if ":" in s_}
     assert {"index", "poly", "polyin"} <= seen
+
+
+def test_binary_columns_hold_base64_values_and_carry_no_index():
+    import base64
+
+    seen = False
+    for seed in range(1, 25):
+        schema, inst, _ = build(seed, GeneratorConfig(binary_probability=0.6, index_probability=0.9, composite_index_probability=0.5, inheritance_probability=0.5))
+        for nt in schema.query_tables():
+            for f in schema.query_fields(nt.name):
+                if f.type is not FieldType.BINARY:
+                    continue
+                seen = True
+                assert not any(ix.target == "node" and f.name in ix.all_fields and ix.table in schema.poly_tables(nt.name) for ix in schema.indexes), (seed, nt.name, f.name)
+                for n in inst.nodes_of(nt.name):
+                    v = n.values.get(f.name)
+                    if v is not None:
+                        raw = base64.b64decode(v, validate=True)
+                        assert raw and base64.b64encode(raw).decode() == v
+    assert seen
+    # a tail axis: a column the axis leaves alone keeps its values
+    base_schema, base, _ = build(5, GeneratorConfig())
+    bin_schema, binary, _ = build(5, GeneratorConfig(binary_probability=0.6))
+    for a, b in zip(base.nodes, binary.nodes):
+        for k, v in a.values.items():
+            if base_schema.field(a.type_name, k).type == bin_schema.field(a.type_name, k).type:
+                assert b.values.get(k) == v
+
+
+def test_the_incremental_collision_check_matches_the_state_walk():
+    from ganda.core.data_generator import _collides, index_key
+
+    def by_states(instance, ix) -> bool:
+        fields = ix.all_fields
+        base = instance.schema.is_base(ix.table)
+        for state in write_order_states(instance):
+            seen = set()
+            for rid, values in state.items():
+                if not base and not rid.startswith(ix.table + "/"):
+                    continue
+                if ix.ignore_nulls and any(values.get(f) is None for f in fields):
+                    continue
+                key = index_key(instance.schema, ix, values)
+                if key in seen:
+                    return True
+                seen.add(key)
+        return False
+
+    judged = Counter()
+    colliding = dict(index_probability=0.9, composite_index_probability=0.5, cardinality_control_probability=0.9, demote_colliding_indexes=False, churn_update_probability=0.4, churn_node_delete_probability=0.2, inheritance_probability=0.5)
+    sparse = dict(colliding, cardinality_control_probability=0.0, boundary_value_probability=0.0, value_reuse_probability=0.0)
+    for seed in range(1, 30):
+        for kw in (colliding, sparse):
+            schema, inst, _ = build(seed, GeneratorConfig(**kw))
+            for ix in schema.indexes:
+                if ix.target == "node":
+                    got = _collides(inst, ix)
+                    assert got == by_states(inst, ix), (seed, ix)
+                    judged[got] += 1
+    assert judged[True] > 10 and judged[False] > 10
+

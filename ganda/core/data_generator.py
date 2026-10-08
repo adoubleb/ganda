@@ -13,19 +13,30 @@ pipeline relies on:
 
 Axes that can be switched off (custom keys, write forms, node deletion, the id index
 axis, inheritance, the narrow numeric types, `ci` collation, list indexes, clusters,
-edge-attribute churn) draw from *tail* streams keyed by their own name, so at
-probability 0 they reproduce exactly what the generator produced without them.
+edge-attribute churn, binary columns, large rows) draw from *tail* streams keyed by
+their own name, so at probability 0 they reproduce exactly what the generator produced
+without them.
+
+The engine's limits (`Provider.limits`, `ganda.core.limits`) bound what the large-data
+axes produce: a grown value stays under the type's bound and the record budget, an
+indexed one under the index key bound, a hub under the fan-out bound.
 """
 from __future__ import annotations
 
+import base64
 import dataclasses
 import datetime as _dt
+import math
 import random
 
+from ganda.core import scale as _scale
+from ganda.core.limits import StorageLimits
 from ganda.core.rng import QueryRng, stream as _stream
 from dataclasses import dataclass
 
 from ganda.core.model import (
+    BLOB_TYPES,
+    GROWABLE_TYPES,
     MAP_KEYS,
     NUMERIC_TYPES,
     EdgeDelete,
@@ -59,6 +70,17 @@ I64_MAX = 2**63 - 1
 I64_MIN = -(2**63)
 F64_INT_EXACT = 2**53
 DBL_MAX = 1.7976931348623157e308
+
+
+def _b64(raw: bytes) -> str:
+    """A byte string's model value: its standard base64 text, padded."""
+    return base64.b64encode(raw).decode("ascii")
+
+
+def limits_of(engine) -> StorageLimits:
+    """The engine's limits, or the conservative set for a provider that declares none."""
+    limits = getattr(engine, "limits", None)
+    return limits if limits is not None else StorageLimits.conservative()
 
 # Adversarial per-type value pools. NaN/Infinity are excluded because JSON cannot carry
 # them; strings are built with `chr()` where an editor could normalize them. A provider
@@ -107,6 +129,16 @@ BOUNDARY_VALUES = {
         "9999-12-31 00:00:00", "2024-01-01 00:00:00", "2024-12-31 00:00:00", "1999-12-31 00:00:00", "2000-01-01 00:00:00",
     ],
     FieldType.MAP: [{}, {"k1": 0}, {"k1": 1, "k2": 2}, {"k2": 2**40}, {"k1": -1, "k2": 0, "k3": 1}, {"k4": I64_MAX}, {"k1": 1, "k1x": 1} if False else {"k3": 7, "k4": -7}, {"k1": 2**31 - 1, "k2": 2**31}],
+    # byte strings as their base64 text: single bytes, runs, every byte value, the
+    # three padding lengths, bytes that read as text or as a record id, invalid UTF-8,
+    # a byte-order mark. No EMPTY byte string: an engine may store it as null (OrientDB
+    # does, probed), which would be a divergence of the fuzzer's own making
+    FieldType.BINARY: [
+        _b64(b) for b in (
+            b"\x00", b"\xff", b"\x00" * 8, b"\xff" * 8, b"a", b"ab", b"abc", bytes(range(16)), bytes(range(256)), b"null", b"true", b"0",
+            b" ", b"\n", b"\xc3\xa9", b"\x80", b"\xff\xfe", b"\xef\xbb\xbf", b"n1/r0", b"\x00\x01\x00\x01",
+        )
+    ],
 }
 
 EPOCH = _dt.datetime(1970, 1, 1)
@@ -145,6 +177,8 @@ def random_value(rng: random.Random, ftype: FieldType):
         return {k: rng.randint(-100, 100) for k in keys}
     if ftype is FieldType.STRING:
         return "".join(rng.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(rng.randint(1, 8)))
+    if ftype is FieldType.BINARY:
+        return _b64(rng.randbytes(rng.randint(1, 8)))
     if ftype is FieldType.BOOL:
         return rng.random() < 0.5
     if ftype is FieldType.LIST:
@@ -153,7 +187,8 @@ def random_value(rng: random.Random, ftype: FieldType):
 
 
 def boundary_value(rng: random.Random, ftype: FieldType, pool: "dict | None" = None):
-    v = rng.choice((pool or BOUNDARY_VALUES)[ftype])
+    # a provider's own table may leave a type to the core's
+    v = rng.choice((pool or {}).get(ftype) or BOUNDARY_VALUES[ftype])
     if isinstance(v, dict):
         return dict(v)
     return list(v) if isinstance(v, list) else v
@@ -239,6 +274,25 @@ class GeneratorConfig:
     # writes after every read case, each checked (answers, state, read-back) and
     # applied to the Instance; its own sub-stream, 0 reproduces a run from before it
     write_cases: int = 8
+    # The scale profile (`ganda.core.scale`): "default", or "large" for the
+    # storage-engine stress mode, which sets the sizes above and the three axes below
+    # wherever their flags were left at these defaults, and runs the campaign without
+    # the reference leg.
+    scale: str = "default"
+    # Per node row, on a tail stream: the row is a LARGE row, whose present STRING /
+    # BINARY / LIST values (the uncontrolled ones) grow to the engine's limits
+    # (`Provider.limits`) within a quarter of its record budget, an indexed field
+    # within its index key bound. Edge attributes never grow: a data model may fold a
+    # record's relationships into one statement.
+    large_row_probability: float = 0.0
+    # Per STRING node field, on a tail stream: the column becomes a BINARY column
+    # (`FieldType.BINARY`, values as base64 text); an index drawn on it is dropped.
+    # Nothing on an engine without a binary type.
+    binary_probability: float = 0.0
+    # The data steps of every setup travel in requests of at most this many
+    # statements through the transaction door's bulk form (`WriteForm.chunk_size`);
+    # 0 sends them as the door does on its own. Draws nothing.
+    statements_per_request: int = 0
 
     def with_(self, **kw) -> "GeneratorConfig":
         return dataclasses.replace(self, **kw)
@@ -310,14 +364,15 @@ def generate_schema(rng: random.Random, cfg: GeneratorConfig, seed: "int | None"
 
     id_index = pd.draw_id_indexes(seed, cfg)
     base, base_indexes = _base_class(seed, cfg, names, engine)
-    node_types, base = _tail_field_axes(seed, cfg, node_types, base)
+    node_types, base = _tail_field_axes(seed, cfg, node_types, base, limits_of(engine))
     node_types = pd.draw_storage_options(seed, cfg, node_types)
     list_indexes = _list_indexes(seed, cfg, node_types, base, engine)
-    return Schema(engine=engine, node_types=node_types, edge_types=tuple(edge_types), indexes=tuple(_dedupe_indexes(indexes + base_indexes + list_indexes, engine.data_models)), id_index=id_index, base=base)
+    indexes = _without_blob_indexes(indexes + base_indexes, node_types, base)
+    return Schema(engine=engine, node_types=node_types, edge_types=tuple(edge_types), indexes=tuple(_dedupe_indexes(indexes + list_indexes, engine.data_models)), id_index=id_index, base=base)
 
 
-def _retype(seed: "int | None", cfg: GeneratorConfig, table: str, f: FieldSpec) -> FieldSpec:
-    """The narrow-type and collation tail axes for one node field."""
+def _retype(seed: "int | None", cfg: GeneratorConfig, table: str, f: FieldSpec, limits: StorageLimits) -> FieldSpec:
+    """The narrow-type, date / map, binary and collation tail axes for one node field."""
     if seed is None:
         return f
     if cfg.narrow_type_probability > 0 and f.type in (FieldType.INT, FieldType.FLOAT):
@@ -330,6 +385,10 @@ def _retype(seed: "int | None", cfg: GeneratorConfig, table: str, f: FieldSpec) 
         if r.random() < cfg.date_map_probability:
             new = FieldType.MAP if f.type is FieldType.LIST else r.choice((FieldType.DATETIME, FieldType.DATE))
             f = dataclasses.replace(f, type=new)
+    if cfg.binary_probability > 0 and limits.max_binary_bytes > 0 and f.type is FieldType.STRING:
+        r = _stream(seed, "binary", table, f.name)
+        if r.random() < cfg.binary_probability:
+            f = dataclasses.replace(f, type=FieldType.BINARY)
     if cfg.collate_probability > 0 and f.type is FieldType.STRING:
         r = _stream(seed, "collate", table, f.name)
         if r.random() < cfg.collate_probability:
@@ -337,16 +396,27 @@ def _retype(seed: "int | None", cfg: GeneratorConfig, table: str, f: FieldSpec) 
     return f
 
 
-def _tail_field_axes(seed: "int | None", cfg: GeneratorConfig, node_types: tuple, base: "NodeTypeSpec | None"):
+def _tail_field_axes(seed: "int | None", cfg: GeneratorConfig, node_types: tuple, base: "NodeTypeSpec | None", limits: StorageLimits):
     if seed is None:
         return node_types, base
     out = []
     for nt in node_types:
-        fields = tuple(_retype(seed, cfg, nt.name, f) for f in nt.fields)
+        fields = tuple(_retype(seed, cfg, nt.name, f, limits) for f in nt.fields)
         out.append(dataclasses.replace(nt, fields=fields))
     if base is not None:
-        base = dataclasses.replace(base, fields=tuple(_retype(seed, cfg, base.name, f) for f in base.fields))
+        base = dataclasses.replace(base, fields=tuple(_retype(seed, cfg, base.name, f, limits) for f in base.fields))
     return tuple(out), base
+
+
+def _without_blob_indexes(indexes: list, node_types: tuple, base: "NodeTypeSpec | None") -> list:
+    """No index covers a BINARY column: the indexes were drawn before the binary axis
+    retyped the column (an index on a byte string is the engine's own affair, and how
+    it keys one is not what the oracle models)."""
+    types: dict = {}
+    for nt in node_types + ((base,) if base is not None else ()):
+        for f in nt.fields + (base.fields if base is not None and nt is not base else ()):
+            types[(nt.name, f.name)] = f.type
+    return [ix for ix in indexes if not any(types.get((ix.table, f)) in BLOB_TYPES for f in ix.all_fields)]
 
 
 def _list_indexes(seed: "int | None", cfg: GeneratorConfig, node_types: tuple, base: "NodeTypeSpec | None", engine) -> list:
@@ -412,7 +482,7 @@ def _draw_value(rng: random.Random, f: FieldSpec, cfg: GeneratorConfig, pools: _
     return random_value(rng, f.type)
 
 
-def _row_values(seed: int, table: str, fields: tuple, row: int, cfg: GeneratorConfig, pools: _ValuePools, controlled: dict, tag: str = "value") -> dict:
+def _row_values(seed: int, table: str, fields: tuple, row: int, cfg: GeneratorConfig, pools: _ValuePools, controlled: dict, tag: str = "value", grow: "_LargeRows | None" = None) -> dict:
     values: dict = {}
     for f in fields:
         rng = _stream(seed, tag, table, row, f.name)
@@ -431,7 +501,128 @@ def _row_values(seed: int, table: str, fields: tuple, row: int, cfg: GeneratorCo
             v = v.upper() if any(c.islower() for c in v) else v.lower()
         values[f.name] = list(v) if isinstance(v, list) else (dict(v) if isinstance(v, dict) else v)
         pools.add(f, v)
-    return values
+    # the large-row axis grows AFTER pooling: a grown value is the row's alone, never
+    # reused by another row (which would multiply the volume uncontrollably)
+    return grow.grow(table, row, values, fields, tag) if grow is not None else values
+
+
+# --- the large-row axis -----------------------------------------------------------------------
+
+_GROWN_MIN = 256
+# what a grown value costs the record, per unit of its size (a code point may be four
+# UTF-8 bytes, base64 is four characters per three bytes, an integer element travels
+# as up to 21 characters)
+_UNIT_BYTES = {FieldType.STRING: 2, FieldType.BINARY: 2, FieldType.LIST: 8}
+
+
+def _log_uniform(rng: random.Random, lo: int, hi: int) -> int:
+    """A size between `lo` and `hi`, every order of magnitude equally likely: most
+    grown values are kilobytes, a few are the limit itself."""
+    if hi <= lo:
+        return lo
+    return min(hi, int(math.exp(rng.uniform(math.log(lo), math.log(hi)))))
+
+
+def large_value(rng: random.Random, ftype: FieldType, size: int):
+    """A value of `ftype` about `size` long (code points, bytes or elements), in a
+    shape a storage engine treats differently from the others: one character repeated
+    (compressible), random text or bytes (not), multi-byte code points (a string whose
+    byte length, UTF-16 length and code-point length all differ), text full of the
+    characters a serializer escapes, the same integer repeated, ascending integers."""
+    if ftype is FieldType.STRING:
+        kind = rng.choice(("run", "random", "unicode", "escaped", "mixed"))
+        if kind == "run":
+            return rng.choice("a Zz0") * size
+        if kind == "random":
+            return _b64(rng.randbytes(size * 3 // 4 + 3))[:size]
+        if kind == "unicode":
+            block = "".join(chr(c) for c in (0x4E2D, 0x6587, 0x1F600, 0xE9, 0x130, 0xDF, 0x200B, 0x4E00, 0xFFFF, 0x1F4A9))
+            return (block * (size // len(block) + 1))[:size]
+        if kind == "escaped":
+            block = "\"'\\\n\t %_[]{}:$, `~!@&*()<>=|;?/"
+            return (block * (size // len(block) + 1))[:size]
+        head, tail = rng.choice(("", " ", "\n", "\"", "SELECT ")), rng.choice(("", " ", "\n", "\\", " FROM"))
+        body = max(0, size - len(head) - len(tail))
+        return head + _b64(rng.randbytes(body * 3 // 4 + 3))[:body] + tail
+    if ftype is FieldType.BINARY:
+        kind = rng.choice(("random", "zeros", "ones", "pattern"))
+        if kind == "random":
+            raw = rng.randbytes(size)
+        elif kind == "zeros":
+            raw = b"\x00" * size
+        elif kind == "ones":
+            raw = b"\xff" * size
+        else:
+            raw = (bytes(range(256)) * (size // 256 + 1))[:size]
+        return _b64(raw)
+    if ftype is FieldType.LIST:
+        kind = rng.choice(("random", "same", "boundary", "ascending"))
+        if kind == "random":
+            return [rng.randint(-1000, 1000) for _ in range(size)]
+        if kind == "same":
+            return [rng.choice((0, 1, -1, I64_MAX, I64_MIN))] * size
+        if kind == "boundary":
+            pool = BOUNDARY_VALUES[FieldType.INT]
+            return [rng.choice(pool) for _ in range(size)]
+        start = rng.randint(-1000, 1000)
+        return list(range(start, start + size))
+    raise ValueError(ftype)
+
+
+class _LargeRows:
+    """The large-row axis (`large_row_probability`). A node row is large on its own
+    tail stream (`large`); each present, uncontrolled STRING / BINARY / LIST value of a
+    large row grows with probability 1/2 on the field's own stream (`largevalue`, per
+    tag: a churned row's initial values grow independently) to a log-uniform size
+    under the type's bound (`StorageLimits.value_cap`), the index key bound when an
+    index of any data model covers the field, and what is left of the row's budget --
+    a quarter of the record bound, so the grown values and the row's other fields
+    never near it."""
+
+    def __init__(self, seed: int, cfg: GeneratorConfig, schema: Schema, limits: StorageLimits):
+        self.seed = seed
+        self.probability = cfg.large_row_probability
+        self.limits = limits
+        self.schema = schema
+        self._indexed: dict = {}
+
+    def indexed(self, table: str, field_name: str) -> bool:
+        """Whether an index of some data model keys the field (a composite's any
+        component; the base class's indexes cover a subclass)."""
+        key = (table, field_name)
+        if key not in self._indexed:
+            schema = self.schema
+            tables = {table} | ({schema.base.name} if schema.base is not None else set())
+            self._indexed[key] = any(ix.target == "node" and ix.table in tables and field_name in ix.all_fields for ix in schema.indexes)
+        return self._indexed[key]
+
+    def cap(self, table: str, f: FieldSpec, budget: int) -> int:
+        cap = self.limits.value_cap(f.type)
+        if self.indexed(table, f.name):
+            # a key is the value's UTF-8 form plus the engine's overhead; a code point
+            # may take four bytes
+            key_cap = max(0, self.limits.max_index_key_bytes - 64)
+            cap = min(cap, key_cap // 4 if f.type is FieldType.STRING else key_cap if f.type is FieldType.BINARY else cap)
+        return min(cap, budget // _UNIT_BYTES[f.type])
+
+    def grow(self, table: str, row: int, values: dict, fields: tuple, tag: str) -> dict:
+        if self.probability <= 0 or _stream(self.seed, "large", table, row).random() >= self.probability:
+            return values
+        budget = self.limits.max_record_bytes // 4
+        out = dict(values)
+        for f in fields:
+            if f.type not in GROWABLE_TYPES or f.cardinality is not None or out.get(f.name) is None:
+                continue
+            r = _stream(self.seed, "largevalue", tag, table, row, f.name)
+            if r.random() >= 0.5:
+                continue
+            cap = self.cap(table, f, budget)
+            if cap < _GROWN_MIN:
+                continue
+            size = _log_uniform(r, _GROWN_MIN, cap)
+            out[f.name] = large_value(r, f.type, size)
+            budget -= size * _UNIT_BYTES[f.type]
+        return out
 
 
 _KEY_STYLES = ("int", "punct", "word", "long", "unicode")
@@ -463,11 +654,10 @@ def _custom_key(seed: int, type_name: str, local_id: int, cfg: GeneratorConfig, 
 
 def _write_form(seed: int, data_model: str, cfg: GeneratorConfig, engine) -> WriteForm:
     """How one data model's setup writes its steps, on the data model's own stream;
-    the forms' vocabulary is the engine's."""
+    the forms' vocabulary is the engine's. The chunk size draws nothing."""
     rng = _stream(seed, "writeform", data_model)
-    if rng.random() >= cfg.write_form_probability:
-        return WriteForm()
-    return engine.physical_design.draw_write_form(rng)
+    form = WriteForm() if rng.random() >= cfg.write_form_probability else engine.physical_design.draw_write_form(rng)
+    return dataclasses.replace(form, chunk_size=cfg.statements_per_request) if cfg.statements_per_request else form
 
 
 def generate_instance(seed: int, schema: Schema, cfg: GeneratorConfig) -> Instance:
@@ -489,6 +679,8 @@ def generate_instance(seed: int, schema: Schema, cfg: GeneratorConfig) -> Instan
                 for nt in schema.node_types:
                     controlled[(nt.name, f.name)] = pool
 
+    limits = limits_of(engine)
+    grow = _LargeRows(seed, cfg, schema, limits)
     nodes: list = []
     churn: list = []
     for nt in schema.node_types:
@@ -497,16 +689,19 @@ def generate_instance(seed: int, schema: Schema, cfg: GeneratorConfig) -> Instan
         count = rng.randint(lo, max(lo, cfg.max_nodes_per_type))
         fields = schema.query_fields(nt.name)
         for i in range(count):
-            values = _row_values(seed, nt.name, fields, i, cfg, pools, controlled)
+            values = _row_values(seed, nt.name, fields, i, cfg, pools, controlled, grow=grow)
             node = NodeRow(type_name=nt.name, local_id=i, values=values, custom_key=_custom_key(seed, nt.name, i, cfg, pd.is_valid_key))
             nodes.append(node)
             crng = _stream(seed, "churn", nt.name, i)
             if crng.random() < cfg.churn_update_probability:
-                initial = _row_values(seed, nt.name, fields, i, cfg, pools, controlled, tag="initvalue")
+                initial = _row_values(seed, nt.name, fields, i, cfg, pools, controlled, tag="initvalue", grow=grow)
                 churn.append(NodeUpdate(node=node, initial_values=initial))
 
     by_type = {nt.name: [n for n in nodes if n.type_name == nt.name] for nt in schema.node_types}
     edges: list = []
+    # a source's fan-out stays under the engine's bound: a hub (or a pair's source)
+    # that is full is passed over, which no default-size instance ever reaches
+    fan_out_cap = limits.max_edges_per_node
     for et in schema.edge_types:
         rng = _stream(seed, "topology", et.name)
         sources, targets = by_type[et.from_type], by_type[et.to_type]
@@ -515,15 +710,22 @@ def generate_instance(seed: int, schema: Schema, cfg: GeneratorConfig) -> Instan
         count = rng.randint(cfg.min_edges_per_type, cfg.max_edges_per_type)
         hub = rng.choice(sources)
         emitted: list = []
+        fan_out: dict = {}
         for i in range(count):
             if emitted and rng.random() < cfg.parallel_edge_probability:
                 src, dst = rng.choice(emitted)
             else:
-                src = hub if rng.random() < cfg.hub_probability else rng.choice(sources)
+                if rng.random() < cfg.hub_probability:
+                    src = hub if fan_out.get(hub.record_id, 0) < fan_out_cap else rng.choice(sources)
+                else:
+                    src = rng.choice(sources)
                 if et.from_type == et.to_type and rng.random() < cfg.self_loop_probability:
                     dst = src
                 else:
                     dst = rng.choice(targets)
+            if fan_out.get(src.record_id, 0) >= fan_out_cap:
+                continue
+            fan_out[src.record_id] = fan_out.get(src.record_id, 0) + 1
             emitted.append((src, dst))
             values = _row_values(seed, et.name, et.fields, i, cfg, pools, controlled)
             edge = EdgeRow(type_name=et.name, local_id=i, from_record=src.record_id, to_record=dst.record_id, values=values)
@@ -612,20 +814,48 @@ def index_key(schema: Schema, ix: IndexSpec, values: dict, edge: bool = False) -
 
 def _collides(instance: Instance, ix: IndexSpec) -> bool:
     """Whether two rows of the class hold the same key in ANY write state (a unique
-    index rejects the second write; one that replaces keeps only one of them)."""
+    index rejects the second write; one that replaces keeps only one of them): the
+    states of `write_order_states`, walked incrementally -- the key multiset of the
+    initial state, then each `NodeUpdate` moving one row's key -- so the check costs
+    the rows plus the updates rather than their product. The final state (the
+    surviving rows) is a subset of the last one and can add no collision."""
     fields = ix.all_fields
-    base = instance.schema.is_base(ix.table)
-    for state in write_order_states(instance):
-        seen = set()
-        for rid, values in state.items():
-            if not base and not rid.startswith(ix.table + "/"):
-                continue
-            if ix.ignore_nulls and any(values.get(f) is None for f in fields):
-                continue
-            key = index_key(instance.schema, ix, values)
-            if key in seen:
+    schema = instance.schema
+    base = schema.is_base(ix.table)
+    prefix = ix.table + "/"
+
+    def key_of(values: dict):
+        if ix.ignore_nulls and any(values.get(f) is None for f in fields):
+            return None
+        return index_key(schema, ix, values)
+
+    counts: dict = {}
+    current: dict = {}
+    for rid, values in initial_node_values(instance).items():
+        if not base and not rid.startswith(prefix):
+            continue
+        key = key_of(values)
+        current[rid] = key
+        if key is not None:
+            counts[key] = counts.get(key, 0) + 1
+            if counts[key] > 1:
                 return True
-            seen.add(key)
+    finals = {n.record_id: n.values for n in initial_nodes(instance)}
+    for op in instance.churn:
+        if not isinstance(op, NodeUpdate):
+            continue
+        rid = op.node.record_id
+        if rid not in current:
+            continue
+        old = current[rid]
+        if old is not None:
+            counts[old] -= 1
+        key = key_of(finals.get(rid, op.node.values))
+        current[rid] = key
+        if key is not None:
+            counts[key] = counts.get(key, 0) + 1
+            if counts[key] > 1:
+                return True
     return False
 
 
@@ -673,7 +903,11 @@ def _demote_colliding_indexes(instance: Instance) -> Schema:
 
 def build(seed: int, cfg: GeneratorConfig, engine) -> "tuple[Schema, Instance, QueryRng]":
     """The single entry point: (schema, instance, query rng) for a (seed, config) on
-    one engine."""
+    one engine. The configuration's scale profile is applied first
+    (`ganda.core.scale.resolve`), so a `scale="large"` configuration means the same
+    instance wherever it is built."""
+    cfg = _scale.resolve(cfg, limits_of(engine))
     schema = generate_schema(_stream(seed, "schema"), cfg, seed=seed, engine=engine)
+
     instance = generate_instance(seed, schema, cfg)
     return instance.schema, instance, QueryRng(seed)

@@ -5,6 +5,9 @@
     ganda orientdb mutate --trials 8        the mutation benchmark
     ganda orientdb probe                    re-check the engine facts the provider rests on
     ganda orientdb doctor                   start a server and answer one query per data model
+    ganda orientdb limits                   what the engine can hold, and the large profile on it
+    ganda orientdb run --scale large        the storage-engine stress mode (large tables,
+                                            documents, graphs, strings and binaries)
 
 `run` and `mutate` take one flag per field of the engine's configuration class.
 """
@@ -29,6 +32,30 @@ def _doctor(engine, args) -> int:
                 server.drop_database(name)
     finally:
         engine.cleanup()
+    return 0
+
+
+def _limits(engine) -> int:
+    """The engine's declared limits (`ganda.core.limits`) and what the `large` scale
+    profile makes of them on this engine."""
+    import dataclasses
+
+    from ganda.core import scale as _scale
+    from ganda.core.data_generator import limits_of
+
+    limits = limits_of(engine)
+    note = "" if engine.limits is not None else "  (the conservative set: this provider declares none yet)"
+    print(f"{engine.title}: what the engine can hold{note}")
+    for k, v in limits.as_dict().items():
+        print(f"  {k:28s} {v:>22,}")
+    large = _scale.resolve(engine.config_class(scale="large"), limits)
+    defaults = engine.config_class()
+    print("the large profile on this engine (`run --scale large`; a flag given explicitly wins):")
+    for f in dataclasses.fields(large):
+        if getattr(large, f.name) != getattr(defaults, f.name):
+            print(f"  --{f.name.replace('_', '-'):28s} {getattr(large, f.name)!s:>12}   (default {getattr(defaults, f.name)})")
+    p = _scale.profile("large")
+    print(f"  reference leg {'on' if p.reference else 'off'}; stored state checked by counts and a sample of {p.state_sample} per class; query timeout {p.query_timeout_ms} ms; bundles carry the shape of the data, values cut to {p.max_bundle_value_chars} chars")
     return 0
 
 
@@ -62,6 +89,8 @@ def main(argv=None) -> int:
     mutate.set_defaults(handler=lambda a: (_needs_generators(engine, "mutate"), mutation.main(engine, a))[1])
     sub.add_parser("probe", help="re-check live the engine facts the provider rests on").set_defaults(handler=lambda a: engine.probe())
     sub.add_parser("doctor", help="start a server and answer one query per data model").set_defaults(handler=lambda a: _doctor(engine, a))
+    sub.add_parser("limits", help="what the engine can hold, and what the large scale profile does on it").set_defaults(handler=lambda a: _limits(engine))
+
     args = ap.parse_args(argv[1:])
     try:
         return args.handler(args)

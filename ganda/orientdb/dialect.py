@@ -42,6 +42,17 @@ from ganda.core.model import FieldType
 # An EMBEDDEDMAP LONG supports `CONTAINSKEY`, the dotted `m.k op :p` (null rules for a
 # missing key), the parameter-keyed `m[:k]`, `m.values() CONTAINS`; `CONTAINSVALUE` with
 # an Integer-boxed pivot misses the Long values (an O7 face); indexed BY KEY / VALUE.
+#
+# A BINARY (the `binary_probability` axis) takes a base64 string on write -- through a
+# bind parameter, a CONTENT document or a MERGE literal -- and answers the same standard
+# base64 text (padded, no line breaks) on read, so the model's value IS what travels
+# (probed 3.2.57). Two engine facts the probe records: an EMPTY byte string is stored as
+# null (the model's pool holds none), and `b = :p` with a base64 pivot matches NOTHING on
+# a scan while an index on the column matches it (O46, `issues/O46-binary-equality-scan-
+# vs-index.md`: the scan decodes the text and then compares the arrays by identity, the
+# index key is compared by content) -- a scan-vs-index divergence the model does not
+# ask about, since a BINARY column takes no comparison predicate and no index.
+
 ORIENT_TYPES = {
     FieldType.INT: "LONG",
     FieldType.FLOAT: "DOUBLE",
@@ -54,7 +65,9 @@ ORIENT_TYPES = {
     FieldType.DATETIME: "DATETIME",
     FieldType.DATE: "DATE",
     FieldType.MAP: "EMBEDDEDMAP LONG",
+    FieldType.BINARY: "BINARY",
 }
+
 
 # Order: LONG / INTEGER are Java integer order; DOUBLE / FLOAT are `Double.compare`
 # (which puts -0.0 strictly below 0.0, probed; a FLOAT value is its exact widening);

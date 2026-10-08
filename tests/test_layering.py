@@ -4,6 +4,7 @@ import ast
 import importlib
 import pathlib
 
+from ganda.core.limits import StorageLimits
 from ganda.core.provider import Provider, Semantics
 from ganda.registry import PROVIDERS, provider
 
@@ -44,6 +45,7 @@ def test_every_registered_provider_loads_and_names_itself():
         engine = provider(name)
         assert isinstance(engine, Provider) and engine.name == name and engine.data_models
         assert engine.config_class is not None
+        assert isinstance(engine.limits, StorageLimits), f"{name} declares no limits"
         assert callable(engine.server) and engine.database_name("ns", engine.data_models[0])
 
 
@@ -71,4 +73,5 @@ def test_a_full_provider_fills_every_slot():
 
 def test_the_fake_engine_fills_the_same_contract():
     fake = importlib.import_module("tests.fake_engine").FakeProvider()
-    assert isinstance(fake, Provider) and isinstance(fake.semantics, Semantics)
+    assert isinstance(fake, Provider) and isinstance(fake.semantics, Semantics) and isinstance(fake.limits, StorageLimits)
+

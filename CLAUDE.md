@@ -20,6 +20,8 @@ python3 -m ganda orientdb probe                    # Docker (or ORIENT_URL / ORI
 python3 -m ganda orientdb run --iterations 20 --seed 1000 --workers 2
 python3 -m ganda orientdb mutate --trials 8 --seed 1 --tag before-change
 python3 -m ganda surrealdb doctor
+python3 -m ganda orientdb limits                   # what the engine can hold; the large profile on it
+python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the storage-engine stress mode
 ```
 
 ## Rules of the core
@@ -49,14 +51,31 @@ python3 -m ganda surrealdb doctor
   call core functions without naming it: `ganda/orientdb/predicates.py`,
   `generate.py`, `ganda.orientdb.Schema`. Core code never uses these.
 - **Use conventional names** (the README glossary). New concepts get the textbook term.
+- **Engine limits are the provider's, in its `limits` slot** (`core/limits.py`,
+  `ganda/orientdb/limits.py`: every number documented or probed). The large-data axes
+  (`large_row_probability`, `binary_probability`, `statements_per_request`) and the
+  `large` scale profile (`core/scale.py`) stay inside them; the core never hard-codes
+  a size an engine would reject. A new axis of the kind draws from a tail stream and
+  defaults to off; a new dataclass field that the legacy tree lacks goes into
+  `scripts/golden_dump.py`'s `GANDA_ONLY_FIELDS` so parity still hashes the behaviour.
+- **At the large scale the reference leg is off by design** (the profile's
+  `reference=False`; `--reference` turns it back on): the oracle is the pairwise
+  comparison of the data models, the state check samples (`--state-sample`), a
+  timeout is no answer (`CaseResult.timeouts`; at the default scale it stays the
+  error asymmetry it was, the finding seed 1010 has always carried), and bundles are
+  slim. A `BINARY`
+
+  column is a blob: written, stored, projected and read back, never compared or
+  indexed (`SCALAR_TYPES` excludes it; `predicates.draw` answers only the null tests).
 
 ## OrientDB
 
 `ganda/orientdb/RULES.md` holds the engine rules that keep the oracle sound (each one
 probed live). Layout: `dialect.py` (vocabulary), `physical_design.py`, `config.py`,
-`connection.py`, `mapping/`, `semantics.py`, `pivots.py`, `rewrites.py`,
+`limits.py` (what the engine can hold), `connection.py`, `mapping/`, `semantics.py`, `pivots.py`, `rewrites.py`,
 `concrete_syntax/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),
-`known_bugs.py` (O1..O45) with `java_hash.py`, `mutants.py`, `coverage.py` (JaCoCo),
+`known_bugs.py` (O1..O45 guarded; O46 documented, no guard) with `java_hash.py`, `mutants.py`, `coverage.py` (JaCoCo),
+
 `scripts/` (`probe_osql.py`, `coverage_report.py`).
 
 Adding a concrete syntax: a choice in the catalog of its module (`SYNTAXES` and
@@ -76,6 +95,11 @@ engine, every variant's text, bind variables, rows, mismatches), one
 empty list with `reference_mismatches` means every database agreed and only the
 reference disagreed, so check the provider's semantics before blaming the engine.
 `internal_error` is a raw exception from inside the engine and is a finding on its own.
+A triaged finding is written up under `issues/` (`O46-...md`: the version, a minimal
+reproduction, expected and actual, the analysis down to the engine's source, the scope,
+how Ganda met it), ready to file; the legacy drafts O1..O45 are in
+`../OrientDB/issue-drafts/`.
+
 
 ## Live verification (2026-10-05, OrientDB 3.2.56 in Docker)
 
@@ -93,3 +117,35 @@ the connection layer, the campaign, the oracle or the write phase:
 - `ganda surrealdb doctor`, `ganda arangodb doctor`, `ganda orientdb doctor`.
 
 Not run: the full 21-mutant benchmark at 8 trials, and long campaigns.
+
+## Live verification of the large scale (2026-10-07, OrientDB 3.2.57 in Docker)
+
+`orientdb:latest` is now 3.2.57, and FOUR pre-existing facts changed on it: the probe's
+O4 check (an equality through a DICTIONARY index answers every record) and three O18
+checks (a DESC walk of an index that ignores nulls answers rows) now fail, in the legacy
+tree's probe as well -- the engine, not the port. The O4 / O18 guards therefore withhold
+variants 3.2.57 answers correctly; re-probe and decide whether to retire them or pin the
+image. Everything else below held.
+
+- `ganda orientdb probe`: every other fact holds, the new "large data" section included
+  (BINARY round trip and its scan-vs-index equality, the 10240-byte index key, a 4 MB
+  string / 3 MB binary / 200k-element list through the 64 MB body bound, 500-statement
+  bulk scripts, bulk id resolution, timeouts).
+- `run --iterations 12 --seed 1000 --workers 2` with every axis on: 2834 cases as
+  recorded, 0 setup asymmetries, 96 writes, the one finding on seed 1010 (an error
+  asymmetry that is a timeout, now also counted under `timeouts`).
+- `run --scale large --iterations 1 --seed 7` at 300-600 nodes and 500-1500 edges per
+  type with every axis on: 1466 nodes / 2556 edges in three data models, setup through
+  500-statement scripts in seconds, state verified by counts and a sample, 64 cases, 4
+  writes, 0 findings, 5 relational three-hop variants timed out (60 s) and left out,
+  468 s in all.
+- `run --scale large --iterations 1 --seed 1` at the full profile with every axis on
+  (7645 nodes, 16000 edges, a 5717-edge hub, 82 grown values, 4.7 MB of strings, 5
+  binary columns, per data model): the three setups and state checks in about six
+  minutes, 64 cases (95 % asserting), 4 writes, 0 findings, 3 timeouts, 935 s in all.
+  Offline the same seed builds in 3.7 s and renders each plan in under a second; the
+  10k-row seed 2 draws its 52 cases in 1.9 s (45 s before the `IN` index in
+  `semantics.py`, and minutes before `sums_exactly` learned to count paths).
+
+
+

@@ -21,6 +21,7 @@ from ganda.core.ast import traversal as traversal_ast
 from ganda.core.ast import write as write_ast
 from ganda.core.ast.predicates import Compound
 from ganda.core.data_generator import BOUNDARY_VALUES, GeneratorConfig
+from ganda.core.limits import StorageLimits
 from ganda.core.model import WriteForm
 from ganda.core.mutation.mutants import INSTANCE_MUTANTS
 from ganda.core.provider import EngineError, Provider, Semantics, Server, Session
@@ -183,11 +184,16 @@ class FakeSession(Session):
             raise EngineError(f"unknown query kind {kind!r}")
         return self.tamper(rows) if self.tamper else rows
 
-    def read_nodes(self, table: str) -> dict:
-        return {n.record_id: dict(n.values) for n in self.instance.nodes_of(table)}
+    def read_nodes(self, table: str, ids=None) -> dict:
+        rows = {n.record_id: dict(n.values) for n in self.instance.nodes_of(table)}
+        return rows if ids is None else {rid: r for rid, r in rows.items() if rid in set(ids)}
 
-    def read_edges(self, data_model: str, instance, edge_type) -> list:
-        return [(e.record_id, e.from_record, e.to_record, {k: v for k, v in e.values.items() if v is not None}) for e in self.instance.edges_of(edge_type.name)]
+    def read_edges(self, data_model: str, instance, edge_type, sources=None) -> list:
+        edges = self.instance.edges_of(edge_type.name)
+        if sources is not None:
+            wanted = set(sources)
+            edges = [e for e in edges if e.from_record in wanted]
+        return [(e.record_id, e.from_record, e.to_record, {k: v for k, v in e.values.items() if v is not None}) for e in edges]
 
     def ping(self):
         return [{"ok": 1}]
@@ -417,7 +423,21 @@ class FakeProvider(Provider):
     title = "Fake"
     data_models = DATA_MODELS
     config_class = GeneratorConfig
+    # small bounds, so a large-scale test stays quick and every cap is reached
+    limits = StorageLimits(
+        max_string_chars=20000,
+        max_binary_bytes=20000,
+        max_list_items=2000,
+        max_fields_per_record=40,
+        max_record_bytes=64 * 1024,
+        max_rows_per_table=100000,
+        max_edges_per_node=50,
+        max_index_key_bytes=1024,
+        max_request_bytes=256 * 1024,
+        max_statements_per_request=50,
+    )
     semantics = FakeSemantics()
+
     pivots = _Pivots
     physical_design = _PhysicalDesign
     mappers = {data_model: (lambda instance: [Load(dataclasses.replace(instance))]) for data_model in DATA_MODELS}

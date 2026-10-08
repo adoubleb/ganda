@@ -4,6 +4,7 @@ identity, no query supply yet. `ganda arangodb doctor` exercises what is here;
 from __future__ import annotations
 
 from ganda.core.data_generator import GeneratorConfig
+from ganda.core.limits import StorageLimits
 from ganda.core.provider import Provider
 
 
@@ -12,7 +13,10 @@ class ArangoDBProvider(Provider):
     title = "ArangoDB"
     data_models = ("doc", "graph", "rel")
     config_class = GeneratorConfig
+    # the conservative bounds until this engine's are probed (`ganda arangodb limits`)
+    limits = StorageLimits.conservative()
     has_generators = False
+
 
     def server(self, args=None):
         from ganda.arangodb.connection import ArangoServer

@@ -23,6 +23,7 @@ cancelled-junk block.
 """
 from __future__ import annotations
 
+import base64
 import json
 from dataclasses import dataclass, field
 from typing import Any
@@ -54,6 +55,7 @@ from ganda.core.model import (
     WriteForm,
 )
 from ganda.orientdb.dialect import ORIENT_TYPES, UNIQUE_KINDS
+from ganda.orientdb.limits import LIMITS
 
 
 # --- setup plan vocabulary ---------------------------------------------------------------
@@ -318,6 +320,8 @@ def _free_value(ftype: FieldType, values: list):
     both values under a unique index)."""
     if ftype is FieldType.STRING:
         return JUNK_MARKER
+    if ftype is FieldType.BINARY:
+        return base64.b64encode(JUNK_MARKER.encode()).decode("ascii")
     present = [v for v in values if v is not None]
     if ftype is FieldType.INT:
         candidates = [2**61 + 1, -(2**61) - 1, 424242, -424242]
@@ -413,6 +417,76 @@ def _groups(data: list) -> list:
     return runs
 
 
+# the body one request may carry: half the server's bound, so a chunk's statements
+# and their encoding never near it
+_REQUEST_BUDGET = LIMITS.max_request_bytes // 2
+
+
+def _step_bytes(step: Sql) -> int:
+    """About how many bytes the step adds to a request (its parameters' JSON)."""
+    return len(step.command) + len(json.dumps(encode_refs(step.params), ensure_ascii=False, default=repr))
+
+
+def _chunks(run: list, size: int):
+    """The run in pieces of at most `size` statements (every statement when `size`
+    is 0) whose encodings stay under the request budget; a step too big for the
+    budget on its own travels alone."""
+    if not size:
+        yield run
+        return
+    chunk: list = []
+    used = 0
+    for step in run:
+        cost = _step_bytes(step)
+        if chunk and (len(chunk) >= size or used + cost > _REQUEST_BUDGET):
+            yield chunk
+            chunk, used = [], 0
+        chunk.append(step)
+        used += cost
+    if chunk:
+        yield chunk
+
+
+def _batched(run: list) -> list:
+    """The run as `/batch` requests, a step carrying a map or list parameter running as
+    a plain command between two batches."""
+    out: list = []
+    batchable: list = []
+    for step in run:
+        if _has_complex_param(step):
+            if batchable:
+                out.append(Batch(batchable, transaction=True))
+                batchable = []
+            out.append(step)
+        else:
+            batchable.append(step)
+    if batchable:
+        out.append(Batch(batchable, transaction=True))
+    return out
+
+
+def _script(run: list, transactional: bool) -> Script:
+    """The run as one script: `BEGIN; ...; COMMIT;` when `transactional`, else the
+    statements as they are (each auto-committed, the plain door's bulk form); every
+    parameter renamed per statement, every capture a `LET`."""
+    params: dict = {}
+    parts = ["BEGIN;"] if transactional else []
+    captures: dict = {}
+    for i, step in enumerate(run):
+        text = step.command
+        for k, v in step.params.items():
+            nk = f"s{i}_{k}"
+            params[nk] = v
+            text = _rename_param(text, k, nk)
+        if step.capture:
+            parts.append(f"LET $c{i} = {text};")
+            captures[f"$c{i}"] = step.capture
+        else:
+            parts.append(f"{text};")
+    parts.append("COMMIT; RETURN 1;" if transactional else "RETURN 1;")
+    return Script(" ".join(parts), params, captures)
+
+
 def wrap_data(data: list, form: WriteForm) -> list:
     """The data steps through the form's transaction door: plain commands, `/batch`
     requests with `transaction: true`, or `BEGIN ... COMMIT` scripts. A run of steps
@@ -421,44 +495,28 @@ def wrap_data(data: list, form: WriteForm) -> list:
     map or list parameter into its `toString()` (probed: `{x=1}`), so a step carrying
     one runs as a plain command between two batches. A script or batch answers with
     the LAST command's result only, so captures inside one are re-read by the connection layer
-    (`Script.captures` / the batch steps' `capture`)."""
-    if form.transaction == "none" or not data:
+    (`Script.captures` / the batch steps' `capture`).
+
+    With `form.chunk_size` (the `statements_per_request` axis) every run travels in
+    pieces of at most that many statements, each under the request budget, through
+    the door's bulk form: a transactional script per piece, a batch per piece, or --
+    the plain door -- a NON-transactional script per piece, whose statements the engine
+    auto-commits one by one as it would plain commands (probed: 500 `LET $c = INSERT`
+    statements in 0.15 s)."""
+    if (form.transaction == "none" and not form.chunk_size) or not data:
         return data
     out: list = []
     for run in _groups(data):
         if len(run) == 1 and not isinstance(run[0], Sql):
             out.extend(run)
             continue
-        if form.transaction == "batch":
-            batchable: list = []
-            for step in run:
-                if _has_complex_param(step):
-                    if batchable:
-                        out.append(Batch(batchable, transaction=True))
-                        batchable = []
-                    out.append(step)
-                else:
-                    batchable.append(step)
-            if batchable:
-                out.append(Batch(batchable, transaction=True))
-            continue
-        params: dict = {}
-        parts = ["BEGIN;"]
-        captures: dict = {}
-        for i, step in enumerate(run):
-            text = step.command
-            for k, v in step.params.items():
-                nk = f"s{i}_{k}"
-                params[nk] = v
-                text = _rename_param(text, k, nk)
-            if step.capture:
-                parts.append(f"LET $c{i} = {text};")
-                captures[f"$c{i}"] = step.capture
+        for chunk in _chunks(run, form.chunk_size):
+            if form.transaction == "batch":
+                out.extend(_batched(chunk))
             else:
-                parts.append(f"{text};")
-        parts.append("COMMIT; RETURN 1;")
-        out.append(Script(" ".join(parts), params, captures))
+                out.append(_script(chunk, transactional=form.transaction == "script"))
     return out
+
 
 
 def _rename_param(text: str, old: str, new: str) -> str:

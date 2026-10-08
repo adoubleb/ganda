@@ -177,6 +177,16 @@ equality / IN predicate through a DICTIONARY index, which keeps one record per k
 every other record holding the key is dropped. The generator demotes a DICTIONARY
 index over duplicate values to NOTUNIQUE, so the shape only arises with
 `--keep-dictionary-duplicates`; the guard is the second line.
+
+O46 (`issues/O46-binary-equality-scan-vs-index.md`, found by the large-data probe on
+3.2.57): `b = <base64 text>` on a BINARY column matches nothing on a scan -- the new
+executor's `OQueryOperatorEquals.equals` decodes the text to a byte[] and then compares
+the arrays by identity -- while an index on the column answers it (the key is the
+decoded bytes, compared by content); `IN` and `<>` follow, and `UPDATE` / `DELETE
+... WHERE b = ...` touch records only when an index exists. No guard: the model never
+compares a BINARY column (`SCALAR_TYPES` excludes it, `predicates.draw` answers only
+the null tests) and never indexes one (`data_generator._without_blob_indexes`); the
+probe records the fact.
 """
 from __future__ import annotations
 
