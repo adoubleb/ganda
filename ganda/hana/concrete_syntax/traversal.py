@@ -29,8 +29,9 @@
                      `applicable`); the `join` form answers the same shape.
 
 The `strt` alias (not `start`): START is a reserved word in HANA. An rdf float value is
-read through `STR` and an int aliased `__int` (`_rdf_proj`): a SPARQL double term is
-serialized lossily (H1) and SPARQL_TABLE surfaces a nullable number as NVARCHAR.
+read through `STR` and an int or bool aliased `__int` / `__bool` (`_rdf_proj`,
+`agg_proj`): a SPARQL double term is serialized lossily (H1) and SPARQL_TABLE surfaces a
+value that may be unbound as NVARCHAR text (a number's digits, a boolean `"0"` / `"1"`).
 
 A reach question (the distinct records within k hops along one self-typed edge type,
 the start included) is a union of the k + 1 levels on `rel` and a sequence of k
@@ -48,7 +49,7 @@ from __future__ import annotations
 from ganda.core.ast.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, TraversalQuery
 from ganda.core.model import FieldType, Schema
 from ganda.hana.concrete_syntax import document
-from ganda.hana.concrete_syntax.predicate import REL, UNKNOWN_VAR, Names, fields_used, filter_expr, optionals, sparql_filter, sql, var
+from ganda.hana.concrete_syntax.predicate import REL, Names, fields_used, filter_expr, optionals, sparql_filter, sql, var
 from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT
 
 SYNTAXES = {
@@ -68,6 +69,12 @@ def _target_type(schema: Schema, hop) -> str:
 def applicable(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) -> bool:
     if data_model == "doc":
         if any(document.compares_list_text(p) for p in q.predicates):
+            return False
+        # a LIST membership is a subquery over an element view (UNNEST); in a traversal
+        # the query also joins the UNNEST edge views, and the Document Store then refuses
+        # the EXISTS ("unsupported form of subquery with UNNEST", B6) and crashes on the
+        # CONTAINSALL count (a correlated scalar subquery over UNNEST, H2) in either form
+        if any(document.asks_membership(p) for p in q.predicates):
             return False
         # the `scalar` form of an aggregate or a reach count is a correlated scalar
         # subquery over the collection views; the Document Store crashes on it (an
@@ -279,14 +286,35 @@ def _proj_ftype(q: TraversalQuery, schema: Schema) -> "FieldType | None":
     return schema.field(tgt, q.field).type
 
 
+def guarded(fn: str, var: str) -> str:
+    """SUM / AVG over `var`, unbound where no value is present (SPARQL answers 0 there,
+    SQL NULL). The else branch is MAX over the same values, unbound over none: an
+    aggregate, so the expression is legal in a grouped SELECT, where a bare never-bound
+    variable is not (SPARQL 1.1 11.4; HANA: "Non GROUP BY variable in SELECT")."""
+    return f"IF(COUNT({var}) > 0, {fn}({var}), MAX({var}))"
+
+
+def agg_proj(expr: str, ftype: "FieldType | None", alias: str) -> str:
+    """An aggregate expression as a SELECT-list item carrying the decode suffix of its
+    answer's type: a FLOAT through `STR` (H1), an INT `__int` and a BOOL `__bool`
+    (SPARQL_TABLE answers a value that may be unbound as NVARCHAR text)."""
+    if ftype is FieldType.FLOAT:
+        return f"(STR({expr}) AS ?{alias}__float)"
+    suffix = {FieldType.INT: "__int", FieldType.BOOL: "__bool"}.get(ftype, "")
+    return f"({expr} AS ?{alias}{suffix})"
+
+
 def _rdf_proj(ftype: "FieldType | None", var: str, alias: str) -> str:
     """A value variable as a SPARQL SELECT-list item carrying its decode suffix: a FLOAT
-    through `STR` (`__float`, issues-draft/H1), an INT `__int` (SPARQL_TABLE surfaces a
-    numeric var as an NVARCHAR column otherwise), a LIST `__json`; else the bare var."""
+    through `STR` (`__float`, issues-draft/H1), an INT `__int` and a BOOL `__bool`
+    (SPARQL_TABLE surfaces a var that may be unbound as an NVARCHAR column otherwise:
+    `"7"`, `"0"`), a LIST `__json`; else the bare var."""
     if ftype is FieldType.FLOAT:
         return f"(STR(?{var}) AS ?{alias}__float)"
     if ftype is FieldType.INT:
         return f"(?{var} AS ?{alias}__int)"
+    if ftype is FieldType.BOOL:
+        return f"(?{var} AS ?{alias}__bool)"
     if ftype is FieldType.LIST:
         return f"(?{var} AS ?{alias}__json)"
     return f"?{var}" if var == alias else f"(?{var} AS ?{alias})"
@@ -348,15 +376,15 @@ def _rdf(q: TraversalQuery, schema: Schema, syntax: str, pull_up: bool) -> str:
         k = len(q.hops)
         if proj in ("count", "distinct_count"):
             body = f"{head} OPTIONAL {{ SELECT ?s ?t{k} WHERE {{ {path} }} }}"
-            agg, vcol = f"COUNT({'DISTINCT ' if proj == 'distinct_count' else ''}?t{k})", "v"
+            item = f"(COUNT({'DISTINCT ' if proj == 'distinct_count' else ''}?t{k}) AS ?v)"
         else:
             body = f"{head} OPTIONAL {{ SELECT ?s ?w WHERE {{ {path} {_rdf_value_pattern(q, '?w')} }} }}"
             fn = proj.lstrip("e") if proj in EDGE_AGG_PROJECTIONS else proj
-            agg = f"IF(COUNT(?w) > 0, SUM(?w), {UNKNOWN_VAR})" if fn == "sum" else f"{fn.upper()}(?w)"
-            # max/min keep the field's type; sum of a float is a double -- STR for a float
-            ft = _proj_ftype(q, schema)
-            agg, vcol = (f"STR({agg})", "v__float") if ft is FieldType.FLOAT else (agg, "v__int" if ft is FieldType.INT else "v")
-        select, tail = f"SELECT ?id{keep} ({agg} AS ?{vcol})", group
+            agg = guarded("SUM", "?w") if fn == "sum" else f"{fn.upper()}(?w)"
+            # max/min keep the field's type; sum of a float is a double
+            item = agg_proj(agg, _proj_ftype(q, schema), "v")
+        vcol = item.rsplit("?", 1)[-1].rstrip(")")
+        select, tail = f"SELECT ?id{keep} {item}", group
     else:
         path = _rdf_hops(q, schema, shape, native)
         value = _rdf_value_pattern(q, "?v")

@@ -188,3 +188,60 @@ def test_every_plan_case_and_write_renders(seed):
             st = E.write_syntax.render(q, syntaxes[dm][0], rw, dm, cur, after)
             assert st.display() is not None
         cur = after
+
+
+# --- what the live campaign of 2026-10-09 (campaign-20261009-095838) turned up ---------------
+
+
+def test_the_state_check_reads_a_double_from_its_exact_text():
+    from ganda.hana.connection import HanaSession
+
+    s = HanaSession(None, "db", "rdf")
+    s.types = {"e6": {"f1": "float", "l": "list"}, "n1": {"f2": "int"}}
+    # STR prints `%.17g`: an integral double has no point and no exponent, while its
+    # term is the rounded `9.0072e+15` (H1)
+    assert s._exact("e6", "f1", 9.0072e15, "9007199254740992") == 9007199254740992.0
+    assert s._exact("e6", "f1", 3.14159, "3.1415926535897931") == 3.141592653589793
+    # an integer element of a LIST keeps its own type
+    assert s._exact("e6", "l", 5, "5") == 5 and isinstance(s._exact("e6", "l", 5, "5"), int)
+    assert s._exact("n1", "f2", 7, "7") == 7
+
+
+@pytest.mark.parametrize("seed", range(1, 6))
+def test_no_sparql_select_list_names_a_never_bound_variable(seed):
+    """`?ganda_unknown` outside an aggregate in a grouped SELECT is refused ("Non GROUP BY
+    variable in SELECT", SPARQL 1.1 11.4); the sentinel belongs in a FILTER only."""
+    import re
+
+    schema, instance, rng = build(seed, CFG, E)
+    clause = re.compile(r"SELECT\s+(.*?)\s+(?:WHERE|FROM)\b", re.S)
+    for c in all_cases(rng, schema, instance, cfg=CFG):
+        for variant, text in c.queries.items():
+            if variant.startswith("rdf"):
+                for m in clause.finditer(text):
+                    assert "ganda_unknown" not in m.group(1), (variant, text)
+
+
+def test_the_doc_views_ask_containsall_without_a_scalar_subquery():
+    from ganda.hana.concrete_syntax.document import NAMES
+    from ganda.hana.concrete_syntax.predicate import sql
+
+    p = _leaf("l", "CONTAINSALL", [1, 2], "list")
+    assert "COUNT(DISTINCT" in sql(p, "t", "n1")
+    # over the doc views the count is a correlated scalar subquery over UNNEST (H2)
+    text = sql(p, "t", "n1", names=NAMES)
+    assert "COUNT" not in text and text.count("EXISTS") == 2
+    assert positional(text, {"bl": [1, 2]})[1] == [1, 2]
+
+
+def test_a_doc_traversal_withholds_a_list_membership():
+    from ganda.core.ast.traversal import Hop, TraversalQuery
+    from ganda.hana.concrete_syntax import traversal
+
+    member = Predicate("target", "l", "CONTAINS", "bl", 1, True, "list")
+    q = TraversalQuery("n1", (Hop("e1", "out", member),), "ids")
+    # the Document Store refuses an EXISTS over an element view next to the UNNEST edge
+    # views (B6) and crashes on the CONTAINSALL count (H2)
+    assert not any(traversal.applicable(q, None, "doc", s) for s in traversal.SYNTAXES["doc"])
+    plain = TraversalQuery("n1", (Hop("e1", "out", _leaf("f", ">", 1)),), "ids")
+    assert all(traversal.applicable(plain, None, "doc", s) for s in traversal.SYNTAXES["doc"])

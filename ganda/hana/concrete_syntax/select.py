@@ -49,9 +49,9 @@ from ganda.core.ast.select import SelectQuery, column, notnull_fields
 from ganda.core.model import FieldType, Instance, Schema
 from ganda.hana import rewrites as _rewrites
 from ganda.hana.concrete_syntax import document, tx as _tx
-from ganda.hana.concrete_syntax.methods import METHODS, method_fn, sparql_text, sql_text  # noqa: F401
-from ganda.hana.concrete_syntax.predicate import REL, UNKNOWN_VAR, Names, sparql_filter, sql
-from ganda.hana.concrete_syntax.traversal import sparql_table
+from ganda.hana.concrete_syntax.methods import METHODS, method_fn, result_type, sparql_text, sql_text  # noqa: F401
+from ganda.hana.concrete_syntax.predicate import REL, Names, sparql_filter, sql
+from ganda.hana.concrete_syntax.traversal import agg_proj, guarded, sparql_table
 from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT
 
 FILTERS = ("plain", "rw", "rev", "arith")
@@ -108,7 +108,19 @@ def collection_asks(q: SelectQuery, schema: Schema, pred) -> bool:
     method, no median, and a filter whose leaves it renders."""
     if q.kind in ("join", "method") or (q.kind == "agg" and q.fn == "median"):
         return False
+    if _string_extremum(q, schema):
+        return False
     return document.doc_filter_ok(pred)
+
+
+def _string_extremum(q: SelectQuery, schema: "Schema | None") -> bool:
+    """A MAX / MIN over a string: the collection query takes them over numbers only ("max
+    supports only numeric values", an error code 129); the views answer it in SQL. Without
+    a schema (`base_data_models`) the type is unknown and every MAX / MIN counts as one,
+    so a case the views cannot ask is marked partial rather than missing its doc base."""
+    if q.fn not in ("max", "min") or q.kind not in ("agg", "group"):
+        return False
+    return schema is None or _ftype(schema, q, q.field if q.kind == "agg" else q.arg) is FieldType.STRING
 
 
 def _views_ask(q: SelectQuery, pred) -> bool:
@@ -210,11 +222,14 @@ def _sparql_proj(ftype: "FieldType | None", var: str, alias: str) -> str:
     (issues-draft/H1), but `STR` carries the exact lexical form, which the session parses
     (`__float`). An INT is aliased `?alias__int`: SPARQL_TABLE surfaces a possibly-unbound
     numeric variable as an NVARCHAR column (`"7"` not `7`), which the suffix decodes back; it
-    is a no-op on the JSON-term path. A LIST stays its JSON text (`__json`)."""
+    is a no-op on the JSON-term path. A BOOL is aliased `?alias__bool` for the same reason
+    (SPARQL_TABLE answers it as `"0"` / `"1"`). A LIST stays its JSON text (`__json`)."""
     if ftype is FieldType.FLOAT:
         return f"(STR(?{var}) AS ?{alias}__float)"
     if ftype is FieldType.INT:
         return f"(?{var} AS ?{alias}__int)"
+    if ftype is FieldType.BOOL:
+        return f"(?{var} AS ?{alias}__bool)"
     if ftype is FieldType.LIST:
         return f"?{alias}__json"
     return f"?{var}" if var == alias else f"(?{var} AS ?{alias})"
@@ -414,8 +429,9 @@ def _sparql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, position: st
         bind = "v__json" if ft is FieldType.LIST else "v"
         select, body = f"SELECT ?id {_sparql_proj(ft, bind, 'v')}", f"{records} {opt(q.field, '?' + bind)}"
     elif kind == "method":
-        expr = sparql_text(q.fn, _ftype(schema, q, q.field), f"?r_{q.field}")
-        select, body = f"SELECT ?id ({expr} AS ?v)", records
+        ft = _ftype(schema, q, q.field)
+        expr = sparql_text(q.fn, ft, f"?r_{q.field}")
+        select, body = f"SELECT ?id {agg_proj(expr, result_type(q.fn, ft), 'v')}", records
     elif kind == "agg":
         f = q.field
         ft = _ftype(schema, q, f)
@@ -444,29 +460,28 @@ def _sparql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, position: st
         else:
             fn = q.fn.upper()
             if q.fn == "count":
-                agg, alias = "COUNT(?w)", "v"
+                item = "(COUNT(?w) AS ?v)"
             elif q.fn in ("max", "min"):
-                # max / min answer the field's own type; a float needs STR
-                agg, alias = f"{fn}(?w)", ("v__float" if ft is FieldType.FLOAT else "v")
+                # max / min answer the field's own type
+                item = agg_proj(f"{fn}(?w)", ft, "v")
             else:  # sum, avg: avg is always a double; sum of a float is a double
-                agg = f"IF(COUNT(?w) > 0, {fn}(?w), {UNKNOWN_VAR})"
-                alias = "v__float" if (q.fn == "avg" or ft is FieldType.FLOAT) else "v"
-            agg = f"STR({agg})" if alias == "v__float" else agg
-            select, body = f"SELECT ({agg} AS ?{alias})", f"{records} {opt(f, '?w')}"
+                item = agg_proj(guarded(fn, "?w"), FieldType.FLOAT if q.fn == "avg" else ft, "v")
+            select, body = f"SELECT {item}", f"{records} {opt(f, '?w')}"
     elif kind == "group":
-        names = ("?k", "?k2")[: len(q.fields)]
-        opts = " ".join(opt(k, name) for k, name in zip(q.fields, names))
+        names = ("k", "k2")[: len(q.fields)]
+        opts = " ".join(opt(k, "?" + name) for k, name in zip(q.fields, names))
+        keys = " ".join(_sparql_proj(_ftype(schema, q, k), name, name) for k, name in zip(q.fields, names))
         if q.fn == "count_star":
-            agg = "COUNT(*)"
+            item = "(COUNT(*) AS ?v)"
         elif q.fn == "count":
-            agg = "COUNT(?a)"
+            item = "(COUNT(?a) AS ?v)"
         elif q.fn in ("max", "min"):
-            agg = f"{q.fn.upper()}(?a)"
+            item = agg_proj(f"{q.fn.upper()}(?a)", _ftype(schema, q, q.arg), "v")
         else:
-            agg = f"IF(COUNT(?a) > 0, SUM(?a), {UNKNOWN_VAR})"
+            item = agg_proj(guarded("SUM", "?a"), _ftype(schema, q, q.arg), "v")
         aopt = "" if q.fn == "count_star" else opt(q.arg, "?a")
-        select, body = f"SELECT {' '.join(names)} ({agg} AS ?v)", f"{records} {opts} {aopt}"
-        tail = f" GROUP BY {' '.join(names)} {HAVING}"
+        select, body = f"SELECT {keys} {item}", f"{records} {opts} {aopt}"
+        tail = f" GROUP BY {' '.join('?' + n for n in names)} {HAVING}"
     elif kind == "distinct":
         names = ("v", "w")[: len(q.fields)]
         projs = " ".join(_sparql_proj(_ftype(schema, q, f), n, n) for f, n in zip(q.fields, names))

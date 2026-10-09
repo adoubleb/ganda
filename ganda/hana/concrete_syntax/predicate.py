@@ -38,6 +38,9 @@ class Names:
     (`concrete_syntax.document`) have names of their own."""
 
     prefix = ""
+    # CONTAINSALL as a count of the matching elements (a correlated scalar subquery);
+    # off, as a conjunction of one EXISTS per element
+    count_membership = True
 
     def table(self, t: str) -> str:
         return self.prefix + t
@@ -71,6 +74,10 @@ def sql(p, alias: str = "", table: str = "", key: str = "id", names: Names = REL
             return f"EXISTS (SELECT 1 FROM {child} x WHERE {member} AND {cond})"
         if p.op == "CONTAINSANY":
             return f"EXISTS (SELECT 1 FROM {child} x WHERE {member} AND x.v IN :{p.bind})"
+        if not names.count_membership:
+            if not p.pivot:
+                return "1 = 1"
+            return "(" + " AND ".join(f"EXISTS (SELECT 1 FROM {child} x WHERE {member} AND x.v = :{p.bind}__{k})" for k in range(len(p.pivot))) + ")"
         return f"(SELECT COUNT(DISTINCT x.v) FROM {child} x WHERE {member} AND x.v IN :{p.bind}) = {len(set(p.pivot))}"
     expr = col
     if p.arith is not None:

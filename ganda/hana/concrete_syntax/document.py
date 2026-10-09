@@ -36,6 +36,9 @@ from ganda.hana.concrete_syntax.predicate import Names
 
 class _DocNames(Names):
     prefix = "v_"
+    # the CONTAINSALL count is a correlated scalar subquery over an UNNEST element view,
+    # which crashes the Document Store (H2); one EXISTS per element asks the same
+    count_membership = False
 
 
 NAMES = _DocNames()
@@ -146,6 +149,19 @@ def with_views(schema: Schema, text: str) -> str:
         return text
     defs = ", ".join(view_definition(schema, v) for v in used)
     return f"WITH {defs} {text}"
+
+
+def asks_membership(p) -> bool:
+    """Whether a tree asks a LIST membership (CONTAINS, CONTAINSANY, CONTAINSALL), which
+    the views render as a subquery over an UNNEST element view."""
+    if p is None:
+        return False
+    for leaf in p.leaves():
+        if leaf.op in ("CONTAINS", "CONTAINSANY", "CONTAINSALL"):
+            return True
+        if leaf.sub is not None and asks_membership(leaf.sub[2]):
+            return True
+    return False
 
 
 def compares_list_text(p) -> bool:

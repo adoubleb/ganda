@@ -49,6 +49,11 @@ def method_fn(template: str, ftype: FieldType):
     return CATALOG[ftype][template][2]
 
 
+def result_type(template: str, ftype: FieldType) -> FieldType:
+    """The type of a method's answer: the field's own, but a string's length is an int."""
+    return FieldType.INT if template == "length({f})" else ftype
+
+
 def sql_text(template: str, ftype: FieldType, expr: str) -> str:
     return CATALOG[ftype][template][0].format(f=expr)
 

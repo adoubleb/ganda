@@ -250,6 +250,15 @@ def _worker(engine, worker_id: int, seeds: list, cfg: GeneratorConfig, args, sha
                         server.start()
                 if attempt == 1:
                     break
+            except EngineError as e:
+                # an engine error outside any compared statement (resetting a database,
+                # say): this seed is lost, but the worker goes on to the next one rather
+                # than ending its thread for the rest of the campaign
+                with shared.lock:
+                    shared.counters["seed_errors"] += 1
+                print(f"[seed {seed}] SKIPPED: {e}", flush=True)
+                _drop(engine, server_box["server"], ns)
+                break
         if shared.coverage:
             shared.coverage.after_seed(seed)
 

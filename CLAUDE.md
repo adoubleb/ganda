@@ -117,6 +117,13 @@ is ~180 ms/statement, so a full campaign is 20-30 min; start with `--select-case
 --traversal-cases 4 --write-cases 2`). A probe fact that fails changes the provider, never
 the probe -- unless the probe's own SQL tested a form the provider never emits.
 
+The offline stand-in answers rdf the way HANA does (`tests/hana/offline.py`, `_as_hana`):
+a double term rounded to `%g` (H1) and, through SPARQL_TABLE, a stored long / double /
+boolean as text (HANA types a column after the datatypes its predicate holds across the
+graph). So a value projection missing its decode suffix or its `STR` fails offline, not
+live. The provider bugs of campaign-20261009-095838 (`findings/README.md`, C4-C9) are
+pinned in `tests/hana/test_units.py`.
+
 ## Triage of a finding
 
 `bugs/<tag>-<seed>-<generator>-<shape>/` holds `README.md`, `queries.json` (the

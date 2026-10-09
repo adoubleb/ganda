@@ -16,7 +16,12 @@ can check. What the translation does:
   '$.f')`, `UNNEST "e" AS "l"` a `json_each`, `FOR ANY ... SATISFIES ... END` an
   EXISTS over `json_each`, `UPDATE ... SET / UNSET` a `json_set` / `json_remove`;
 - rdf: an rdflib Dataset; a SPARQL_TABLE text runs its SPARQL; a transaction is a
-  snapshot of the graph restored on rollback.
+  snapshot of the graph restored on rollback. The answers are shaped as HANA's live
+  ones are (`_as_hana`): a double term is serialized to six significant figures (H1),
+  and through SPARQL_TABLE a stored value (long, double, boolean) comes back as its
+  text, a boolean as "1" / "0" -- HANA does so for a predicate holding several
+  datatypes across the graph; the stand-in assumes every predicate does, so every value
+  projection must carry its decode suffix (or read a double through STR).
 """
 from __future__ import annotations
 
@@ -43,6 +48,27 @@ def _bools(v):
 
 
 _MARK_STEP = re.compile(r"^(.*?) INSERT \{ GRAPH (<[^>]+>) \{ \?n <urn:ganda:w> true \} \} WHERE (\{.*\})$", re.S)
+_XSD = "http://www.w3.org/2001/XMLSchema#"
+
+
+def _as_hana(response: str, table: bool) -> str:
+    """rdflib's SPARQL JSON results as HANA answers them: an `xsd:double` term printed
+    `%g` (H1: STR carries the exact form); with `table` (SPARQL_TABLE) a value of a
+    datatype the graph stores (long, double, boolean) as plain text, a boolean as "1" /
+    "0" -- HANA types a column after the datatypes its predicate holds across the whole
+    graph, text when they differ, and a campaign's field predicates (`p:f1`) are shared by
+    classes of different types; a computed count (`xsd:integer`) stays typed."""
+    doc = json.loads(response)
+    for b in doc.get("results", {}).get("bindings", []):
+        for term in b.values():
+            dt = term.get("datatype")
+            if dt in (_XSD + "double", _XSD + "float"):
+                term["value"] = "%g" % float(term["value"])
+            if table and dt in (_XSD + "long", _XSD + "double", _XSD + "float", _XSD + "boolean"):
+                if dt == _XSD + "boolean":
+                    term["value"] = "1" if term["value"] in ("true", "1") else "0"
+                del term["datatype"]
+    return json.dumps(doc)
 
 
 class _Avg:
@@ -346,7 +372,7 @@ class OfflineSession(HanaSession):
             m = re.match(r"^SELECT \* FROM SPARQL_TABLE\('(.*)'\)$", text, re.S)
             if not m:
                 raise EngineError(f"the offline rdf session runs SPARQL_TABLE texts only: {text[:200]}")
-            return self.sparql(m.group(1).replace("''", "'"))
+            return self.sparql(m.group(1).replace("''", "'"), table=True)
         if self.data_model == "rel":
             m = _UPSERT.match(text)
             if m:
@@ -400,7 +426,7 @@ class OfflineSession(HanaSession):
         for r in rows:
             self.sql(text, r, rows=False)
 
-    def sparql(self, text: str, update: bool = False):
+    def sparql(self, text: str, update: bool = False, table: bool = False):
         text = self._bind_graph(text)
         try:
             m = _MARK_STEP.match(text) if update else None
@@ -417,7 +443,7 @@ class OfflineSession(HanaSession):
                 self.ds.update(text)
                 return []
             result = self.ds.query(text)
-            return sparql_rows(result.serialize(format="json").decode("utf-8"))
+            return sparql_rows(_as_hana(result.serialize(format="json").decode("utf-8"), table))
         except Exception as e:  # noqa: BLE001 -- rdflib raises many kinds
             raise EngineError(f"rdflib: {type(e).__name__}: {e}\n{text[:3000]}") from e
 

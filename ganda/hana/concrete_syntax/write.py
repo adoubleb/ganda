@@ -341,7 +341,9 @@ def _doc(q: WriteQuery, sp: WriteSyntax, pred, schema: Schema, before: Instance,
     else:
         st.steps.append(Step(f"UPDATE {t} {change}{w}", params, "count" if counted else "run"))
     if q.returning == "after":
-        st.steps.append(Step(f"SELECT {document.path('id')} AS id, {path} AS {alias} FROM {t} WHERE {document.path('id')} IN :captured", role="rows_captured"))
+        # a collection filter takes only cast parameters ("please specify the types for
+        # parameter"): the session expands CAPTURED into one cast marker per captured id
+        st.steps.append(Step(f"SELECT {document.path('id')} AS id, {path} AS {alias} FROM {t} WHERE {document.path('id')} IN {CAPTURED}", role="rows_captured"))
     return st
 
 
@@ -391,8 +393,10 @@ def _rdf(q: WriteQuery, sp: WriteSyntax, pred, schema: Schema) -> Statements:
         match += f" ?n p:{f} ?ganda_present ."
     ftype = _ftype(q, schema) if f else None
     v = "?v__json" if ftype is FieldType.LIST else "?v"
+    # a double read back through STR: its term is serialized to ~6 significant figures (H1)
+    shown = "(STR(?v) AS ?v__float)" if ftype is FieldType.FLOAT else v
     if not q.edge and q.returning == "before":
-        st.steps.append(update(f"SELECT ?id {v} WHERE {{ GRAPH {g} {{ {match} OPTIONAL {{ ?n p:{f} {v} }} }} }}", "rows"))
+        st.steps.append(update(f"SELECT ?id {shown} WHERE {{ GRAPH {g} {{ {match} OPTIONAL {{ ?n p:{f} {v} }} }} }}", "rows"))
     if not q.edge and q.returning == "after":
         st.steps.append(update(f"SELECT ?id WHERE {{ GRAPH {g} {{ {match} }} }}", "capture"))
     if q.returning == "count" or q.edge or q.op == "delete":
@@ -425,7 +429,7 @@ def _rdf(q: WriteQuery, sp: WriteSyntax, pred, schema: Schema) -> Statements:
             st.steps.append(update(f"INSERT {{ GRAPH {g} {{ {' . '.join(values)} }} }} {marked('')}"))
     st.steps.append(update(f"DELETE WHERE {{ GRAPH {g} {{ ?x {MARK} ?y }} }}"))
     if not q.edge and q.returning == "after":
-        st.steps.append(update(f"SELECT ?id {v} WHERE {{ GRAPH {g} {{ VALUES ?id {{ {CAPTURED} }} ?n {idp} ?id . OPTIONAL {{ ?n p:{f} {v} }} }} }}", "rows_captured"))
+        st.steps.append(update(f"SELECT ?id {shown} WHERE {{ GRAPH {g} {{ VALUES ?id {{ {CAPTURED} }} ?n {idp} ?id . OPTIONAL {{ ?n p:{f} {v} }} }} }}", "rows_captured"))
     return st
 
 

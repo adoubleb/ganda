@@ -48,6 +48,10 @@ TIMEOUT_CODES = {613}
 # error (to refine against live answers: HANDOFF.md)
 INTERNAL_CODES = {2, 3, 129, 2048}
 DEFAULT_TIMEOUT_MS = 30000
+# dropping and creating a campaign database: not a compared statement, so a slow one is
+# waited for and retried rather than reported
+ADMIN_TIMEOUT_MS = 300000
+ADMIN_RETRIES = 3
 BOOLEAN_TYPE_CODES = {28}
 
 _TOKEN = re.compile(r"('(?:[^']|'')*')|(\"(?:[^\"]|\"\")*\")|(?<![\w:]):([A-Za-z_][A-Za-z0-9_]*)")
@@ -382,6 +386,9 @@ class HanaSession(Session):
                         text = text.replace("{{captured}}", " ".join(sparql_string(x) for x in captured))
                         answer = self.sparql(text)
                     else:
+                        # a collection filter: one cast marker per id (`:captured__k`)
+                        cast = ", ".join(f"CAST(:captured__{k} AS NVARCHAR(256))" for k in range(len(captured)))
+                        text = text.replace("{{captured}}", f"({cast})")
                         answer = self.sql(text, {**s.params, "captured": captured})
                     continue
                 if is_sparql(text):
@@ -510,8 +517,13 @@ class HanaSession(Session):
     def _exact(self, table: str, field: str, value, text):
         """A float field read from STR(?o)'s exact lexical form rather than the rounded
         double term (issues-draft/H1). For a LIST field whose elements are floats the
-        element predicate carries the field's own name, so the type is the field's."""
-        if value is not None and text is not None and self.types.get(table, {}).get(field) in ("float", "list") and _looks_float(text):
+        element predicate carries the field's own name, so the type is the field's.
+
+        A double term is re-read whatever its lexical form looks like: STR prints with
+        `%.17g`, so an integral double (2^53) comes back as `9007199254740992`, no point
+        and no exponent, while its term is the rounded `9.0072e+15`."""
+        ftype = self.types.get(table, {}).get(field)
+        if value is not None and text is not None and ftype in ("float", "list") and (isinstance(value, float) or _looks_float(text)):
             try:
                 return float(text)
             except ValueError:
@@ -605,11 +617,26 @@ class HanaServer(Server):
             self.admin = None
 
     def _admin_session(self, database: str) -> HanaSession:
-        return HanaSession(self.admin, database, "rel", self.timeout_ms)
+        return HanaSession(self.admin, database, "rel", max(self.timeout_ms, ADMIN_TIMEOUT_MS))
+
+    def _admin(self, fn) -> None:
+        """An admin step (drop / create a schema and graph), retried: under another
+        worker's load a `DROP GRAPH` has outrun the query timeout ([613]), and an
+        exception here used to end the worker's thread for the rest of the campaign."""
+        import time
+
+        for attempt in range(ADMIN_RETRIES + 1):
+            try:
+                with self.lock:
+                    fn()
+                return
+            except EngineError as e:
+                if not e.timeout or attempt == ADMIN_RETRIES:
+                    raise
+            time.sleep(5 * (attempt + 1))
 
     def drop_database(self, database: str) -> None:
-        with self.lock:
-            self._drop(database)
+        self._admin(lambda: self._drop(database))
 
     def _drop(self, database: str) -> None:
         s = self._admin_session(database)
@@ -627,9 +654,11 @@ class HanaServer(Server):
         s.sparql(f"DROP SILENT GRAPH {graph_iri(database)}", update=True)
 
     def fresh_session(self, database: str) -> HanaSession:
-        with self.lock:
+        def reset():
             self._drop(database)
             self._admin_session(database).sql(f"CREATE SCHEMA {database}", rows=False)
+
+        self._admin(reset)
         data_model = database.rsplit("_", 1)[-1]
         session = HanaSession(connect(database), database, data_model, self.timeout_ms)
         self.sessions[database] = session
