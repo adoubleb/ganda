@@ -273,8 +273,9 @@ class Provider:
         """(has a reference, the expected answer) for a case of an extra generator."""
         return False, None
 
-    def probe(self) -> int:
-        """Re-check live the engine facts the provider rests on; a process exit code."""
+    def probe(self, facts: "list | None" = None) -> int:
+        """Re-check live the engine facts the provider rests on; a process exit code.
+        `facts` narrows to some of them (an id or a prefix); all of them if None."""
         print(f"{self.name} has no probe")
         return 0
 

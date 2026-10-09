@@ -1,0 +1,7 @@
+HANA version: 4.00.000.00.1788859455
+uncorrelated over UNNEST view : OK [('a', 1)]
+CORRELATED over UNNEST view   : 3 fatal error: Execution flow must not reach here. See error trace for details
+correlated, no UNNEST view    : OK [('a', 1)]
+
+Only the CORRELATED scalar subquery over the UNNEST-based view crashes (code 3);
+the uncorrelated form and the correlated form over a non-UNNEST view both answer.

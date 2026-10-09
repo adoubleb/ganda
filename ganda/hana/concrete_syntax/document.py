@@ -79,49 +79,58 @@ def projection(ftype: FieldType, expr: str, alias: str) -> str:
 # --- the views --------------------------------------------------------------------------------
 
 
-def _view(inner_cols: list, outer_cols: list, source: str) -> str:
-    inner = f"SELECT {', '.join(inner_cols)} FROM {source}"
-    if [c.split(" AS ")[-1] for c in inner_cols] == outer_cols:
-        return inner
-    return f"SELECT {', '.join(outer_cols)} FROM ({inner}) z"
-
-
 def sql_cast(ftype: FieldType, col: str) -> str:
     """A projected field (the collection's text) as its SQL type, in SQL: a number by
-    TO_BIGINT / TO_DOUBLE of its text, a boolean by its text."""
+    TO_BIGINT / TO_DOUBLE of its text, a boolean by its text, a string by TO_NVARCHAR.
+    A STRING is cast explicitly because a value that reads numeric (`"0"`) is otherwise
+    inferred as a number by the Document Store, and a string comparison against it fails
+    (`Conversion ... to BIGINT ... 'A'`)."""
     if ftype is FieldType.INT:
         return f"TO_BIGINT({col}) AS {col}"
     if ftype is FieldType.FLOAT:
         return f"TO_DOUBLE({col}) AS {col}"
     if ftype is FieldType.BOOL:
         return f"{boolean_of(col)} AS {col}"
+    if ftype is FieldType.STRING:
+        return f"TO_NVARCHAR({col}) AS {col}"
     return col
 
 
-def _columns(fields, alias: str = "") -> "tuple[list, list]":
-    inner = [f"{path(f.name, alias)} AS {f.name}" for f in fields]
-    outer = [sql_cast(f.type, f.name) for f in fields]
-    return inner, outer
-
-
 def view_definition(schema: Schema, name: str) -> str:
-    """The SQL of one view (`v_n1`, `v_n1__f3`, `v_e1`, `v_e1__f`)."""
+    """The SQL of one view (`v_n1`, `v_n1__f3`, `v_e1`, `v_e1__f`).
+
+    A LIST-element view (`__field`) reads the collection and UNNESTs it directly. A main
+    view (`v_n1`, `v_e1`) is TWO CTEs, `raw_<view>` and `<view>`: the raw CTE reads the
+    document fields as text straight from the collection, the view casts them over the
+    raw CTE. The split is required because the Document Store's SQL dialect rejects a
+    BOOLEAN constant (`CASE ... THEN TRUE`, the boolean cast) in any query that reads a
+    collection; evaluating the casts one CTE removed from the collection is pure SQL."""
     base = name[len(NAMES.prefix):]
     table, _, field = base.partition("__")
     node_names = {nt.name for nt in schema.node_types}
     if table in node_names:
         fields = schema.query_fields(table)
         if field:
-            return f"SELECT owner, TO_BIGINT(v) AS v FROM (SELECT {path('id')} AS owner, \"x\" AS v FROM {table} UNNEST {path(field)} AS \"x\") z"
-        inner, outer = _columns(fields)
-        return _view([f"{path('id')} AS id"] + inner, ["id"] + outer, table)
+            return f"{name} AS (SELECT owner, TO_BIGINT(v) AS v FROM (SELECT {path('id')} AS owner, \"x\" AS v FROM {table} UNNEST {path(field)} AS \"x\") z)"
+        return _main_view(name, [("id", None)] + [(f.name, f.type) for f in fields], table)
     et = schema.edge_type(table)
     src = f"{et.from_type} UNNEST {path(et.name)} AS \"l\""
     if field:
-        return f"SELECT owner, TO_BIGINT(v) AS v FROM (SELECT {path('eid', 'l')} AS owner, \"y\" AS v FROM {src} UNNEST {path(field, 'l')} AS \"y\") z"
-    inner, outer = _columns(et.fields, "l")
-    keys = [f"{path('eid', 'l')} AS eid", f"{path('id')} AS src_id", f"{path('to', 'l')} AS dst_id"]
-    return _view(keys + inner, ["eid", "src_id", "dst_id"] + outer, src)
+        return f"{name} AS (SELECT owner, TO_BIGINT(v) AS v FROM (SELECT {path('eid', 'l')} AS owner, \"y\" AS v FROM {src} UNNEST {path(field, 'l')} AS \"y\") z)"
+    cols = [("eid", None, path("eid", "l")), ("src_id", None, path("id")), ("dst_id", None, path("to", "l"))]
+    cols += [(f.name, f.type, path(f.name, "l")) for f in et.fields]
+    return _main_view(name, [(c[0], c[1]) for c in cols], src, {c[0]: c[2] for c in cols})
+
+
+def _main_view(name: str, cols: "list", source: str, exprs: "dict | None" = None) -> str:
+    """`raw_<name> AS (<collection text>), <name> AS (<casts over raw>)`. `cols` is a list
+    of (output column, FieldType or None for a key); `exprs` maps a column to the path it
+    reads in the collection (its own name by default)."""
+    exprs = exprs or {}
+    raw = ", ".join(f"{exprs.get(c, path(c))} AS {c}" for c, _ in cols)
+    typed_cols = ", ".join(sql_cast(ftype, c) if ftype is not None else c for c, ftype in cols)
+    raw_name = "raw_" + name
+    return f"{raw_name} AS (SELECT {raw} FROM {source}), {name} AS (SELECT {typed_cols} FROM {raw_name})"
 
 
 # a view is `v_` and a generated class or edge type name (`n3`, `e12`), a LIST field's
@@ -130,11 +139,12 @@ _VIEW_NAME = re.compile(r"\bv_[ne]\d+(?:__[a-z]\d+)?\b")
 
 
 def with_views(schema: Schema, text: str) -> str:
-    """`text` with the definitions of every view it names in front."""
+    """`text` with the definitions of every view it names in front. A view's definition
+    is one or two CTEs (`view_definition`), already named."""
     used = sorted(set(_VIEW_NAME.findall(text)))
     if not used:
         return text
-    defs = ", ".join(f"{v} AS ({view_definition(schema, v)})" for v in used)
+    defs = ", ".join(view_definition(schema, v) for v in used)
     return f"WITH {defs} {text}"
 
 
@@ -155,6 +165,13 @@ def compares_list_text(p) -> bool:
 
 def _bool_literal(v) -> str:
     return f"TO_JSON_BOOLEAN({'TRUE' if v else 'FALSE'})"
+
+
+def _sql_string(v: str) -> str:
+    """An NVARCHAR literal (the quote doubled). The collection filter's LIKE takes only a
+    constant string on its right-hand side (or TO_NVARCHAR / UPPER / LOWER of one), never
+    a parameter, so a LIKE pattern is inlined rather than bound."""
+    return "'" + str(v).replace("'", "''") + "'"
 
 
 def _param(ftype: "str | None", bind: str, value) -> str:
@@ -211,7 +228,7 @@ def doc_pred(p, alias: str = "", negate: bool = False) -> str:
     if p.op in ("IS NULL", "IS NOT NULL"):
         return f"{col} {_COMPLEMENT[p.op] if negate else p.op}"
     if p.op == "LIKE":
-        return f"{col} {'NOT LIKE' if negate else 'LIKE'} {_param(p.ftype, p.bind, p.pivot)}"
+        return f"{col} {'NOT LIKE' if negate else 'LIKE'} {_sql_string(p.pivot)}"
     if p.op == "BETWEEN":
         lo, hi = _param(p.ftype, p.bind + "a", p.pivot[0]), _param(p.ftype, p.bind + "b", p.pivot[1])
         return f"({col} < {lo} OR {col} > {hi})" if negate else f"({col} >= {lo} AND {col} <= {hi})"

@@ -1,0 +1,13 @@
+HANA version: 4.00.000.00.1788859455
+
+inserted  : 3.141592653589793  (xsd:double)
+double term: {"head":{"vars":["d"]},"results":{"bindings":[{"d":{"datatype":"http://www.w3.org/2001/XMLSchema#double","type":"literal","value":"3.14159"}}]}}
+
+STR(?d)    : {"head":{"vars":["d"]},"results":{"bindings":[{"d":{"type":"literal","value":"3.1415926535897931"}}]}}
+
+?d * 1e9   : {"head":{"vars":["r"]},"results":{"bindings":[{"r":{"datatype":"http://www.w3.org/2001/XMLSchema#double","type":"literal","value":"3.14159e+09"}}]}}
+
+
+The double term comes back 3.14159 (6 sig figs); STR() of the SAME binding
+returns 3.1415926535897931 -- the value is stored exactly, the loss is in the
+result serializer alone.

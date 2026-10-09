@@ -112,7 +112,16 @@ def collection_asks(q: SelectQuery, schema: Schema, pred) -> bool:
 
 
 def _views_ask(q: SelectQuery, pred) -> bool:
-    return not document.compares_list_text(pred)
+    if document.compares_list_text(pred):
+        return False
+    # a LIST-membership (CONTAINS*) on an EDGE type renders as EXISTS over the element
+    # view, which for an edge is a double UNNEST (the link array, then the attribute
+    # list); the Document Store refuses that doubly-nested UNNEST view inside a subquery
+    # ("unsupported form of subquery with UNNEST"). A node's single-UNNEST element view
+    # is fine. The collection's own FOR ANY filter covers the edge shape.
+    if q.edge and pred is not None and any(leaf.op in ("CONTAINS", "CONTAINSANY", "CONTAINSALL") for leaf in pred.leaves()):
+        return False
+    return True
 
 
 def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str) -> bool:
@@ -132,6 +141,11 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
     if data_model == "doc":
         if sp.filter == "arith" and pred is not None and any(leaf.ftype == "float" for leaf in pred.leaves()):
             # a DECIMAL-stored double does not scale like a double (0.30000000000000004 * 2)
+            return False
+        if sp.form == "fn" and sp.position == "table" and collection_asks(q, schema, pred):
+            # the `fn` distinct count nests a GROUP BY in a subquery; over a COLLECTION the
+            # Document Store refuses it ("GROUP BY clause after GROUP BY clause on collection
+            # tables") -- the base COUNT(DISTINCT) form and the views cover it
             return False
         if sp.position == "table":
             # the base is the collection query, or the views where the store cannot ask
@@ -189,6 +203,23 @@ def _json_alias(schema: Schema, q: SelectQuery, f: str, alias: str) -> str:
     return f"{alias}__json" if _ftype(schema, q, f) is FieldType.LIST else alias
 
 
+def _sparql_proj(ftype: "FieldType | None", var: str, alias: str) -> str:
+    """A value variable `?var` as a SPARQL SELECT-list item for a value whose field type is
+    `ftype` (None when unknown -- a plain projection). A FLOAT is read through `STR(?var)`
+    aliased `?alias__float`: HANA serializes an `xsd:double` term to ~6 significant figures
+    (issues-draft/H1), but `STR` carries the exact lexical form, which the session parses
+    (`__float`). An INT is aliased `?alias__int`: SPARQL_TABLE surfaces a possibly-unbound
+    numeric variable as an NVARCHAR column (`"7"` not `7`), which the suffix decodes back; it
+    is a no-op on the JSON-term path. A LIST stays its JSON text (`__json`)."""
+    if ftype is FieldType.FLOAT:
+        return f"(STR(?{var}) AS ?{alias}__float)"
+    if ftype is FieldType.INT:
+        return f"(?{var} AS ?{alias}__int)"
+    if ftype is FieldType.LIST:
+        return f"?{alias}__json"
+    return f"?{var}" if var == alias else f"(?{var} AS ?{alias})"
+
+
 # --- SQL (rel, and the doc data model's views) -------------------------------------------------
 
 
@@ -229,6 +260,13 @@ def _sql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, names: Names) -
             return f"SELECT DISTINCT {f} AS v {src}"
         if q.fn == "list":
             return f"SELECT {f} AS v {src}"
+        if q.fn == "median":
+            # HANA's MEDIAN does not interpolate an even count of integers (it answers the
+            # upper of the two middle values); PERCENTILE_CONT(0.5) is the statistical
+            # median the reference computes, and the scalar subquery answers one NULL row
+            # over no present value (MEDIAN would, PERCENTILE_CONT ... WITHIN GROUP alone
+            # answers no row)
+            return f"SELECT (SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY {f}) {src}) AS v FROM DUMMY"
         return f"SELECT {q.fn.upper()}({f}) AS v {src}"
     if kind == "group":
         keys = ", ".join(f"t.{k} AS {name}" for k, name in zip(q.fields, ("k", "k2")))
@@ -372,29 +410,49 @@ def _sparql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, position: st
     elif kind == "count":
         select, body = "SELECT (COUNT(*) AS ?v)", records
     elif kind == "field":
-        v = "?" + _json_alias(schema, q, q.field, "v")
-        select, body = f"SELECT ?id {v}", f"{records} {opt(q.field, v)}"
+        ft = _ftype(schema, q, q.field)
+        bind = "v__json" if ft is FieldType.LIST else "v"
+        select, body = f"SELECT ?id {_sparql_proj(ft, bind, 'v')}", f"{records} {opt(q.field, '?' + bind)}"
     elif kind == "method":
         expr = sparql_text(q.fn, _ftype(schema, q, q.field), f"?r_{q.field}")
         select, body = f"SELECT ?id ({expr} AS ?v)", records
     elif kind == "agg":
         f = q.field
+        ft = _ftype(schema, q, f)
         if sp.form == "order":
-            select, body = "SELECT ?v", f"{records} ?n p:{f} ?v ."
+            select, body = f"SELECT {_sparql_proj(ft, 'v', 'v')}", f"{records} ?n p:{f} ?v ."
             tail = f" ORDER BY {'DESC' if q.fn == 'max' else 'ASC'}(?v) LIMIT 1"
         elif q.fn == "set":
-            select, body = "SELECT DISTINCT ?v", f"{records} ?n p:{f} ?v ."
+            select, body = f"SELECT DISTINCT {_sparql_proj(ft, 'v', 'v')}", f"{records} ?n p:{f} ?v ."
         elif q.fn == "list":
-            select, body = "SELECT ?v", f"{records} ?n p:{f} ?v ."
+            select, body = f"SELECT {_sparql_proj(ft, 'v', 'v')}", f"{records} ?n p:{f} ?v ."
         elif q.fn == "distinct_count":
             if sp.form == "fn":
                 select, body = "SELECT (COUNT(*) AS ?v)", f"{{ SELECT DISTINCT ?w WHERE {{ {records} ?n p:{f} ?w . }} }}"
             else:
                 select, body = "SELECT (COUNT(DISTINCT ?w) AS ?v)", f"{records} ?n p:{f} ?w ."
+        elif q.fn == "median":
+            # HANA's SPARQL MEDIAN requires a GROUP BY (an internal error without one),
+            # though it interpolates an even count the way the reference does. The
+            # subquery groups on a bound constant; VALUES ... OPTIONAL ... BIND answers
+            # one row even over no present value (the reference's NULL row), so the whole
+            # query is built here rather than through `_graph_wrap`. STR carries the median's
+            # exact double (issues-draft/H1).
+            inner_body = f"GRAPH {GRAPH_TOKEN} {{ {records} ?n p:{f} ?w . BIND(1 AS ?mg) }}"
+            inner = f"SELECT (MEDIAN(?w) AS ?m) WHERE {{ {inner_body} }} GROUP BY ?mg"
+            return f"{PREFIX_TEXT} SELECT (STR(?v) AS ?v__float) WHERE {{ VALUES ?mone {{ 1 }} OPTIONAL {{ {{ {inner} }} }} BIND(?m AS ?v) }}"
         else:
             fn = q.fn.upper()
-            agg = f"COUNT(?w)" if q.fn == "count" else (f"{fn}(?w)" if q.fn in ("max", "min") else f"IF(COUNT(?w) > 0, {fn}(?w), {UNKNOWN_VAR})")
-            select, body = f"SELECT ({agg} AS ?v)", f"{records} {opt(f, '?w')}"
+            if q.fn == "count":
+                agg, alias = "COUNT(?w)", "v"
+            elif q.fn in ("max", "min"):
+                # max / min answer the field's own type; a float needs STR
+                agg, alias = f"{fn}(?w)", ("v__float" if ft is FieldType.FLOAT else "v")
+            else:  # sum, avg: avg is always a double; sum of a float is a double
+                agg = f"IF(COUNT(?w) > 0, {fn}(?w), {UNKNOWN_VAR})"
+                alias = "v__float" if (q.fn == "avg" or ft is FieldType.FLOAT) else "v"
+            agg = f"STR({agg})" if alias == "v__float" else agg
+            select, body = f"SELECT ({agg} AS ?{alias})", f"{records} {opt(f, '?w')}"
     elif kind == "group":
         names = ("?k", "?k2")[: len(q.fields)]
         opts = " ".join(opt(k, name) for k, name in zip(q.fields, names))
@@ -410,16 +468,18 @@ def _sparql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, position: st
         select, body = f"SELECT {' '.join(names)} ({agg} AS ?v)", f"{records} {opts} {aopt}"
         tail = f" GROUP BY {' '.join(names)} {HAVING}"
     elif kind == "distinct":
-        names = ("?v", "?w")[: len(q.fields)]
-        select, body = f"SELECT DISTINCT {' '.join(names)}", f"{records} {' '.join(opt(f, n) for f, n in zip(q.fields, names))}"
+        names = ("v", "w")[: len(q.fields)]
+        projs = " ".join(_sparql_proj(_ftype(schema, q, f), n, n) for f, n in zip(q.fields, names))
+        select, body = f"SELECT DISTINCT {projs}", f"{records} {' '.join(opt(f, '?' + n) for f, n in zip(q.fields, names))}"
     elif kind == "page":
         d = q.directions[0]
         select, body = "SELECT ?id", f"{records} {opt(q.field, '?o')}"
         tail = f" ORDER BY {d}(?o) ASC(?id) LIMIT {q.limit} OFFSET {q.skip}"
     elif kind == "keys":
-        names = ("?a", "?b")[: len(q.fields)]
-        select, body = f"SELECT {' '.join(names)}", f"{records} {' '.join(opt(k, n) for k, n in zip(q.fields, names))}"
-        tail = f" ORDER BY {' '.join(f'{d}({n})' for n, d in zip(names, q.directions))}"
+        names = ("a", "b")[: len(q.fields)]
+        projs = " ".join(_sparql_proj(_ftype(schema, q, f), n, n) for f, n in zip(q.fields, names))
+        select, body = f"SELECT {projs}", f"{records} {' '.join(opt(k, '?' + n) for k, n in zip(q.fields, names))}"
+        tail = f" ORDER BY {' '.join(f'{d}(?{n})' for n, d in zip(names, q.directions))}"
         if q.limit:
             tail += f" LIMIT {q.limit}"
         if q.skip:

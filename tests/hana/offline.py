@@ -85,6 +85,7 @@ def _sqlite() -> sqlite3.Connection:
     conn.create_aggregate("AVG", 1, _Avg)
     conn.create_function("TO_BIGINT", 1, lambda x: None if x is None else int(Decimal(str(x))))
     conn.create_function("TO_DOUBLE", 1, lambda x: None if x is None else float(x))
+    conn.create_function("TO_NVARCHAR", 1, lambda x: None if x is None else str(x))
     return conn
 
 
@@ -297,7 +298,7 @@ def _with_views(text: str) -> str:
     """A view-form text: the views' collection queries translated, the SQL on top kept."""
     out, i = "WITH ", len("WITH ")
     while True:
-        m = re.compile(r"(v_\w+) AS \(").match(text, i)
+        m = re.compile(r"((?:raw_)?v_\w+) AS \(").match(text, i)
         if not m:
             break
         depth, j = 1, m.end()

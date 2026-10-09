@@ -87,7 +87,9 @@ def main(argv=None) -> int:
     mutate = sub.add_parser("mutate", help="the mutation benchmark: how often a deliberate corruption is caught")
     mutation.add_arguments(mutate, engine)
     mutate.set_defaults(handler=lambda a: (_needs_generators(engine, "mutate"), mutation.main(engine, a))[1])
-    sub.add_parser("probe", help="re-check live the engine facts the provider rests on").set_defaults(handler=lambda a: engine.probe())
+    probe = sub.add_parser("probe", help="re-check live the engine facts the provider rests on")
+    probe.add_argument("facts", nargs="*", help="only these facts (an id or a prefix); all of them if none given")
+    probe.set_defaults(handler=lambda a: engine.probe(a.facts))
     sub.add_parser("doctor", help="start a server and answer one query per data model").set_defaults(handler=lambda a: _doctor(engine, a))
     sub.add_parser("limits", help="what the engine can hold, and what the large scale profile does on it").set_defaults(handler=lambda a: _limits(engine))
 

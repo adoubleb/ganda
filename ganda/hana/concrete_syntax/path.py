@@ -10,7 +10,8 @@ level:
     data model   syntax     the levels
     rel    levels     level d as a join of d copies of the relationship relation
            frontier   level d as `:b IN (<the records d hops out>)`, nested subqueries
-    doc    levels, frontier   the same over the views of the link arrays
+    doc    levels     the same over the views of the link arrays (no frontier: the
+                      Document Store refuses an UNNEST view nested inside IN (subquery))
     rdf    link       level d as a sequence of d property paths over the direct links
                       (`l:e/l:e`; `^l:e` incoming, `l:e|^l:e` both; every edge type
                       an alternative)
@@ -102,7 +103,9 @@ def render_all(q: PathQuery, schema: Schema, instance: Instance) -> "tuple[dict,
         "rel": _sql(q, schema, "levels", REL),
         "rel:frontier": _sql(q, schema, "frontier", REL),
         "doc": document.with_views(schema, _sql(q, schema, "levels", document.NAMES)),
-        "doc:frontier": document.with_views(schema, _sql(q, schema, "frontier", document.NAMES)),
+        # no doc:frontier -- the frontier form nests the edge source (a collection view
+        # with UNNEST) inside IN (subquery), which the Document Store refuses ("unsupported
+        # form of subquery with UNNEST"); the levels form covers the doc data model's path
         "rdf": _sparql(q, schema, "link"),
         "rdf:resource": _sparql(q, schema, "resource"),
         "rdf:table": sparql_table(_sparql(q, schema, "link")),

@@ -9,3 +9,4 @@ bugs/
 coverage/
 campaign_reports/
 mutation_reports/
+hana_tunnel.sh

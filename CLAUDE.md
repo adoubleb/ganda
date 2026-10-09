@@ -5,8 +5,8 @@ Guidance for Claude Code when working in this repository.
 ## What this is
 
 Ganda: a multi-model metamorphic fuzzer with an engine-agnostic core (`ganda/core`) and
-one provider per DBMS (`ganda/orientdb` full; `ganda/hana` full but verified offline
-only; `ganda/surrealdb`, `ganda/arangodb` skeletons). `README.md` has the architecture, the provider contract and the glossary
+one provider per DBMS (`ganda/orientdb` full; `ganda/hana` full, verified live against
+HANA Cloud 4.00.000.00; `ganda/surrealdb`, `ganda/arangodb` skeletons). `README.md` has the architecture, the provider contract and the glossary
 that maps the legacy ports' terms to the ones used here. The legacy fuzzers
 (`../OrientDB`, `../surrealDB`, `../arangoDB`) are reference material: do not edit them.
 
@@ -93,16 +93,29 @@ fact lives in the code); `ganda/hana/RULES.md` lists the engine facts with their
 tables), `rdf` (Knowledge Graph Engine, SPARQL). The provider attaches to a HANA Cloud
 instance (`HANA_HOST`, `HANA_PORT`, `HANA_USER`, `HANA_PASSWORD`); there is no container.
 
+Verified live against HANA Cloud 4.00.000.00 (2026-10-09): the probe is 57/57, the first
+campaigns run, and two engine defects are written up with repros under
+`ganda/hana/issues-draft/` -- **H1** (an `xsd:double` is serialized to ~6 significant
+figures in SPARQL results though stored exactly) and **H2** (the Document Store crashes
+on a correlated scalar subquery over an UNNEST view); the provider works around both.
+
+If the instance is reached through an SSH tunnel to a bastion, set `HANA_SNI_HOSTNAME` to
+the real hostname (HANA Cloud routes TLS by SNI) and leave `disableCloudRedirect` on (its
+default when the SNI is set): HANA Cloud otherwise redirects the session off the tunnel to
+a direct address. `connection.connect()` retries a lost connect (`HANA_CONNECT_RETRIES`).
+
 ```bash
 pytest tests/hana tests/test_layering.py -q        # no server (test_offline needs rdflib)
 python3 -m tests.hana.run_offline --seeds 1 10     # whole campaigns on SQLite + rdflib through the real session code
 python3 -m ganda hana doctor
-python3 -m ganda hana probe
+python3 -m ganda hana probe                        # 57/57 live; `probe K5 D` for a subset
 ```
 
 After any change to a HANA renderer, mapping or semantics: the offline runner first (it
-catches logic mistakes without HANA), then the probe and a small live campaign. A
-probe fact that fails changes the provider, never the probe.
+catches logic mistakes without HANA), then the probe and a small live campaign (the tunnel
+is ~180 ms/statement, so a full campaign is 20-30 min; start with `--select-cases 8
+--traversal-cases 4 --write-cases 2`). A probe fact that fails changes the provider, never
+the probe -- unless the probe's own SQL tested a form the provider never emits.
 
 ## Triage of a finding
 

@@ -166,6 +166,16 @@ def is_sparql(text: str) -> bool:
     return text.lstrip().startswith("PREFIX")
 
 
+def _looks_float(text: str) -> bool:
+    """Whether a lexical form is a (non-integer) floating value: it carries a point, an
+    exponent, or is an IEEE special. A plain integer text is left to its own type."""
+    t = str(text).strip()
+    low = t.lower()
+    if low.lstrip("+-") in ("inf", "infinity", "nan"):
+        return True
+    return "." in t or "e" in low
+
+
 # --- the session ------------------------------------------------------------------------------
 
 
@@ -189,7 +199,13 @@ def _dbapi():
 
 
 def connect(schema: "str | None" = None):
-    """A new connection from the environment (`HANA_*`)."""
+    """A new connection from the environment (`HANA_*`).
+
+    HANA Cloud's SQL-over-HTTPS endpoint occasionally resets a connect mid-handshake
+    (`-10709`, "Socket closed by peer"); the attempt is retried with a short backoff
+    (`HANA_CONNECT_RETRIES`, default 4) since a reset at connect time carries no state."""
+    import time
+
     dbapi = _dbapi()
     host = os.environ.get("HANA_HOST")
     if not host:
@@ -202,12 +218,31 @@ def connect(schema: "str | None" = None):
         encrypt=os.environ.get("HANA_ENCRYPT", "true").lower() == "true",
         sslValidateCertificate=os.environ.get("HANA_SSL_VALIDATE", "true").lower() == "true",
     )
+    # HANA Cloud's ingress routes TLS by SNI; when reached through a port-forward (an SSH
+    # tunnel to a bastion that can see the instance) `address` is the local end, so the
+    # real hostname must be sent as the SNI explicitly (`HANA_SNI_HOSTNAME`). HANA Cloud
+    # also redirects a connection to the data node's own public address after the
+    # handshake, which bypasses the tunnel (every statement then goes direct, to the very
+    # route the tunnel exists to avoid): `disableCloudRedirect` keeps the session on the
+    # initial connection. Defaults on whenever the SNI override says we are tunnelling.
+    sni = os.environ.get("HANA_SNI_HOSTNAME")
+    if sni:
+        kw["sslSNIHostname"] = sni
+    if os.environ.get("HANA_DISABLE_REDIRECT", "true" if sni else "false").lower() == "true":
+        kw["disableCloudRedirect"] = True
     if schema:
         kw["currentSchema"] = schema.upper()
-    try:
-        return dbapi.connect(**kw)
-    except dbapi.Error as e:
-        raise EngineCrash(f"could not connect to SAP HANA at {host}: {e}") from e
+    retries = int(os.environ.get("HANA_CONNECT_RETRIES", "4"))
+    last = None
+    for attempt in range(retries + 1):
+        try:
+            return dbapi.connect(**kw)
+        except dbapi.Error as e:
+            last = e
+            if getattr(e, "errorcode", 0) not in CONNECTION_LOST or attempt == retries:
+                break
+            time.sleep(0.5 * (attempt + 1))
+    raise EngineCrash(f"could not connect to SAP HANA at {host}: {last}") from last
 
 
 class HanaSession(Session):
@@ -446,7 +481,10 @@ class HanaSession(Session):
     def _rdf_records(self, cls: str, idp: str, table: str) -> dict:
         from ganda.hana.dialect import PREFIX_TEXT
 
-        rows = self.sparql(f"{PREFIX_TEXT} SELECT ?id ?p ?o WHERE {{ GRAPH {GRAPH_TOKEN} {{ ?n a {cls} ; {idp} ?id ; ?p ?o . }} }}")
+        # STR(?o) carries the exact lexical form; a double term's own serialization is
+        # rounded to ~6 significant figures (issues-draft/H1), so a float field is read
+        # from the string, not the rounded number
+        rows = self.sparql(f"{PREFIX_TEXT} SELECT ?id ?p ?o (STR(?o) AS ?ostr) WHERE {{ GRAPH {GRAPH_TOKEN} {{ ?n a {cls} ; {idp} ?id ; ?p ?o . }} }}")
         out: dict = {}
         items: dict = {}
         for r in rows:
@@ -454,9 +492,11 @@ class HanaSession(Session):
             p = r["p"]
             if p.startswith("urn:ganda:p:") and p not in ("urn:ganda:p:id", "urn:ganda:p:eid", "urn:ganda:p:src", "urn:ganda:p:dst"):
                 f = p[len("urn:ganda:p:"):]
-                rec[f] = self._field_value(table, f, r["o"]) if f not in rec else f"<two values {rec[f]!r} and {r['o']!r}>"
+                o = self._exact(table, f, r["o"], r.get("ostr"))
+                rec[f] = self._field_value(table, f, o) if f not in rec else f"<two values {rec[f]!r} and {o!r}>"
             elif p.startswith("urn:ganda:i:"):
-                items.setdefault((r["id"], p[len("urn:ganda:i:"):]), set()).add(r["o"])
+                f = p[len("urn:ganda:i:"):]
+                items.setdefault((r["id"], f), set()).add(self._exact(table, f, r["o"], r.get("ostr")))
         for (rid, f), elems in items.items():
             text = out.get(rid, {}).get(f)
             if not isinstance(text, list) or set(text) != elems:
@@ -466,6 +506,17 @@ class HanaSession(Session):
                 if ftype == "list" and isinstance(rec.get(f), list) and rec[f] and (rid, f) not in items:
                     rec[f] = f"<list {rec[f]!r} but no elements>"
         return out
+
+    def _exact(self, table: str, field: str, value, text):
+        """A float field read from STR(?o)'s exact lexical form rather than the rounded
+        double term (issues-draft/H1). For a LIST field whose elements are floats the
+        element predicate carries the field's own name, so the type is the field's."""
+        if value is not None and text is not None and self.types.get(table, {}).get(field) in ("float", "list") and _looks_float(text):
+            try:
+                return float(text)
+            except ValueError:
+                return value
+        return value
 
     def count_nodes(self, table: str) -> int:
         if self.data_model == "rdf":

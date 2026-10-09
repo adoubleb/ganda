@@ -110,7 +110,10 @@ class _Documents:
         return out
 
 
-def _field_update(table: str, fields, final: dict) -> Sql:
+def _field_update(table: str, fields, final: dict) -> list:
+    """The SET and the UNSET as SEPARATE statements: the document store refuses a
+    combined `SET ... UNSET ...` in one UPDATE (a syntax error), though each alone is
+    accepted."""
     params: dict = {"k": None}
     sets, unsets = [], []
     for i, f in enumerate(fields):
@@ -120,12 +123,12 @@ def _field_update(table: str, fields, final: dict) -> Sql:
         else:
             params[f"v{i}"] = v
             sets.append(f"{path(f.name)} = PARSE_JSON(:v{i}__json)")
-    text = f"UPDATE {table}"
+    steps = []
     if sets:
-        text += " SET " + ", ".join(sets)
+        steps.append(Sql(f"UPDATE {table} SET {', '.join(sets)} {_KEY}", dict(params)))
     if unsets:
-        text += " UNSET " + ", ".join(unsets)
-    return Sql(f"{text} {_KEY}", params)
+        steps.append(Sql(f"UPDATE {table} UNSET {', '.join(unsets)} {_KEY}", {"k": None}))
+    return steps
 
 
 def _set_array(docs: _Documents, source: str, et) -> Sql:
@@ -157,9 +160,8 @@ def build_document_setup(instance: Instance) -> list:
                 data.append(Sql(f"DELETE FROM {n.type_name} {_KEY}", {"k": n.record_id}))
                 data += _inserts([(n.type_name, docs.doc(n.record_id))], form.insert_via)
             else:
-                step = _field_update(n.type_name, fields, n.values)
-                step.params["k"] = n.record_id
-                if len(step.params) > 1 or "UNSET" in step.text:
+                for step in _field_update(n.type_name, fields, n.values):
+                    step.params["k"] = n.record_id
                     data.append(step)
         elif isinstance(op, (EdgeDelete, EdgeUpdate)):
             e = op.edge

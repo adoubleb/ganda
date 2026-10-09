@@ -103,10 +103,10 @@ class HanaProvider(Provider):
         refuse_unsupported(cfg)
         return cfg
 
-    def probe(self) -> int:
+    def probe(self, facts: "list | None" = None) -> int:
         from ganda.hana.scripts import probe
 
-        return probe.main()
+        return probe.main(facts or [])
 
 
 PROVIDER = HanaProvider()

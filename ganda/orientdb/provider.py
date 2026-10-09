@@ -128,7 +128,7 @@ class OrientDBProvider(Provider):
 
         return Collector(server, level)
 
-    def probe(self) -> int:
+    def probe(self, facts: "list | None" = None) -> int:
         """Re-check live every engine fact the provider rests on."""
         from ganda.orientdb.scripts import probe_osql
 

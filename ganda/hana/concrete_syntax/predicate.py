@@ -207,4 +207,11 @@ def sparql_filter(p, record: str, regex: bool = False, native: bool = False) -> 
     if p is None:
         return ""
     opts = optionals(p, record)
-    return (opts + " " if opts else "") + f"FILTER ({filter_expr(p, record, regex, native)})"
+    expr = filter_expr(p, record, regex, native)
+    if UNKNOWN_VAR in expr:
+        # HANA rejects a FILTER that names a variable bound nowhere in the pattern (an
+        # internal error, not a per-solution evaluation error): the never-bound unknown
+        # of a native semi-join is DECLARED by a never-matching OPTIONAL so it parses,
+        # yet stays unbound so SPARQL's error propagation keeps the record out (probe K6)
+        opts = (opts + " " if opts else "") + f"OPTIONAL {{ ?{record} <urn:ganda:never> {UNKNOWN_VAR} }}"
+    return (opts + " " if opts else "") + f"FILTER ({expr})"
