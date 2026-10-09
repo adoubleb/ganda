@@ -402,7 +402,8 @@ def _rdf(q: WriteQuery, sp: WriteSyntax, pred, schema: Schema) -> Statements:
     if q.op == "delete":
         st.steps.append(update(f"DELETE {{ GRAPH {g} {{ ?e ?ep ?eo }} }} {marked('?e p:src ?n ; ?ep ?eo .')}"))
         st.steps.append(update(f"DELETE {{ GRAPH {g} {{ ?e ?ep ?eo }} }} {marked('?e p:dst ?n ; ?ep ?eo .')}"))
-        st.steps.append(update(f"DELETE {{ GRAPH {g} {{ ?s ?lp ?n }} }} {marked('?s ?lp ?n . FILTER (STRSTARTS(STR(?lp), "urn:ganda:l:"))')}"))
+        link_pred = '?s ?lp ?n . FILTER (STRSTARTS(STR(?lp), "urn:ganda:l:"))'
+        st.steps.append(update(f"DELETE {{ GRAPH {g} {{ ?s ?lp ?n }} }} {marked(link_pred)}"))
         st.steps.append(update(f"DELETE {{ GRAPH {g} {{ ?n ?p ?o }} }} {marked('?n ?p ?o .')}"))
         return st
     if q.op == "edge_delete":
