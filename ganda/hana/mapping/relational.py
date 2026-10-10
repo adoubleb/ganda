@@ -17,6 +17,10 @@ door (`UPDATE` / `UPSERT ... WHERE` / `MERGE INTO`), deletes a churned node's ju
 rows before the node, and may end with a cancelled transaction of junk rows and a
 delta merge of every table (`MERGE DELTA OF`: the rows leave the write-optimized delta
 store for the main store, so the queries read the other storage path).
+
+The graph data model's tables are these too (`mapping.graph`): `ddl` and
+`build_relational_setup` take the data model whose write form and indexes apply, and
+the DDL the graph adds (its views and workspace).
 """
 from __future__ import annotations
 
@@ -52,9 +56,9 @@ def _index_ddl(ix) -> Sql:
     return Sql(f"CREATE INDEX {ix.name()} ON {ix.table} ({cols})")
 
 
-def ddl(instance: Instance) -> list:
+def ddl(instance: Instance, data_model: str = DATA_MODEL) -> list:
     schema = instance.schema
-    kind = schema.id_index_kind(DATA_MODEL)
+    kind = schema.id_index_kind(data_model)
     steps = [Declare(declared_types(instance))]
     for nt in schema.node_types:
         fields = schema.query_fields(nt.name)
@@ -77,7 +81,7 @@ def ddl(instance: Instance) -> list:
             if f.type is FieldType.LIST:
                 steps += _child_ddl(et.name, f)
     for ix in schema.indexes:
-        if ix.applies_to(DATA_MODEL):
+        if ix.applies_to(data_model):
             steps.append(_index_ddl(ix))
     return steps
 
@@ -248,9 +252,11 @@ def _junk(instance: Instance, types_of, via: str) -> list:
     return [Transaction(_inserts(rows, types_of, via), commit=False)] if rows else []
 
 
-def build_relational_setup(instance: Instance) -> list:
+def build_relational_setup(instance: Instance, data_model: str = DATA_MODEL, extra_ddl: "list | None" = None) -> list:
+    """The setup plan: the DDL (`ddl`, then `extra_ddl`), the data through the data
+    model's write form, the tail."""
     schema = instance.schema
-    form = instance.write_form(DATA_MODEL)
+    form = instance.write_form(data_model)
     types_of = _types_of(instance)
     every = form.insert_via == "batch"
     first = initial_node_values(instance)
@@ -273,7 +279,7 @@ def build_relational_setup(instance: Instance) -> list:
     tail = _junk(instance, types_of, form.insert_via) if form.cancelled_junk else []
     if form.rebuild_indexes:
         tail += [Sql(f"MERGE DELTA OF {t}") for t in all_tables(instance)]
-    return ddl(instance) + wrap(data, form) + tail
+    return ddl(instance, data_model) + list(extra_ddl or []) + wrap(data, form) + tail
 
 
 def all_tables(instance: Instance) -> list:

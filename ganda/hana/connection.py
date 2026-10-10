@@ -3,9 +3,12 @@ is no container: HANA Cloud is a managed service, and the Document Store and the
 triple store are features of an instance, not of HANA, express edition) and one
 session per database of a campaign.
 
-A "database" of the campaign is a SCHEMA (its tables and collections) plus a NAMED
-GRAPH `<urn:ganda:g:<schema>>` (its triples): the doc and rel data models use the
-schema, the rdf data model the graph (graphs belong to the user, not to a schema).
+A "database" of the campaign is a SCHEMA (its tables, collections, views and graph
+workspace) plus a NAMED GRAPH `<urn:ganda:g:<schema>>` (its triples): the doc, rel and
+graph data models use the schema, the rdf data model the graph (graphs belong to the
+user, not to a schema). The graph data model's state is read back THROUGH its engine
+(`OPENCYPHER_TABLE` over the workspace: `_node_scan`, `_edge_scan`), so a state check
+compares what openCypher sees with the Instance.
 
     HANA_HOST / HANA_PORT (443)      the instance's SQL endpoint
     HANA_USER / HANA_PASSWORD        a user with CREATE SCHEMA and the SPARQL QUERY /
@@ -36,7 +39,7 @@ from decimal import Decimal
 
 from ganda.core.provider import EngineCrash, EngineError, Server, Session
 from ganda.hana.concrete_syntax import tx as _tx
-from ganda.hana.dialect import GRAPH_TOKEN, child_table, from_rdf_term, graph_iri, list_text, number, record_iri
+from ganda.hana.dialect import GRAPH_TOKEN, child_table, from_rdf_term, graph_iri, list_text, number, opencypher_table, record_iri
 
 SPARQL_QUERY_HEADERS = "Accept: application/sparql-results+json\r\nContent-Type: application/sparql-query"
 SPARQL_UPDATE_HEADERS = ""
@@ -267,6 +270,7 @@ class HanaSession(Session):
         self.graph = graph_iri(database)
         self.timeout_ms = timeout_ms
         self.types: dict = {}  # table -> {field: FieldType.value} (the plan's Declare)
+        self.workspace = None  # the graph data model's GraphWorkspace step (its attribute names)
         self.lock = threading.Lock()
 
     # --- statements ---------------------------------------------------------------------------
@@ -429,10 +433,14 @@ class HanaSession(Session):
             self.apply_step(step)
 
     def apply_step(self, step) -> None:
-        from ganda.hana.mapping.common import Declare, Sparql, Sql, SqlBatch, Transaction
+        from ganda.hana.mapping.common import Declare, GraphWorkspace, Sparql, Sql, SqlBatch, Transaction
 
         if isinstance(step, Declare):
             self.types = dict(step.tables)
+        elif isinstance(step, GraphWorkspace):
+            # kept: the read-back spells the attribute names the workspace declares
+            self.workspace = step
+            self.sql(step.sql(), rows=False)
         elif isinstance(step, Sql):
             self.sql(step.text, step.params, rows=False)
         elif isinstance(step, SqlBatch):
@@ -475,9 +483,41 @@ class HanaSession(Session):
                 if (text or []) != got:
                     values[f] = f"<list text {text!r} but child rows {got!r}>"
 
+    # --- the graph data model, through its engine --------------------------------------------
+
+    def _cypher(self, query: str, params: "dict | None" = None, binds: "dict | None" = None) -> list:
+        """The rows of an openCypher query over the database's workspace."""
+        return self.sql(f"SELECT * FROM {opencypher_table(query, params)}", binds)
+
+    def _scan_items(self, var: str, entry: dict, skip: tuple = ()) -> str:
+        """The RETURN items reading every attribute of a workspace entry back under the
+        physical column's name (uppercased: the session lowercases what it reads), a LIST
+        column aliased `__JSON` so its text decodes."""
+        items = []
+        for col, attr in entry["columns"]:
+            if col in skip:
+                continue
+            suffix = "__JSON" if self.types.get(entry["label"], {}).get(col) == "list" else ""
+            items.append(f"{var}.{attr} AS {col.upper()}{suffix}")
+        return ", ".join(items)
+
+    def _node_scan(self, table: str) -> str:
+        """`MATCH (a:n1) RETURN a.ID AS ID, a.N1_F1 AS F1, ...`: every record of a class."""
+        v = self.workspace.vertex(table)
+        return f"MATCH (a:{v['label']}) RETURN {self._scan_items('a', v)}"
+
+    def _edge_scan(self, et) -> str:
+        """`MATCH (a:n1)-[e:e1]->(b:n2) RETURN e.EID AS EID, a.ID AS SRC_ID, b.ID AS DST_ID,
+        e.E1_W AS W, ...`: every relationship of a type, its endpoints read from the
+        vertices the engine resolved."""
+        e = self.workspace.edge(et.name)
+        attrs = self._scan_items("e", e, skip=("eid", "src_id", "dst_id"))
+        items = "e.EID AS EID, a.ID AS SRC_ID, b.ID AS DST_ID" + (f", {attrs}" if attrs else "")
+        return f"MATCH (a:{et.from_type})-[e:{e['label']}]->(b:{et.to_type}) RETURN {items}"
+
     def read_nodes(self, table: str, ids: "list | None" = None) -> dict:
-        if self.data_model == "rel":
-            rows = self.sql(f"SELECT * FROM {table}")
+        if self.data_model in ("rel", "graph"):
+            rows = self.sql(f"SELECT * FROM {table}") if self.data_model == "rel" else self._cypher(self._node_scan(table))
             out = {r["id"]: {k: self._field_value(table, k, v) for k, v in r.items() if k != "id"} for r in rows}
             self._check_lists(table, rows, out)
         elif self.data_model == "doc":
@@ -543,12 +583,15 @@ class HanaSession(Session):
 
             rows = self.sparql(f"{PREFIX_TEXT} SELECT (COUNT(*) AS ?v) WHERE {{ GRAPH {GRAPH_TOKEN} {{ ?n a c:{table} }} }}")
             return rows[0]["v"] if rows else 0
+        if self.data_model == "graph":
+            rows = self._cypher(f"MATCH (a:{self.workspace.vertex(table)['label']}) RETURN COUNT(a.ID) AS V")
+            return rows[0]["v"] if rows else 0
         return self.sql(f"SELECT COUNT(*) AS v FROM {table}")[0]["v"]
 
     def read_edges(self, data_model: str, instance, edge_type, sources: "list | None" = None) -> list:
         et = edge_type
-        if self.data_model == "rel":
-            rows = self.sql(f"SELECT * FROM {et.name}")
+        if self.data_model in ("rel", "graph"):
+            rows = self.sql(f"SELECT * FROM {et.name}") if self.data_model == "rel" else self._cypher(self._edge_scan(et))
             attrs = {r["eid"]: {k: self._field_value(et.name, k, v) for k, v in r.items() if k not in ("eid", "src_id", "dst_id")} for r in rows}
             self._check_lists(et.name, rows, attrs)
             out = [(r["eid"], r["src_id"], r["dst_id"], attrs[r["eid"]]) for r in rows]

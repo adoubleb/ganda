@@ -90,8 +90,22 @@ there on purpose: record that in the commit.
 `ganda/hana/HANDOFF.md` is the guide (setup, the order of live work, where each probe
 fact lives in the code); `ganda/hana/RULES.md` lists the engine facts with their status
 (documented, assumed, probed). Data models `doc` (JSON Document Store), `rel` (column
-tables), `rdf` (Knowledge Graph Engine, SPARQL). The provider attaches to a HANA Cloud
-instance (`HANA_HOST`, `HANA_PORT`, `HANA_USER`, `HANA_PASSWORD`); there is no container.
+tables), `graph` (Property Graph Engine: a GRAPH WORKSPACE over views of rel-shaped
+tables, openCypher through `OPENCYPHER_TABLE`; added 2026-10-11, its 32 `G*` probe facts
+run live the same day) and `rdf` (Knowledge Graph Engine, SPARQL). The provider attaches
+to a HANA Cloud instance (`HANA_HOST`, `HANA_PORT`, `HANA_USER`, `HANA_PASSWORD`); there
+is no container.
+
+The graph data model has two syntax families (`concrete_syntax/graph.py`): rel's SQL
+over `g_` CTEs that read every table through the engine (the views family: full
+coverage), and native openCypher where the language states the question. What the probe
+fixed (RULES.md "The graph data model"): a heterogeneous workspace takes ONE MATCH clause
+of one-edge comma-separated patterns, and a relationship binds once in it, so a native
+multi-hop is asked only over pairwise distinct edge types (the reference's walk semantics
+has no other native form); cypher's ORDER BY puts NULL last ascending (HANA SQL: first),
+so native `page` / `keys` are not asked; parameters bind bare only; an undirected
+self-loop matches once; SUM over nothing answered NULL (the docs say 0: every native sum
+carries its COUNT and SQL decides). The switches in `graph.py` are named after the facts.
 
 Verified live against HANA Cloud 4.00.000.00 (2026-10-09): the probe is 57/57, the first
 campaigns run, and six engine defects are written up with repros under
@@ -117,7 +131,7 @@ a direct address. `connection.connect()` retries a lost connect (`HANA_CONNECT_R
 pytest tests/hana tests/test_layering.py -q        # no server (test_offline needs rdflib)
 python3 -m tests.hana.run_offline --seeds 1 10     # whole campaigns on SQLite + rdflib through the real session code
 python3 -m ganda hana doctor
-python3 -m ganda hana probe                        # 57/57 live; `probe K5 D` for a subset
+python3 -m ganda hana probe                        # 90 facts (R/D/K 2026-10-10, G 2026-10-11); `probe K5 D` for a subset
 ```
 
 After any change to a HANA renderer, mapping or semantics: the offline runner first (it
@@ -130,8 +144,11 @@ The offline stand-in answers rdf the way HANA does (`tests/hana/offline.py`, `_a
 a double term rounded to `%g` (H1) and, through SPARQL_TABLE, a stored long / double /
 boolean as text (HANA types a column after the datatypes its predicate holds across the
 graph). So a value projection missing its decode suffix or its `STR` fails offline, not
-live. The provider bugs of campaign-20261009-095838 (`findings/README.md`, C4-C9) are
-pinned in `tests/hana/test_units.py`.
+live. The graph data model runs offline through `tests/hana/opencypher_sqlite.py`, a
+translator of exactly the openCypher subset the renderers emit into SQLite (its switches
+mirror the engine's documented semantics; a construct it lacks makes the variant partial
+offline, never an error). The provider bugs of campaign-20261009-095838
+(`findings/README.md`, C4-C9) are pinned in `tests/hana/test_units.py`.
 
 ## Triage of a finding
 

@@ -21,7 +21,15 @@ can check. What the translation does:
   and through SPARQL_TABLE a stored value (long, double, boolean) comes back as its
   text, a boolean as "1" / "0" -- HANA does so for a predicate holding several
   datatypes across the graph; the stand-in assumes every predicate does, so every value
-  projection must carry its decode suffix (or read a double through STR).
+  projection must carry its decode suffix (or read a double through STR);
+- graph: the rel translation over the same tables, the `gv_` views as SQLite views, the
+  workspace step recorded (not run), and every `OPENCYPHER_TABLE(...)` of a text
+  rewritten into a SQLite subquery by `opencypher_sqlite` -- a translator of the
+  openCypher subset the renderers emit, mirroring the engine's documented semantics
+  (one relationship per edge variable within a clause, both orientations of an
+  undirected edge, a trail for a variable-length path, SUM 0 over nothing, NULL first
+  ascending), so the state read back through openCypher and every graph variant are
+  checked against the other data models and the reference.
 """
 from __future__ import annotations
 
@@ -354,6 +362,7 @@ class OfflineSession(HanaSession):
     def __init__(self, database: str, data_model: str):
         super().__init__(None, database, data_model, timeout_ms=0)
         self.collections: set = set()
+        self.cypher_ws = None  # the graph data model's workspace, for the translator
         if data_model == "rdf":
             import rdflib
             from rdflib.plugins import sparql as _sparql
@@ -364,6 +373,18 @@ class OfflineSession(HanaSession):
         else:
             self.db = _sqlite()
 
+    def apply_step(self, step) -> None:
+        from ganda.hana.mapping.common import GraphWorkspace
+        from tests.hana import opencypher_sqlite
+
+        if isinstance(step, GraphWorkspace):
+            # no CREATE GRAPH WORKSPACE in SQLite: the session keeps the step (the
+            # read-back spells its attribute names) and the translator its workspace
+            self.workspace = step
+            self.cypher_ws = opencypher_sqlite.Workspace.from_step(step)
+            return
+        super().apply_step(step)
+
     # the three primitives the real session sends to the driver
 
     def sql(self, text: str, binds=None, rows: bool = True):
@@ -373,7 +394,14 @@ class OfflineSession(HanaSession):
             if not m:
                 raise EngineError(f"the offline rdf session runs SPARQL_TABLE texts only: {text[:200]}")
             return self.sparql(m.group(1).replace("''", "'"), table=True)
-        if self.data_model == "rel":
+        if self.data_model in ("rel", "graph"):
+            if self.cypher_ws is not None and "OPENCYPHER_TABLE(" in text:
+                from tests.hana import opencypher_sqlite
+
+                try:
+                    text = opencypher_sqlite.rewrite_sql(text, self.cypher_ws)
+                except opencypher_sqlite.UnsupportedCypher as e:
+                    raise EngineError(f"offline openCypher: {e}\n{text[:500]}") from e
             m = _UPSERT.match(text)
             if m:
                 return self._upsert(m, binds)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 import json
 import random
+import re
 from decimal import Decimal
 
 import pytest
@@ -14,7 +15,7 @@ from ganda.core.ast.write import apply
 from ganda.core.data_generator import build
 from ganda.core.generators.registry import all_cases
 from ganda.core.generators.write import sample_write
-from ganda.core.model import FieldType
+from ganda.core.model import EdgeTypeSpec, FieldSpec, FieldType, NodeTypeSpec
 from ganda.hana import rewrites
 from ganda.hana.config import UNSUPPORTED_AXES
 from ganda.hana.connection import decode_column, decode_row, positional, sparql_rows
@@ -313,3 +314,343 @@ def test_a_129_that_wraps_an_ordinary_refusal_is_a_rejection():
     assert err(129, "transaction rolled back by an internal error: something else").internal
     assert err(3, "fatal error: Execution flow must not reach here").internal
     assert err(613, "execution aborted by timeout").timeout
+
+
+# --- found offline: the pulled-up traversal's outer alias --------------------------------------
+
+
+@pytest.mark.parametrize("dm", ("rel", "doc"))
+def test_a_pulled_up_traversal_correlates_a_membership_on_its_own_alias(dm):
+    """`predicate.sql` aliases a LIST column's child table `x`; the pulled-up derived table
+    must not, or the membership EXISTS correlates the child table with itself
+    (`x.owner = x.id`, a column the child table lacks)."""
+    from ganda.core.ast.traversal import Hop, TraversalQuery
+    from ganda.hana.concrete_syntax import traversal
+
+    schema = E.schema(
+        (NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f3", FieldType.LIST))),),
+        (EdgeTypeSpec("e1", "n1", "n1", (FieldSpec("w", FieldType.INT),)),),
+    )
+    member = Predicate("source", "f3", "CONTAINS", "p0", 1, True, "list")
+    for proj in ("ids", "exists"):
+        q = TraversalQuery("n1", (Hop("e1", "out", None),), proj, None, member)
+        for syntax in traversal.SYNTAXES[dm]:
+            text = traversal.render(q, schema, dm, syntax, pull_up=True)
+            assert ") x WHERE" not in text, text
+            assert "x.owner = pu.id AND x.v = :p0" in text, text
+
+
+# --- the graph data model: the Property Graph Engine through OPENCYPHER_TABLE ------------------
+
+
+def _cases(seed: int):
+    schema, instance, rng = build(seed, CFG, E)
+    return schema, instance, all_cases(rng, schema, instance, cfg=CFG)
+
+
+def _graph_texts(seed: int) -> list:
+    """(case, variant, text) of every graph variant of a seed's cases."""
+    _schema, _instance, cases = _cases(seed)
+    return [(c, v, t) for c in cases for v, t in c.queries.items() if v.split(":", 1)[0] == "graph"]
+
+
+_LITERAL = re.compile(r"QUERY '((?:[^']|'')*)'")
+
+
+def _cypher_literals(text: str) -> list:
+    return [m.group(1).replace("''", "'") for m in _LITERAL.finditer(text)]
+
+
+def test_positional_leaves_the_cypher_literal_alone():
+    """Labels `(a:n1)`, ranges `[*1..2]`, `$p` and `:` inside the quoted query are not
+    binds; the PARAMETERS clause outside it is."""
+    text = "SELECT * FROM OPENCYPHER_TABLE(GRAPH WORKSPACE gw QUERY 'MATCH (a:n1)-[:e1*1..2]->(b:n2) WHERE a.N1_F1 > $p AND a.N1_F2 = ''it:s'' RETURN {k: a.ID} AS ID' PARAMETERS ('p' = :p))"
+    stmt, params = positional(text, {"p": 1})
+    assert params == [1]
+    assert stmt.endswith("PARAMETERS ('p' = ?))")
+    assert "(a:n1)-[:e1*1..2]->(b:n2)" in stmt and "$p" in stmt and "''it:s''" in stmt
+
+
+def test_opencypher_table_doubles_quotes_and_declares_the_parameters_a_query_uses():
+    from ganda.hana.concrete_syntax import graph
+    from ganda.hana.dialect import opencypher_table
+
+    assert opencypher_table("MATCH (a:n1) WHERE a.S = 'x' RETURN a.ID AS ID") == "OPENCYPHER_TABLE(GRAPH WORKSPACE gw QUERY 'MATCH (a:n1) WHERE a.S = ''x'' RETURN a.ID AS ID')"
+    params = graph.Params()
+    assert params.use("p") == "$p" and params.use("p__0") == "$p__0"
+    text = graph.table_fn("MATCH (a:n1) WHERE a.N1_F1 = $p__0 RETURN a.ID AS ID", params)
+    assert text.endswith("PARAMETERS ('p__0' = :p__0))"), text  # `$p` is unused there: not declared
+
+
+@pytest.mark.parametrize("seed", range(1, 6))
+def test_graph_attribute_names_have_one_type_across_the_workspace(seed):
+    """The constraint the views exist for: an attribute name has one SQL type across the
+    vertex tables and across the edge tables."""
+    from ganda.hana.dialect import SQL_TYPES, graph_columns
+
+    schema, _instance, _rng = build(seed, CFG, E)
+    for tables, edge in ((schema.node_types, False), (schema.edge_types, True)):
+        seen: dict = {}
+        for t in tables:
+            fields = {f.name: f.type for f in (t.fields if edge else schema.query_fields(t.name))}
+            for col, attr in graph_columns(schema, t.name):
+                if col in fields:
+                    assert seen.setdefault(attr, SQL_TYPES[fields[col]]) == SQL_TYPES[fields[col]], attr
+
+
+@pytest.mark.parametrize("seed", range(1, 4))
+def test_the_graph_plan_is_the_rel_plan_plus_views_and_one_workspace(seed):
+    from ganda.core.setup_plan import plan_from_dict, plan_to_dict
+    from ganda.hana.mapping.common import GraphWorkspace, Sql
+
+    schema, instance, _rng = build(seed, CFG, E)
+    plan = E.mappers["graph"](instance)
+    ws = [s for s in plan if isinstance(s, GraphWorkspace)]
+    assert len(ws) == 1 and ws[0].cache in ("dynamic", "none")
+    views = [s.text for s in plan if isinstance(s, Sql) and s.text.startswith("CREATE VIEW gv_")]
+    assert len(views) == len(schema.node_types) + len(schema.edge_types)
+    assert ws[0].sql().startswith("CREATE GRAPH WORKSPACE gw VERTEX TABLE gv_n1 KEY COLUMN id LABEL 'n1'")
+    assert all("REFERENCES gv_" in part for part in ws[0].sql().split("EDGE TABLE")[1:])
+    assert plan_to_dict(plan_from_dict(plan_to_dict(plan))) == plan_to_dict(plan)
+    # the data steps are the rel plan's for the same write form
+    rel = [s.to_dict() for s in E.mappers["rel"](instance) if not (isinstance(s, Sql) and s.text.startswith(("CREATE", "MERGE DELTA")))]
+    gr = [s.to_dict() for s in plan if not (isinstance(s, (Sql, GraphWorkspace)) and (isinstance(s, GraphWorkspace) or s.text.startswith(("CREATE", "MERGE DELTA"))))]
+    if instance.write_form("rel") == instance.write_form("graph"):
+        assert rel == gr
+
+
+@pytest.mark.parametrize("seed", range(1, 4))
+def test_every_traversal_question_has_a_graph_syntax_and_every_select_a_graph_base(seed):
+    from ganda.core.ast.traversal import from_params
+    from ganda.hana.concrete_syntax import select, traversal
+
+    schema, _instance, cases = _cases(seed)
+    for c in cases:
+        if c.generator_name == "ir_traversal":
+            q = from_params(c.params["traversal"])
+            assert traversal.syntaxes_for(q, schema, "graph"), c.shape
+            assert "graph" in c.queries
+        if c.generator_name == "ir_select":
+            from ganda.core.ast.select import from_params as select_params
+
+            q = select_params(c.params["select"])
+            assert "graph" in select.base_data_models(q) or q.tx
+
+
+def test_pattern_only_where_no_edge_can_repeat_and_undirected_only_for_sets():
+    from ganda.core.ast.traversal import Hop, TraversalQuery
+    from ganda.hana.concrete_syntax import traversal
+
+    schema = E.schema(
+        (NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT),)), NodeTypeSpec("n2", (FieldSpec("f1", FieldType.STRING),))),
+        (EdgeTypeSpec("e1", "n1", "n2", ()), EdgeTypeSpec("e2", "n2", "n1", ()), EdgeTypeSpec("e3", "n1", "n1", (FieldSpec("w", FieldType.INT),))),
+    )
+
+    def ok(hops, proj, syntax):
+        return traversal.applicable(TraversalQuery("n1", tuple(Hop(e, d, None) for e, d in hops), proj, None, None), schema, "graph", syntax)
+
+    # one MATCH clause, a relationship bound once in it: a native multi-hop only where no
+    # edge could repeat (G8); the views family always
+    assert ok([("e1", "out"), ("e2", "out")], "ids", "match")
+    assert not ok([("e3", "out"), ("e3", "out")], "ids", "match")  # the self-loop could bind twice
+    assert not ok([("e1", "out"), ("e1", "in")], "count", "paths")  # the same relationship back
+    assert ok([("e3", "out"), ("e3", "out")], "ids", "join") and ok([("e3", "out"), ("e3", "out")], "ids", "scalar")
+    assert ok([("e3", "both")], "distinct_ids", "undirected") and ok([("e3", "both")], "nexists", "undirected")
+    assert not ok([("e3", "both")], "ids", "undirected") and not ok([("e3", "out")], "distinct_ids", "undirected")
+    assert ok([("e3", "both")], "count", "paths") and not ok([("e3", "both")], "count", "match")  # a both aggregate: SQL-side only
+    assert ok([("e1", "out")], "reach2", "match") and not ok([("e1", "out")], "reach2", "paths")
+    assert ok([("e1", "out")], "distinct_count", "paths") and not ok([("e1", "out")], "distinct_count", "match")
+    for syntax in traversal.SYNTAXES["graph"]:
+        assert ok([("e1", "out")], "ids", syntax) == (syntax in ("match", "join", "scalar")), syntax
+
+
+@pytest.mark.parametrize("seed", range(1, 4))
+def test_graph_texts_are_well_formed(seed):
+    """No incoming arrow, ONE MATCH clause (G8), uppercase RETURN aliases, every native
+    SUM guarded by its COUNT and a CASE outside, every `$name` declared, every bind
+    resolvable, no two graph variants of a case alike."""
+    by_case: dict = {}
+    for c, v, t in _graph_texts(seed):
+        # every NATIVE graph variant of a case is its own text -- except that two
+        # `literal` variants may coincide (a rewrite of `IN [x]` as `= x` inlines the same
+        # constant); the views family inherits rel's own coincidences (join / scalar on a
+        # reach question)
+        native = "g_" not in t and ("literal" not in v or v == "graph:literal")
+        by_case.setdefault(id(c), []).append(t if native else None)
+        positional(t, {**c.bind_vars})
+        for lit in _cypher_literals(t):
+            assert "<-[" not in lit, lit
+            assert lit.count("MATCH ") == 1, lit
+            for alias in re.findall(r" AS ([A-Za-z_][A-Za-z0-9_]*)", lit.split(" RETURN ", 1)[-1]):
+                assert alias == alias.upper(), (alias, lit)
+            if "SUM(" in lit:
+                assert "COUNT(" in lit and "THEN NULL ELSE" in t, t
+            declared = set(re.findall(r"'(\w+)' = :", t))
+            outside_strings = re.sub(r"'(?:[^'\\]|\\.)*'", "''", lit)  # a constant may hold a `$`
+            assert set(re.findall(r"\$(\w+)", outside_strings)) <= declared, (lit, declared)
+    for texts in by_case.values():
+        texts = [t for t in texts if t is not None]
+        assert len(set(texts)) == len(texts)
+
+
+def test_cypher_literals_escape_and_refuse():
+    from ganda.hana.concrete_syntax import graph
+
+    assert graph.cypher_string("it's\\") == "'it\\'s\\\\'"
+    assert graph.literal(0.1) == "0.1" and graph.literal(2**63 - 1) == "9223372036854775807" and graph.literal(-2.0, "float") == "-2.0"
+    assert graph.literal([1, 2]) == "'[1,2]'"
+    for bad in ("a\nb", 1e-05, float("inf"), True, None):
+        with pytest.raises(graph.Unsupported):
+            graph.literal(bad)
+
+
+def test_cypher_filter_mirrors_the_sql_binds_and_refuses_what_has_no_form():
+    from ganda.hana.concrete_syntax import graph, predicate
+
+    schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f2", FieldType.STRING), FieldSpec("f3", FieldType.LIST), FieldSpec("f4", FieldType.BOOL))),), ())
+    leaves = {
+        "cmp": Predicate("source", "f1", ">", "p", 1, True, "int"),
+        "rev": Predicate("source", "f1", "<", "p", 1, True, "int", rev=True),
+        "in": Predicate("source", "f1", "IN", "p", [1, 2], True, "int"),
+        "between": Predicate("source", "f1", "BETWEEN", "p", [1, 2], True, "int"),
+        "null": Predicate("source", "f1", "IS NOT NULL", "", None, True, "int"),
+        "like": Predicate("source", "f2", "LIKE", "p", "ab%", True, "string"),
+        "arith": Predicate("source", "f1", ">=", "p", 3, True, "int", arith=("+", "arc", 2)),
+        "list": Predicate("source", "f3", "=", "p", [1], True, "list"),
+    }
+    texts = {}
+    for name, leaf in leaves.items():
+        params = graph.Params()
+        texts[name] = graph.cypher_filter(leaf, "t", "n1", schema, params)
+        assert set(re.findall(r"\$(\w+)", texts[name])) == set(params.items)
+        sql_binds = set(re.findall(r":(\w+)", predicate.sql(leaf, "t", "n1")))
+        # the same names as the SQL binds, but an IN list one marker per element (the
+        # session's `name__k`) and a LIKE constant inlined (no `$` at all)
+        expected = {"in": {"p__0", "p__1"}, "like": set()}.get(name, sql_binds)
+        assert set(params.items) == expected, (name, texts[name])
+        assert graph.binds_parameters(leaf) == bool(expected)
+    assert texts["cmp"] == "(t.N1_F1 > $p)" and texts["rev"] == "($p > t.N1_F1)"
+    assert texts["in"] == "(t.N1_F1 = $p__0 OR t.N1_F1 = $p__1)"
+    assert texts["between"] == "(t.N1_F1 >= $pa AND t.N1_F1 <= $pb)" and texts["null"] == "NOT (t.N1_F1 IS NULL)"
+    assert texts["like"] == "t.N1_F2 STARTS WITH 'ab'" and texts["arith"] == "((t.N1_F1 + $arc) >= $p)" and texts["list"] == "(t.N1_F3 = $p__json)"
+    for leaf in (Predicate("source", "f3", "CONTAINS", "p", 1, True, "list"), Predicate("source", "f4", "=", "p", True, True, "bool"), Predicate("source", "f2", "=", "p", "x", True, "string", ci=True)):
+        assert not graph.expressible(leaf, schema, "n1")
+    assert not graph.expressible(Predicate("source", "f1", "IN", "p", [], True, "int", sub=("n1", "f1", None, False)), schema, "n1")
+
+
+# --- the offline openCypher translator ----------------------------------------------------------
+
+
+def _translator_db():
+    """A SQLite database with the views of a small schema, and its workspace."""
+    import sqlite3
+
+    from ganda.hana.mapping import graph as mapping_graph
+    from tests.hana.opencypher_sqlite import Workspace
+
+    schema = E.schema(
+        (NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f2", FieldType.STRING))), NodeTypeSpec("n2", (FieldSpec("f1", FieldType.STRING),))),
+        (EdgeTypeSpec("e1", "n1", "n2", (FieldSpec("w", FieldType.INT),)), EdgeTypeSpec("e2", "n1", "n1", ())),
+    )
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE n1 (id TEXT PRIMARY KEY, f1 INTEGER, f2 TEXT)")
+    db.execute("CREATE TABLE n2 (id TEXT PRIMARY KEY, f1 TEXT)")
+    db.execute("CREATE TABLE e1 (eid TEXT PRIMARY KEY, src_id TEXT, dst_id TEXT, w INTEGER)")
+    db.execute("CREATE TABLE e2 (eid TEXT PRIMARY KEY, src_id TEXT, dst_id TEXT)")
+    db.executemany("INSERT INTO n1 VALUES (?, ?, ?)", [("a", 1, "x"), ("b", 2, "it's"), ("c", None, None), ("d", -5, "yz")])
+    db.executemany("INSERT INTO n2 VALUES (?, ?)", [("x", "x"), ("y", None)])
+    db.executemany("INSERT INTO e1 VALUES (?, ?, ?, ?)", [("e0", "a", "x", 3), ("e1", "a", "x", None), ("e2", "b", "y", 7)])
+    db.executemany("INSERT INTO e2 VALUES (?, ?, ?)", [("e3", "a", "a"), ("e4", "a", "b"), ("e5", "b", "d")])
+    for step in mapping_graph.view_ddl(schema):
+        db.execute(step.text)
+    return db, Workspace.from_step(mapping_graph.workspace(schema))
+
+
+def _run(db, ws, cypher: str, params: "dict | None" = None, binds: "dict | None" = None) -> list:
+    from tests.hana.opencypher_sqlite import to_sql
+
+    sql_text = to_sql(cypher, params or {}, ws)
+    stmt, values = positional(sql_text, binds)
+    cur = db.execute(stmt, values)
+    names = [d[0].lower() for d in cur.description]
+    return [dict(zip(names, r)) for r in cur.fetchall()]
+
+
+def test_translator_patterns_and_semantics():
+    import tests.hana.opencypher_sqlite as oc
+
+    db, ws = _translator_db()
+    assert sorted(r["id"] for r in _run(db, ws, "MATCH (a:n1) RETURN a.ID AS ID")) == ["a", "b", "c", "d"]
+    assert sorted((r["id"], r["v"]) for r in _run(db, ws, "MATCH (a:n1)-[e:e1]->(b:n2) RETURN a.ID AS ID, b.ID AS V")) == [("a", "x"), ("a", "x"), ("b", "y")]
+    # the hop in is the pattern reversed; a bare variable is the one already bound
+    assert sorted(r["v"] for r in _run(db, ws, "MATCH (t1:n1)-[j1:e1]->(s:n2) WHERE s.ID = 'y' RETURN t1.ID AS V")) == ["b"]
+    # an undirected edge over the self-loop: once (G7)
+    loop = [r["v"] for r in _run(db, ws, "MATCH (a:n1)-[e:e2]-(b:n1) WHERE a.ID = 'a' RETURN b.ID AS V")]
+    assert loop.count("a") == (2 if oc.SELF_LOOP_TWICE else 1) and loop.count("b") == 1
+    # a second MATCH clause is the engine's refusal; within the one clause a relationship binds once
+    with pytest.raises(oc.UnsupportedCypher):
+        _run(db, ws, "MATCH (a:n1)-[e1:e2]->(b:n1) MATCH (b)-[e2:e2]->(c:n1) WHERE a.ID = 'a' AND c.ID = 'a' RETURN COUNT(c.ID) AS V")
+    within = _run(db, ws, "MATCH (a:n1)-[e1:e2]->(b:n1), (b)-[e2:e2]->(c:n1) WHERE a.ID = 'a' AND c.ID = 'a' RETURN COUNT(c.ID) AS V")[0]["v"]
+    assert within == (0 if oc.ISOMORPHIC_WITHIN_CLAUSE else 1)
+    # a variable-length path repeats no relationship; unlabelled edges span every table
+    assert _run(db, ws, "MATCH rp = (a:n1)-[:e2*1..2]->(b:n1) WHERE a.ID = 'a' AND b.ID = 'a' RETURN COUNT(b.ID) AS V")[0]["v"] == (1 if oc.TRAIL_PATHS else 2)
+    assert _run(db, ws, "MATCH rp = (a:n1)-[*1..1]->(b) WHERE a.ID = 'b' RETURN COUNT(b.ID) AS V")[0]["v"] == 2
+    assert _run(db, ws, "MATCH (a:n1)-[x1]->(y1), (y1)-[x2]->(b:n1) WHERE a.ID = 'a' AND b.ID = 'd' RETURN COUNT(b.ID) AS V")[0]["v"] == 1
+    # aggregates: one row over no match, SUM 0 over no present value, implicit grouping
+    assert [r["v"] for r in _run(db, ws, "MATCH (a:n1) WHERE a.N1_F2 = 'none' RETURN COUNT(a.ID) AS V")] == [0]
+    assert [r["v"] for r in _run(db, ws, "MATCH (a:n1) WHERE a.N1_F2 = 'none' RETURN MAX(a.N1_F1) AS V")] == [None]
+    assert [r["v"] for r in _run(db, ws, "MATCH (a:n1) WHERE a.ID = 'c' RETURN SUM(a.N1_F1) AS V")] == [0 if oc.SUM_EMPTY_ZERO else None]
+    assert sorted((r["k"], r["v"]) for r in _run(db, ws, "MATCH (a:n1)-[e:e1]->(b:n2) RETURN a.ID AS K, COUNT(b.ID) AS V")) == [("a", 2), ("b", 1)]
+    assert sorted(r["v"] for r in _run(db, ws, "MATCH (a:n1)-[e:e1]->(b:n2) RETURN DISTINCT b.ID AS V")) == ["x", "y"]
+
+
+def test_translator_filters_ordering_and_parameters():
+    import tests.hana.opencypher_sqlite as oc
+
+    db, ws = _translator_db()
+    ids = lambda cy, **kw: sorted(r["id"] for r in _run(db, ws, cy, **kw))  # noqa: E731
+    assert ids("MATCH (a:n1) WHERE NOT (a.N1_F1 > 1) RETURN a.ID AS ID") == ["a", "d"]
+    assert ids("MATCH (a:n1) WHERE a.N1_F1 > 100 OR a.N1_F2 IS NULL RETURN a.ID AS ID") == ["c"]
+    assert ids("MATCH (a:n1) WHERE a.N1_F2 STARTS WITH 'i' RETURN a.ID AS ID") == ["b"]
+    assert ids("MATCH (a:n1) WHERE a.N1_F2 ENDS WITH 'z' RETURN a.ID AS ID") == ["d"]
+    assert ids("MATCH (a:n1) WHERE a.N1_F2 CONTAINS 't\\'s' RETURN a.ID AS ID") == ["b"]
+    assert ids("MATCH (a:n1) WHERE (a.N1_F1 - $c) > $p RETURN a.ID AS ID", params={"c": ":c", "p": ":p"}, binds={"c": 1, "p": 0}) == ["b"]
+    order = [r["id"] for r in _run(db, ws, "MATCH (a:n1) RETURN a.ID AS ID ORDER BY a.N1_F1 ASC, a.ID ASC")]
+    assert order == (["c", "d", "a", "b"] if oc.NULLS_FIRST_ASC else ["d", "a", "b", "c"])
+    assert [r["id"] for r in _run(db, ws, "MATCH (a:n1) RETURN a.ID AS ID ORDER BY a.N1_F1 ASC, a.ID ASC LIMIT 2 SKIP 1")] == order[1:3]
+    assert [r["id"] for r in _run(db, ws, "MATCH (a:n1) RETURN a.ID AS ID ORDER BY a.N1_F1 DESC, a.ID ASC")] == (["b", "a", "d", "c"] if oc.NULLS_FIRST_ASC else ["c", "b", "a", "d"])
+    assert not oc.translatable("SELECT * FROM OPENCYPHER_TABLE(GRAPH WORKSPACE gw QUERY 'MATCH (a:n1) OPTIONAL MATCH (a)-[e:e1]->(b) RETURN a.ID AS ID')")
+    assert oc.translatable("SELECT x.id FROM OPENCYPHER_TABLE(GRAPH WORKSPACE gw QUERY 'MATCH (a:n1) WHERE a.N1_F2 = ''it\\''s'' RETURN a.ID AS ID') x")
+    rewritten = oc.rewrite_sql("SELECT z.id AS id FROM OPENCYPHER_TABLE(GRAPH WORKSPACE gw QUERY 'MATCH (a:n1) WHERE a.N1_F1 = $p RETURN a.ID AS ID' PARAMETERS ('p' = :p)) z", ws)
+    assert "OPENCYPHER_TABLE" not in rewritten and ":p" in rewritten
+    stmt, values = positional(rewritten, {"p": 2})
+    assert [r[0] for r in db.execute(stmt, values).fetchall()] == ["b"]
+
+
+@pytest.mark.parametrize("seed", range(1, 4))
+def test_the_graph_model_round_trips_offline_without_rdflib(seed):
+    """The graph setup, its state read back through the translated openCypher, and
+    every rel / graph variant of every case against each other and the reference."""
+    import dataclasses
+
+    from ganda.core.oracle import run_cases
+    from ganda.core.state_check import verify_state
+    from tests.hana.offline import OfflineServer
+
+    schema, instance, cases = _cases(seed)
+    server = OfflineServer()
+    sessions = {}
+    for dm in ("rel", "graph"):
+        s = server.fresh_session(E.database_name(f"g{seed}", dm))
+        s.apply_setup(E.mappers[dm](instance))
+        diff = verify_state(s, dm, instance)
+        assert diff.ok, (dm, diff.problems[:3])
+        sessions[dm] = s
+    kept = []
+    for c in cases:
+        queries = {v: t for v, t in c.queries.items() if v.split(":", 1)[0] in sessions}
+        if "rel" in queries and "graph" in queries:
+            kept.append(dataclasses.replace(c, queries=queries, params={**c.params, "partial": True}))
+    results = run_cases(kept, sessions, instance)
+    bad = [r for r in results if not r.ok]
+    assert len(kept) > 100 and not bad, [(r.finding_class, r.case.shape, r.errors, [str(m)[:200] for m in r.mismatches[:1]]) for r in bad[:3]]

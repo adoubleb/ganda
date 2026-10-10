@@ -1,9 +1,12 @@
 """The SAP HANA provider: this package's modules behind the core's contract.
 
-Three data models of one SAP HANA Cloud database -- the JSON Document Store (`doc`),
-column tables (`rel`) and the Knowledge Graph Engine's triple store (`rdf`) -- each
-asked every question through its own query language: the document store's collection
-queries, SQL, and SPARQL (directly, and inside SQL through `SPARQL_TABLE`)."""
+Four data models of one SAP HANA Cloud database -- the JSON Document Store (`doc`),
+column tables (`rel`), the Property Graph Engine's graph workspace over column tables
+(`graph`) and the Knowledge Graph Engine's triple store (`rdf`) -- each asked every
+question through its own query language: the document store's collection queries, SQL,
+openCypher (inside SQL through `OPENCYPHER_TABLE`), and SPARQL (directly, and inside SQL
+through `SPARQL_TABLE`). The comparison order puts `graph` next to `rel`: the same
+bytes read through two engines."""
 from __future__ import annotations
 
 from ganda.core.provider import Provider
@@ -16,7 +19,7 @@ from ganda.hana.semantics import SEMANTICS
 class HanaProvider(Provider):
     name = "hana"
     title = "SAP HANA"
-    data_models = ("doc", "rel", "rdf")
+    data_models = ("doc", "rel", "graph", "rdf")
     config_class = HanaConfig
     limits = LIMITS
     semantics = SEMANTICS

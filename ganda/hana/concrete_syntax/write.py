@@ -10,7 +10,7 @@ Instance after the write.
     target   table      `UPDATE t SET ... WHERE p`
              nest       `... WHERE id IN (SELECT id FROM t WHERE p)` (rel, doc: the
                         records chosen before any is written)
-             merge      rel: `MERGE INTO t USING (SELECT id FROM t WHERE p) s ON ...`
+             merge      rel, graph: `MERGE INTO t USING (SELECT id FROM t WHERE p) s ON ...`
     door     auto       auto-commit statements
              tx         every statement in one transaction, committed
 
@@ -20,6 +20,9 @@ before / after the write:
     rel   UPDATE / DELETE / UPSERT row counts; a LIST field's child rows rewritten
           for the records the write matched (their ids: the reference's), after the
           compared statement; a node delete removes the junction rows first
+    graph the rel statements over the same tables (the graph has no write of its
+          own: the workspace reads the tables through its cache); the read-backs and
+          the state check then ask openCypher what the write did
     doc   UPDATE ... SET / UNSET and DELETE on the collection, their row counts; a node
           delete rewrites the link arrays of the documents pointing at a victim, and an
           edge write rewrites the link arrays of the sources it touches (the document
@@ -125,7 +128,7 @@ def applicable(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_mod
         return sp.filter == "plain" and sp.target == "table"
     if data_model == "rdf" and sp.target != "table":
         return False
-    if sp.target == "merge" and (data_model != "rel" or q.op not in ("set", "merge", "null", "remove", "arith")):
+    if sp.target == "merge" and (data_model not in ("rel", "graph") or q.op not in ("set", "merge", "null", "remove", "arith")):
         return False
     if sp.target == "nest" and q.where is None and not (data_model == "doc" and q.op == "arith"):
         return False
@@ -439,7 +442,8 @@ def _rdf(q: WriteQuery, sp: WriteSyntax, pred, schema: Schema) -> Statements:
 def render(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_model: str, before: Instance, after: Instance) -> Statements:
     pred = rewrites.pred(q, sp.filter)
     schema = before.schema
-    if data_model == "rel":
+    if data_model in ("rel", "graph"):
+        # the graph data model's tables are the rel tables; the workspace reads the change
         st = _rel(q, sp, pred, schema, before)
     elif data_model == "doc":
         st = _doc(q, sp, pred, schema, before, after)

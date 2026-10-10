@@ -7,7 +7,7 @@ change, see HANDOFF.md) or OBSERVED (recorded so a later run can see a change; n
 fails). Every line prints what the engine answered.
 
     python3 -m ganda hana probe            # every fact
-    python3 -m ganda hana probe K5 D6      # some of them (ids or prefixes: R, D, K)
+    python3 -m ganda hana probe K5 D6      # some of them (ids or prefixes: R, D, K, G)
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from decimal import Decimal
 from typing import Callable
 
 from ganda.core.provider import EngineError
+from ganda.hana.dialect import opencypher_table
 
 PREFIX = "PREFIX c: <urn:ganda:c:> PREFIX p: <urn:ganda:p:> PREFIX i: <urn:ganda:i:> PREFIX l: <urn:ganda:l:> PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>"
 G = "<urn:ganda:graph>"
@@ -192,7 +193,153 @@ K = [
     Fact("K18", "UCASE, LCASE, STRLEN, SUBSTR, CONCAT, ABS, STRSTARTS, STRENDS, CONTAINS, REGEX", lambda p: _eq(p.sparql('SELECT (CONCAT(UCASE("ab"), LCASE("C"), SUBSTR("xyz", 1, 1), STR(STRLEN("abc")), STR(ABS(-2))) AS ?v) WHERE { FILTER (STRSTARTS("abc", "a") && STRENDS("abc", "c") && CONTAINS("abc", "b") && REGEX("abc", "^a")) }')[0]["v"], "ABcx32")),
 ]
 
-FACTS = R + D + K
+# --- the property graph engine ----------------------------------------------------------------
+
+
+def _oc(p: Probe, cypher: str, binds: "dict | None" = None, params: "dict | None" = None) -> list:
+    """The rows of an openCypher query over the probe schema's workspace `gw`."""
+    return p.sql(f"SELECT * FROM {opencypher_table(cypher, params)}", binds)
+
+
+def _oc_ids(p: Probe, cypher: str, binds=None, params=None) -> list:
+    return sorted(r["id"] for r in _oc(p, cypher, binds, params))
+
+
+def g_setup(p: Probe):
+    """Two vertex tables with an `f1` of different types, an edge table between them with
+    two parallel relationships, a self-typed one with a self-loop; the views and the
+    workspace exactly as `mapping.graph` builds them."""
+    p.run("CREATE COLUMN TABLE pv1 (id NVARCHAR(256) PRIMARY KEY, f1 BIGINT, f2 NVARCHAR(5000), b BOOLEAN, d DOUBLE, l NVARCHAR(5000))")
+    p.run("CREATE COLUMN TABLE pv2 (id NVARCHAR(256) PRIMARY KEY, f1 NVARCHAR(5000))")
+    p.run("CREATE COLUMN TABLE pe1 (eid NVARCHAR(256) PRIMARY KEY, src_id NVARCHAR(256) NOT NULL, dst_id NVARCHAR(256) NOT NULL, w BIGINT, s NVARCHAR(5000))")
+    p.run("CREATE COLUMN TABLE pe2 (eid NVARCHAR(256) PRIMARY KEY, src_id NVARCHAR(256) NOT NULL, dst_id NVARCHAR(256) NOT NULL, w DOUBLE)")
+    for r in [("a", 1, "x", True, 0.5, "[1,2]"), ("b", 2**63 - 1, "B", False, float(2**53), "[]"), ("c", None, None, None, None, None), ("d", -5, "it's", True, 1e-300, "[3]")]:
+        p.run("INSERT INTO pv1 (id, f1, f2, b, d, l) VALUES (:a, :b, :c, :d, :e, :f)", dict(zip("abcdef", r)))
+    p.run("INSERT INTO pv2 (id, f1) VALUES ('x', 'x')")
+    p.run("INSERT INTO pv2 (id, f1) VALUES ('y', NULL)")
+    for r in [("e0", "a", "x", 3, "p"), ("e1", "a", "x", None, None), ("e2", "b", "y", 7, "q")]:
+        p.run("INSERT INTO pe1 (eid, src_id, dst_id, w, s) VALUES (:a, :b, :c, :d, :e)", dict(zip("abcde", r)))
+    for r in [("e3", "a", "a", 0.5), ("e4", "a", "b", 1.5), ("e5", "b", "d", 2.5)]:
+        p.run("INSERT INTO pe2 (eid, src_id, dst_id, w) VALUES (:a, :b, :c, :d)", dict(zip("abcd", r)))
+    p.run("CREATE VIEW gv_pv1 AS SELECT id, f1 AS pv1_f1, f2 AS pv1_f2, b AS pv1_b, d AS pv1_d, l AS pv1_l FROM pv1")
+    p.run("CREATE VIEW gv_pv2 AS SELECT id, f1 AS pv2_f1 FROM pv2")
+    p.run("CREATE VIEW gv_pe1 AS SELECT eid, src_id, dst_id, w AS pe1_w, s AS pe1_s FROM pe1")
+    p.run("CREATE VIEW gv_pe2 AS SELECT eid, src_id, dst_id, w AS pe2_w FROM pe2")
+    p.run("CREATE GRAPH WORKSPACE gw VERTEX TABLE gv_pv1 KEY COLUMN id LABEL 'pv1' VERTEX TABLE gv_pv2 KEY COLUMN id LABEL 'pv2' EDGE TABLE gv_pe1 KEY COLUMN eid SOURCE COLUMN src_id REFERENCES gv_pv1 TARGET COLUMN dst_id REFERENCES gv_pv2 LABEL 'pe1' EDGE TABLE gv_pe2 KEY COLUMN eid SOURCE COLUMN src_id REFERENCES gv_pv1 TARGET COLUMN dst_id REFERENCES gv_pv1 LABEL 'pe2'")
+    return _eq(_oc_ids(p, "MATCH (a:pv1) RETURN a.ID AS ID"), ["a", "b", "c", "d"])
+
+
+def g12(p: Probe):
+    """The workspace reads the transaction's own uncommitted writes, and forgets them
+    with the rollback."""
+    seen = []
+    p.s._transaction(lambda: (p.run("INSERT INTO pv1 (id, f1) VALUES ('z', 9)"), seen.append(_oc(p, "MATCH (a:pv1) RETURN COUNT(a.ID) AS V")[0]["v"])), commit=False)
+    after = _oc(p, "MATCH (a:pv1) RETURN COUNT(a.ID) AS V")[0]["v"]
+    return (seen, after) == ([5], 4), f"inside the transaction {seen}, after rollback {after} (want [5], 4)"
+
+
+def g13(p: Probe):
+    p.run("UPDATE pv1 SET f1 = 10 WHERE id = 'a'")
+    p.run("MERGE DELTA OF pv1")
+    got = _oc(p, "MATCH (a:pv1) WHERE a.ID = 'a' RETURN a.PV1_F1 AS V")[0]["v"]
+    p.run("UPDATE pv1 SET f1 = 1 WHERE id = 'a'")
+    return _eq(got, 10)
+
+
+def g16(p: Probe):
+    lower_attr = p.error(lambda: _oc(p, "MATCH (a:pv1) RETURN a.id AS ID"))[:80] or "accepted"
+    lower_alias = p.error(lambda: p.sql(f"SELECT z.id AS v FROM {opencypher_table('MATCH (a:pv1) RETURN a.ID AS id')} z"))[:80] or "accepted"
+    return True, f"a.id: {lower_attr}; `AS id` read as z.id: {lower_alias}"
+
+
+def g17(p: Probe):
+    """A workspace over a view over a hash-partitioned table whose key has no PRIMARY KEY
+    (NOT NULL only): the view-backed graph table skips the constraint check. Two edge
+    tables, as every campaign workspace has (a homogeneous one misbehaves: G27)."""
+    p.run("CREATE COLUMN TABLE pv3 (id NVARCHAR(256) NOT NULL, f1 BIGINT) PARTITION BY HASH (id) PARTITIONS 2")
+    p.run("CREATE COLUMN TABLE pe3 (eid NVARCHAR(256) PRIMARY KEY, src_id NVARCHAR(256) NOT NULL, dst_id NVARCHAR(256) NOT NULL)")
+    p.run("CREATE COLUMN TABLE pe4 (eid NVARCHAR(256) PRIMARY KEY, src_id NVARCHAR(256) NOT NULL, dst_id NVARCHAR(256) NOT NULL, w BIGINT)")
+    p.run("INSERT INTO pv3 VALUES ('m', 1)")
+    p.run("INSERT INTO pv3 VALUES ('n', 2)")
+    p.run("INSERT INTO pe3 VALUES ('f0', 'm', 'n')")
+    p.run("INSERT INTO pe4 VALUES ('f1', 'n', 'm', 5)")
+    p.run("CREATE VIEW gv_pv3 AS SELECT id, f1 AS pv3_f1 FROM pv3")
+    p.run("CREATE VIEW gv_pe3 AS SELECT eid, src_id, dst_id FROM pe3")
+    p.run("CREATE VIEW gv_pe4 AS SELECT eid, src_id, dst_id, w AS pe4_w FROM pe4")
+    p.run("CREATE GRAPH WORKSPACE gw2 VERTEX TABLE gv_pv3 KEY COLUMN id LABEL 'pv3' EDGE TABLE gv_pe3 KEY COLUMN eid SOURCE COLUMN src_id REFERENCES gv_pv3 TARGET COLUMN dst_id REFERENCES gv_pv3 LABEL 'pe3' EDGE TABLE gv_pe4 KEY COLUMN eid SOURCE COLUMN src_id REFERENCES gv_pv3 TARGET COLUMN dst_id REFERENCES gv_pv3 LABEL 'pe4'")
+    rows = p.sql("SELECT * FROM OPENCYPHER_TABLE(GRAPH WORKSPACE gw2 QUERY 'MATCH (a:pv3)-[e:pe3]->(b:pv3) RETURN a.ID AS ID, b.ID AS V')")
+    return _eq([(r["id"], r["v"]) for r in rows], [("m", "n")])
+
+
+def g27(p: Probe):
+    """One vertex table and one edge table (homogeneous), labelled: what a labelled and
+    an unlabelled query answer (the first run: `invalid column name: a.CYPHER$TABLE$LABEL`)."""
+    p.run("CREATE GRAPH WORKSPACE gw4 VERTEX TABLE gv_pv3 KEY COLUMN id LABEL 'pv3' EDGE TABLE gv_pe3 KEY COLUMN eid SOURCE COLUMN src_id REFERENCES gv_pv3 TARGET COLUMN dst_id REFERENCES gv_pv3 LABEL 'pe3'")
+    labelled = p.error(lambda: p.sql("SELECT * FROM OPENCYPHER_TABLE(GRAPH WORKSPACE gw4 QUERY 'MATCH (a:pv3)-[e:pe3]->(b:pv3) RETURN a.ID AS ID, b.ID AS V')"))[:90] or "answers"
+    bare = p.error(lambda: p.sql("SELECT * FROM OPENCYPHER_TABLE(GRAPH WORKSPACE gw4 QUERY 'MATCH (a)-[e]->(b) RETURN a.ID AS ID, b.ID AS V')"))[:90] or "answers"
+    p.run("CREATE GRAPH WORKSPACE gw5 VERTEX TABLE gv_pv3 KEY COLUMN id EDGE TABLE gv_pe3 KEY COLUMN eid SOURCE COLUMN src_id REFERENCES gv_pv3 TARGET COLUMN dst_id REFERENCES gv_pv3")
+    unlabelled_ws = p.error(lambda: p.sql("SELECT * FROM OPENCYPHER_TABLE(GRAPH WORKSPACE gw5 QUERY 'MATCH (a)-[e]->(b) RETURN a.ID AS ID, b.ID AS V')"))[:90] or "answers"
+    return True, f"labelled query: {labelled} | unlabelled query: {bare} | workspace without LABEL clauses: {unlabelled_ws}"
+
+
+def g22(p: Probe):
+    """What a cypher mistake is classified as: a rejection, never an internal error."""
+    out = []
+    for label, text in (("syntax", "MATCH (a:pv1 RETURN a.ID AS ID"), ("label", "MATCH (a:nosuch) RETURN a.ID AS ID"), ("attribute", "MATCH (a:pv1) RETURN a.NOSUCH AS ID"), ("parameter", "MATCH (a:pv1) WHERE a.PV1_F1 = $nope RETURN a.ID AS ID")):
+        try:
+            _oc(p, text)
+            out.append(f"{label}: accepted")
+        except EngineError as e:
+            out.append(f"{label}: {'INTERNAL ' if e.internal else ''}{str(e)[:90]}")
+    return not any("INTERNAL" in o for o in out), " | ".join(out)
+
+
+def g26(p: Probe):
+    """DROP SCHEMA ... CASCADE removes the schema's workspace (the campaign's `_drop`)."""
+    p.run("CREATE SCHEMA fz_probe_gws")
+    p.run("CREATE COLUMN TABLE fz_probe_gws.v (id NVARCHAR(256) PRIMARY KEY)")
+    p.run("CREATE COLUMN TABLE fz_probe_gws.e (eid NVARCHAR(256) PRIMARY KEY, src_id NVARCHAR(256) NOT NULL, dst_id NVARCHAR(256) NOT NULL)")
+    p.run("CREATE GRAPH WORKSPACE fz_probe_gws.gw VERTEX TABLE fz_probe_gws.v KEY COLUMN id EDGE TABLE fz_probe_gws.e KEY COLUMN eid SOURCE COLUMN src_id TARGET COLUMN dst_id")
+    p.run("DROP SCHEMA fz_probe_gws CASCADE")
+    return _eq(p.one("SELECT COUNT(*) AS v FROM SYS.GRAPH_WORKSPACES WHERE SCHEMA_NAME = 'FZ_PROBE_GWS'"), 0)
+
+
+G = [
+    Fact("G0", "a graph workspace over VIEWS of rel-shaped tables, with LABEL and REFERENCES, unqualified `gw` resolving in the session's schema; `(a:pv1)` matches LABEL 'pv1'", g_setup),
+    Fact("G0b", "the workspace is valid (SYS.GRAPH_WORKSPACES.IS_VALID, the text 'TRUE')", lambda p: _eq(str(p.sql("SELECT IS_VALID AS v FROM SYS.GRAPH_WORKSPACES WHERE SCHEMA_NAME = CURRENT_SCHEMA AND WORKSPACE_NAME = 'GW'")[0]["v"]).upper(), "TRUE")),
+    Fact("G1", "OPENCYPHER_TABLE composes: in a CTE, as a derived table, LEFT JOINed to a column table with GROUP BY, under a correlated scalar subquery (the views family)", lambda p: _eq(p.one(f"WITH g AS (SELECT * FROM {opencypher_table('MATCH (a:pv1) RETURN a.ID AS ID, a.PV1_F1 AS F1')}) SELECT COUNT(*) AS v FROM (SELECT x.id FROM g x LEFT JOIN pe2 e ON e.src_id = x.id WHERE (SELECT COUNT(*) FROM g y WHERE y.id = x.id) = 1 GROUP BY x.id) z"), 4)),
+    Fact("G1b", "a result column is typed by the workspace column: BIGINT an int, DOUBLE a float, NVARCHAR a str, BOOLEAN a bool; the aliases ID / F1 / D / S / B reach SQL unquoted", lambda p: (lambda r: (r["f1"] == 1 and isinstance(r["f1"], int) and r["d"] == 0.5 and r["s"] == "x" and r["b"] is True, repr(r)))(_oc(p, "MATCH (a:pv1) WHERE a.ID = 'a' RETURN a.ID AS ID, a.PV1_F1 AS F1, a.PV1_D AS D, a.PV1_F2 AS S, a.PV1_B AS B")[0])),
+    Fact("G2", "PARAMETERS ('i' = ?, 's' = ?) binds $i / $s by NAME, bare (typed by the engine): an int exact above 2^53, a string, a double", lambda p: _eq((_oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F1 = $i OR a.PV1_F2 = $s RETURN a.ID AS ID", {"i": 2**63 - 1, "s": "x"}, {"i": ":i", "s": ":s"}), _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_D = $d RETURN a.ID AS ID", {"d": 0.5}, {"d": ":d"})), (["a", "b"], ["a"]))),
+    Fact("G2b", "a parameter bound through CAST(? AS BIGINT) (the typed form, if the bare one ever needs it)", lambda p: _eq(_oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F1 = $i RETURN a.ID AS ID", {"i": -5}, {"i": "CAST(:i AS BIGINT)"}), ["d"]), required=False),
+    Fact("G3", "three-valued WHERE as SQL: NOT (f > 1) drops a null f; f > 100 OR s IS NULL keeps a row with both null", lambda p: _eq((_oc_ids(p, "MATCH (a:pv1) WHERE NOT (a.PV1_F1 > 1) RETURN a.ID AS ID"), _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F1 > 100 OR a.PV1_F2 IS NULL RETURN a.ID AS ID")), (["a", "d"], ["b", "c"]))),
+    Fact("G4", "an aggregate-only RETURN over no match answers one row: COUNT 0, MAX NULL; SUM over a null-only group and over no match (recorded: the renderings guard a sum with its COUNT, whatever it answers)", lambda p: (lambda c, m, s, s0: (c == [0] and m == [None], f"COUNT {c}, MAX {m}, SUM over a null-only group {s}, SUM over no match {s0}"))([r["v"] for r in _oc(p, "MATCH (a:pv1) WHERE a.PV1_F2 = 'none' RETURN COUNT(a.ID) AS V")], [r["v"] for r in _oc(p, "MATCH (a:pv1) WHERE a.PV1_F2 = 'none' RETURN MAX(a.PV1_F1) AS V")], [r["v"] for r in _oc(p, "MATCH (a:pv1) WHERE a.ID = 'c' RETURN SUM(a.PV1_F1) AS V")], [r["v"] for r in _oc(p, "MATCH (a:pv1) WHERE a.PV1_F2 = 'none' RETURN SUM(a.PV1_F1) AS V")])),
+    Fact("G5", "ORDER BY ASC puts NULL LAST (HANA SQL: first), so a native ordering over a nullable field is not asked (`graph.NULLS_LIKE_SQL` off); LIMIT n SKIP m after it", lambda p: _eq(([r["id"] for r in _oc(p, "MATCH (a:pv1) RETURN a.ID AS ID ORDER BY a.PV1_F1 ASC, a.ID ASC")], [r["id"] for r in _oc(p, "MATCH (a:pv1) RETURN a.ID AS ID ORDER BY a.PV1_F1 ASC, a.ID ASC LIMIT 2 SKIP 1")]), (["d", "a", "b", "c"], ["a", "b"]))),
+    Fact("G5b", "ORDER BY ... DESC: where NULL goes (recorded); `SKIP` without `LIMIT` is a syntax error (the renderings ride a skip on the largest LIMIT)", lambda p: (lambda desc, skip: (True, f"DESC order {desc}; SKIP alone: {skip[:70] or 'accepted'}"))([r["id"] for r in _oc(p, "MATCH (a:pv1) RETURN a.ID AS ID ORDER BY a.PV1_F1 DESC, a.ID ASC")], p.error(lambda: _oc(p, "MATCH (a:pv1) RETURN a.ID AS ID ORDER BY a.PV1_F1 ASC, a.ID ASC SKIP 3"))), required=False),
+    Fact("G6", "strings order by code unit as HANA SQL does ('B' < 'i' < 'x'), in ORDER BY and in <", lambda p: _eq(([r["id"] for r in _oc(p, "MATCH (a:pv1) WHERE NOT (a.PV1_F2 IS NULL) RETURN a.ID AS ID ORDER BY a.PV1_F2 ASC")], _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F2 < 'a' RETURN a.ID AS ID")), (["b", "d", "a"], ["b"]))),
+    Fact("G7", "an undirected edge over a SELF-LOOP: how many times the loop matches (the `undirected` syntax asks set questions only; the offline translator mirrors the count)", lambda p: (lambda vs: (True, f"self-loop matched {vs.count('a')} time(s) (rows {vs})"))([r["v"] for r in _oc(p, "MATCH (a:pv1)-[e:pe2]-(b:pv1) WHERE a.ID = 'a' RETURN b.ID AS V")]), required=False),
+    Fact("G8", "a heterogeneous workspace takes ONE MATCH clause (a second is refused: 'only one match clause is allowed'); a pattern holds ONE edge (a chained `(a)-[e1]->(b)-[e2]->(c)` is a syntax error), the hops comma-separated; within the clause a relationship binds once: the self-loop a->a cannot be both hops (so a native multi-hop is asked only over pairwise distinct edge types)", lambda p: (lambda second, chained, commas: ("only one match clause" in second and "syntax error" in chained and commas == 0, f"second clause: {second[:70]}; chained pattern: {chained[:70]}; comma-separated over the loop twice: {commas} (want 0)"))(p.error(lambda: _oc(p, "MATCH (a:pv1)-[e1:pe2]->(b:pv1) MATCH (b)-[e2:pe2]->(c:pv1) RETURN COUNT(c.ID) AS V")), p.error(lambda: _oc(p, "MATCH (a:pv1)-[e1:pe2]->(b:pv1)-[e2:pe2]->(c:pv1) RETURN COUNT(c.ID) AS V")), _oc(p, "MATCH (a:pv1)-[e1:pe2]->(b:pv1), (b)-[e2:pe2]->(c:pv1) WHERE a.ID = 'a' AND b.ID = 'a' AND c.ID = 'a' RETURN COUNT(c.ID) AS V")[0]["v"])),
+    Fact("G8b", "two distinct relationships chain in one clause: (a)-[e1:pe2]->(b), (b)-[e2:pe2]->(c) over a->b->d answers d", lambda p: _eq([r["v"] for r in _oc(p, "MATCH (a:pv1)-[e1:pe2]->(b:pv1), (b)-[e2:pe2]->(c:pv1) WHERE a.ID = 'a' AND b.ID = 'b' RETURN c.ID AS V")], ["d"])),
+    Fact("G9", "variable-length paths run: `[:pe2*1..2]` labelled, `[*1..1]` unlabelled, undirected; a path repeats no relationship (a->a in 1..2 hops over the loop: 1 path, not 2)", lambda p: (lambda loop, any_, und: (loop in (1, 2) and any_ == 2 and und >= 1, f"a->a over *1..2: {loop} (1 = trail, 2 = walk); unlabelled *1..1 from a: {any_}; undirected *1..1 from c: {und}"))(_oc(p, "MATCH rp = (a:pv1)-[:pe2*1..2]->(b:pv1) WHERE a.ID = 'a' AND b.ID = 'a' RETURN COUNT(b.ID) AS V")[0]["v"], _oc(p, "MATCH rp = (a:pv1)-[*1..1]->(b) WHERE a.ID = 'b' RETURN COUNT(b.ID) AS V")[0]["v"], _oc(p, "MATCH rp = (a:pv1)-[*1..1]-(b:pv1) WHERE a.ID = 'd' RETURN COUNT(b.ID) AS V")[0]["v"])),
+    Fact("G10", "a BOOLEAN attribute is projected as a bool; compared in WHERE (= $b, TOINTEGER(b) = 1)? (recorded: BOOL_FILTERS)", lambda p: (lambda proj: (proj == [True, False], f"projection {proj}; `= $b` {p.error(lambda: _oc(p, 'MATCH (a:pv1) WHERE a.PV1_B = $b RETURN a.ID AS ID', {'b': True}, {'b': ':b'}))[:80] or 'accepted'}; TOINTEGER {p.error(lambda: _oc(p, 'MATCH (a:pv1) WHERE TOINTEGER(a.PV1_B) = 1 RETURN a.ID AS ID'))[:80] or 'accepted'}"))([r["b"] for r in _oc(p, "MATCH (a:pv1) WHERE a.ID = 'a' OR a.ID = 'b' RETURN a.ID AS ID, a.PV1_B AS B ORDER BY a.ID ASC")])),
+    Fact("G11", "BIGINT 2^63 - 1 and DOUBLE 2^53, 1e-300 come back exact through OPENCYPHER_TABLE", lambda p: _eq([(r["i"], r["d"]) for r in _oc(p, "MATCH (a:pv1) WHERE a.ID = 'b' OR a.ID = 'd' RETURN a.ID AS ID, a.PV1_F1 AS I, a.PV1_D AS D ORDER BY a.ID ASC")], [(2**63 - 1, float(2**53)), (-5, 1e-300)])),
+    Fact("G12", "OPENCYPHER_TABLE sees the transaction's own uncommitted INSERT, gone after ROLLBACK (the transaction door, the cancelled junk)", g12),
+    Fact("G13", "an UPDATE in auto-commit, then MERGE DELTA OF, is what the workspace's dynamic cache answers", g13),
+    Fact("G14", "arithmetic over an attribute with a parameter: `f - $c > $p` on BIGINT, `d * $c = $p` on DOUBLE, exact; integer division (recorded)", lambda p: (lambda i, d: (i == ["b"] and d == ["a"], f"{i} {d}; 1 / 2 over a: {p.error(lambda: _oc(p, 'MATCH (a:pv1) WHERE a.PV1_F1 = 1 RETURN a.PV1_F1 / 2 AS V'))[:70] or [r['v'] for r in _oc(p, 'MATCH (a:pv1) WHERE a.PV1_F1 = 1 RETURN a.PV1_F1 / 2 AS V')]}"))(_oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F1 - $c > $p RETURN a.ID AS ID", {"c": 1, "p": 0}, {"c": ":c", "p": ":p"}), _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_D * $c = $p RETURN a.ID AS ID", {"c": 2.0, "p": 1.0}, {"c": ":c", "p": ":p"}))),
+    Fact("G15", "string predicates over constants: STARTS WITH, ENDS WITH, CONTAINS, and the `\\'` escape in a constant; a parameter on the right-hand side (recorded)", lambda p: (lambda st, en, co, esc: (st == ["d"] and en == ["a"] and co == ["d"] and esc == ["d"], f"{st} {en} {co} {esc}; CONTAINS $s: {p.error(lambda: _oc(p, 'MATCH (a:pv1) WHERE a.PV1_F2 CONTAINS $s RETURN a.ID AS ID', {'s': 't'}, {'s': ':s'}))[:80] or 'accepted'}"))(_oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F2 STARTS WITH 'i' RETURN a.ID AS ID"), _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F2 ENDS WITH 'x' RETURN a.ID AS ID"), _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F2 CONTAINS 't' RETURN a.ID AS ID"), _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F2 = 'it\\'s' RETURN a.ID AS ID"))),
+    Fact("G16", "attribute names and aliases are case-sensitive: `a.id` (lowercase) is refused, a lowercase alias is a quoted column outside (recorded)", g16, required=False),
+    Fact("G17", "a workspace over a view over a HASH-partitioned table whose key is NOT NULL without a PRIMARY KEY (the id-index and partition axes)", g17),
+    Fact("G19", "an OPENCYPHER_TABLE nested in NOT IN (SELECT ...) (nexists) and in IN (SELECT ...)", lambda p: _eq((p.one(f"SELECT COUNT(*) AS v FROM pv1 s WHERE s.id NOT IN (SELECT z.ID FROM {opencypher_table('MATCH (a:pv1)-[e:pe2]->(b:pv1) RETURN a.ID AS ID')} z)"), p.one(f"SELECT COUNT(*) AS v FROM pv1 s WHERE s.id IN (SELECT z.ID FROM {opencypher_table('MATCH (a:pv1)-[e:pe2]->(b:pv1) RETURN a.ID AS ID')} z)")), (2, 2))),
+    Fact("G20", "two disconnected patterns of one clause are the Cartesian product (a native join's two classes, filtered by the correlation)", lambda p: _eq((_oc(p, "MATCH (a:pv2), (b:pv2) RETURN COUNT(b.ID) AS V")[0]["v"], sorted((r["id"], r["v"]) for r in _oc(p, "MATCH (t:pv1), (m:pv1) WHERE (m.PV1_F1 > t.PV1_F1) RETURN t.ID AS ID, m.ID AS V"))), (4, [("a", "b"), ("d", "a"), ("d", "b")]))),
+    Fact("G21", "an unlabelled vertex spans every vertex table, an attribute absent from a table NULL", lambda p: _eq(len(_oc(p, "MATCH (a) RETURN a.ID AS ID, a.PV1_F1 AS F1")), 6), required=False),
+    Fact("G22", "a cypher syntax error, an unknown label, an unknown attribute, an undeclared parameter are REJECTIONS (their codes and texts recorded for `connection.REJECTIONS`)", g22),
+    Fact("G23", "two parallel relationships are two rows; a LIST column aliased `__JSON` decodes; SUM of BIGINT is an int, of DOUBLE a float", lambda p: (lambda par, lst, si, sd: (par == 2 and lst == [1, 2] and si == -4 and isinstance(si, int) and sd == 1e-300 + 0.5 + float(2**53), f"parallel {par}, list {lst}, sums {si!r} {sd!r}"))(len(_oc(p, "MATCH (a:pv1)-[e:pe1]->(b:pv2) WHERE a.ID = 'a' RETURN e.EID AS ID")), _oc(p, "MATCH (a:pv1) WHERE a.ID = 'a' RETURN a.PV1_L AS L__JSON")[0]["l"], _oc(p, "MATCH (a:pv1) WHERE a.ID = 'a' OR a.ID = 'd' RETURN SUM(a.PV1_F1) AS V")[0]["v"], _oc(p, "MATCH (a:pv1) RETURN SUM(a.PV1_D) AS V")[0]["v"])),
+    Fact("G24", "DISTINCT over a BOOLEAN attribute and over NVARCHAR(5000); COUNT grouped implicitly by the other items", lambda p: _eq((len(_oc(p, "MATCH (a:pv1) RETURN DISTINCT a.PV1_B AS B")), sorted(((r["k"], r["v"]) for r in _oc(p, "MATCH (a:pv1) RETURN a.PV1_B AS K, COUNT(a.ID) AS V")), key=repr)), (3, sorted([(None, 1), (False, 1), (True, 2)], key=repr))), required=False),
+    Fact("G25", "a second workspace over the same views (heterogeneous: two edge tables) created NO CACHE answers the same rows (the graph_cache axis)", lambda p: (p.run("CREATE GRAPH WORKSPACE gw3 VERTEX TABLE gv_pv1 KEY COLUMN id LABEL 'pv1' VERTEX TABLE gv_pv2 KEY COLUMN id LABEL 'pv2' EDGE TABLE gv_pe1 KEY COLUMN eid SOURCE COLUMN src_id REFERENCES gv_pv1 TARGET COLUMN dst_id REFERENCES gv_pv2 LABEL 'pe1' EDGE TABLE gv_pe2 KEY COLUMN eid SOURCE COLUMN src_id REFERENCES gv_pv1 TARGET COLUMN dst_id REFERENCES gv_pv1 LABEL 'pe2' NO CACHE"), _eq(sorted(r["v"] for r in p.sql("SELECT * FROM OPENCYPHER_TABLE(GRAPH WORKSPACE gw3 QUERY 'MATCH (a:pv1)-[e:pe2]->(b:pv1) RETURN b.ID AS V')")), ["a", "b", "d"]))[-1]),
+    Fact("G27", "a HOMOGENEOUS workspace (one vertex table, one edge table) with LABEL clauses: a labelled query fails with `invalid column name: a.CYPHER$TABLE$LABEL` (found by the first G17/G25 run; recorded -- a campaign's workspace always has two or more edge tables)", g27, required=False),
+    Fact("G26", "DROP SCHEMA ... CASCADE removes the schema's graph workspace", g26),
+]
+
+FACTS = R + D + K + G
 
 
 def main(argv=None) -> int:
@@ -203,11 +350,11 @@ def main(argv=None) -> int:
     failed = 0
     with HanaServer() as server:
         sessions = {}
-        for kind in ("rel", "doc", "rdf"):
+        for kind in ("rel", "doc", "rdf", "graph"):
             sessions[kind] = server.fresh_session(f"fz_probe_{kind}")
         try:
             for f in facts:
-                p = Probe(sessions[{"R": "rel", "D": "doc", "K": "rdf"}[f.id[0]]])
+                p = Probe(sessions[{"R": "rel", "D": "doc", "K": "rdf", "G": "graph"}[f.id[0]]])
                 try:
                     ok, detail = f.check(p)
                 except Exception as e:  # noqa: BLE001 -- the fact did not hold: say how

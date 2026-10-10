@@ -7,14 +7,21 @@ real SAP HANA Cloud instance.
 
 ## 1. What exists
 
-`ganda hana ...` fuzzes three data models of ONE SAP HANA Cloud database against each
+`ganda hana ...` fuzzes four data models of ONE SAP HANA Cloud database against each
 other and against a Python reference:
 
 | data model | storage | query language(s) |
 |---|---|---|
 | `doc` | JSON Document Store: one COLLECTION per node class; relationships embedded in the source document as link arrays | collection queries (`SELECT $."f" FROM c ...`), and SQL over WITH views of the collections |
 | `rel` | column tables: one per node class, one junction table per edge type, a child table per LIST column | SQL |
+| `graph` | the Property Graph Engine: the rel tables again (an independent copy), one view per table under the workspace's attribute names, one GRAPH WORKSPACE `gw` over the views (`mapping/graph.py`; the state read back through the engine) | openCypher inside SQL through `OPENCYPHER_TABLE` -- native texts, and rel's SQL over `g_` CTEs that read every table through the engine (`concrete_syntax/graph.py`) |
 | `rdf` | Knowledge Graph Engine: one named graph; a node is an IRI, a relationship a resource of its own plus a direct link triple | SPARQL through `SYS.SPARQL_EXECUTE`, and SPARQL inside SQL through `SPARQL_TABLE` |
+
+The graph data model was added 2026-10-11; its 32 probe facts (`G*`, `scripts/probe.py`)
+ran live the same day and set the switches of `concrete_syntax/graph.py` (RULES.md "The
+graph data model" has every outcome, four of them departures from the SAP docs). What is
+not yet done there: a live campaign with the graph model in it, and the triage of what
+it finds.
 
 The provider fills every slot of the core's contract (`ganda/core/provider.py`):
 traversal, select, path and write ASTs, mappings, semantics, rewrites, a probe, mutants.
@@ -234,8 +241,12 @@ tests/hana/
 5. Narrow types (INTEGER, REAL, DECIMAL), dates, maps, binaries, collation,
    inheritance, custom keys: refused by `config.UNSUPPORTED_AXES`. Each needs its value
    forms in all three data models and its semantics.
-6. The graph engine (GRAPH WORKSPACE over the column tables, openCypher through
-   `OPENCYPHER_TABLE`) would be a fourth way to ask the rel data model's traversals.
+6. The graph data model (done 2026-10-11, offline): what is left there -- GraphScript
+   (`SHORTEST_PATH`, `NEIGHBORS` in a `DO ... LANGUAGE GRAPH` block) as path and reach
+   syntaxes; a workspace on a JSON COLLECTION (`CREATE GRAPH WORKSPACE ... COLLECTION
+   ... TYPE / VERTEX KEY / EDGE KEY SOURCE TARGET`) as a second backing drawn per seed;
+   `RDF_GRAPH_TO_GRAPH_WORKSPACE` loading the graph from the rdf model (new in QRC
+   2/2026); typed parameters (`graph.TYPED_PARAMS`) as a syntax of their own.
 7. Index hints and plan steering (`variant_options`): HANA's `WITH HINT(...)` on the SQL
    variants, the same question through another plan.
 
@@ -248,3 +259,13 @@ cannot run: `MEDIAN` in SPARQL; the `native` variants (rdflib propagates errors 
 the rdflib behaviours, so you will notice if rdflib fixes them. SQLite has no booleans
 (the stand-in stores them as two marker strings) and no MERGE / UPSERT (translated). A
 disagreement offline is a renderer or semantics bug unless it is one of these.
+
+The graph data model runs on SQLite too: its views are plain views, the workspace step
+is recorded rather than run, and every `OPENCYPHER_TABLE(...)` in a text is rewritten
+into a SQLite subquery by `tests/hana/opencypher_sqlite.py` -- a translator of exactly
+the openCypher subset the renderers emit, mirroring the engine's documented semantics
+through switches named after the probe facts (`SELF_LOOP_TWICE`,
+`ISOMORPHIC_WITHIN_CLAUSE`, `TRAIL_PATHS`, `SUM_EMPTY_ZERO`, `NULLS_FIRST_ASC`). A text
+it does not cover makes its case partial (`run_offline._offline`, `translatable`); a new
+cypher construct in a renderer needs the translator extended, or that variant is
+compared live only.

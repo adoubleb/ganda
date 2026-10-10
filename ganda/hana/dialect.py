@@ -3,7 +3,7 @@ of each `FieldType` in a column table, how a value is stored in a JSON collectio
 RDF terms, the IRIs of the triple store, the index kinds a schema may name, and the
 write forms a setup may take. `ganda.core.model` imports nothing from this module.
 
-Three data models of one HANA Cloud database (`RULES.md` holds the facts each rests on):
+Four data models of one HANA Cloud database (`RULES.md` holds the facts each rests on):
 
 - `doc`: the JSON Document Store. One COLLECTION per node class; a document holds `id`,
   its fields and, per edge type leaving its class, an array of link objects
@@ -11,6 +11,12 @@ Three data models of one HANA Cloud database (`RULES.md` holds the facts each re
   source, as a document model keeps them.
 - `rel`: column tables. One table per node class (`id` and a column per field) and
   one JUNCTION table per edge type (`eid`, `src_id`, `dst_id`, a column per attribute).
+- `graph`: the Property Graph Engine. The rel data model's tables again, read through
+  one view each (the columns under the workspace's attribute names, `graph_attr`) by
+  ONE GRAPH WORKSPACE (`GRAPH_WORKSPACE`): a vertex table per node class, an edge table
+  per edge type, labelled by the logical names. Asked in openCypher through SQL's
+  `OPENCYPHER_TABLE` (`opencypher_table`); written in SQL, as the graph has no write of
+  its own.
 - `rdf`: the Knowledge Graph Engine. One named graph per database. A node is an IRI
   with its class, its `id` literal and a literal per present field; a relationship is a
   resource of its own (`src`, `dst`, `eid` and its attributes: RDF has no multigraph,
@@ -179,6 +185,72 @@ def number(d: Decimal):
     if d == d.to_integral_value():
         return int(d)
     return float(d)
+
+
+# --- the property graph engine ---------------------------------------------------------------
+
+# the GRAPH WORKSPACE of a graph database: one per campaign schema, unqualified (it
+# resolves in the session's current schema, as the tables do)
+GRAPH_WORKSPACE = "gw"
+GRAPH_VIEW_PREFIX = "gv_"
+# the workspace's caching strategy (`physical_design.graph_cache`): the default dynamic
+# cache (no clause) or NO CACHE
+GRAPH_CACHE_FORMS = ("dynamic", "none")
+# where `Schema.id_index` keeps the drawn cache form: a namespaced key, never a data model
+GRAPH_CACHE_KEY = "graph:cache"
+GRAPH_KEYS = ("id", "eid", "src_id", "dst_id")
+
+
+def graph_view(table: str) -> str:
+    """The view of a node or junction table the workspace reads: the table's columns
+    under the workspace's attribute names."""
+    return GRAPH_VIEW_PREFIX + table
+
+
+def graph_label(table: str) -> str:
+    """A vertex or edge table's label in the workspace: the logical name (`LABEL 'n1'`,
+    matched by `(a:n1)`; a label is a case-sensitive string, not an identifier)."""
+    return table
+
+
+def graph_attr(table: str, field: str, shared: bool = False) -> str:
+    """A column's attribute name in the workspace, as a cypher text spells it. The
+    workspace wants ONE type per attribute name across its vertex tables (and across its
+    edge tables), and a class's own `f1` is drawn per class, so an own field is qualified
+    `<table>_<field>`; the keys and a base-class field (one type everywhere) keep their
+    names. Uppercase: the DDL is unquoted, so the catalog uppercases the names, and an
+    openCypher attribute name is case-sensitive."""
+    if shared or field in GRAPH_KEYS:
+        return field.upper()
+    return f"{table}_{field}".upper()
+
+
+def graph_columns(schema, table: str) -> list:
+    """[(physical column, attribute name)] of a node table (`id`, then its query fields)
+    or a junction table (`eid`, `src_id`, `dst_id`, then the attributes), in the order
+    the view and every cypher projection of the table name them."""
+    if any(et.name == table for et in schema.edge_types):
+        keys, fields, shared = ["eid", "src_id", "dst_id"], schema.edge_type(table).fields, set()
+    else:
+        keys, fields = ["id"], schema.query_fields(table)
+        shared = {f.name for f in schema.base.fields} if schema.base is not None else set()
+    return [(k, k.upper()) for k in keys] + [(f.name, graph_attr(table, f.name, f.name in shared)) for f in fields]
+
+
+def param_expr(name: str, sql_type: "str | None" = None) -> str:
+    """The SQL expression a `PARAMETERS ('name' = ...)` entry binds a cypher `$name`
+    from: the bare `:name` marker (typed by the engine), or a CAST to `sql_type`."""
+    return f":{name}" if sql_type is None else f"CAST(:{name} AS {sql_type})"
+
+
+def opencypher_table(query: str, params: "dict | None" = None) -> str:
+    """An openCypher query as SQL's `OPENCYPHER_TABLE` table function over the database's
+    workspace. The query is a SQL string LITERAL (its quotes doubled; the function takes
+    no expression there); `params` maps each `$name` the query uses to the SQL expression
+    binding it (`param_expr`), written in the order given. `connection.positional` leaves
+    the literal alone and binds the `:name` markers of the PARAMETERS clause."""
+    clause = " PARAMETERS (" + ", ".join(f"'{k}' = {v}" for k, v in params.items()) + ")" if params else ""
+    return f"OPENCYPHER_TABLE(GRAPH WORKSPACE {GRAPH_WORKSPACE} QUERY '{query.replace(chr(39), chr(39) * 2)}'{clause})"
 
 
 # --- keys -----------------------------------------------------------------------------------

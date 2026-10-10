@@ -21,6 +21,10 @@ combination is an equivalent text.
               table_fn      rdf: the SPARQL text inside SQL's `SPARQL_TABLE`
               native        rdf: the filter's unknowns left to SPARQL's error
                             propagation instead of spelled out
+              match         graph: the filter in openCypher (`graph.scan`), the kind
+                            in SQL over what it projected
+              literal       graph: the native text with its constants inlined
+                            instead of bound (`graph.literal`)
     form      base          the kind's own text
               order         `max` / `min` as the first row of an ordering
               fn            a distinct count as `COUNT(*)` over `SELECT DISTINCT`
@@ -30,7 +34,11 @@ combination is an equivalent text.
 A variant is `<data model>:<tag>`, the tag the non-default choices joined by `+` (form,
 filter, position). The base (plain, table, base) is asked of every data model; on the
 doc data model it is the collection query where the document store can ask the
-question (no semi-join, join, method or median there) and the views otherwise.
+question (no semi-join, join, method or median there) and the views otherwise; on the
+graph data model it is openCypher where the language states the question
+(`_cypher_asks`: no method, avg, median or COUNT(DISTINCT); aggregates over numbers)
+and SQL over the `g_` CTEs otherwise (`concrete_syntax.graph`), which `scan` / `nest`
+/ `view` ask too.
 
 An edge-type target reads the junction table (`eid AS id`), the doc data model's link
 objects (`UNNEST "e" AS "l"` on the source class's collection) and the rdf data model's
@@ -48,17 +56,22 @@ from ganda.core.ast.predicates import MIRROR, Predicate, fields_of
 from ganda.core.ast.select import SelectQuery, column, notnull_fields
 from ganda.core.model import FieldType, Instance, Schema
 from ganda.hana import rewrites as _rewrites
-from ganda.hana.concrete_syntax import document, tx as _tx
+from ganda.hana.concrete_syntax import document, graph, tx as _tx
 from ganda.hana.concrete_syntax.methods import METHODS, method_fn, result_type, sparql_text, sql_text  # noqa: F401
 from ganda.hana.concrete_syntax.predicate import REL, Names, sparql_filter, sql
 from ganda.hana.concrete_syntax.traversal import agg_proj, guarded, sparql_table
 from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT
 
 FILTERS = ("plain", "rw", "rev", "arith")
-POSITIONS = ("table", "scan", "nest", "view", "from", "table_fn", "native")
+POSITIONS = ("table", "scan", "nest", "view", "from", "table_fn", "native", "match", "literal")
 FORMS = ("base", "order", "fn", "jscan", "jrev")
-DATA_MODELS = ("doc", "rel", "rdf")
-_POSITIONS_OF = {"rel": ("table", "scan", "nest"), "doc": ("table", "scan", "nest", "view"), "rdf": ("table", "nest", "from", "table_fn", "native")}
+DATA_MODELS = ("doc", "rel", "graph", "rdf")
+_POSITIONS_OF = {
+    "rel": ("table", "scan", "nest"),
+    "doc": ("table", "scan", "nest", "view"),
+    "graph": ("table", "scan", "nest", "view", "match", "literal"),
+    "rdf": ("table", "nest", "from", "table_fn", "native"),
+}
 # the largest LIMIT, where an ordering has an OFFSET and no limit of its own
 NO_LIMIT = 2147483647
 # every group of a GROUP BY holds a solution: a no-op by the standard, which keeps an
@@ -165,6 +178,17 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
                 return collection_asks(q, schema, pred) or _views_ask(q, pred)
             return collection_asks(q, schema, pred)
         return _views_ask(q, pred)
+    if data_model == "graph":
+        if q.tx and not graph.TX_VISIBLE:
+            return False
+        if sp.position == "literal":
+            return pred is not None and graph.binds_parameters(pred) and graph.literal_safe(pred) and _cypher_asks(q, schema, sp, pred)
+        if sp.position == "match":
+            return pred is not None and graph.expressible(pred, schema, q.table)
+        if sp.position == "view":
+            # the views text differs from the base only where the base is native
+            return _cypher_asks(q, schema, sp, pred)
+        return True
     if data_model == "rdf" and sp.position == "nest" and q.kind == "join":
         return False
     if sp.position == "native" and pred is None:
@@ -175,10 +199,12 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
 def base_data_models(q: SelectQuery) -> tuple:
     """The data models the question has a base concrete syntax on: the doc data model
     lacks one where neither its collection query nor its views can ask it (a semi-join
-    or a negated membership next to a whole-list equality)."""
-    if collection_asks(q, None, q.where) or _views_ask(q, q.where):
-        return DATA_MODELS
-    return ("rel", "rdf")
+    or a negated membership next to a whole-list equality); the graph data model lacks
+    one for a transaction door its engine cannot see into (`graph.TX_VISIBLE`)."""
+    models = DATA_MODELS if collection_asks(q, None, q.where) or _views_ask(q, q.where) else ("rel", "graph", "rdf")
+    if q.tx and not graph.TX_VISIBLE:
+        models = tuple(m for m in models if m != "graph")
+    return models
 
 
 def syntaxes_for(q: SelectQuery, schema: Schema, rewrites: Rewrites, data_model: str) -> list:
@@ -197,6 +223,14 @@ def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites,
             text = _collection(q, schema, sp, pred)
         else:
             text = document.with_views(schema, _sql(q, schema, sp, pred, document.NAMES))
+    elif data_model == "graph":
+        if sp.position in ("table", "literal") and _cypher_asks(q, schema, sp, pred):
+            text = _cypher_select(q, schema, sp, pred, literal=sp.position == "literal")
+        elif sp.position == "match":
+            text = _sql(q, schema, sp, None, graph.NAMES, source=f"(SELECT * FROM {graph.scan(schema, q.table, pred)})")
+        else:
+            text = _sql(q, schema, sp, pred, graph.NAMES)
+        text = graph.with_views(schema, text)
     elif sp.position == "table_fn":
         text = sparql_table(_sparql(q, schema, sp, pred, "table"))
     else:
@@ -238,7 +272,9 @@ def _sparql_proj(ftype: "FieldType | None", var: str, alias: str) -> str:
 # --- SQL (rel, and the doc data model's views) -------------------------------------------------
 
 
-def _sql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, names: Names) -> str:
+def _sql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, names: Names, source: "str | None" = None) -> str:
+    """The SQL text over the relation `names` gives the target (`source` instead: a
+    derived table already filtered, the graph data model's `match` position)."""
     rid = "eid" if q.edge else "id"
     key = rid
     rel = names.table(q.table)
@@ -247,7 +283,9 @@ def _sql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, names: Names) -
     if q.kind == "agg" and q.fn in ("set", "list", "distinct_count"):
         conds.append(f"t.{q.field} IS NOT NULL")
     where = f" WHERE {' AND '.join(dict.fromkeys(conds))}" if conds else ""
-    if sp.position == "scan":
+    if source is not None:
+        frm, after = f"FROM {source} t", where
+    elif sp.position == "scan":
         frm, after = f"FROM (SELECT * FROM {rel}) t", where
     elif sp.position == "nest":
         frm, after = f"FROM (SELECT * FROM {rel} t{where}) t", ""
@@ -396,6 +434,141 @@ def _collection(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred) -> str:
         cols = ", ".join(out(k, "ab"[i]) for i, k in enumerate(q.fields))
         order = ", ".join(f"{p(k)} {d}" for k, d in zip(q.fields, q.directions))
         return f"SELECT {cols} {src} ORDER BY {order}" + _limit(q)
+    raise ValueError(kind)
+
+
+# --- the graph data model's openCypher ---------------------------------------------------------
+
+
+def _cypher_asks(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred) -> bool:
+    """Whether openCypher states the question itself (the native family): the filter
+    has a cypher form, and the kind is one its RETURN expresses -- no method, no avg or
+    median, COUNT(DISTINCT) only as the `fn` form's COUNT over a DISTINCT, MAX / MIN /
+    SUM over numbers, an ordering only where the engine orders as the semantics do
+    (`graph.NULLS_LIKE_SQL`, `graph.STRING_ORDER_NATIVE`; never a boolean key), a join's
+    inner relation never a derived table (`jscan`)."""
+    if sp.form == "jscan" or q.kind == "method":
+        return False
+    if pred is not None and not graph.expressible(pred, schema, q.table):
+        return False
+
+    def numeric(f: str) -> bool:
+        return _ftype(schema, q, f) in (FieldType.INT, FieldType.FLOAT)
+
+    def orderable(f: str, nulls_excluded: bool = False) -> bool:
+        ft = _ftype(schema, q, f)
+        if ft is FieldType.BOOL or (ft is FieldType.STRING and not graph.STRING_ORDER_NATIVE):
+            return False
+        return nulls_excluded or graph.NULLS_LIKE_SQL
+
+    if q.kind == "agg":
+        if q.fn in ("avg", "median"):
+            return False
+        if q.fn == "distinct_count":
+            return sp.form == "fn"
+        if q.fn in ("max", "min"):
+            # the `order` form filters the nulls out first, so their placement is moot
+            return orderable(q.field, nulls_excluded=True) if sp.form == "order" else numeric(q.field)
+        if q.fn == "sum":
+            return numeric(q.field)
+        return True
+    if q.kind == "group":
+        return q.fn in ("count_star", "count") or numeric(q.arg)
+    if q.kind in ("page", "keys"):
+        return all(orderable(f) for f in q.fields)
+    return True
+
+
+def _cypher_limit(limit: int, skip: int) -> str:
+    """`LIMIT n [SKIP m]`: the grammar puts SKIP after LIMIT, so a skip alone rides on
+    the largest LIMIT (as `_limit` does with OFFSET)."""
+    if not limit and not skip:
+        return ""
+    return f" LIMIT {limit or NO_LIMIT}" + (f" SKIP {skip}" if skip else "")
+
+
+def _cypher_select(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, literal: bool) -> str:
+    """The native text: `MATCH (t:n1) WHERE ... RETURN ...` inside `OPENCYPHER_TABLE`,
+    the aliases uppercase. SQL wraps only what the language lacks: a sum's NULL over no
+    present value (cypher answers 0: the COUNT travels along), an aggregate over no
+    match where the engine answers no row (`graph.AGG_EMPTY_ROW`), COUNT(*) over a
+    DISTINCT, and a join's count per record (a LEFT JOIN to the records, as the
+    traversal's aggregates)."""
+    params = None if literal else graph.Params()
+    rid = "t.EID" if q.edge else "t.ID"
+
+    def a(f: str) -> str:
+        return f"t.{graph.attr(schema, q.table, f)}"
+
+    conds = [graph.cypher_filter(pred, "t", q.table, schema, params)] if pred is not None else []
+    conds += [f"NOT ({a(f)} IS NULL)" for f in notnull_fields(q, "order" if sp.form == "order" else "base")]
+    if q.kind == "agg" and q.fn in ("set", "list", "distinct_count"):
+        conds.append(f"NOT ({a(q.field)} IS NULL)")
+    conds = list(dict.fromkeys(conds))
+    head = graph.match_clause(schema, q.table, "t")
+    where = f" WHERE {' AND '.join(conds)}" if conds else ""
+
+    def oct(ret: str, tail: str = "", clauses: str = head, cond: str = where) -> str:
+        return graph.table_fn(f"{clauses}{cond} RETURN {ret}{tail}", params)
+
+    def one(ret: str, tail: str = "") -> str:
+        return f"SELECT * FROM {oct(ret, tail)}"
+
+    kind = q.kind
+    if kind == "ids":
+        return one(f"{rid} AS ID")
+    if kind == "count":
+        if graph.AGG_EMPTY_ROW:
+            return one(f"COUNT({rid}) AS V")
+        return f"SELECT COUNT(*) AS v FROM {oct(f'{rid} AS ID')} z"
+    if kind == "field":
+        return one(f"{rid} AS ID, {a(q.field)} AS {_json_alias(schema, q, q.field, 'v').upper()}")
+    if kind == "agg":
+        f = a(q.field)
+        if sp.form == "order":
+            return one(f"{f} AS V", f" ORDER BY {f} {'DESC' if q.fn == 'max' else 'ASC'} LIMIT 1")
+        if q.fn == "distinct_count":
+            return f"SELECT COUNT(*) AS v FROM {oct(f'DISTINCT {f} AS V')} z"
+        if q.fn == "set":
+            return one(f"DISTINCT {f} AS V")
+        if q.fn == "list":
+            return one(f"{f} AS V")
+        if q.fn == "sum":
+            return f"SELECT (SELECT CASE WHEN z.N = 0 THEN NULL ELSE z.S END FROM {oct(f'SUM({f}) AS S, COUNT({f}) AS N')} z) AS v FROM DUMMY"
+        item = f"COUNT({f}) AS V" if q.fn == "count" else f"{q.fn.upper()}({f}) AS V"
+        if graph.AGG_EMPTY_ROW:
+            return one(item)
+        return f"SELECT (SELECT z.V FROM {oct(item)} z) AS v FROM DUMMY"
+    if kind == "group":
+        names = ("K", "K2")[: len(q.fields)]
+        keys = ", ".join(f"{a(k)} AS {n}" for k, n in zip(q.fields, names))
+        if q.fn == "count_star":
+            return one(f"{keys}, COUNT({rid}) AS V")
+        if q.fn == "count":
+            return one(f"{keys}, COUNT({a(q.arg)}) AS V")
+        if q.fn == "sum":
+            outer = ", ".join(f"z.{n} AS {n.lower()}" for n in names)
+            return f"SELECT {outer}, CASE WHEN z.N = 0 THEN NULL ELSE z.S END AS v FROM {oct(f'{keys}, SUM({a(q.arg)}) AS S, COUNT({a(q.arg)}) AS N')} z"
+        return one(f"{keys}, {q.fn.upper()}({a(q.arg)}) AS V")
+    if kind == "distinct":
+        return one("DISTINCT " + ", ".join(f"{a(f)} AS {n}" for f, n in zip(q.fields, ("V", "W"))))
+    if kind == "page":
+        return one(f"{rid} AS ID", f" ORDER BY {a(q.field)} {q.directions[0]}, {rid} ASC{_cypher_limit(q.limit, q.skip)}")
+    if kind == "keys":
+        cols = ", ".join(f"{a(k)} AS {'AB'[i]}" for i, k in enumerate(q.fields))
+        order = ", ".join(f"{a(k)} {d}" for k, d in zip(q.fields, q.directions))
+        return one(cols, f" ORDER BY {order}{_cypher_limit(q.limit, q.skip)}")
+    if kind == "join":
+        f, op = q.field, q.fn
+        m = f"m.{graph.attr(schema, q.table, f)}"
+        corr = f"({a(f)} {MIRROR[op]} {m})" if sp.form == "jrev" else f"({m} {op} {a(f)})"
+        # the two classes as two patterns of ONE clause (the Cartesian product, filtered)
+        clauses = f"{head}, (m:{graph.label(q.table)})"
+        cond = f" WHERE {' AND '.join(conds + [corr])}"
+        if q.arg == "count":
+            paths = oct("t.ID AS ID, COUNT(m.ID) AS V", clauses=clauses, cond=cond)
+            return f"SELECT s.ID AS id, COALESCE(p.V, 0) AS v FROM {oct('t.ID AS ID')} s LEFT JOIN {paths} p ON p.ID = s.ID"
+        return f"SELECT * FROM {oct('t.ID AS ID, m.ID AS V', clauses=clauses, cond=cond)}"
     raise ValueError(kind)
 
 

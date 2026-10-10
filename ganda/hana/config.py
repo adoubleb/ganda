@@ -13,8 +13,11 @@ class HanaConfig(GeneratorConfig):
     # the index on `id`, per data model: one of `dialect.ID_INDEX_KINDS` instead of the
     # PRIMARY KEY (rel) / no index (doc)
     id_index_probability: float = 0.5
-    # a class's column table HASH-partitioned on `id` into 2 or 3 partitions (rel)
+    # a class's column table HASH-partitioned on `id` into 2 or 3 partitions (rel, graph)
     clusters_probability: float = 0.0
+    # the graph workspace created NO CACHE instead of with the default dynamic cache
+    # (graph): the openCypher queries read the tables without the engine's adjacency index
+    graph_cache_probability: float = 0.0
 
 
 # core axes whose types or semantics the provider does not model yet: the field and

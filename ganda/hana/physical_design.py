@@ -2,9 +2,11 @@
 the id index and partition axes, the write forms a setup may take, the value pools,
 and how an index keys a value. The vocabulary is `ganda.hana.dialect`'s.
 
-Indexes exist on the `rel` data model (column tables) and on the `doc` data model
-(collections); the triple store takes none, so an index drawn for `rdf` alone is
-inert there -- its records are the same, which keeps every index-vs-scan pair whole.
+Indexes exist on the `rel` and `graph` data models (column tables: the graph's tables
+are rel-shaped) and on the `doc` data model (collections); the triple store takes none,
+so an index drawn for `rdf` alone is inert there -- its records are the same, which
+keeps every index-vs-scan pair whole. The graph data model has one axis of its own: its
+workspace's cache (`graph_cache`).
 """
 from __future__ import annotations
 
@@ -16,6 +18,7 @@ from ganda.core.model import FieldType, WriteForm
 from ganda.core.rng import stream
 from ganda.hana.dialect import (
     EDGE_UPDATE_FORMS,
+    GRAPH_CACHE_KEY,
     ID_INDEX_KINDS,
     INSERT_FORMS,
     SUPPORTED_TYPES,
@@ -32,7 +35,9 @@ _INDEX_KIND_WEIGHTS = {"INDEX": 70, "UNIQUE": 30}
 NON_UNIQUE_KINDS = ("INDEX",)
 # the doc data model embeds its relationships (no collection to index) and the triple
 # store takes no index
-EDGE_INDEX_DATA_MODELS = ("rel",)
+EDGE_INDEX_DATA_MODELS = ("rel", "graph")
+# the data models whose `id` index the axis may change (rdf takes none)
+ID_INDEX_DATA_MODELS = ("doc", "rel", "graph")
 _DEMOTED = {"UNIQUE": "INDEX"}
 
 
@@ -92,14 +97,26 @@ def index_key_value(v, ci: bool = False):
 
 def draw_id_indexes(seed: "int | None", cfg) -> dict:
     """data model -> the kind of index on `id` (`ID_INDEX_KINDS`), each on its own tail
-    stream; a data model left out keeps the default (rel: the PRIMARY KEY; doc: none)."""
+    stream; a data model left out keeps the default (rel, graph: the PRIMARY KEY; doc:
+    none). The graph workspace's cache axis rides in the same dict under
+    `GRAPH_CACHE_KEY` (its own stream and probability): `"none"` for NO CACHE."""
     id_index: dict = {}
     if seed is not None and cfg.id_index_probability > 0:
-        for data_model in ("doc", "rel"):
+        for data_model in ID_INDEX_DATA_MODELS:
             r = stream(seed, "idindex", data_model)
             if r.random() < cfg.id_index_probability:
                 id_index[data_model] = r.choice(ID_INDEX_KINDS)
+    if seed is not None and getattr(cfg, "graph_cache_probability", 0) > 0:
+        r = stream(seed, "graphcache")
+        if r.random() < cfg.graph_cache_probability:
+            id_index[GRAPH_CACHE_KEY] = "none"
     return id_index
+
+
+def graph_cache(schema) -> str:
+    """The graph workspace's cache form (`dialect.GRAPH_CACHE_FORMS`): dynamic unless the
+    axis drew NO CACHE."""
+    return schema.id_index.get(GRAPH_CACHE_KEY, "dynamic")
 
 
 def draw_storage_options(seed: "int | None", cfg, node_types: tuple) -> tuple:

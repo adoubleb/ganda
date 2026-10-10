@@ -27,6 +27,22 @@
                      withheld for an aggregate or a reach count: a correlated scalar
                      subquery over an UNNEST view crashes the Document Store (H2,
                      `applicable`); the `join` form answers the same shape.
+    graph  match     openCypher through `OPENCYPHER_TABLE`: the hops as comma-separated
+                     patterns of ONE MATCH clause (a heterogeneous workspace takes no
+                     second clause, G8; a relationship binds once in it, so only where
+                     no edge could repeat: pairwise distinct edge types), a hop in as
+                     the pattern reversed, the filters in cypher (`graph.cypher_filter`);
+                     an aggregate IN cypher, every start kept by a SQL LEFT JOIN to the
+                     starts (a sum guarded: cypher may answer 0 over no value); a reach
+                     as a variable-length path
+           paths     the paths as rows (`RETURN s.ID AS STRT, value AS V`), the
+                     aggregate in SQL (COUNT DISTINCT, a string max, a `both` hop)
+           undirected  a `both` hop as `(s)-[j]-(t)`: a self-loop matches once (G7),
+                     so the distinct questions only
+           join, scalar  the rel syntaxes over the `g_` CTEs reading every table
+                     THROUGH the graph engine (`concrete_syntax.graph`)
+                     A `both` hop in `match` / `paths` is the two directed texts
+                     UNION ALLed (the language has no incoming arrow and no UNION).
 
 The `strt` alias (not `start`): START is a reserved word in HANA. An rdf float value is
 read through `STR` and an int or bool aliased `__int` / `__bool` (`_rdf_proj`,
@@ -40,21 +56,24 @@ zero-or-one property paths (`l:e?/l:e?`) on `rdf` (`link`), or the levels' union
 
 Every syntax also has a PULLED-UP form (`render(..., pull_up=True)`, the
 `<data model>:pull_up` variant): the source predicate is lifted out into an enclosing
-query over the syntax projecting the source fields (`SELECT ... FROM (<syntax>) x
+query over the syntax projecting the source fields (`SELECT ... FROM (<syntax>) pu
 WHERE <predicate>` / a SPARQL subquery under a FILTER), the same question through a
-plan that cannot push the predicate into the start's scan.
+plan that cannot push the predicate into the start's scan. The alias is `pu`, not `x`:
+`predicate.sql` names a LIST column's child table `x`, so an outer `x` would be
+shadowed inside a membership EXISTS (`x.owner = x.id`).
 """
 from __future__ import annotations
 
 from ganda.core.ast.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, TraversalQuery
 from ganda.core.model import FieldType, Schema
-from ganda.hana.concrete_syntax import document
+from ganda.hana.concrete_syntax import document, graph
 from ganda.hana.concrete_syntax.predicate import REL, Names, fields_used, filter_expr, optionals, sparql_filter, sql, var
 from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT
 
 SYNTAXES = {
     "doc": ("join", "scalar"),
     "rel": ("join", "scalar"),
+    "graph": ("match", "paths", "undirected", "join", "scalar"),
     "rdf": ("graph", "from", "link", "minus", "table", "native"),
 }
 _AGGREGATES = ("count", "distinct_count") + AGG_PROJECTIONS + EDGE_AGG_PROJECTIONS
@@ -85,6 +104,8 @@ def applicable(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) 
         return True
     if data_model == "rel":
         return True
+    if data_model == "graph":
+        return _graph_applicable(q, schema, syntax)
     if syntax == "link":
         if q.projection in REACH_PROJECTIONS:
             return True
@@ -111,6 +132,11 @@ def render(q: TraversalQuery, schema: Schema, data_model: str, syntax: str, pull
         return document.with_views(schema, _rel(q, schema, syntax, pull_up, document.NAMES))
     if data_model == "rel":
         return _rel(q, schema, syntax, pull_up)
+    if data_model == "graph":
+        if syntax in ("join", "scalar"):
+            return graph.with_views(schema, _rel(q, schema, syntax, pull_up, graph.NAMES))
+        # a native text names a `g_` CTE only through a pulled-up semi-join (SQL)
+        return graph.with_views(schema, _cypher(q, schema, syntax, pull_up))
     return _rdf(q, schema, syntax, pull_up)
 
 
@@ -235,8 +261,10 @@ def _rel(q: TraversalQuery, schema: Schema, syntax: str, pull_up: bool, names: N
 
 
 def _rel_pull_up(q: TraversalQuery, inner: str, names: Names) -> str:
-    cols = "x.id AS id" if q.projection in SET_PROJECTIONS else "x.id AS id, x.v AS v"
-    return f"SELECT {cols} FROM ({inner}) x WHERE {sql(q.source_predicate, 'x', q.source_table, 'id', names)}"
+    # `pu`, not `x`: `predicate.sql` aliases a LIST column's child table `x`, so an outer
+    # `x` would be shadowed inside the membership EXISTS (`x.owner = x.id`)
+    cols = "pu.id AS id" if q.projection in SET_PROJECTIONS else "pu.id AS id, pu.v AS v"
+    return f"SELECT {cols} FROM ({inner}) pu WHERE {sql(q.source_predicate, 'pu', q.source_table, 'id', names)}"
 
 
 # --- rdf --------------------------------------------------------------------------------------
@@ -419,3 +447,164 @@ def sparql_table(text: str) -> str:
     per result variable (the session lowercases the names)."""
     quoted = text.replace("'", "''")
     return f"SELECT * FROM SPARQL_TABLE('{quoted}')"
+
+
+# --- graph ------------------------------------------------------------------------------------
+
+
+def _graph_filters_ok(q: TraversalQuery, schema: Schema) -> bool:
+    """Whether every predicate of the question has a cypher form (`graph.expressible`)."""
+    if not graph.expressible(q.source_predicate, schema, q.source_table):
+        return False
+    for hop in q.hops:
+        if not graph.expressible(hop.edge_predicate, schema, hop.edge_type):
+            return False
+        if not graph.expressible(hop.target_predicate, schema, _target_type(schema, hop)):
+            return False
+    return True
+
+
+def _numeric_value(q: TraversalQuery, schema: Schema) -> bool:
+    """Whether cypher's own aggregate answers the projection: COUNT counts the ids; MAX /
+    MIN / SUM take a number."""
+    if q.projection in ("count", "distinct_count"):
+        return q.projection == "count"
+    return _proj_ftype(q, schema) in (FieldType.INT, FieldType.FLOAT)
+
+
+def _graph_applicable(q: TraversalQuery, schema: Schema, syntax: str) -> bool:
+    proj = q.projection
+    reach_count = proj in REACH_PROJECTIONS and proj.endswith("_count")
+    if syntax == "join":
+        return True
+    if syntax == "scalar":
+        return graph.SCALAR_OK or not (proj in _AGGREGATES or reach_count)
+    if not _graph_filters_ok(q, schema):
+        return False
+    distinct_types = len({h.edge_type for h in q.hops}) == len(q.hops)
+    if syntax == "match":
+        if proj in REACH_PROJECTIONS:
+            return graph.VARLEN_OK
+        if proj == "distinct_count" or (proj in _AGGREGATES and (q.has_both or not _numeric_value(q, schema))):
+            return False
+        return graph.WALK_ACROSS_CLAUSES or distinct_types
+    if syntax == "paths":
+        return proj in _AGGREGATES and (graph.WALK_ACROSS_CLAUSES or distinct_types)
+    if syntax == "undirected":
+        return len(q.hops) == 1 and q.hops[0].direction == "both" and proj in _DISTINCT
+    return False
+
+
+def _cypher_value(q: TraversalQuery, schema: Schema) -> str:
+    k = len(q.hops)
+    last = q.hops[-1]
+    if q.edge_projection:
+        return f"j{k}.{graph.attr(schema, last.edge_type, q.field)}"
+    if q.field is not None and q.projection not in ("ids", "distinct_ids", "count", "distinct_count") + SET_PROJECTIONS:
+        return f"t{k}.{graph.attr(schema, _target_type(schema, last), q.field)}"
+    return f"t{k}.ID"
+
+
+def _cypher_hops(q: TraversalQuery, schema: Schema, params, orientation: "str | None") -> "tuple[str, list]":
+    """(the hops as the comma-separated patterns of ONE MATCH clause, the start labelled
+    in the first; the WHERE conjuncts of their predicates). A `both` hop is written
+    directed as `orientation` (`out` / `in`), undirected when None."""
+    S = graph.label(q.source_table)
+    patterns, conds = [], []
+    for i, hop in enumerate(q.hops, 1):
+        et, tgt = hop.edge_type, _target_type(schema, hop)
+        prev = f"s:{S}" if i == 1 else f"t{i - 1}"
+        j, t = f"j{i}", f"t{i}"
+        d = orientation if hop.direction == "both" else hop.direction
+        if d == "out":
+            patterns.append(f"({prev})-[{j}:{graph.label(et)}]->({t}:{graph.label(tgt)})")
+        elif d == "in":
+            patterns.append(f"({t}:{graph.label(tgt)})-[{j}:{graph.label(et)}]->({prev})")
+        else:
+            patterns.append(f"({prev})-[{j}:{graph.label(et)}]-({t}:{graph.label(tgt)})")
+        if hop.edge_predicate is not None:
+            conds.append(graph.cypher_filter(hop.edge_predicate, j, et, schema, params))
+        if hop.target_predicate is not None:
+            conds.append(graph.cypher_filter(hop.target_predicate, t, tgt, schema, params))
+    return "MATCH " + ", ".join(patterns), conds
+
+
+def _cypher(q: TraversalQuery, schema: Schema, syntax: str, pull_up: bool) -> str:
+    """The native text: the starts `MATCH (s:n1) [WHERE src] RETURN s.ID AS ID`, the
+    paths `MATCH (s:n1)-[j1:e1]->(t1:n2), (t1)-[j2:e2]->(t2:n3) WHERE ... RETURN ...`,
+    and the SQL around them that the language lacks (every start kept, a count of
+    distinct, NOT IN, DISTINCT over the two orientations of a `both` hop, the start
+    itself in a reach)."""
+    params = graph.Params()
+    S = graph.label(q.source_table)
+    keep = _source_fields(q) if pull_up else []
+    items = "".join(f", s.{graph.attr(schema, q.source_table, f)} AS {f.upper()}" for f in keep)
+    src_cond = None if pull_up or q.source_predicate is None else graph.cypher_filter(q.source_predicate, "s", q.source_table, schema, params)
+    src = f" WHERE {src_cond}" if src_cond else ""
+    starts = graph.table_fn(f"MATCH (s:{S}){src} RETURN s.ID AS ID{items}", params)
+    proj = q.projection
+    orientations = ["out", "in"] if q.has_both and syntax != "undirected" else [None]
+
+    def cols(alias: str) -> str:
+        return "".join(f", {alias}.{f} AS {f}" for f in keep)
+
+    def texts(ret: str) -> list:
+        out = []
+        for o in orientations:
+            clause, conds = _cypher_hops(q, schema, params, o)
+            conds = ([src_cond] if src_cond else []) + conds
+            where = f" WHERE {' AND '.join(conds)}" if conds else ""
+            out.append(graph.table_fn(f"{clause}{where} RETURN {ret}", params))
+        return out
+
+    def union(ts: list) -> str:
+        return " UNION ALL ".join(f"SELECT * FROM {t}" for t in ts)
+
+    value = _cypher_value(q, schema)
+    ftype = _proj_ftype(q, schema)
+    vsuffix = "__JSON" if ftype is FieldType.LIST and proj in ("field", "efield") else ""
+    if proj in REACH_PROJECTIONS:
+        e = graph.label(q.hops[0].edge_type)
+        reach = graph.table_fn(f"MATCH rp = (s:{S})-[:{e}*1..{q.reach_depth}]->(r:{S}){src} RETURN s.ID AS STRT, r.ID AS V{items}", params)
+        rows = f"(SELECT z.ID AS STRT, z.ID AS V{cols('z')} FROM {starts} z UNION ALL SELECT * FROM {reach}) r"
+        if proj.endswith("_count"):
+            inner = f"SELECT r.STRT AS id, COUNT(DISTINCT r.V) AS v{cols('r')} FROM {rows} GROUP BY r.STRT{''.join(f', r.{f}' for f in keep)}"
+        else:
+            inner = f"SELECT DISTINCT r.STRT AS id, r.V AS v{cols('r')} FROM {rows}"
+    elif proj in SET_PROJECTIONS:
+        if proj == "exists":
+            inner = f"SELECT DISTINCT u.ID AS id{cols('u')} FROM ({union(texts('s.ID AS ID' + items))}) u"
+        elif graph.NESTED_TABLE_FN_OK:
+            inner = f"SELECT s.ID AS id{cols('s')} FROM {starts} s WHERE s.ID NOT IN (SELECT u.ID FROM ({union(texts('s.ID AS ID'))}) u)"
+        else:
+            inner = f"SELECT s.ID AS id{cols('s')} FROM {starts} s LEFT JOIN (SELECT DISTINCT u.ID AS ID FROM ({union(texts('s.ID AS ID'))}) u) w ON w.ID = s.ID WHERE w.ID IS NULL"
+    elif proj in _AGGREGATES:
+        fn = proj.lstrip("e") if proj in EDGE_AGG_PROJECTIONS else proj
+        if syntax == "match":
+            # the aggregate in cypher, grouped by the start; a start with no path comes
+            # from the LEFT JOIN (a count 0, an aggregate NULL); a SUM over no present
+            # value answers 0 in cypher, so its COUNT travels along and SQL answers NULL
+            if fn == "sum":
+                ret, expr = f"s.ID AS ID, SUM({value}) AS V, COUNT({value}) AS N", "CASE WHEN COALESCE(p.N, 0) = 0 THEN NULL ELSE p.V END"
+            elif fn == "count":
+                ret, expr = f"s.ID AS ID, COUNT({value}) AS V", "COALESCE(p.V, 0)"
+            else:
+                ret, expr = f"s.ID AS ID, {fn.upper()}({value}) AS V", "p.V"
+            inner = f"SELECT s.ID AS id, {expr} AS v{cols('s')} FROM {starts} s LEFT JOIN {texts(ret)[0]} p ON p.ID = s.ID"
+        else:
+            # the paths as rows, the aggregate in SQL (its NULL over no row, COUNT DISTINCT)
+            paths = union(texts(f"s.ID AS STRT, {value} AS V"))
+            inner = f"SELECT s.ID AS id, {_rel_agg(q, 'p.V')} AS v{cols('s')} FROM {starts} s LEFT JOIN ({paths}) p ON p.STRT = s.ID GROUP BY s.ID{''.join(f', s.{f}' for f in keep)}"
+    else:
+        distinct = "DISTINCT " if proj == "distinct_ids" else ""
+        ts = texts(f"{distinct}s.ID AS ID, {value} AS V{vsuffix}{items}")
+        if len(ts) == 1:
+            inner = f"SELECT * FROM {ts[0]}"
+        elif proj == "distinct_ids":
+            inner = f"SELECT DISTINCT u.ID AS id, u.V AS v{cols('u')} FROM ({union(ts)}) u"
+        else:
+            inner = union(ts)
+    if not pull_up:
+        return inner
+    v = "" if proj in SET_PROJECTIONS else f", pu.v{vsuffix.lower()} AS v{vsuffix.lower()}"
+    return f"SELECT pu.id AS id{v} FROM ({inner}) pu WHERE {sql(q.source_predicate, 'pu', q.source_table, 'id', graph.NAMES)}"

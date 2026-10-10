@@ -101,4 +101,6 @@ def _rdf(tx: dict, schema: Schema) -> list:
 
 
 def statements(tx: dict, schema: Schema, data_model: str) -> list:
-    return {"rel": _rel, "doc": _doc, "rdf": _rdf}[data_model](tx, schema)
+    # the graph data model's door is the rel one: its tables are the rel tables, and the
+    # workspace reads the transaction's own writes (RULES.md, G12)
+    return {"rel": _rel, "doc": _doc, "rdf": _rdf, "graph": _rel}[data_model](tx, schema)

@@ -17,6 +17,15 @@ level:
                       an alternative)
            resource   level d through the relationship resources (`p:src` / `p:dst`)
            table      `link` inside SQL's SPARQL_TABLE
+    graph  range      level d as an openCypher variable-length path of exactly d
+                      relationships (`[*d..d]`, `[:e*d..d]` for one type; in: the
+                      pattern reversed; both: undirected) inside OPENCYPHER_TABLE --
+                      a shortest walk is a simple path, so the path's own repetition
+                      rule does not matter
+           chain      level d as d one-hop patterns of one MATCH clause
+           views      rel's `levels` over the `g_` CTEs reading the junctions through
+                      the graph engine (`frontier` too, where the engine nests the
+                      table function inside IN (...))
 
 The relationship relation of a question: one edge type's junction or every type's,
 oriented by the direction (both: each relationship in both orientations).
@@ -25,7 +34,7 @@ from __future__ import annotations
 
 from ganda.core.ast.path import PathQuery
 from ganda.core.model import Instance, Schema
-from ganda.hana.concrete_syntax import document
+from ganda.hana.concrete_syntax import document, graph
 from ganda.hana.concrete_syntax.predicate import REL, Names
 from ganda.hana.concrete_syntax.traversal import sparql_table
 from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT, record_iri
@@ -98,6 +107,35 @@ def _sparql(q: PathQuery, schema: Schema, syntax: str) -> str:
     return f"{PREFIX_TEXT} SELECT ?v WHERE {{ {{ {inner} }} FILTER (BOUND(?v)) }}"
 
 
+def _cypher_levels(q: PathQuery, schema: Schema, syntax: str) -> str:
+    """The levels through OPENCYPHER_TABLE, in the SQL frame of `_sql`: level d a
+    variable-length path of exactly d relationships (`range`) or d one-hop MATCH
+    clauses (`chain`), between the start and the goal bound as `$a` / `$b`."""
+    params = graph.Params()
+    A, B = graph.label(q.start_type), graph.label(q.goal_type)
+    typed = f":{graph.label(q.edge_type)}" if q.edge_type else ""
+    levels = [f"SELECT 0 AS d FROM DUMMY WHERE CAST(:a AS {ID}) = CAST(:b AS {ID})"]
+    for d in range(1, q.depth + 1):
+        if syntax == "range":
+            edge = f"[{typed}*{d}..{d}]"
+            pattern = {"OUT": f"(a:{A})-{edge}->(b:{B})", "IN": f"(b:{B})-{edge}->(a:{A})", "BOTH": f"(a:{A})-{edge}-(b:{B})"}[q.direction]
+            match = f"MATCH rp = {pattern}"
+        else:
+            # d one-hop patterns of ONE clause (a heterogeneous workspace takes no second
+            # clause, G8); a relationship binds once there, which a shortest path never
+            # needs twice
+            nodes = [f"a:{A}"] + [f"y{i}" for i in range(1, d)] + [f"b:{B}"]
+            patterns = []
+            for i in range(d):
+                u, w, e = f"({nodes[i]})", f"({nodes[i + 1]})", f"[x{i + 1}{typed}]"
+                patterns.append({"OUT": f"{u}-{e}->{w}", "IN": f"{w}-{e}->{u}", "BOTH": f"{u}-{e}-{w}"}[q.direction])
+            match = "MATCH " + ", ".join(patterns)
+        cypher = f"{match} WHERE a.ID = {params.use('a')} AND b.ID = {params.use('b')} RETURN a.ID AS ID"
+        levels.append(f"SELECT {d} AS d FROM {graph.table_fn(cypher, params)}")
+    union = " UNION ALL ".join(levels)
+    return f"SELECT z.v AS v FROM (SELECT MIN(lv.d) + 1 AS v FROM ({union}) lv) z WHERE z.v IS NOT NULL"
+
+
 def render_all(q: PathQuery, schema: Schema, instance: Instance) -> "tuple[dict, dict]":
     queries = {
         "rel": _sql(q, schema, "levels", REL),
@@ -106,8 +144,14 @@ def render_all(q: PathQuery, schema: Schema, instance: Instance) -> "tuple[dict,
         # no doc:frontier -- the frontier form nests the edge source (a collection view
         # with UNNEST) inside IN (subquery), which the Document Store refuses ("unsupported
         # form of subquery with UNNEST"); the levels form covers the doc data model's path
+        "graph": _cypher_levels(q, schema, "range" if graph.VARLEN_OK else "chain"),
+        "graph:views": graph.with_views(schema, _sql(q, schema, "levels", graph.NAMES)),
         "rdf": _sparql(q, schema, "link"),
         "rdf:resource": _sparql(q, schema, "resource"),
         "rdf:table": sparql_table(_sparql(q, schema, "link")),
     }
+    if graph.VARLEN_OK:
+        queries["graph:chain"] = _cypher_levels(q, schema, "chain")
+    if graph.NESTED_TABLE_FN_OK:
+        queries["graph:frontier"] = graph.with_views(schema, _sql(q, schema, "frontier", graph.NAMES))
     return queries, {}

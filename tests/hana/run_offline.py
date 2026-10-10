@@ -19,11 +19,15 @@ from tests.hana.offline import OfflineServer
 # what the offline stand-in cannot run: HANA's MEDIAN aggregate in SPARQL, and the
 # `native` variants, whose answers rest on SPARQL's error propagation through `&&`,
 # which rdflib does not implement (`error && false` is an error there, false in the
-# standard)
+# standard); a graph text whose openCypher the SQLite translator does not cover
 UNSUPPORTED = ("MEDIAN(",)
 
 
 def _offline(variant: str, text: str) -> bool:
+    if variant.startswith("graph"):
+        from tests.hana.opencypher_sqlite import translatable
+
+        return translatable(text)
     if not variant.startswith("rdf"):
         return True
     tags = variant.split(":", 1)[-1].split("+")
