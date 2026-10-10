@@ -1,0 +1,10 @@
+HANA version: 4.00.000.00.1788859455
+collections: the join's rows               : OK []
+collections, link read whole: SUM          : [314] numeric overflow: SQL Error
+collections, link read whole: SUM(DECIMAL) : OK [(None,)]
+collections, value column only: SUM       : OK [(None,)]
+column tables: SUM over the join          : OK [(None,)]
+
+The join matches no row, so the SUM is NULL. With the link read whole, HANA raises a numeric
+overflow: it adds up the two excluded links (2^63 - 1 + 1) the join discards. Summed as
+DECIMAL, or with the value column read alone, the same query answers NULL.

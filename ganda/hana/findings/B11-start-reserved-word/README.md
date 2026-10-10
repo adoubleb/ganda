@@ -19,3 +19,6 @@ provider originally emitted `AS start` in traversal queries and it broke every r
 
 ## What the provider does
 Aliases the traversal start column `strt`, not `start` (`concrete_syntax/traversal.py`).
+
+## Verdict (2026-10-10)
+**Documented.** START is in the SQL Reference's reserved-words list (https://help.sap.com/docs/hana-cloud-database/sap-hana-cloud-sap-hana-database-sql-reference-guide/reserved-words).

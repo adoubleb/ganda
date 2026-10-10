@@ -157,6 +157,17 @@ def k_setup(p: Probe):
     return True, "graph with 3 nodes and 2 parallel relationship resources"
 
 
+def k20(p: Probe):
+    """The renderings keep an unbound value out of SUM / AVG: once a predicate IRI has held
+    a second datatype anywhere in the store HANA answers unbound for a group with an unbound
+    value in it (H3), while with one datatype it skips the value."""
+    p.update(f'INSERT DATA {{ GRAPH {G} {{ <urn:ganda:r:k20a> a c:k20 ; p:k20 "3"^^xsd:long . <urn:ganda:r:k20b> a c:k20 ; p:k20 "4"^^xsd:long . <urn:ganda:r:k20c> a c:k20 . <urn:ganda:r:k20d> a c:k20x ; p:k20 "text" . }} }}')
+    raw = p.sparql(f"SELECT (SUM(?w) AS ?v) WHERE {{ GRAPH {G} {{ ?n a c:k20 . OPTIONAL {{ ?n p:k20 ?w }} }} }}")[0].get("v")
+    req = p.sparql(f"SELECT (IF(COUNT(?w) > 0, SUM(?w), MAX(?w)) AS ?v) WHERE {{ GRAPH {G} {{ ?n a c:k20 ; p:k20 ?w . }} }}")[0].get("v")
+    coal = p.sparql(f"SELECT (IF(COUNT(?w) > 0, SUM(COALESCE(?w, 0)), MAX(?w)) AS ?v) WHERE {{ GRAPH {G} {{ ?n a c:k20 . OPTIONAL {{ ?n p:k20 ?w }} }} }}")[0].get("v")
+    return req == 7 and coal == 7, f"plain SUM over the group with an unbound value: {raw!r} (H3); value bound where present: {req!r}; COALESCE: {coal!r} (want 7)"
+
+
 K = [
     Fact("K0", "SPARQL_EXECUTE runs an INSERT DATA into a named graph (created on first insert)", k_setup),
     Fact("K1", "a SELECT answers JSON results; xsd:long, xsd:double, xsd:boolean and an escaped string read back", lambda p: (lambda r: (r["i"] == 1 and r["f"] == 0.5 and r["b"] is True and r["s"] == 'x\n"q"', repr(r)))(p.sparql(f"SELECT ?i ?f ?b ?s WHERE {{ GRAPH {G} {{ ?n p:id \"a\" ; p:i ?i ; p:f ?f ; p:b ?b ; p:s ?s }} }}")[0])),
@@ -177,6 +188,7 @@ K = [
     Fact("K16", "MEDIAN is a SPARQL aggregate, but only with a GROUP BY (an internal error without one), so the renderings group on a bound constant; it interpolates an even count the way the reference does (of 1, 2, 3: 2)", lambda p: _eq(p.sparql(f"SELECT (MEDIAN(?w) AS ?v) WHERE {{ GRAPH {G} {{ ?e p:w ?w . BIND(1 AS ?mg) }} }} GROUP BY ?mg")[0]["v"], 3)),
     Fact("K17", "ORDER BY puts an unbound key first ascending; strings in code point order (BMP)", lambda p: _eq([r["id"] for r in p.sparql(f"SELECT ?id WHERE {{ GRAPH {G} {{ ?n a c:t ; p:id ?id . OPTIONAL {{ ?n p:s ?s }} }} }} ORDER BY ASC(?s) ASC(?id)")], ["c", "b", "a"])),
     Fact("K19", "an EXISTS inside GRAPH in an update's WHERE reads the named graph (the rdf write marks its records so)", lambda p: (p.update(f"INSERT {{ GRAPH {G} {{ ?n <urn:ganda:w> true }} }} WHERE {{ GRAPH {G} {{ ?n a c:t . FILTER (EXISTS {{ ?n i:l \"1\"^^xsd:long }}) }} }}"), _eq(p.ids(f"SELECT ?id WHERE {{ GRAPH {G} {{ ?n <urn:ganda:w> true ; p:id ?id }} }}"), ["a"]), p.update(f"DELETE WHERE {{ GRAPH {G} {{ ?n <urn:ganda:w> ?x }} }}"))[1]),
+    Fact("K20", "SUM over a value bound where present, or over COALESCE(?w, 0), is exact on a predicate that has held several datatypes (a plain SUM over a group with an unbound value is not: H3)", k20),
     Fact("K18", "UCASE, LCASE, STRLEN, SUBSTR, CONCAT, ABS, STRSTARTS, STRENDS, CONTAINS, REGEX", lambda p: _eq(p.sparql('SELECT (CONCAT(UCASE("ab"), LCASE("C"), SUBSTR("xyz", 1, 1), STR(STRLEN("abc")), STR(ABS(-2))) AS ?v) WHERE { FILTER (STRSTARTS("abc", "a") && STRENDS("abc", "c") && CONTAINS("abc", "b") && REGEX("abc", "^a")) }')[0]["v"], "ABcx32")),
 ]
 

@@ -132,7 +132,7 @@ def applicable(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_mod
     if data_model == "doc":
         if q.edge:
             return sp.filter == "plain" and sp.target == "table"
-        if not (document.doc_filter_ok(pred) or not document.compares_list_text(pred)):
+        if not (document.doc_filter_ok(pred) or document.views_ask(pred)):
             return False
         if sp.target == "table":
             return q.op != "arith" and update_filter_ok(pred)

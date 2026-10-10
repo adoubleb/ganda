@@ -1,0 +1,9 @@
+HANA version: 4.00.000.00.1788859455
+collection field: f BETWEEN ? AND ?      : [-10427] Conversion of parameter/column (1) from data type UCS2 (LE) to BIGINT failed (invalid number: not a valid numb
+collection field: f >= ? AND f <= ?      : OK [('abc',)]
+collection field: f BETWEEN 'A' AND 'i'  : OK [('abc',)]
+collection field: TO_NVARCHAR(f) BETWEEN : OK [('abc',)]
+column table:     f BETWEEN ? AND ?      : OK [('abc',)]
+
+`f BETWEEN ? AND ?` is `f >= ? AND f <= ?` (SQL); over the collection field the former
+types its parameters BIGINT and fails on 'A', the latter answers ['abc'].

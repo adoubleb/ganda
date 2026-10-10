@@ -23,10 +23,11 @@ def main():
         cur.execute(f"CREATE COLLECTION {C}")
         for d in ({"id": "a", "s": "xyz"}, {"id": "b", "s": "yz"}):
             cur.execute(f"INSERT INTO {C} VALUES(?)", [json.dumps(d)])
-        run(cur, "LIKE CAST(? AS NVARCHAR)   ", f"SELECT \"id\" AS id FROM {C} WHERE \"s\" LIKE CAST(? AS NVARCHAR(5000))", ["y%"])
+        run(cur, "LIKE CAST(? AS NVARCHAR)        ", f"SELECT \"id\" AS id FROM {C} WHERE \"s\" LIKE CAST(? AS NVARCHAR)", ["y%"])
+        run(cur, "LIKE CAST(? AS NVARCHAR(5000))  ", f"SELECT \"id\" AS id FROM {C} WHERE \"s\" LIKE CAST(? AS NVARCHAR(5000))", ["y%"])
         run(cur, "LIKE TO_NVARCHAR(?)        ", f"SELECT \"id\" AS id FROM {C} WHERE \"s\" LIKE TO_NVARCHAR(?)", ["y%"])
         run(cur, "LIKE 'y%' (constant literal)", f"SELECT \"id\" AS id FROM {C} WHERE \"s\" LIKE 'y%'")
-        print("\n  => only a constant string literal (or TO_NVARCHAR/UPPER/LOWER of one) is accepted on LIKE's RHS.")
+        print("\n  => the documented CAST(? AS NVARCHAR) is accepted on LIKE's RHS; the same cast with a length is not.")
     finally:
         try:
             cur.execute(f"DROP COLLECTION {C}")

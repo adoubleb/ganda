@@ -1,0 +1,9 @@
+HANA version: 4.00.000.00.1788859455
+p:i holds only xsd:long      : [{'sum': '7', 'avg': '3.5', 'max': '4', 'count': '2'}]  (expected sum 7, avg 3.5)
+p:i also holds a string      : [{'max': '4', 'count': '2'}]  (the query never matches the string's resource)
+another graph, longs only    : [{'max': '4', 'count': '2'}]
+after the string's graph is dropped: [{'max': '4', 'count': '2'}]
+
+The same query over the same matching triples answers sum 7 / avg 3.5, then nothing:
+SUM and AVG turn unbound once the predicate IRI has held a second datatype anywhere in
+the store -- in another graph, and still after that graph is dropped.

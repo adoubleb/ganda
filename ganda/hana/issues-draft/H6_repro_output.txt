@@ -1,0 +1,11 @@
+HANA version: 4.00.000.00.1788859455
+FILTER(!BOUND(?x))          : [129] transaction rolled back by an internal error: generic. Error - FILTER(s) contains unbound variables: Cannot re   (SPARQL 1.1: ['a', 'b'])
+FILTER(BOUND(?x))           : [129] transaction rolled back by an internal error: generic. Error - FILTER(s) contains unbound variables: Cannot re   (SPARQL 1.1: [])
+FILTER(?x = 1)              : [129] transaction rolled back by an internal error: generic. Error - FILTER(s) contains unbound variables: Cannot re   (SPARQL 1.1: [] (an error drops the solution))
+BIND(?x AS ?y)              : [129] transaction rolled back by an internal error: generic. Error - ?x: Named variable not in contained WHERE claus   (SPARQL 1.1: ['a', 'b'], ?y unbound)
+FILTER(COALESCE(?x, 1) = 1) : OK ['a', 'b']   (SPARQL 1.1: ['a', 'b'])
+OPTIONAL declaring ?x, then FILTER(!BOUND(?x)): OK ['a', 'b']   (SPARQL 1.1: ['a', 'b'])
+
+A variable no pattern binds is simply unbound in every solution (SPARQL 1.1 18.2.1 allows a
+FILTER over a variable not in scope). HANA refuses the whole query for FILTER / BIND, yet
+accepts the same variable inside COALESCE, and accepts it once an OPTIONAL names it.

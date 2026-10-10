@@ -27,8 +27,11 @@ def main():
         sparql(cur, f'{P} INSERT DATA {{ GRAPH {G} {{ <urn:ganda:r:a> p:w "1"^^xsd:long . <urn:ganda:r:b> p:w "2"^^xsd:long . <urn:ganda:r:c> p:w "3"^^xsd:long }} }}', update=True)
         try_sparql(cur, "MEDIAN no GROUP BY      ", f"{P} SELECT (MEDIAN(?w) AS ?v) WHERE {{ GRAPH {G} {{ ?e p:w ?w }} }}")
         try_sparql(cur, "MEDIAN GROUP BY const   ", f"{P} SELECT (MEDIAN(?w) AS ?v) WHERE {{ GRAPH {G} {{ ?e p:w ?w . BIND(1 AS ?g) }} }} GROUP BY ?g")
+        try_sparql(cur, "VAR no GROUP BY         ", f"{P} SELECT (VAR(?w) AS ?v) WHERE {{ GRAPH {G} {{ ?e p:w ?w }} }}")
+        try_sparql(cur, "MODE no GROUP BY        ", f"{P} SELECT (MODE(?w) AS ?v) WHERE {{ GRAPH {G} {{ ?e p:w ?w }} }}")
         try_sparql(cur, "MEDIAN GROUP BY {1,2}   ", f"{P} SELECT (MEDIAN(?w) AS ?v) WHERE {{ GRAPH {G} {{ ?e p:w ?w . BIND(1 AS ?g) FILTER(?w < 3) }} }} GROUP BY ?g")
-        print("\n  => MEDIAN without GROUP BY is an internal error (129); with GROUP BY it works and interpolates.")
+        print("\n  => MEDIAN alone needs a GROUP BY (VAR, MODE, the other SAP extension aggregates, do not);")
+        print("     grouped, it interpolates. Every SPARQL refusal is code 129, so the code means nothing more.")
     finally:
         sparql(cur, f"{P} DROP SILENT GRAPH {G}", update=True)
         cur.close()

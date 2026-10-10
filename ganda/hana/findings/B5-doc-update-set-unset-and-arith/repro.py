@@ -30,10 +30,13 @@ def main():
             pass
         cur.execute(f"CREATE COLLECTION {C}")
         reset(cur); run(cur, "combined SET ... UNSET      ", f'UPDATE {C} SET "i" = 5 UNSET "s" WHERE "id" = \'a\'')
+        reset(cur); run(cur, "SET ..., UNSET ... (comma)  ", f'UPDATE {C} SET $."i" = 5, UNSET $."s" WHERE $."id" = \'a\'')
+        reset(cur); run(cur, "UNSET ..., SET ... (comma)  ", f'UPDATE {C} UNSET $."s", SET $."i" = 5 WHERE $."id" = \'a\'')
         reset(cur); run(cur, "SET alone                  ", f'UPDATE {C} SET $."i" = 5 WHERE $."id" = \'a\'')
         reset(cur); run(cur, "UNSET alone                ", f'UPDATE {C} UNSET $."s" WHERE $."id" = \'a\'')
         reset(cur); run(cur, "SET f = f + c (field arith)", f'UPDATE {C} SET $."i" = $."i" + 5 WHERE $."id" = \'a\'')
-        print("\n  => combined SET/UNSET and field-referencing arithmetic are refused; SET and UNSET each alone work.")
+        print("\n  => SET and UNSET combine with a comma (the documented example); without it, a syntax error.")
+        print("     A SET takes a value, not an expression over a field.")
     finally:
         try:
             cur.execute(f"DROP COLLECTION {C}")

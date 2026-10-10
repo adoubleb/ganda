@@ -94,10 +94,19 @@ tables), `rdf` (Knowledge Graph Engine, SPARQL). The provider attaches to a HANA
 instance (`HANA_HOST`, `HANA_PORT`, `HANA_USER`, `HANA_PASSWORD`); there is no container.
 
 Verified live against HANA Cloud 4.00.000.00 (2026-10-09): the probe is 57/57, the first
-campaigns run, and two engine defects are written up with repros under
+campaigns run, and six engine defects are written up with repros under
 `ganda/hana/issues-draft/` -- **H1** (an `xsd:double` is serialized to ~6 significant
-figures in SPARQL results though stored exactly) and **H2** (the Document Store crashes
-on a correlated scalar subquery over an UNNEST view); the provider works around both.
+figures in SPARQL results though stored exactly), **H2** (the Document Store crashes
+on a correlated scalar subquery over an UNNEST view), **H3** (SPARQL SUM / AVG turn unbound
+over a group with an unbound value once the predicate has held a second datatype anywhere
+in the store), **H4** (a SUM over collection views overflows on rows a JOIN excludes),
+**H5** (`BETWEEN ? AND ?` over a collection field types its parameters BIGINT) and **H6**
+(a legal SPARQL FILTER / BIND over a variable bound nowhere is refused); the provider works
+around them and withholds H4's shape (`known_bugs.py`). `ganda/hana/findings/README.md`
+sorts every live observation into A (engine bug), B (quirk or documented) and C (provider
+bug), each B with a verdict checked against SAP's docs. HANA reports EVERY SPARQL refusal
+(a syntax error too) as code 129, so a 129 carrying an ordinary refusal is a rejection, not
+an internal error (`connection.REJECTION_129`).
 
 If the instance is reached through an SSH tunnel to a bastion, set `HANA_SNI_HOSTNAME` to
 the real hostname (HANA Cloud routes TLS by SNI) and leave `disableCloudRedirect` on (its

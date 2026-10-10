@@ -26,3 +26,10 @@ code 3 rather than a clean code-7 rejection — that one is bucket A.)
 Drops the doc `frontier` path form, and withholds the doc view variants for an edge LIST-membership
 (`concrete_syntax/path.py`; `select._views_ask`). The collection's own `FOR ANY` filter covers the
 list-membership shape.
+
+## Verdict (2026-10-10)
+**Undocumented limitation -- a doc / feature gap, not a wrong answer.** The UNNEST page
+(https://help.sap.com/docs/hana-cloud-database/sap-hana-cloud-sap-hana-database-json-document-store-guide/unnesting-arrays) lists no restriction on subqueries, and the error text appears in no SAP page
+or note. The refusal is clean (code 7, "feature not supported"). Found since: an EXISTS over a node's
+single-UNNEST element view is also refused under OR or NOT, and in a query that joins UNNEST link
+views (the provider's views ask a membership only as a positive conjunct: `document.views_ask`).

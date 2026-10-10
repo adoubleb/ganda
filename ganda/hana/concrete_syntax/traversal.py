@@ -286,12 +286,19 @@ def _proj_ftype(q: TraversalQuery, schema: Schema) -> "FieldType | None":
     return schema.field(tgt, q.field).type
 
 
-def guarded(fn: str, var: str) -> str:
+def guarded(fn: str, var: str, zero: "str | None" = None) -> str:
     """SUM / AVG over `var`, unbound where no value is present (SPARQL answers 0 there,
     SQL NULL). The else branch is MAX over the same values, unbound over none: an
     aggregate, so the expression is legal in a grouped SELECT, where a bare never-bound
-    variable is not (SPARQL 1.1 11.4; HANA: "Non GROUP BY variable in SELECT")."""
-    return f"IF(COUNT({var}) > 0, {fn}({var}), MAX({var}))"
+    variable is not (SPARQL 1.1 11.4; HANA: "Non GROUP BY variable in SELECT"; a bare one
+    is refused without a GROUP BY too).
+
+    Once a predicate IRI has held a second datatype anywhere in the store, HANA's SUM /
+    AVG answer unbound for a group that has an unbound value in it (H3, RULES.md): a group mixing
+    present and missing values passes `zero` (the column type's 0) to sum
+    `COALESCE(var, zero)`; a caller that can bind `var` only where present needs none."""
+    inner = f"COALESCE({var}, {zero})" if zero is not None else var
+    return f"IF(COUNT({var}) > 0, {fn}({inner}), MAX({var}))"
 
 
 def agg_proj(expr: str, ftype: "FieldType | None", alias: str) -> str:
@@ -380,6 +387,8 @@ def _rdf(q: TraversalQuery, schema: Schema, syntax: str, pull_up: bool) -> str:
         else:
             body = f"{head} OPTIONAL {{ SELECT ?s ?w WHERE {{ {path} {_rdf_value_pattern(q, '?w')} }} }}"
             fn = proj.lstrip("e") if proj in EDGE_AGG_PROJECTIONS else proj
+            # a start's ?w is bound on every path, or the start has one unbound row:
+            # never a mix, so the SUM needs no COALESCE (`guarded`)
             agg = guarded("SUM", "?w") if fn == "sum" else f"{fn.upper()}(?w)"
             # max/min keep the field's type; sum of a float is a double
             item = agg_proj(agg, _proj_ftype(q, schema), "v")

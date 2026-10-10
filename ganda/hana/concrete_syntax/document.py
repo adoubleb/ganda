@@ -164,6 +164,29 @@ def asks_membership(p) -> bool:
     return False
 
 
+def _membership_conjunct(p) -> bool:
+    """Whether every LIST membership of a tree is a positive conjunct of it: under AND
+    only, never under OR or NOT, and never inside a semi-join's subquery."""
+    from ganda.core.ast.predicates import Compound
+
+    if isinstance(p, Compound):
+        if p.op == "AND":
+            return all(_membership_conjunct(c) for c in p.children)
+        return not asks_membership(p)
+    return p.sub is None or not asks_membership(p.sub[2])
+
+
+def views_ask(p) -> bool:
+    """Whether SQL over the views asks a filter. Not a whole-LIST comparison (the views
+    hold no list text to compare), and a LIST membership only as a positive conjunct: the
+    Document Store accepts an EXISTS over an element view there, and refuses it under OR
+    or NOT or inside a subquery ("unsupported form of subquery with UNNEST", B6; found
+    live, campaign-20261009-165805)."""
+    if p is None:
+        return True
+    return not compares_list_text(p) and _membership_conjunct(p)
+
+
 def compares_list_text(p) -> bool:
     """Whether a tree compares a whole LIST (its text), which the views cannot ask."""
     if p is None:

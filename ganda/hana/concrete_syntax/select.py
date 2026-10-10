@@ -124,7 +124,7 @@ def _string_extremum(q: SelectQuery, schema: "Schema | None") -> bool:
 
 
 def _views_ask(q: SelectQuery, pred) -> bool:
-    if document.compares_list_text(pred):
+    if not document.views_ask(pred):
         return False
     # a LIST-membership (CONTAINS*) on an EDGE type renders as EXISTS over the element
     # view, which for an edge is a double UNNEST (the link array, then the attribute
@@ -276,11 +276,11 @@ def _sql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, names: Names) -
         if q.fn == "list":
             return f"SELECT {f} AS v {src}"
         if q.fn == "median":
-            # HANA's MEDIAN does not interpolate an even count of integers (it answers the
-            # upper of the two middle values); PERCENTILE_CONT(0.5) is the statistical
-            # median the reference computes, and the scalar subquery answers one NULL row
-            # over no present value (MEDIAN would, PERCENTILE_CONT ... WITHIN GROUP alone
-            # answers no row)
+            # HANA's MEDIAN answers in the argument's type: over integers the mean of the two
+            # middle values ROUNDED to an integer ({1, 10} -> 6, half away from zero);
+            # PERCENTILE_CONT(0.5) is the statistical median the reference computes, and the
+            # scalar subquery answers one NULL row over no present value (MEDIAN would,
+            # PERCENTILE_CONT ... WITHIN GROUP alone answers no row)
             return f"SELECT (SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY {f}) {src}) AS v FROM DUMMY"
         return f"SELECT {q.fn.upper()}({f}) AS v {src}"
     if kind == "group":
@@ -466,7 +466,11 @@ def _sparql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, position: st
                 item = agg_proj(f"{fn}(?w)", ft, "v")
             else:  # sum, avg: avg is always a double; sum of a float is a double
                 item = agg_proj(guarded(fn, "?w"), FieldType.FLOAT if q.fn == "avg" else ft, "v")
-            select, body = f"SELECT {item}", f"{records} {opt(f, '?w')}"
+            # SUM / AVG over the records holding a value: once a predicate IRI has held a
+            # second datatype anywhere in the store, HANA answers unbound for a group with an
+            # unbound value in it (H3, RULES.md); a null is skipped by the aggregate anyway
+            value = f"?n p:{f} ?w ." if q.fn in ("sum", "avg") else opt(f, "?w")
+            select, body = f"SELECT {item}", f"{records} {value}"
     elif kind == "group":
         names = ("k", "k2")[: len(q.fields)]
         opts = " ".join(opt(k, "?" + name) for k, name in zip(q.fields, names))
@@ -478,7 +482,10 @@ def _sparql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, position: st
         elif q.fn in ("max", "min"):
             item = agg_proj(f"{q.fn.upper()}(?a)", _ftype(schema, q, q.arg), "v")
         else:
-            item = agg_proj(guarded("SUM", "?a"), _ftype(schema, q, q.arg), "v")
+            # every group keeps its records (a group of nulls answers unbound), so the
+            # value stays OPTIONAL and a null counts as zero inside the SUM (see `agg`)
+            atype = _ftype(schema, q, q.arg)
+            item = agg_proj(guarded("SUM", "?a", zero="0.0e0" if atype is FieldType.FLOAT else "0"), atype, "v")
         aopt = "" if q.fn == "count_star" else opt(q.arg, "?a")
         select, body = f"SELECT {keys} {item}", f"{records} {opts} {aopt}"
         tail = f" GROUP BY {' '.join('?' + n for n in names)} {HAVING}"

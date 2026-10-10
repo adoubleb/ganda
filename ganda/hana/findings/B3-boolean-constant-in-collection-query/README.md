@@ -24,3 +24,8 @@ dialect restriction, not a wrong answer — bucket B.
 Each main collection view is two CTEs: `raw_v_X` (collection text) and `v_X` (the casts over
 `raw_v_X`), so `CASE … THEN TRUE` for a boolean column runs one step removed from the collection
 (`concrete_syntax/document.py`, `view_definition`).
+
+## Verdict (2026-10-10)
+**Documented.** For NVARCHAR collections (the default), a comparison with TRUE is refused with the
+message asking for TO_JSON_BOOLEAN (https://help.sap.com/docs/hana-cloud-database/sap-hana-cloud-sap-hana-database-json-document-store-guide/json-relevant-functions; https://help.sap.com/docs/hana-cloud-database/sap-hana-cloud-sap-hana-database-sql-reference-guide/to-json-boolean-data-type-conversion).
+The docs show it in WHERE; a CASE ... THEN TRUE in a projection is the same rule.

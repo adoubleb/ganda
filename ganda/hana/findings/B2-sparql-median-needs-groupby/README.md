@@ -23,3 +23,11 @@ it is a quirk. It leans toward a bug because the error is an **internal error (1
 ## What the provider does
 Wraps the SPARQL median in a subquery grouped on a bound constant, with a `VALUES … OPTIONAL … BIND`
 outer so one row is still returned over no value (`concrete_syntax/select.py`).
+
+## Verdict (2026-10-10)
+**Undocumented limitation, inconsistent with its siblings -- a doc / feature gap, not a wrong
+answer.** SAP documents MEDIAN as an extension aggregate; its only example has a GROUP BY, but no page
+requires one. The sibling extension aggregates VAR and MODE answer without a GROUP BY (repro), and
+SPARQL 1.1 (11.1) makes an aggregate without GROUP BY one implicit group. The message names the
+limitation ("Unsupported functionality"); the code 129 means nothing more, as every SPARQL refusal is
+129 (a syntax error too). (https://help.sap.com/docs/hana-cloud-database/sap-hana-cloud-sap-hana-database-sparql-reference-guide/median-function-aggregate, https://help.sap.com/docs/hana-cloud-database/sap-hana-cloud-sap-hana-database-sparql-reference-guide/aggregate-functions)

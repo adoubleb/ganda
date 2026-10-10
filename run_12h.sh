@@ -24,6 +24,9 @@ SELECT_CASES=${SELECT_CASES:-40}
 TRAVERSAL_CASES=${TRAVERSAL_CASES:-20}
 PATH_CASES=${PATH_CASES:-10}
 WRITE_CASES=${WRITE_CASES:-8}
+# a SPARQL query costs ~1.5 s even when trivial, and one that answers in 5 s alone has run
+# past 30 s with two workers on the instance: give a query headroom before it counts
+QUERY_TIMEOUT_MS=${QUERY_TIMEOUT_MS:-120000}
 HHOST=$HANA_HOST
 HPORT=${HANA_PORT:-443}
 
@@ -55,7 +58,7 @@ PY
 setsid python -u -m ganda hana run \
     --iterations "$ITERATIONS" --seed "$SEED" --workers "$WORKERS" \
     --select-cases "$SELECT_CASES" --traversal-cases "$TRAVERSAL_CASES" \
-    --path-cases "$PATH_CASES" --write-cases "$WRITE_CASES" \
+    --path-cases "$PATH_CASES" --write-cases "$WRITE_CASES" --query-timeout-ms "$QUERY_TIMEOUT_MS" \
     --out-dir "$BUGS" --run-tag camp12h --stats-dir "$RUN" \
     > "$LOG" 2>&1 &
 CAMP=$!

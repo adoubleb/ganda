@@ -245,3 +245,71 @@ def test_a_doc_traversal_withholds_a_list_membership():
     assert not any(traversal.applicable(q, None, "doc", s) for s in traversal.SYNTAXES["doc"])
     plain = TraversalQuery("n1", (Hop("e1", "out", _leaf("f", ">", 1)),), "ids")
     assert all(traversal.applicable(plain, None, "doc", s) for s in traversal.SYNTAXES["doc"])
+
+
+# --- what campaign-20261009-165805 turned up ------------------------------------------------------
+
+
+@pytest.mark.parametrize("seed", range(1, 6))
+def test_no_rdf_sum_or_avg_sees_an_unbound_value(seed):
+    """Over a predicate holding several datatypes across the graph, HANA's SUM / AVG answer
+    unbound for a group with an unbound value in it: a select `agg` binds its value
+    where present only, a `group` sums `COALESCE(?a, 0)`."""
+    import re
+
+    schema, instance, rng = build(seed, CFG, E)
+    for c in all_cases(rng, schema, instance, cfg=CFG):
+        for variant, text in c.queries.items():
+            if not variant.startswith("rdf") or c.generator_name != "ir_select":
+                continue
+            if re.search(r"(SUM|AVG)\(\?w\)", text):
+                assert not re.search(r"OPTIONAL \{ \?n p:\w+ \?w \}", text), text
+            if "SUM(" in text and "?a" in text:
+                assert "SUM(COALESCE(?a, " in text, text
+
+
+def test_the_doc_views_ask_a_membership_only_as_a_conjunct():
+    from ganda.hana.concrete_syntax.document import views_ask
+
+    member = _leaf("l", "CONTAINS", 1, "list")
+    other = _leaf("f", ">", 1)
+    assert views_ask(member) and views_ask(Compound("source", "AND", (member, other)))
+    # under OR or NOT, or inside a semi-join, the Document Store refuses the EXISTS (B6)
+    assert not views_ask(Compound("source", "OR", (member, other)))
+    assert not views_ask(Compound("source", "NOT", (member,)))
+    assert not views_ask(Compound("source", "AND", (other, Compound("source", "OR", (member, other)))))
+    semi = Predicate("source", "f", "INSUB", "", [3], True, "int", sub=("n2", "g", member, False))
+    assert not views_ask(semi)
+    assert views_ask(Compound("source", "OR", (other, _leaf("g", "IS NULL"))))
+
+
+def test_h4_withholds_a_doc_sum_over_a_column_that_may_overflow():
+    from types import SimpleNamespace as NS
+
+    from ganda.hana.known_bugs import _h4
+
+    def instance(*values):
+        return NS(edges=[NS(type_name="e1", values={"w": v}) for v in values])
+
+    q = NS(projection="esum", field="w", hops=(NS(edge_type="e1", direction="out"),))
+    # an excluded row may carry a value that overflows the sum: 2^63 - 1 next to 1
+    assert _h4(q, None, instance(2**63 - 1, 1, None))
+    assert not _h4(q, None, instance(5, -7, None))
+    assert not _h4(NS(projection="emax", field="w", hops=q.hops), None, instance(2**63 - 1, 1))
+
+
+def test_a_129_that_wraps_an_ordinary_refusal_is_a_rejection():
+    from types import SimpleNamespace as NS
+
+    from ganda.hana.connection import _error
+
+    def err(code, text):
+        return _error(NS(errorcode=code, errortext=text))
+
+    # the triple store answers every refusal with 129 (probed): not an internal error
+    assert not err(129, "transaction rolled back by an internal error: generic. Error - ?n: Non GROUP BY variable in SELECT").internal
+    assert not err(129, "transaction rolled back by an internal error: generic. System error. Reference: Unsupported functionality: MEDIAN").internal
+    assert not err(129, "transaction rolled back by an internal error: max supports only numeric values").internal
+    assert err(129, "transaction rolled back by an internal error: something else").internal
+    assert err(3, "fatal error: Execution flow must not reach here").internal
+    assert err(613, "execution aborted by timeout").timeout

@@ -47,6 +47,12 @@ TIMEOUT_CODES = {613}
 # error, a fatal error, a transaction rolled back by an internal error, a column store
 # error (to refine against live answers: HANDOFF.md)
 INTERNAL_CODES = {2, 3, 129, 2048}
+# ... but 129 is also how the triple store and the Document Store wrap an ORDINARY refusal
+# (probed 2026-10-09: a SPARQL syntax error, an undefined prefix, an unknown function, a
+# non-grouped variable -- "generic. Error - ..."; MEDIAN without GROUP BY -- "Unsupported
+# functionality"; a collection's MAX over a string -- "supports only numeric values"): a
+# 129 carrying one of these is a rejection, compared across variants like any other
+REJECTION_129 = ("generic. Error -", "Unsupported functionality", "supports only")
 DEFAULT_TIMEOUT_MS = 30000
 # dropping and creating a campaign database: not a compared statement, so a slow one is
 # waited for and retried rather than reported
@@ -191,7 +197,8 @@ def _error(e) -> Exception:
         return EngineCrash(message)
     if code in TIMEOUT_CODES or "timeout" in text.lower() and "abort" in text.lower():
         return EngineError(message, status=code, timeout=True)
-    return EngineError(message, internal=code in INTERNAL_CODES, status=code)
+    internal = code in INTERNAL_CODES and not (code == 129 and any(m in text for m in REJECTION_129))
+    return EngineError(message, internal=internal, status=code)
 
 
 def _dbapi():

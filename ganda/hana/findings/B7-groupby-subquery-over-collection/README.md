@@ -21,3 +21,8 @@ wrong answer; bucket B.
 Withholds the `fn` distinct-count form (which nests a GROUP BY in a subquery) for the doc collection
 query; the base `COUNT(DISTINCT)` form and the SQL views cover it
 (`concrete_syntax/select.py`, `applicable`).
+
+## Verdict (2026-10-10)
+**Undocumented limitation -- a doc / feature gap, not a wrong answer.** Nothing in the Document Store
+Guide or the SQL SELECT page forbids a nested GROUP BY over a collection (https://help.sap.com/docs/hana-cloud-database/sap-hana-cloud-sap-hana-database-json-document-store-guide/select-statement); the
+refusal is clean (code 7) and its text appears in no SAP page or note.

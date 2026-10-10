@@ -139,3 +139,98 @@ HANA version: 4.00.000.00.1788859455
 
   => bare `start` as an alias is a syntax error; `strt` (or a quoted identifier) works.
 
+========================================================================
+## A3-sparql-sum-unbound-mixed-datatypes   (captured 2026-10-10T14:43:26Z)
+HANA version: 4.00.000.00.1788859455
+
+  p:i holds xsd:long only        : [{'sum': '7', 'avg': '3.5', 'max': '4', 'count': '2'}]  want sum 7, avg 3.5
+  p:i also holds a string        : [{'max': '4', 'count': '2'}]  the string's resource is not of class c:n
+  value bound where present      : [{'sum': '7'}]
+  SUM(COALESCE(?w, 0))           : [{'sum': '7'}]
+
+  => one unrelated triple turns SUM / AVG over the same matching triples unbound;
+     MAX and COUNT still skip the unbound value, and so do the two rewrites.
+
+========================================================================
+## A4-docstore-sum-overflow-excluded-rows   (captured 2026-10-10T14:43:26Z)
+HANA version: 4.00.000.00.1788859455
+
+  collections: the join's rows          : OK  []
+  collections: SUM over the join        : [314] numeric overflow: SQL Error
+
+  collections: SUM(TO_DECIMAL(...))     : OK  [(None,)]
+  collections: link view, value only    : OK  [(None,)]
+  column tables: SUM over the join      : OK  [(None,)]
+
+  => the join matches no row (SUM is NULL), yet over the collections the SUM overflows:
+     the only values that can overflow are the two links the join excludes.
+
+========================================================================
+# Re-run of the changed repros, 2026-10-10T15:20:08Z (A5 and A6 were B9 and B10)
+
+## A5-docstore-between-types-parameters-bigint
+HANA version: 4.00.000.00.1788859455
+  collection field: f BETWEEN ? AND ?    : [-10427] Conversion of parameter/column (1) from data type UCS2 (LE) to BIGINT failed (invalid number: not a 
+  collection field: f >= ? AND f <= ?    : OK  [('abc',)]
+  collection field: BETWEEN 'A' AND 'i'  : OK  [('abc',)]
+  collection field: TO_NVARCHAR(f) BETWEEN: OK  [('abc',)]
+  column table:     f BETWEEN ? AND ?    : OK  [('abc',)]
+  => only BETWEEN with bound parameters over the collection field fails (parameter typed BIGINT).
+
+## A6-sparql-filter-unbound-variable-refused
+HANA version: 4.00.000.00.1788859455
+  FILTER(!BOUND(?x))         : [129] transaction rolled back by an internal error: generic. Error - FILTER(s) contains unbound    (standard: a, b)
+  FILTER(?x = 1)             : [129] transaction rolled back by an internal error: generic. Error - FILTER(s) contains unbound    (standard: none)
+  BIND(?x AS ?y)             : [129] transaction rolled back by an internal error: generic. Error - ?x: Named variable not in c   (standard: a, b)
+  FILTER(COALESCE(?x, 1) = 1): OK  ['a', 'b']   (standard: a, b)
+  OPTIONAL names ?x, !BOUND  : OK  ['a', 'b']   (standard: a, b)
+  => a never-bound variable is refused in FILTER / BIND, accepted in COALESCE or once declared.
+
+## B1-median-no-interpolation
+HANA version: 4.00.000.00.1788859455 
+  MEDIAN of BIGINT {1,2}      (mean 1.5): OK  [(2,)]
+  MEDIAN of BIGINT {1,10}     (mean 5.5): OK  [(6,)]
+  MEDIAN of BIGINT {1,2,3,10} (mean 2.5): OK  [(3,)]
+  MEDIAN of BIGINT {-3,-2}    (mean -2.5): OK  [(-3,)]
+  MEDIAN of DOUBLE {1,10}               : OK  [(5.5,)]
+  PERCENTILE_CONT(0.5) BIGINT {1,10}    : OK  [(5.5,)]
+  => MEDIAN answers in the argument's type: over integers the mean of the two middle values
+     ROUNDED half away from zero ({1,10} -> 6, not the upper middle 10); DOUBLE keeps 5.5.
+
+## B2-sparql-median-needs-groupby
+HANA version: 4.00.000.00.1788859455 
+  MEDIAN no GROUP BY      : [129] transaction rolled back by an internal error: generic. System error. Reference: Unsupporte
+  MEDIAN GROUP BY const   : OK  {"head":{"vars":["v"]},"results":{"bindings":[{"v":{"datatype":"http://www.w3.org/2001/XMLSchema#double","type":"literal","value":"2"}}]}}
+  VAR no GROUP BY         : OK  {"head":{"vars":["v"]},"results":{"bindings":[{"v":{"datatype":"http://www.w3.org/2001/XMLSchema#double","type":"literal","value":"1"}}]}}
+  MODE no GROUP BY        : OK  {"head":{"vars":["v"]},"results":{"bindings":[{"v":{"datatype":"http://www.w3.org/2001/XMLSchema#long","type":"literal","value":"2"}}]}}
+  MEDIAN GROUP BY {1,2}   : OK  {"head":{"vars":["v"]},"results":{"bindings":[{"v":{"datatype":"http://www.w3.org/2001/XMLSchema#double","type":"literal","value":"1.5"}}]}}
+  => MEDIAN alone needs a GROUP BY (VAR, MODE, the other SAP extension aggregates, do not);
+     grouped, it interpolates. Every SPARQL refusal is code 129, so the code means nothing more.
+
+## B4-like-rhs-constant
+HANA version: 4.00.000.00.1788859455 
+  LIKE CAST(? AS NVARCHAR)        : OK  [('b',)]
+  LIKE CAST(? AS NVARCHAR(5000))  : [7] feature not supported: Right-hand side of LIKE must be a constant string literal or TO_NVARCHAR, TO_
+  LIKE TO_NVARCHAR(?)        : [7] feature not supported: please specify the types for parameter: line 1 col 57 (at pos 56)
+  LIKE 'y%' (constant literal): OK  [('b',)]
+  => the documented CAST(? AS NVARCHAR) is accepted on LIKE's RHS; the same cast with a length is not.
+
+## B5-doc-update-set-unset-and-arith
+HANA version: 4.00.000.00.1788859455 
+  combined SET ... UNSET      : [257] sql syntax error: incorrect syntax near "UNSET": line 1 col 26 (at pos 26)
+  SET ..., UNSET ... (comma)  : OK  1
+  UNSET ..., SET ... (comma)  : OK  1
+  SET alone                  : OK  1
+  UNSET alone                : OK  1
+  SET f = f + c (field arith): [7] feature not supported: only constant expressions allowed
+  => SET and UNSET combine with a comma (the documented example); without it, a syntax error.
+     A SET takes a value, not an expression over a field.
+
+## B8-sparql-table-nullable-numeric-nvarchar
+HANA version: 4.00.000.00.1788859455 
+  p:i, p:b hold one datatype each       : SPARQL_TABLE types [11, 4, 28] (4 = INTEGER, 28 = BOOLEAN, 11 = NVARCHAR) rows [('a', 7, True), ('b', None, None)]
+  a string on each, in ANOTHER graph    : SPARQL_TABLE types [11, 11, 11] (4 = INTEGER, 28 = BOOLEAN, 11 = NVARCHAR) rows [('a', '7', '1'), ('b', None, None)]
+  after that graph is dropped           : SPARQL_TABLE types [11, 11, 11] (4 = INTEGER, 28 = BOOLEAN, 11 = NVARCHAR) rows [('a', '7', '1'), ('b', None, None)]
+  direct SPARQL_EXECUTE, same query     : ['long', '-']
+  => the column type follows the predicate's datatype history across the store (other graphs,
+     dropped data), not the values the query returns; the direct answer keeps xsd:long.
