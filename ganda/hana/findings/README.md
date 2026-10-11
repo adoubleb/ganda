@@ -5,8 +5,8 @@ Everything the Ganda SAP HANA fuzzer turned up during the live bring-up against
 three buckets so you can confirm each judgement yourself:
 
 - **A — actual HANA bug** (candidate engine defect): HANA does something wrong or crashes;
-  behaviour is not what SAP's docs or the SQL/SPARQL standards say. Six of these (H1-H6),
-  each with a self-contained repro script.
+  behaviour is not what SAP's docs or the SQL/SPARQL standards say. Seven of these (H1-H6,
+  and A7 from the graph data model's probe), each with a self-contained repro script.
 - **B — HANA quirk** (documented or by-design behaviour, or an undocumented limitation that
   refuses cleanly): HANA is within its rights; the provider adapts. Each B entry carries a
   verdict, checked 2026-10-10 against SAP's QRC 3/2026 docs and re-probed live.
@@ -38,6 +38,7 @@ for f in A*/repro.py B*/repro.py; do echo "### $f"; python3 -I "$f"; echo; done
 | **A4 / H4** | SQL over Document Store collections: a `SUM` over a join that matches NO row fails with `[314] numeric overflow`, adding up values of links the join excludes; column tables (or `SUM(TO_DECIMAL(...))`) answer NULL. Fires only when the link view reads the link whole. | `A4-docstore-sum-overflow-excluded-rows/` | A spurious error for a query whose answer is NULL, depending on which columns a view reads. |
 | **A5 / H5** | SQL over a Document Store field: `f BETWEEN ? AND ?` types its PARAMETERS BIGINT and fails on a string (`[-10427]`), while `f >= ? AND f <= ?` (what BETWEEN means) answers; the field holds strings only. Was B9 ("does not minimise": it does, with bound parameters). | `A5-docstore-between-types-parameters-bigint/` | One form answers and its definition fails, on the same field and parameters; independent of the data. |
 | **A6 / H6** | SPARQL refuses a legal FILTER or BIND over a variable no pattern binds (`[129] FILTER(s) contains unbound variables`) -- even `FILTER(!BOUND(?x))`, true for every solution per SPARQL 1.1; `COALESCE(?x, 1)` is accepted. Was B10. | `A6-sparql-filter-unbound-variable-refused/` | W3C SPARQL 1.1 §17, §18.2.1 allow it; SAP does not document the restriction. A conformance defect (a legal query refused), not a wrong answer. |
+| **A7** | openCypher: a HOMOGENEOUS graph workspace (one vertex table, one edge table) created with `LABEL` clauses fails every query naming a label with `[260] invalid column name: a.CYPHER$TABLE$LABEL` -- an internal column of the engine's rewrite in the generated SQL. The unlabelled query, a workspace without `LABEL` clauses, and a heterogeneous workspace answer. Found by probe fact G27 (2026-10-11); outside the fuzzer's shapes (a campaign workspace has two or more edge tables). | `A7-opencypher-homogeneous-labelled-workspace/` (the matrix script is written; its live output is not captured yet -- the write-up rests on the probe's observations) | Labels are documented for any graph table; the query is legal and the error names no user column. A missing code path for the one-table case, not a documented limitation. |
 
 ## B — HANA quirks (by-design / documented; the provider adapts)
 
