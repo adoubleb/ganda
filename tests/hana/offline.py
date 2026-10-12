@@ -86,7 +86,8 @@ def _as_hana(response: str, table: bool) -> str:
 
 
 class _Avg:
-    """AVG as the exact quotient (SQLite's is a double sum, inexact above 2^53)."""
+    """AVG as HANA SQL answers it (`semantics.mean`: over integers DECIMAL(25,6), the exact
+    quotient truncated to six places; SQLite's own is a double sum, inexact above 2^53)."""
 
     def __init__(self):
         self.values = []
@@ -96,12 +97,9 @@ class _Avg:
             self.values.append(v)
 
     def finalize(self):
-        if not self.values:
-            return None
-        total, n = sum(self.values), len(self.values)
-        if all(isinstance(v, int) for v in self.values) and total % n == 0:
-            return total // n
-        return total / n
+        from ganda.hana.semantics import mean
+
+        return mean(self.values) if self.values else None
 
 
 class _Median:
@@ -132,6 +130,23 @@ def _sqlite() -> sqlite3.Connection:
 # --- rel ----------------------------------------------------------------------------------------
 
 
+_UNQUOTED = re.compile(r"'(?:[^']|'')*'|(\bN(?='))|(?<![\w'])(TRUE|FALSE)(?![\w'])")
+
+
+def _inline_literals(text: str) -> str:
+    """The `inline` position's constants as SQLite reads them: `N'...'` is a plain string,
+    a bare `TRUE` / `FALSE` is the boolean marker string; quoted strings are left alone."""
+
+    def sub(m):
+        if m.group(1):
+            return ""
+        if m.group(2):
+            return f"'{TRUE if m.group(2) == 'TRUE' else FALSE}'"
+        return m.group(0)
+
+    return _UNQUOTED.sub(sub, text)
+
+
 def _rel_sql(text: str) -> "str | None":
     text = re.sub(r"\bCREATE COLUMN TABLE\b", "CREATE TABLE", text)
     text = re.sub(r" PARTITION BY HASH \(id\) PARTITIONS \d+", "", text)
@@ -140,7 +155,7 @@ def _rel_sql(text: str) -> "str | None":
     text = text.replace("AS BOOLEAN)", "AS TEXT)")
     if text.startswith("MERGE DELTA OF"):
         return None
-    return text
+    return _inline_literals(text)
 
 
 _UPSERT = re.compile(r"^UPSERT (\w+) \(([^)]*)\) VALUES \((.*)\) WHERE (\w+) = (:\w+)$", re.S)
@@ -395,9 +410,11 @@ class OfflineSession(HanaSession):
 
     def sql(self, text: str, binds=None, rows: bool = True):
         from ganda.hana.concrete_syntax import hints
+        from ganda.hana.connection import unwrap_block
 
-        # no plan steering offline: the hinted twin runs as its plain statement
-        text = hints.strip(self._bind_graph(text))
+        # no plan steering and no SQLScript offline: the hinted twin runs as its plain
+        # statement, the anonymous block as the statement it wraps
+        text = hints.strip(unwrap_block(self._bind_graph(text)))
         if self.data_model == "rdf":
             m = re.match(r"^SELECT \* FROM SPARQL_TABLE\('(.*)'\)$", text, re.S)
             if not m:

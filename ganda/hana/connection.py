@@ -94,6 +94,97 @@ def resolve(name: str, binds: dict):
     raise KeyError(f"no bind variable {name!r}")
 
 
+def sql_literal(v) -> str:
+    """A bind value as a SQL constant meaning the same (probe R22): an integer as its
+    digits, a double as an approximate numeric literal (`repr` with an exponent: without
+    one the text is an exact numeric literal, a DECIMAL), a string as `N'...'` (the quote
+    doubled), a boolean `TRUE` / `FALSE`, None `NULL`, a Decimal as its digits."""
+    if v is None:
+        return "NULL"
+    if isinstance(v, bool):
+        return "TRUE" if v else "FALSE"
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, float):
+        r = repr(v)
+        return r if "e" in r or "E" in r else r + "E0"
+    if isinstance(v, Decimal):
+        return str(v)
+    if isinstance(v, list):
+        return "N'" + list_text(v).replace("'", "''") + "'"
+    return "N'" + str(v).replace("'", "''") + "'"
+
+
+def inline_binds(text: str, binds: "dict | None") -> str:
+    """The statement with every `:name` marker replaced by its value's SQL constant (the
+    `inline` position: the same question with the values in the text, where the plan
+    cache keys and the parser's typing differ from the bound statement's); a list after
+    `IN` becomes `(c1, c2, ...)`, an empty one `(NULL)`. Quoted strings and identifiers
+    are left alone, as `positional` leaves them."""
+    binds = binds or {}
+
+    def sub(m):
+        if m.group(1) or m.group(2):
+            return m.group(0)
+        v = resolve(m.group(3), binds)
+        if isinstance(v, list) and not m.group(3).endswith("__json"):
+            return "(" + ", ".join(sql_literal(x) for x in v) + ")" if v else "(NULL)"
+        return sql_literal(v)
+
+    return _TOKEN.sub(sub, text)
+
+
+_SQLSCRIPT_TYPES = {bool: "BOOLEAN", int: "BIGINT", float: "DOUBLE", Decimal: "DECIMAL", str: "NVARCHAR(5000)"}
+
+
+def sqlscript_block(text: str, binds: "dict | None", noinline: bool = False) -> str:
+    """The statement as a SQLScript anonymous block (the `block` positions, probe P20):
+    the header declares every bound value as a typed input parameter bound by the
+    original marker (`IN sv_p BIGINT => :p`; a list after `IN` one parameter per element,
+    `:p__k`; an empty list `(NULL)`), the body assigns the statement -- reading `:sv_*`
+    SQLScript variables, which `positional` leaves alone -- to a table variable and
+    selects it; with `noinline` the assignment carries `WITH HINT (NO_INLINE)`, the
+    SQLScript optimizer's statement inlining off."""
+    binds = binds or {}
+    header: list = []
+
+    def declare(name: str, v) -> str:
+        sql_type = _SQLSCRIPT_TYPES.get(type(v), "NVARCHAR(5000)")
+        if v is None:
+            sql_type = "NVARCHAR(5000)"
+        entry = f"IN sv_{name} {sql_type} => :{name}"
+        if entry not in header:
+            header.append(entry)
+        return f":sv_{name}"
+
+    def sub(m):
+        if m.group(1) or m.group(2):
+            return m.group(0)
+        name = m.group(3)
+        v = resolve(name, binds)
+        if isinstance(v, list) and not name.endswith("__json"):
+            if not v:
+                return "(NULL)"
+            return "(" + ", ".join(declare(f"{name}__{k}", x) for k, x in enumerate(v)) + ")"
+        return declare(name, v)
+
+    body = _TOKEN.sub(sub, text)
+    do = f"DO ({', '.join(header)}) BEGIN" if header else "DO BEGIN"
+    return f"{do} sv_t = {body}{' WITH HINT (NO_INLINE)' if noinline else ''}; SELECT * FROM :sv_t; END"
+
+
+_BLOCK = re.compile(r"^DO(?: \((?P<header>.*?)\))? BEGIN sv_t = (?P<body>.*); SELECT \* FROM :sv_t; END$", re.S)
+
+
+def unwrap_block(text: str) -> str:
+    """The statement a `sqlscript_block` text wraps, its binds as `:name` markers again
+    (the offline stand-in has no SQLScript); any other text unchanged."""
+    m = _BLOCK.match(text)
+    if not m:
+        return text
+    return re.sub(r"(?<![\w:]):sv_", ":", m.group("body"))
+
+
 def positional(text: str, binds: "dict | None") -> "tuple[str, list]":
     """`:name` parameters as `?` markers, in order, with their values (a list after
     `IN` becomes one marker per element; an empty one `(NULL)`); quoted strings and

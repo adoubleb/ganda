@@ -26,11 +26,20 @@ combination is an equivalent text.
               neg           doc: the collection query with the filter's NOTs kept as
                             written (`NOT (...)`, `NOT (FOR ANY ...)`) instead of pushed
                             down to the leaves
+              again         rel: the base text a second time (through the plan cache)
+              inline        rel: every bound value a SQL constant in the text
+                            (`connection.inline_binds`)
+              block         rel: the statement inside a SQLScript anonymous block, its
+                            binds typed in the header, assigned to a table variable
+                            (`connection.sqlscript_block`)
+              block_ni      rel: the block with `WITH HINT (NO_INLINE)` on the assignment
     form      base          the kind's own text
               order         `max` / `min` as the first row of an ordering
               fn            a distinct count as `COUNT(*)` over `SELECT DISTINCT`
               jscan         a join's inner relation as a derived table
               jrev          a join's correlation with its operands swapped
+              tlp           ids / count as every record EXCEPT the filter's false ones
+                            EXCEPT its unknown ones (SQL; MINUS with BIND in SPARQL)
     hint      (none)        the statement as it is
               <profile>     the SQL statement closed by a `WITH HINT (...)` clause steering
                             it to another execution engine or optimizer mode
@@ -68,18 +77,24 @@ from ganda.core.model import FieldType, Instance, Schema
 from ganda.hana import rewrites as _rewrites
 from ganda.hana.concrete_syntax import document, graph, hints, tx as _tx
 from ganda.hana.concrete_syntax.methods import METHODS, method_fn, result_type, sparql_text, sql_text  # noqa: F401
-from ganda.hana.concrete_syntax.predicate import REL, Names, sparql_filter, sql
+from ganda.hana.concrete_syntax.predicate import REL, Names, filter_expr, optionals, sparql_filter, sql
 from ganda.hana.concrete_syntax.traversal import agg_proj, guarded, sparql_table
 from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT
 
 FILTERS = ("plain", "rw", "rev", "arith")
-POSITIONS = ("table", "scan", "nest", "view", "from", "table_fn", "native", "match", "neg", "again")
-FORMS = ("base", "order", "fn", "jscan", "jrev")
+POSITIONS = ("table", "scan", "nest", "view", "from", "table_fn", "native", "match", "neg", "again", "inline", "block", "block_ni")
+FORMS = ("base", "order", "fn", "jscan", "jrev", "tlp")
 DATA_MODELS = ("doc", "rel", "graph", "rdf")
 _POSITIONS_OF = {
     # `again`: the base text a second time, after the base has run -- the second execution
-    # goes through the plan cache (beside the `plan_cache` hint profile, which ignores it)
-    "rel": ("table", "scan", "nest", "again"),
+    # goes through the plan cache (beside the `plan_cache` hint profile, which ignores it).
+    # `inline`: the same statement with every bound value written as a SQL constant
+    # (`connection.inline_binds`, probe R22): the parser's typing and the plan cache's
+    # key differ from the bound statement's. `block` / `block_ni`: the statement inside
+    # a SQLScript anonymous block, its binds typed in the header, assigned to a table
+    # variable and selected -- the SQLScript optimizer's path, with statement inlining
+    # on, or off under `WITH HINT (NO_INLINE)` (`connection.sqlscript_block`, probe P20)
+    "rel": ("table", "scan", "nest", "again", "inline", "block", "block_ni"),
     "doc": ("table", "scan", "nest", "view", "neg"),
     "graph": ("table", "scan", "nest", "view", "match"),
     "rdf": ("table", "nest", "from", "table_fn", "native"),
@@ -198,6 +213,20 @@ def _rewrite_changes_text(q: SelectQuery, schema: "Schema | None", sp: SelectSyn
         return True
 
 
+def _string_pivots(pred) -> list:
+    """Every string pivot a tree binds, the semi-joins' inner trees included."""
+    out: list = []
+    for leaf in pred.leaves():
+        if leaf.sub is not None:
+            if leaf.sub[2] is not None:
+                out.extend(_string_pivots(leaf.sub[2]))
+            continue
+        for v in leaf.pivot if isinstance(leaf.pivot, list) else [leaf.pivot]:
+            if isinstance(v, str):
+                out.append(v)
+    return out
+
+
 def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str) -> bool:
     if sp.position not in _POSITIONS_OF[data_model]:
         return False
@@ -206,6 +235,16 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
     pred = rewrites.filter_pred(q, sp.filter)
     if sp.filter != "plain" and not _rewrite_changes_text(q, schema, sp, pred, data_model):
         return False
+    if sp.form == "tlp":
+        # the set-operation form (probe R23 / D25 / K26): the records a filter keeps are
+        # every record EXCEPT the false ones EXCEPT the unknown ones -- ids and counts,
+        # over a plain FROM (no nested filter, no cypher scan, no NOT-kept collection text,
+        # no error-propagating SPARQL); the collection query has no EXCEPT: the doc views
+        if q.kind not in ("ids", "count") or pred is None or sp.position in ("nest", "match", "neg", "native", "again"):
+            return False
+        if data_model == "doc":
+            # the views at the table position already (`view` would be the same text)
+            return sp.position in ("table", "scan") and _views_ask(q, pred)
     if sp.form in ("jscan", "jrev") and q.kind != "join":
         return False
     if sp.form == "order" and not (q.kind == "agg" and q.fn in ("max", "min") and rewrites.present):
@@ -217,6 +256,13 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
     if sp.position == "again":
         # the plain base text once more, nothing else about it
         return sp == SelectSyntax(position="again")
+    if sp.position == "inline":
+        # a string pivot holding a control character (the code-unit successor of a stored
+        # value appends U+0000) has no constant the probe vouches for
+        return pred is not None and bool(pred.bind_vars) and not any(any(ord(ch) < 32 for ch in v) for v in _string_pivots(pred))
+    if sp.position == "block_ni" and sp.hint:
+        # one hint clause on the assignment: NO_INLINE, not the question's profile too
+        return False
     if sp.hint:
         # the question's one profile, on a statement the clause closes: SQL, and the
         # collection query where the store asks the question (D27); never a SPARQL text
@@ -296,12 +342,25 @@ def syntaxes_for(q: SelectQuery, schema: Schema, rewrites: Rewrites, data_model:
 
 def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str) -> str:
     pred = rewrites.filter_pred(q, sp.filter)
-    if sp.position == "again":
+    inline, block = sp.position == "inline", sp.position if sp.position in ("block", "block_ni") else ""
+    if sp.position in ("again", "inline", "block", "block_ni"):
         sp = dataclasses.replace(sp, position="table")
     if data_model == "rel":
         text = _sql(q, schema, sp, pred, REL)
+        if inline:
+            from ganda.hana.connection import inline_binds
+
+            text = inline_binds(text, pred.bind_vars)
+        if block:
+            from ganda.hana.connection import sqlscript_block
+
+            # the question's profile hints the inner SELECT; NO_INLINE sits on the assignment
+            if sp.hint:
+                text = hints.hinted(text, sp.hint)
+            text = sqlscript_block(text, pred.bind_vars if pred is not None else {}, noinline=block == "block_ni")
+            return _tx.script(_tx.statements(q.tx, schema, data_model), text) if q.tx else text
     elif data_model == "doc":
-        if sp.position == "neg" or (sp.position == "table" and collection_asks(q, schema, pred)):
+        if sp.form != "tlp" and (sp.position == "neg" or (sp.position == "table" and collection_asks(q, schema, pred))):
             text = _collection(q, schema, sp, pred, keep_not=sp.position == "neg")
         else:
             text = document.with_views(schema, _sql(q, schema, sp, pred, document.NAMES))
@@ -377,6 +436,13 @@ def _sql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, names: Names, s
         frm, after = f"FROM {rel} t", where
     src = frm + after
     kind = q.kind
+    if sp.form == "tlp":
+        # every record EXCEPT those the filter makes false EXCEPT those it leaves
+        # unknown (a CASE over the predicate is NULL there): the records it keeps
+        p = conds[0]
+        rows = f"SELECT t.{rid} AS id {frm}"
+        text = f"{rows} EXCEPT {rows} WHERE NOT ({p}) EXCEPT {rows} WHERE (CASE WHEN {p} THEN 1 WHEN NOT ({p}) THEN 0 END) IS NULL"
+        return text if kind == "ids" else f"SELECT COUNT(*) AS v FROM ({text}) z"
     if kind == "ids":
         return f"SELECT t.{rid} AS id {src}"
     if kind == "count":
@@ -528,11 +594,11 @@ def _collection(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, keep_not
 def _cypher_asks(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred) -> bool:
     """Whether openCypher states the question itself (the native family): the filter
     has a cypher form, and the kind is one its RETURN expresses -- no method, no avg or
-    median, COUNT(DISTINCT) only as the `fn` form's COUNT over a DISTINCT, MAX / MIN /
+    median, no set-operation form, COUNT(DISTINCT) only as the `fn` form's COUNT over a DISTINCT, MAX / MIN /
     SUM over numbers, an ordering only where the engine orders as the semantics do
     (`graph.NULLS_LIKE_SQL`, `graph.STRING_ORDER_NATIVE`; never a boolean key), a join's
     inner relation never a derived table (`jscan`)."""
-    if sp.form == "jscan" or q.kind == "method":
+    if sp.form in ("jscan", "tlp") or q.kind == "method":
         return False
     if pred is not None and not graph.expressible(pred, schema, q.table):
         return False
@@ -683,6 +749,18 @@ def _sparql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, position: st
     else:
         records = f"{head} {filt} {required}"
     kind = q.kind
+    if sp.form == "tlp":
+        # every solution MINUS those the filter makes false MINUS those it leaves an
+        # error (unknown): the filter carried through BIND ... FILTER (?t) -- a plain
+        # FILTER naming one OPTIONAL variable in a MINUS group removes every solution
+        # (A10, probe K26); the guarded expression never raises, so the error partition
+        # is empty there and the false one carries the unknowns, which is the same set
+        expr = filter_expr(pred, "n")
+        opts = optionals(pred, "n")
+        left = f"{{ {head.rstrip(' .')} {required}}}"
+        part = lambda f: f"MINUS {{ {head} {opts} BIND (({f}) AS ?t) FILTER (?t) }}"  # noqa: E731
+        body = f"{left} {part(f'!({expr})')} {part(f'COALESCE(IF({expr}, 1, 0), 2) = 2')}"
+        return _graph_wrap("SELECT ?id" if kind == "ids" else "SELECT (COUNT(?id) AS ?v)", body, "", position)
 
     def opt(f: str, var: str) -> str:
         return f"OPTIONAL {{ ?n p:{f} {var} }}"

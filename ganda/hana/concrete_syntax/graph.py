@@ -233,14 +233,18 @@ def _like(expr: str, pattern: str) -> str:
     return f"({expr} = {cypher_string(pattern)})"
 
 
+def _crosses_value(ftype: "str | None", v) -> bool:
+    """Whether one pivot value is of the other numeric type than its column (a double
+    against INT, an integer against FLOAT: `pivots.cross_type`)."""
+    return (ftype == "int" and type(v) is float) or (ftype == "float" and type(v) is int)
+
+
 def crosses(p) -> bool:
-    """Whether a numeric leaf's pivot is of the other numeric type than its column (a
-    double against INT, an integer against FLOAT: `pivots.cross_type`)."""
+    """Whether any of a numeric leaf's pivot values is of the other numeric type."""
     if p.ftype not in ("int", "float") or p.op in ("IS NULL", "IS NOT NULL") or p.sub is not None:
         return False
     pv = p.pivot if isinstance(p.pivot, list) else [p.pivot]
-    other = float if p.ftype == "int" else int
-    return any(type(v) is other for v in pv)
+    return any(_crosses_value(p.ftype, v) for v in pv)
 
 
 def cypher_filter(p, var: str, table: str, schema: Schema, params: "Params | None") -> str:
@@ -268,13 +272,14 @@ def cypher_filter(p, var: str, table: str, schema: Schema, params: "Params | Non
         raise Unsupported("a BOOLEAN attribute is projected only")
     # a cross-type pivot (`pivots.cross_type`): the engine refuses a BIGINT attribute
     # against a float and a DOUBLE attribute against an integer outright (G36, `[4906]
-    # Type mismatch`), so both sides are doubles -- an integer attribute through TOFLOAT,
-    # the pivot as TOFLOAT of its text (exact, unlike a double constant: A8)
+    # Type mismatch`), so for THAT value both sides are doubles -- an integer attribute
+    # through TOFLOAT, the pivot as TOFLOAT of its text (exact, unlike a double
+    # constant: A8). Per value, as SQL types each comparison of an IN list on its own: an
+    # integer pivot beside the cross-typed one keeps the exact integer comparison (a
+    # BIGINT above 2^53 through TOFLOAT would meet its neighbours)
     cross = crosses(p)
 
     def value(name: str, v, ftype: "str | None"):
-        if cross:
-            return f"TOFLOAT('{v!r}')"
         if ftype == "float" or isinstance(v, float):
             if params is None:
                 raise Unsupported("a double has no cypher constant")
@@ -286,27 +291,39 @@ def cypher_filter(p, var: str, table: str, schema: Schema, params: "Params | Non
         if p.arith is not None:
             raise Unsupported("IS NULL takes an attribute, not an expression")
         return f"({col} IS NULL)" if p.op == "IS NULL" else f"NOT ({col} IS NULL)"
-    expr = f"TOFLOAT({col})" if cross and p.ftype == "int" else col
+    expr = col
     if p.arith is not None and cross:
         raise Unsupported("arithmetic over a cross-type pivot")
     if p.arith is not None:
         sym, cbind, c = p.arith
         expr = f"({col} {sym} {value(cbind, float(c) if p.ftype == 'float' else c, p.ftype)})"
+
+    def sides(name: str, v) -> "tuple[str, str]":
+        """(the attribute's side, the pivot's side) for one value."""
+        if _crosses_value(p.ftype, v):
+            return (f"TOFLOAT({expr})" if p.ftype == "int" else expr), f"TOFLOAT('{v!r}')"
+        return expr, value(name, v, p.ftype)
+
     if p.op == "LIKE":
         return _like(expr, p.pivot)
     if p.op == "BETWEEN":
-        return f"({expr} >= {value(p.bind + 'a', p.pivot[0], p.ftype)} AND {expr} <= {value(p.bind + 'b', p.pivot[1], p.ftype)})"
+        la, ra = sides(p.bind + "a", p.pivot[0])
+        lb, rb = sides(p.bind + "b", p.pivot[1])
+        return f"({la} >= {ra} AND {lb} <= {rb})"
     if p.op in ("IN", "NOT IN"):
         if not p.pivot:
             raise Unsupported("an empty IN list")
-        ors = " OR ".join(f"{expr} = {value(f'{p.bind}__{k}', v, p.ftype)}" for k, v in enumerate(p.pivot))
+        ors = " OR ".join("{} = {}".format(*sides(f"{p.bind}__{k}", v)) for k, v in enumerate(p.pivot))
         return f"({ors})" if p.op == "IN" else f"NOT ({ors})"
     if p.op not in MIRROR:
         raise Unsupported(f"no cypher form of {p.op}")
-    rhs = literal(p.pivot, "list") if p.ftype == "list" else value(p.bind, p.pivot, p.ftype)
+    if p.ftype == "list":
+        lhs, rhs = expr, literal(p.pivot, "list")
+    else:
+        lhs, rhs = sides(p.bind, p.pivot)
     if p.rev:
-        return f"({rhs} {MIRROR[p.op]} {expr})"
-    return f"({expr} {p.op} {rhs})"
+        return f"({rhs} {MIRROR[p.op]} {lhs})"
+    return f"({lhs} {p.op} {rhs})"
 
 
 def expressible(p, schema: Schema, table: str) -> bool:

@@ -185,7 +185,7 @@ def test_cross_type_pivots_stay_inside_the_bound_and_render_typed_on_every_data_
     assert predicate.sparql_filter(fint, "r").endswith('(?r_f5 = "2.0"^^xsd:double)))')
     assert predicate.sparql_filter(Predicate("source", "f5", "IN", "p", [2, 3.5], True, "float"), "r").endswith('(?r_f5 IN ("2.0"^^xsd:double, "3.5"^^xsd:double))))')
     # openCypher: both sides doubles, the pivot as TOFLOAT of its text (G36), no parameter
-    for leaf, text in ((gt, "(TOFLOAT(t.N1_F1) > TOFLOAT('1.5'))"), (isin, "(TOFLOAT(t.N1_F1) = TOFLOAT('1.5') OR TOFLOAT(t.N1_F1) = TOFLOAT('2'))"), (btw, "(TOFLOAT(t.N1_F1) >= TOFLOAT('0.5') AND TOFLOAT(t.N1_F1) <= TOFLOAT('2.5'))"), (rev, "(TOFLOAT('1.5') > TOFLOAT(t.N1_F1))"), (fint, "(t.N1_F5 = TOFLOAT('2'))")):
+    for leaf, text in ((gt, "(TOFLOAT(t.N1_F1) > TOFLOAT('1.5'))"), (isin, "(TOFLOAT(t.N1_F1) = TOFLOAT('1.5') OR t.N1_F1 = 2)"), (btw, "(TOFLOAT(t.N1_F1) >= TOFLOAT('0.5') AND TOFLOAT(t.N1_F1) <= TOFLOAT('2.5'))"), (rev, "(TOFLOAT('1.5') > TOFLOAT(t.N1_F1))"), (fint, "(t.N1_F5 = TOFLOAT('2'))")):
         params = graph.Params()
         assert graph.cypher_filter(leaf, "t", "n1", schema, params) == text and not params.items
     # the reference compares exactly across the types
@@ -744,6 +744,7 @@ def test_every_case_carries_one_hint_profile_per_sql_data_model(seed):
     """A hinted twin: one profile per question, named in the tag, on a SQL statement
     only (never a SPARQL text, never the collection query), the clause closing it."""
     from ganda.hana.concrete_syntax import hints, tx as _tx
+    from ganda.hana.connection import unwrap_block
 
     _schema, _instance, cases = _cases(seed)
     seen = 0
@@ -751,6 +752,9 @@ def test_every_case_carries_one_hint_profile_per_sql_data_model(seed):
         profiles: dict = {}
         for v, t in c.queries.items():
             last = _tx.parts(t)[-1] if _tx.is_script(t) else t
+            # a SQLScript block carries the profile on its inner SELECT (NO_INLINE is the
+            # assignment's own, not a profile)
+            last = unwrap_block(last).replace(" WITH HINT (NO_INLINE)", "")
             dm, _, tag = v.partition(":")
             # a traversal's base variant may be the hinted syntax (drawn like any other):
             # the case's `concrete_syntax` names it then
@@ -840,6 +844,98 @@ def test_the_repeat_twin_and_the_hinted_collection_query(seed):
         if not base.startswith("WITH "):
             collection_hinted += 1
     assert collection_hinted > 10
+
+
+def test_the_inline_position_writes_every_bound_value_as_a_constant():
+    from ganda.hana.connection import inline_binds, sql_literal
+
+    assert sql_literal(5) == "5" and sql_literal(-(2**63)) == "-9223372036854775808" and sql_literal(True) == "TRUE" and sql_literal(None) == "NULL"
+    assert sql_literal(0.1) == "0.1E0" and sql_literal(1e-300) == "1e-300" and sql_literal(1.7976931348623157e308) == "1.7976931348623157e+308"
+    assert sql_literal("it's") == "N'it''s'" and sql_literal([1, 2]) == "N'[1,2]'" and sql_literal(Decimal("1.5")) == "1.5"
+    text = "SELECT t.id AS id FROM n1 t WHERE t.f1 > :p AND t.f2 IN :q AND t.f3 = :l__json AND t.f4 = :b AND t.f5 BETWEEN :ra AND :rb AND t.f6 IN :e AND t.s = 'a :not_a_bind'"
+    binds = {"p": 1.5, "q": [1, 2], "l": [3], "b": False, "ra": "x", "rb": "it's", "e": []}
+    assert inline_binds(text, binds) == "SELECT t.id AS id FROM n1 t WHERE t.f1 > 1.5E0 AND t.f2 IN (1, 2) AND t.f3 = N'[3]' AND t.f4 = FALSE AND t.f5 BETWEEN N'x' AND N'it''s' AND t.f6 IN (NULL) AND t.s = 'a :not_a_bind'"
+    # the variant: the rel base text with its constants in, no marker left
+    for seed in (1, 2):
+        _schema, _instance, cases = _cases(seed)
+        seen = 0
+        for c in cases:
+            if c.generator_name != "ir_select" or "rel:inline" not in c.queries:
+                continue
+            seen += 1
+            text = c.queries["rel:inline"]
+            question = text.split("\n;;\n")[-1]
+            assert not re.search(r"(?<![\w:]):[A-Za-z_]\w*", re.sub(r"'(?:[^']|'')*'", "", question)), question
+            assert inline_binds(c.queries["rel"].split("\n;;\n")[-1], c.bind_vars) == question
+        assert seen > 20
+
+
+def test_the_block_positions_wrap_the_statement_in_a_typed_sqlscript_block():
+    from ganda.hana.concrete_syntax import hints
+    from ganda.hana.connection import sqlscript_block, unwrap_block
+
+    text = "SELECT t.id AS id FROM n1 t WHERE t.f1 > :p AND t.f2 IN :q AND t.f3 = :l__json AND t.f4 = :b AND t.f6 IN :e"
+    binds = {"p": 1.5, "q": [1, 2], "l": [3], "b": False, "e": []}
+    block = sqlscript_block(text, binds)
+    assert block == "DO (IN sv_p DOUBLE => :p, IN sv_q__0 BIGINT => :q__0, IN sv_q__1 BIGINT => :q__1, IN sv_l__json NVARCHAR(5000) => :l__json, IN sv_b BOOLEAN => :b) BEGIN sv_t = SELECT t.id AS id FROM n1 t WHERE t.f1 > :sv_p AND t.f2 IN (:sv_q__0, :sv_q__1) AND t.f3 = :sv_l__json AND t.f4 = :sv_b AND t.f6 IN (NULL); SELECT * FROM :sv_t; END"
+    # the session binds the header's markers only, in order
+    stmt, params = positional(block, binds)
+    assert params == [1.5, 1, 2, "[3]", False] and ":sv_" in stmt and "?" not in stmt.split("BEGIN")[1]
+    assert sqlscript_block("SELECT 1 AS v FROM DUMMY", {}, noinline=True) == "DO BEGIN sv_t = SELECT 1 AS v FROM DUMMY WITH HINT (NO_INLINE); SELECT * FROM :sv_t; END"
+    # the offline stand-in unwraps it to the statement, the markers restored
+    assert unwrap_block(block) == text.replace("IN :q", "IN (:q__0, :q__1)").replace("IN :e", "IN (NULL)")
+    assert hints.strip(unwrap_block(sqlscript_block("SELECT 1 AS v FROM DUMMY", {}, noinline=True))) == "SELECT 1 AS v FROM DUMMY"
+    # the variants: one per block form on every rel question; a hinted inner SELECT under `block` only
+    for seed in (1, 2):
+        _schema, _instance, cases = _cases(seed)
+        seen = 0
+        for c in cases:
+            if c.generator_name != "ir_select":
+                continue
+            seen += 1
+            for v in ("rel:block", "rel:block_ni"):
+                t = c.queries[v].split("\n;;\n")[-1]
+                assert t.startswith("DO ") and t.endswith("; SELECT * FROM :sv_t; END"), v
+                stmt, params = positional(c.queries[v], c.bind_vars)
+                assert "?" not in stmt.split("BEGIN", 1)[1].split("; SELECT * FROM")[0] or stmt.count("?") == len(params)
+            # the unwrapped block is the base statement (a list bind expanded to its elements)
+            inner = hints.strip(unwrap_block(c.queries["rel:block"].split("\n;;\n")[-1]))
+            assert positional(inner, c.bind_vars) == positional(c.queries["rel"].split("\n;;\n")[-1], c.bind_vars)
+            assert "NO_INLINE" in c.queries["rel:block_ni"] and not any(v.startswith("rel:block_ni+") or v.endswith("+block_ni") for v in c.queries if c.params["hint"] in v)
+            hinted = c.queries.get(f"rel:block+{c.params['hint']}")
+            if hinted is not None:
+                assert "WITH HINT (" in hinted and hinted.index("WITH HINT (") < hinted.index("; SELECT * FROM :sv_t")
+        assert seen > 20
+
+
+def test_the_set_operation_form_partitions_a_filter_on_every_sql_path_and_in_sparql():
+    from ganda.core.ast.select import SelectQuery
+    from ganda.hana.concrete_syntax import select
+
+    schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT),)),), ())
+    pred = Predicate("source", "f1", ">", "p", 1, True, "int")
+    for kind in ("ids", "count"):
+        q = SelectQuery("n1", pred, kind)
+        rw = select.Rewrites()
+        sp = select.SelectSyntax(form="tlp")
+        rel = select.render(q, schema, sp, rw, "rel")
+        rows = "SELECT t.id AS id FROM n1 t"
+        core = f"{rows} EXCEPT {rows} WHERE NOT (t.f1 > :p) EXCEPT {rows} WHERE (CASE WHEN t.f1 > :p THEN 1 WHEN NOT (t.f1 > :p) THEN 0 END) IS NULL"
+        assert rel == (core if kind == "ids" else f"SELECT COUNT(*) AS v FROM ({core}) z")
+        rdf = select.render(q, schema, sp, rw, "rdf")
+        assert "MINUS { ?n a c:n1 ; p:id ?id . OPTIONAL { ?n p:f1 ?n_f1 } BIND ((!((BOUND(?n_f1) && (?n_f1 > \"1\"^^xsd:long)))) AS ?t) FILTER (?t) }" in rdf
+        assert "COALESCE(IF((BOUND(?n_f1) && (?n_f1 > \"1\"^^xsd:long)), 1, 0), 2) = 2" in rdf
+        assert ("SELECT ?id WHERE" in rdf) == (kind == "ids") and ("COUNT(?id)" in rdf) == (kind == "count")
+        doc = select.render(q, schema, sp, rw, "doc")
+        assert doc.startswith("WITH raw_v_n1") and " EXCEPT " in doc
+        assert select.applicable(q, schema, sp, rw, "doc") and select.applicable(q, schema, sp, rw, "graph")
+        assert not select.applicable(q, schema, select.SelectSyntax(form="tlp", position="nest"), rw, "rel")
+    assert not select.applicable(SelectQuery("n1", pred, "field", ("f1",)), schema, select.SelectSyntax(form="tlp"), select.Rewrites(), "rel")
+    # the variants in the cases: on every ids / count question with a filter
+    _schema, _instance, cases = _cases(1)
+    tlp = [c for c in cases if c.generator_name == "ir_select" and any(v.endswith(":tlp") or ":tlp+" in v or "+tlp" in v for v in c.queries)]
+    assert tlp and all(c.params["select"]["kind"] in ("ids", "count") for c in tlp)
+    assert all("rel:tlp" in c.queries and "rdf:tlp" in c.queries for c in tlp)
 
 
 def test_the_mutant_catalog_corrupts_a_node_value_on_every_data_model():
