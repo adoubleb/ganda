@@ -234,3 +234,54 @@ HANA version: 4.00.000.00.1788859455
   direct SPARQL_EXECUTE, same query     : ['long', '-']
   => the column type follows the predicate's datatype history across the store (other graphs,
      dropped data), not the values the query returns; the direct answer keeps xsd:long.
+
+## A7-opencypher-homogeneous-labelled-workspace (run 2026-10-12)
+HANA version: 4.00.000.00.1788859455 
+
+w1 tables, LABEL clauses       
+     vertex label   : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 8 (at pos 84)
+     edge label     : OK [('m', 'n')]
+     both labels    : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 67 (at pos 220)
+     no label       : OK [('m', 'n')]
+     LABEL(a)       : OK [('m', 'v'), ('n', 'v')]
+w2 tables, no LABEL clauses    
+     vertex label   : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 8 (at pos 84)
+     edge label     : OK [('m', 'n')]
+     both labels    : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 67 (at pos 220)
+     no label       : OK [('m', 'n')]
+     LABEL(a)       : OK [('m', 'V'), ('n', 'V')]
+w3 views, LABEL clauses        
+     vertex label   : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 8 (at pos 87)
+     edge label     : OK [('m', 'n')]
+     both labels    : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 67 (at pos 229)
+     no label       : OK [('m', 'n')]
+     LABEL(a)       : OK [('m', 'v'), ('n', 'v')]
+w4 tables, vertex LABEL only   
+     vertex label   : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 8 (at pos 84)
+     edge label     : OK [('m', 'n')]
+     both labels    : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 67 (at pos 220)
+     no label       : OK [('m', 'n')]
+     LABEL(a)       : OK [('m', 'v'), ('n', 'v')]
+w5 tables, edge LABEL only     
+     vertex label   : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 8 (at pos 84)
+     edge label     : OK [('m', 'n')]
+     both labels    : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 67 (at pos 220)
+     no label       : OK [('m', 'n')]
+     LABEL(a)       : OK [('m', 'V'), ('n', 'V')]
+w6 two edge tables, LABELs     
+     vertex label   : OK [('m',), ('n',)]
+     edge label     : OK [('m', 'n')]
+     both labels    : OK [('m', 'n')]
+     no label       : OK [('m', 'n'), ('n', 'm')]
+     LABEL(a)       : OK [('m', 'v'), ('n', 'v')]
+w7 two vertex tables, LABELs   
+     vertex label   : OK [('m',), ('n',)]
+     edge label     : OK [('m', 'n')]
+     both labels    : OK [('m', 'n')]
+     no label       : OK [('m', 'n')]
+     LABEL(a)       : OK [('m', 'v'), ('n', 'v'), ('p', 'v2')]
+
+  => over a workspace with ONE vertex table (w1-w5: tables or views, LABEL clauses or
+     not), a MATCH naming the vertex label fails with `invalid column name: ...CYPHER$TABLE$LABEL`
+     (an internal column of the rewrite); the edge label, LABEL(a) and the unlabelled pattern
+     answer, and so does every pattern over a second vertex table (w7) or edge table (w6).

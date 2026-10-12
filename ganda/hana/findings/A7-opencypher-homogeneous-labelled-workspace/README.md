@@ -1,74 +1,83 @@
-# A7 — openCypher: a homogeneous workspace with LABEL clauses fails every labelled query
+# A7 — openCypher: a vertex label in MATCH fails over a workspace with one vertex table
 
 **Bucket:** A (candidate engine defect — an internal column of the engine's rewrite leaks into
 the SQL it generates; the query is legal and documented).
 **Version:** HANA Cloud 4.00.000.00.1788859455. **Repro:** `python3 -I repro.py`
 **Found by:** the Ganda SAP HANA probe (fact G27), 2026-10-11, while probing the graph data
-model's workspace forms. A campaign's workspace always has two or more edge tables, so the
-fuzzer itself never meets the shape.
+model's workspace forms; the matrix below run 2026-10-12. A campaign's workspace always has
+two or more edge tables, so the fuzzer itself never meets the shape.
 
 ## Claim
-A graph workspace of ONE vertex table and ONE edge table (homogeneous), created with `LABEL`
-clauses, refuses any openCypher query that names a label -- `(a:pv3)`, `[e:pe3]` -- with a SQL
-error about a column no user wrote:
+Over a graph workspace of ONE vertex table and ONE edge table (homogeneous), a MATCH pattern
+that names the vertex label -- `(a:v)`, whether the label was declared by a `LABEL` clause or
+is the default table name, over tables or over views -- fails with a SQL error about a column
+no user wrote:
 
 ```
-[260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 67 (at pos 238)
+[260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 8 (at pos 84)
 ```
 
-The same workspace answers the unlabelled form of the query, a workspace without `LABEL`
-clauses answers, and a heterogeneous workspace (a second edge table) answers the labelled
-query. `LABEL` is documented for every graph table ("For each graph table, an optional label can
-be specified ... The label can be used later in both GraphScript and openCypher", Property Graph
-Engine Reference, QRC 2/2026, CREATE GRAPH WORKSPACE); nothing restricts it to heterogeneous
-workspaces.
+Everything around it answers: the edge label `[x:e]`, `LABEL(a)` in RETURN (which prints the
+very label the pattern cannot name), the unlabelled pattern, and the same labelled pattern
+over any heterogeneous workspace -- a second vertex table OR merely a second edge table.
+The vertex label is a documented MATCH form (`(a:vertex_label)`, Property Graph Engine
+Reference QRC 2/2026, MATCH clause) and `LABEL` is documented for every graph table ("If no
+label is specified, the label defaults to the corresponding vertex or edge table name");
+nothing restricts either to heterogeneous workspaces.
 
-## Actual (the probe's run, 2026-10-11; `ganda hana probe G27`)
-Scratch schema; `pv3(id NVARCHAR(256) NOT NULL, f1 BIGINT)` hash-partitioned, `pe3(eid PK,
-src_id NOT NULL, dst_id NOT NULL)`; views `gv_pv3(id, f1 AS pv3_f1)`, `gv_pe3(eid, src_id,
-dst_id)`; one edge `m -> n`.
+## Actual (`repro.py`, 2026-10-12)
+Scratch schema; `v(id PK, name)`, `v2`, `e(eid PK, src_id, dst_id)` with `m -> n`, `e2` with
+`n -> m`; views `gv_v`, `gv_e`. Seven workspaces, five queries each.
 
 ```
-CREATE GRAPH WORKSPACE gw4 VERTEX TABLE gv_pv3 KEY COLUMN id LABEL 'pv3'
-    EDGE TABLE gv_pe3 KEY COLUMN eid SOURCE COLUMN src_id REFERENCES gv_pv3 TARGET COLUMN dst_id REFERENCES gv_pv3 LABEL 'pe3'
-MATCH (a:pv3)-[e:pe3]->(b:pv3) RETURN a.ID AS ID, b.ID AS V
-    : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 67 (at pos 238)
-MATCH (a)-[e]->(b) RETURN a.ID AS ID, b.ID AS V
-    : answers
-
-CREATE GRAPH WORKSPACE gw5 VERTEX TABLE gv_pv3 KEY COLUMN id
-    EDGE TABLE gv_pe3 KEY COLUMN eid SOURCE COLUMN src_id REFERENCES gv_pv3 TARGET COLUMN dst_id REFERENCES gv_pv3
-MATCH (a)-[e]->(b) RETURN a.ID AS ID, b.ID AS V
-    : answers
-
-(G17, control) the same with a second edge table gv_pe4 LABEL 'pe4':
-MATCH (a:pv3)-[e:pe3]->(b:pv3) RETURN a.ID AS ID, b.ID AS V
-    : [('m', 'n')]
+w1 tables, LABEL clauses
+     vertex label   : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 8 (at pos 84)
+     edge label     : OK [('m', 'n')]
+     both labels    : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 67 (at pos 220)
+     no label       : OK [('m', 'n')]
+     LABEL(a)       : OK [('m', 'v'), ('n', 'v')]
+w2 tables, no LABEL clauses            (labels V / E, the table names)
+     vertex label   : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 8 (at pos 84)
+     edge label     : OK [('m', 'n')]
+     both labels    : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 67 (at pos 220)
+     no label       : OK [('m', 'n')]
+     LABEL(a)       : OK [('m', 'V'), ('n', 'V')]
+w3 views, LABEL clauses
+     vertex label   : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 8 (at pos 87)
+     edge label     : OK [('m', 'n')]
+     both labels    : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 67 (at pos 229)
+     no label       : OK [('m', 'n')]
+     LABEL(a)       : OK [('m', 'v'), ('n', 'v')]
+w4 tables, vertex LABEL only           (same as w1: fails)
+w5 tables, edge LABEL only             (same as w2: fails)
+w6 two edge tables, LABELs
+     vertex label   : OK [('m',), ('n',)]
+     edge label     : OK [('m', 'n')]
+     both labels    : OK [('m', 'n')]
+     no label       : OK [('m', 'n'), ('n', 'm')]
+     LABEL(a)       : OK [('m', 'v'), ('n', 'v')]
+w7 two vertex tables, LABELs
+     vertex label   : OK [('m',), ('n',)]
+     edge label     : OK [('m', 'n')]
+     both labels    : OK [('m', 'n')]
+     no label       : OK [('m', 'n')]
+     LABEL(a)       : OK [('m', 'v'), ('n', 'v'), ('p', 'v2')]
 ```
-
-The first probe run met the same error twice more: a homogeneous labelled workspace created
-`NO CACHE` over the campaign's own views (`gv_pv1` / `gv_pe2`), and the hash-partitioned case
-above -- so neither the cache option nor the partitioning is the trigger; the labels on a
-homogeneous workspace are.
-
-`repro.py` lays the shape out as a matrix -- tables vs views; `LABEL` on both tables, on the
-vertex table only, on the edge table only, on neither; a vertex label, an edge label, both,
-none, `LABEL(a)` in RETURN; heterogeneous controls by a second edge table and by a second
-vertex table. **Its output is not captured yet** (the machine holding the tunnel was
-unreachable when the script was written); the claim above rests on the probe's three
-observations and the G17 control only.
+(w4 and w5 print the same five lines as w1 and w2; `TRANSCRIPT.txt` has the full run.) The
+probe (G27, 2026-10-11) met the same error over a view of a hash-partitioned table and over a
+`NO CACHE` workspace: neither is the trigger.
 
 ## How to judge
-- The query is legal: `(a:label)` and `[e:label]` are the documented MATCH forms, and the labels
-  exist (the workspace declared them). Error 260 names `CYPHER$TABLE$LABEL`, a column of the
-  engine's internal rewrite (the label column it synthesises for a heterogeneous workspace), so
-  this is a code path missing for the one-table case, not a user mistake and not a documented
-  limitation.
-- It is not a clean "feature not supported" (code 7): the generated SQL fails to compile.
-- Nothing is lost silently: the statement fails. Impact is a workspace of one vertex and one edge
-  table -- the tutorial shape (`FLIGHTS` with `NODES` / `EDGES`) -- that cannot be queried by
-  label once labelled; the workaround is to drop the `LABEL` clauses (and the labels from the
-  queries) or to add a second table.
+- The query is legal and the label exists: `LABEL(a)` returns it in the same workspace. Error
+  260 names `CYPHER$TABLE$LABEL`, the label column the engine synthesises for a heterogeneous
+  workspace (w6 / w7 show the path that works); for one vertex table the vertex-label filter
+  references it without materialising it. A missing code path, not a user mistake and not a
+  documented limitation.
+- Not a clean "feature not supported" (code 7): the generated SQL fails to compile.
+- Nothing is silently wrong: the statement fails. Impact: the simplest workspace -- the
+  documentation's own `FLIGHTS` shape, one `NODES` and one `EDGES` table -- cannot be queried
+  by vertex label at all. Workarounds: leave the vertex label out of the pattern (one table:
+  it filters nothing), or add a second table.
 
 ## What the provider does
 Nothing: a campaign's workspace has one view per node class and per edge type (`mapping/graph.py`),

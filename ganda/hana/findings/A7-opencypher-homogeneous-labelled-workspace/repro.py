@@ -1,9 +1,10 @@
-"""A7 -- openCypher over a HOMOGENEOUS graph workspace (one vertex table, one edge table)
-created with LABEL clauses: a query that names a label fails with `[260] invalid column
-name: a.CYPHER$TABLE$LABEL` -- an internal column of the engine's rewrite leaking into the
-SQL it generates. The same query over the same workspace without labels, over a workspace
-without LABEL clauses, or over a heterogeneous workspace (a second vertex or edge table)
-answers. Found by the Ganda probe (fact G27) 2026-10-11. Run: python3 -I repro.py
+"""A7 -- openCypher over a HOMOGENEOUS graph workspace (one vertex table, one edge table): a
+MATCH pattern naming the VERTEX label -- `(a:v)`, declared by a LABEL clause or the default
+table name -- fails with `[260] invalid column name: a.CYPHER$TABLE$LABEL`, an internal
+column of the engine's rewrite leaking into the SQL it generates; over tables and over
+views alike. An edge label, `LABEL(a)` in RETURN, the unlabelled pattern, and any
+heterogeneous workspace (a second vertex table OR a second edge table) answer. Found by
+the Ganda probe (fact G27) 2026-10-11. Run: python3 -I repro.py
 """
 import os
 import sys
@@ -66,20 +67,17 @@ def main():
         ]
         for i, (label, ddl) in enumerate(workspaces.items(), 1):
             cur.execute(ddl)
-            # without LABEL clauses the label is the table's catalog name (uppercase)
-            v_label, e_label = ("v", "e") if "LABEL 'v'" in ddl else ("V", "E")
-            if "vertex LABEL only" in label:
-                e_label = "E"
-            if "edge LABEL only" in label:
-                v_label = "V"
-            if "views" in label:
-                v_label, e_label = "v", "e"
+            # a declared label is the LABEL clause's string; without one it is the table's
+            # catalog name (uppercase: the DDL is unquoted)
+            v_label = "v" if "LABEL 'v'" in ddl else "V"
+            e_label = "e" if "LABEL 'e'" in ddl else "E"
             print(f"w{i} {label}")
             for qlabel, q in queries:
                 print(f"     {qlabel}: {oc(cur, f'w{i}', q.format(V=v_label, E=e_label))}")
-        print("\n  => a homogeneous workspace with a LABEL clause fails every query that names a label")
-        print("     (`invalid column name: ...CYPHER$TABLE$LABEL`, an internal column of the rewrite);")
-        print("     unlabelled queries, workspaces without LABEL clauses, and heterogeneous workspaces answer.")
+        print("\n  => over a workspace with ONE vertex table (w1-w5: tables or views, LABEL clauses or")
+        print("     not), a MATCH naming the vertex label fails with `invalid column name: ...CYPHER$TABLE$LABEL`")
+        print("     (an internal column of the rewrite); the edge label, LABEL(a) and the unlabelled pattern")
+        print("     answer, and so does every pattern over a second vertex table (w7) or edge table (w6).")
     finally:
         cur.execute(f"DROP SCHEMA {S} CASCADE")
         cur.close()
