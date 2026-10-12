@@ -21,6 +21,12 @@ store for the main store, so the queries read the other storage path).
 The graph data model's tables are these too (`mapping.graph`): `ddl` and
 `build_relational_setup` take the data model whose write form and indexes apply, and
 the DDL the graph adds (its views and workspace).
+
+The base class of the inheritance axis (`N0`, whose fields `b1..bk` every node table
+carries) is a VIEW: the UNION ALL of the subclass tables' id and base columns, a view per
+LIST base field over the subclasses' child tables, an index on it one index per subclass
+table (`base_view_ddl`, `_index_ddl`). The data never names it: a record belongs to its
+class's table; a query on `N0` reads the view, a write on it the tables.
 """
 from __future__ import annotations
 
@@ -49,11 +55,30 @@ def _child_ddl(table: str, f) -> list:
     return [Sql(f"CREATE COLUMN TABLE {t} (owner {ID_TYPE} NOT NULL, pos INTEGER NOT NULL, v BIGINT)"), Sql(f"CREATE INDEX ix_{t}_owner ON {t} (owner)")]
 
 
-def _index_ddl(ix) -> Sql:
+def _index_ddl(ix, schema) -> list:
+    """The index, or for one on the base class (the inheritance axis) one index per
+    subclass table, which is what covers every subclass; a UNIQUE one then holds within
+    each table (the generator keeps the key unique across them)."""
     cols = ", ".join(ix.all_fields)
-    if ix.kind == "UNIQUE":
-        return Sql(f"CREATE UNIQUE INDEX {ix.name()} ON {ix.table} ({cols})")
-    return Sql(f"CREATE INDEX {ix.name()} ON {ix.table} ({cols})")
+    unique = "UNIQUE " if ix.kind == "UNIQUE" else ""
+    tables = [(nt.name, f"{ix.name()}_{nt.name}") for nt in schema.node_types] if schema.is_base(ix.table) else [(ix.table, ix.name())]
+    return [Sql(f"CREATE {unique}INDEX {name} ON {t} ({cols})") for t, name in tables]
+
+
+def base_view_ddl(schema) -> list:
+    """The base class of the inheritance axis as a VIEW: the UNION ALL of every subclass
+    table's id and base-class columns, and a view per LIST base field uniting the
+    subclasses' child tables -- so every rel rendering reads `N0` as it reads a table
+    (`schema.query_tables()` names it), and a write on it addresses the tables."""
+    if schema.base is None:
+        return []
+    base = schema.base
+    cols = ", ".join(["id"] + [f.name for f in base.fields])
+    steps = [Sql(f"CREATE VIEW {base.name} AS " + " UNION ALL ".join(f"SELECT {cols} FROM {nt.name}" for nt in schema.node_types))]
+    for f in base.fields:
+        if f.type is FieldType.LIST:
+            steps.append(Sql(f"CREATE VIEW {child_table(base.name, f.name)} AS " + " UNION ALL ".join(f"SELECT owner, pos, v FROM {child_table(nt.name, f.name)}" for nt in schema.node_types)))
+    return steps
 
 
 def ddl(instance: Instance, data_model: str = DATA_MODEL) -> list:
@@ -72,6 +97,7 @@ def ddl(instance: Instance, data_model: str = DATA_MODEL) -> list:
         for f in fields:
             if f.type is FieldType.LIST:
                 steps += _child_ddl(nt.name, f)
+    steps += base_view_ddl(schema)
     for et in schema.edge_types:
         cols = [f"eid {ID_TYPE} PRIMARY KEY", f"src_id {ID_TYPE} NOT NULL", f"dst_id {ID_TYPE} NOT NULL"] + _column_defs(et.fields)
         steps.append(Sql(f"CREATE COLUMN TABLE {et.name} ({', '.join(cols)})"))
@@ -82,7 +108,7 @@ def ddl(instance: Instance, data_model: str = DATA_MODEL) -> list:
                 steps += _child_ddl(et.name, f)
     for ix in schema.indexes:
         if ix.applies_to(data_model):
-            steps.append(_index_ddl(ix))
+            steps += _index_ddl(ix, schema)
     return steps
 
 

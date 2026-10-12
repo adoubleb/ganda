@@ -113,6 +113,52 @@ the same name in `concrete_syntax/graph.py` (and the offline translator's,
 | Two parallel relationships are two rows; a BIGINT 2^63 - 1 and a DOUBLE 2^53, 1e-300 come back exact; SUM of BIGINT is an int, of DOUBLE a float; a LIST text aliased `__JSON` decodes. | probe G11/G23, probed 2026-10-11 |
 | `DROP SCHEMA ... CASCADE` removes the schema's workspace (`connection._drop` issues nothing more). A cypher syntax error is `[4905] GraphEngine: OpenCypher syntax error`, an unknown label / attribute / parameter `[4906] GraphEngine: OpenCypher compilation error`: rejections (neither code is internal), compared across variants like any other. | probe G22/G26, probed 2026-10-11 |
 
+## Plan steering (`concrete_syntax/hints.py`)
+
+A `WITH HINT (...)` clause closes a SELECT and steers it to another execution engine or
+optimizer mode without changing what it means (SQL Reference, "HINT Details", QRC
+3/2026); the provider asks every SQL text once more under one of fourteen profiles
+(`hints.PROFILES`: `nohex`, `olap`, `join_engine`, `row_ops`, `cs_ops`, `rule_based`,
+`minimal`, `no_rewrite`, `disjunction_split`, `hex_disk`, `nested_loop`, `hash_join`,
+`no_index`, `serial`), one per question, as the variants `rel:<profile>`,
+`doc:nest+<profile>`, `graph:<profile>`, `rdf:table_fn+<profile>`, `rel:hint_<profile>`.
+A hinted twin answering differently from its plain statement is an engine defect with
+no cross-model confound.
+
+| Rule | Status |
+|---|---|
+| The hint clause is the last clause of a SELECT, after LIMIT / OFFSET, and closes a `WITH ... SELECT` query, a statement over a derived table with a LEFT JOIN and a correlated scalar subquery, one reading `OPENCYPHER_TABLE` or `SPARQL_TABLE`, and a SQL view over a collection alike; `THROW_ERROR` blocks the statement (so the clause is parsed, never ignored as a whole). | doc, probe P0 |
+| Every profile is accepted on every one of those shapes and answers the plain statement's rows. A profile the engine refuses on some shape would be dropped from `hints.PROFILES`, not worked around. | probe P1-P14 |
+| `USE_HEX_PLAN` (HEX is the default; enforcing it where HEX cannot run the plan is an error, not a plan) and `USE_ESX_PLAN` are left out; what each does per shape is recorded. | probe P15 / P16 (observed) |
+| The collection query (the doc data model's own dialect) is never hinted: the hinted doc variants are SQL over the views. What the Document Store does with a hint clause on a collection query is recorded by every P fact. | the provider's design |
+
+## The collection filter's NOT (`concrete_syntax/document.py`, the `neg` position)
+
+| Rule | Status |
+|---|---|
+| `NOT (...)` in a collection SELECT's WHERE is three-valued as SQL's: `NOT (i = 1)` drops a document whose `i` is absent or null, `NOT (i = 1 OR i IS NULL)`, `NOT (NOT (i > 1))` and `NOT (s LIKE 'a%')` likewise. The provider's default pushes a NOT down to the leaves (De Morgan and the complements); the `doc:neg` variant keeps the NOTs as written. | probe D19 |
+| `NOT (FOR ANY ... END)` holds for an absent array (FOR ANY is false there, D8), so the `neg` variant states a negated membership the pushed-down form has no collection text for; a disjunction holding a FOR ANY under NOT is unknown where the other operand is. | probe D8 / D20 |
+
+## Custom keys (`--custom-key-probability`)
+
+| Rule | Status |
+|---|---|
+| A key is a bound NVARCHAR(256) value on rel and the graph data model, a JSON string compared with `CAST(? AS NVARCHAR(256))` on doc, a percent-encoded IRI (`dialect.record_iri`) plus a `p:id` literal on rdf, and a bare `$k` parameter in openCypher: every style the generator draws (an accented letter, an astral emoji, a CJK ideograph, a combining sequence, quotes, spaces, `%`, `:`, SQL words, a 193-character key, a 19-digit integer) round-trips on all four. | probe R18 / D22 / K21 / G28 |
+| ORDER BY a key column is UTF-16 code-unit order on rel and the graph data model; SPARQL orders `?id` by code point; the two part only for an astral key against one in U+E000..U+FFFF, which no key style draws (`tests/hana/test_units.py` pins the pool), so the id tiebreak of a `page` / `keys` ordering is one order everywhere. The Document Store's order of `$."id"` is recorded. | probe R18 / K21 (D22 observed) |
+
+## The inheritance axis (`--inheritance-probability`): the base class on four data models
+
+The core's abstract base class `N0` declares `b1..bk`, which every node class carries as
+columns / keys / triples of its own (`schema.query_fields`). A query on `N0` is
+polymorphic over every class:
+
+| Rule | Status |
+|---|---|
+| rel, graph: `N0` is a VIEW, the UNION ALL of every subclass table's `id` and base columns (`mapping.relational.base_view_ddl`); a LIST base field's child table is a view uniting the subclasses' child tables; an index on the base class is one index per subclass table (`ix_N0_b1_n1`, ...; a UNIQUE one holds per table -- the generator keeps the key unique across them). Every rel rendering reads `N0` as a table; a write on `N0` chooses its records through the view and writes each subclass table in turn, the row counts summed (`write.Step` roles `count_part`, `capture_more`). | doc (views), probe R19 |
+| doc: no collection; the views' union (`v_N0 AS (SELECT id, b1 FROM v_n1 UNION ALL ...)`, defined after the views it reads) is the base's only engine path, so the collection query never asks a base-class question (`select.collection_asks`); a write on `N0` reads its records through the views and writes each collection (`write._doc`). A UNION ALL of collection queries themselves is recorded. | probe D23 |
+| rdf: a node is typed with its class AND the base class (`<r> a c:n1, c:N0`; `mapping.rdf.class_triples`, also on the transaction door's insert and an upsert's new node), so `?n a c:N0` is the polymorphic pattern, a per-class pattern and count are unchanged, and a node delete (`?n ?p ?o`) removes both types. | probe K22 |
+| graph: the base class is the UNLABELLED vertex `(a)`, which spans every vertex table (G21); a base-class attribute keeps its name in every view (`dialect.graph_attr`, shared), so `MATCH (a) WHERE a.B1 > $p`, the Cartesian `MATCH (t), (m)` and `COUNT` grouped by it are the native texts, and `g_N0` the views-family CTE (`graph.vertex`). | probe G29 |
+
 ## Error classes (`connection.py`)
 
 | Code | Read as |

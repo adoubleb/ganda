@@ -21,14 +21,19 @@ class HanaConfig(GeneratorConfig):
 
 
 # core axes whose types or semantics the provider does not model yet: the field and
-# why (what has to be probed before the axis can be switched on)
+# why (what has to be probed before the axis can be switched on). The custom-key axis
+# is modelled (probe R18 / D22 / K21 / G28): a key travels as a bound NVARCHAR(256)
+# value, a JSON string and a percent-encoded IRI, and the key pool holds no code point
+# in U+E000..U+FFFF, the one range where SQL's UTF-16 order and SPARQL's code-point
+# order of an astral key would part (`tests/hana/test_units.py` pins the pool). The
+# inheritance axis is modelled too (`mapping/relational.py`: the base class as a UNION
+# ALL view; `mapping/rdf.py`: a second class triple; the graph data model's unlabelled
+# MATCH; the doc views' union).
 UNSUPPORTED_AXES = {
     "narrow_type_probability": "INTEGER / REAL / DECIMAL columns: the conversions of a REAL against a double and of a DECIMAL in the doc and rdf data models are not modelled",
-    "date_map_probability": "TIMESTAMP / DATE and map columns: no date literal or map form is modelled across the three data models",
+    "date_map_probability": "TIMESTAMP / DATE and map columns: no date literal or map form is modelled across the four data models",
     "collate_probability": "case-insensitive collation: HANA has no per-column ci collation to declare",
-    "binary_probability": "VARBINARY columns: a byte string has no JSON or RDF form the three data models share",
-    "inheritance_probability": "the abstract base class: neither a collection nor a column table inherits",
-    "custom_key_probability": "custom keys: an astral code point in a key orders differently in SQL (UTF-16 code units) and SPARQL (code points), which the id tiebreak of an ordering meets",
+    "binary_probability": "VARBINARY columns: a byte string has no JSON or RDF form the four data models share",
 }
 
 

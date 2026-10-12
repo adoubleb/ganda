@@ -7,7 +7,7 @@ change, see HANDOFF.md) or OBSERVED (recorded so a later run can see a change; n
 fails). Every line prints what the engine answered.
 
     python3 -m ganda hana probe            # every fact
-    python3 -m ganda hana probe K5 D6      # some of them (ids or prefixes: R, D, K, G)
+    python3 -m ganda hana probe K5 D6      # some of them (ids or prefixes: R, D, K, G, P)
 """
 from __future__ import annotations
 
@@ -19,7 +19,18 @@ from decimal import Decimal
 from typing import Callable
 
 from ganda.core.provider import EngineError
-from ganda.hana.dialect import opencypher_table
+from ganda.hana.concrete_syntax import hints
+from ganda.hana.dialect import opencypher_table, record_iri
+
+# the custom-key styles the generator draws (`data_generator._custom_key`): the unicode
+# bases (an accented letter, an astral emoji, a CJK ideograph, a dotted capital I, a
+# combining sequence), punctuation, a word, the long form, an integer above 2^62
+CUSTOM_KEYS = ["é1", "\U0001F6002", "中3", "İ4", "é5", "it's6", 'q"q7', "a b8", "%9", "k:110", "k" * 190 + "11", "SELECT12", "4611686018427387905", "null13"]
+
+
+def _utf16_order(keys: list) -> list:
+    """The order HANA SQL compares NVARCHAR in (UTF-16 code units, `semantics.hana_key`)."""
+    return sorted(keys, key=lambda k: k.encode("utf-16-be", "surrogatepass"))
 
 PREFIX = "PREFIX c: <urn:ganda:c:> PREFIX p: <urn:ganda:p:> PREFIX i: <urn:ganda:i:> PREFIX l: <urn:ganda:l:> PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>"
 G = "<urn:ganda:graph>"
@@ -79,6 +90,46 @@ def r_setup(p: Probe):
     return True, "pt with 4 rows"
 
 
+def r18(p: Probe):
+    """Every custom-key style round-trips through an NVARCHAR(256) PRIMARY KEY, by equality
+    and in ORDER BY (UTF-16 code-unit order, the reference's)."""
+    p.run("CREATE COLUMN TABLE pk (id NVARCHAR(256) PRIMARY KEY, v BIGINT)")
+    for n, k in enumerate(CUSTOM_KEYS):
+        p.run("INSERT INTO pk (id, v) VALUES (:k, :v)", {"k": k, "v": n})
+    found = [p.sql("SELECT id AS id FROM pk WHERE id = :k", {"k": k}) for k in CUSTOM_KEYS]
+    hits = [r[0]["id"] == k for r, k in zip(found, CUSTOM_KEYS) if r]
+    order = [r["id"] for r in p.sql("SELECT id AS id FROM pk ORDER BY id ASC")]
+    emoji_len = p.one("SELECT LENGTH(id) AS v FROM pk WHERE v = 1")
+    ok = len(hits) == len(CUSTOM_KEYS) and all(hits) and order == _utf16_order(CUSTOM_KEYS)
+    return ok, f"{sum(hits)}/{len(CUSTOM_KEYS)} keys found by equality; ORDER BY {'is' if order == _utf16_order(CUSTOM_KEYS) else 'is NOT'} UTF-16 order; LENGTH of the emoji key {emoji_len}"
+
+
+def r19(p: Probe):
+    p.run("CREATE COLUMN TABLE pb1 (id NVARCHAR(256) PRIMARY KEY, b1 BIGINT, b2 NVARCHAR(5000), f1 DOUBLE)")
+    p.run("CREATE COLUMN TABLE pb2 (id NVARCHAR(256) PRIMARY KEY, b1 BIGINT, b2 NVARCHAR(5000), f1 BOOLEAN)")
+    p.run("CREATE COLUMN TABLE pb1__b2 (owner NVARCHAR(256) NOT NULL, pos INTEGER NOT NULL, v BIGINT)")
+    p.run("CREATE COLUMN TABLE pb2__b2 (owner NVARCHAR(256) NOT NULL, pos INTEGER NOT NULL, v BIGINT)")
+    p.run("CREATE VIEW PB0 AS SELECT id, b1, b2 FROM pb1 UNION ALL SELECT id, b1, b2 FROM pb2")
+    p.run("CREATE VIEW PB0__b2 AS SELECT owner, pos, v FROM pb1__b2 UNION ALL SELECT owner, pos, v FROM pb2__b2")
+    p.run("CREATE INDEX ix_PB0_b1_pb1 ON pb1 (b1)")
+    p.run("CREATE INDEX ix_PB0_b1_pb2 ON pb2 (b1)")
+    for r in [("a", 1, "[5]", 0.5), ("b", None, "[]", None), ("c", 3, None, 1.5)]:
+        p.run("INSERT INTO pb1 (id, b1, b2, f1) VALUES (:a, :b, :c, :d)", dict(zip("abcd", r)))
+    for r in [("x", 2, "[5,6]", True), ("y", 3, "[7]", False)]:
+        p.run("INSERT INTO pb2 (id, b1, b2, f1) VALUES (:a, :b, :c, :d)", dict(zip("abcd", r)))
+    for t, rows in (("pb1__b2", [("a", 0, 5)]), ("pb2__b2", [("x", 0, 5), ("x", 1, 6), ("y", 0, 7)])):
+        for r in rows:
+            p.run(f"INSERT INTO {t} (owner, pos, v) VALUES (:a, :b, :c)", dict(zip("abc", r)))
+    filtered = sorted(r["id"] for r in p.sql("SELECT t.id AS id FROM PB0 t WHERE t.b1 > :p", {"p": 1}))
+    joined = sorted((r["id"], r["v"]) for r in p.sql("SELECT t.id AS id, m.id AS v FROM PB0 t JOIN PB0 m ON m.b1 = t.b1 WHERE t.id <> m.id"))
+    member = sorted(r["id"] for r in p.sql("SELECT t.id AS id FROM PB0 t WHERE EXISTS (SELECT 1 FROM PB0__b2 x WHERE x.owner = t.id AND x.v = :e)", {"e": 5}))
+    ordered = [r["id"] for r in p.sql("SELECT t.id AS id FROM PB0 t ORDER BY t.b1 ASC NULLS FIRST, t.id ASC LIMIT 3 OFFSET 1")]
+    n = p.run("DELETE FROM pb1 WHERE b1 > :p", {"p": 1}) + p.run("DELETE FROM pb2 WHERE b1 > :p", {"p": 1})
+    left = p.one("SELECT COUNT(*) AS v FROM PB0")
+    got = (filtered, joined, member, ordered, n, left)
+    return _eq(got, (["c", "x", "y"], [("c", "y"), ("y", "c")], ["a", "x"], ["a", "x", "c"], 3, 2))
+
+
 R = [
     Fact("R0", "a column table with BIGINT, DOUBLE, NVARCHAR, BOOLEAN columns takes the boundary values", r_setup),
     Fact("R1", "BIGINT keeps 2^63 - 1 and DOUBLE keeps DBL_MAX exactly", lambda p: _eq([(r["i"], r["d"]) for r in p.sql("SELECT i, d FROM pt WHERE id = 'd'")], [(9223372036854775807, 1.7976931348623157e308)])),
@@ -97,7 +148,8 @@ R = [
     Fact("R14", "MERGE DELTA OF, a composite index, a unique index, a hash-partitioned table", lambda p: (p.run("MERGE DELTA OF pt"), p.run("CREATE INDEX ix_pt_is ON pt (i, s)"), p.run("CREATE UNIQUE INDEX ix_pt_s ON pt (d)"), p.run("CREATE COLUMN TABLE pp (id NVARCHAR(256) NOT NULL, v BIGINT) PARTITION BY HASH (id) PARTITIONS 3"), (True, "accepted"))[-1]),
     Fact("R15", "an UPDATE answers its row count", lambda p: _eq(p.run("UPDATE pt SET i = i + 1 WHERE i IS NOT NULL AND i < 100"), 3)),
     Fact("R16", "a derived table, a correlated scalar subquery, UNION ALL in FROM, EXISTS", lambda p: _eq(p.one("SELECT COUNT(*) AS v FROM (SELECT x.id FROM (SELECT id FROM pt UNION ALL SELECT id FROM pt) x WHERE EXISTS (SELECT 1 FROM pt y WHERE y.id = x.id AND (SELECT COUNT(*) FROM pt z WHERE z.id = y.id) = 1)) w"), 10)),
-    Fact("R17", "a unique violation is error 301 (a rejection, not an internal error)", lambda p: (lambda e: (" 301]" in e or "[301]" in e, e[:120]))(p.error(lambda: p.run("INSERT INTO pt (id) VALUES ('a')")))),
+    Fact("R17", "a unique violation is error 301 (a rejection, not an internal error)", lambda p: (lambda e: (" 301]" in e or "[301]" in e, e[:120]))(p.error(lambda: p.run("INSERT INTO pt (id) VALUES ('a')")))),    Fact("R18", "custom keys: an astral emoji, a combining sequence, quotes, spaces, `%`, a 193-character key and a 19-digit one round-trip through an NVARCHAR(256) key, by equality and in UTF-16 order (the `custom_key_probability` axis)", r18),
+    Fact("R19", "the base class as a UNION ALL view over the subclass tables (the inheritance axis): filtered, joined to itself, a LIST base field's child-table union inside EXISTS, an index per subclass table; a DELETE through the tables is what the view then shows", r19),
 ]
 
 
@@ -121,6 +173,57 @@ def _docs(p: Probe) -> dict:
     return {json.loads(next(iter(r.values())))["id"]: json.loads(next(iter(r.values()))) for r in p.sql("SELECT * FROM pc")}
 
 
+def _pcn(p: Probe) -> None:
+    """A collection of its own for the NOT facts (the `pc` documents change along the D facts)."""
+    p.run("CREATE COLLECTION pcn")
+    for d in [{"id": "a", "i": 1, "l": [5], "s": "ab"}, {"id": "b", "i": 2, "l": [1], "s": "zz"}, {"id": "c"}, {"id": "d", "i": None}]:
+        p.run("INSERT INTO pcn VALUES(:doc)", {"doc": json.dumps(d)})
+
+
+def d19(p: Probe):
+    _pcn(p)
+
+    def ids(where: str, binds=None) -> list:
+        return sorted(r["id"] for r in p.sql(f'SELECT $."id" AS id FROM pcn WHERE {where}', binds))
+
+    got = (ids('NOT ($."i" = CAST(:v AS BIGINT))', {"v": 1}), ids('NOT ($."i" = CAST(:v AS BIGINT) OR $."i" IS NULL)', {"v": 1}), ids('NOT (NOT ($."i" > CAST(:v AS BIGINT)))', {"v": 1}), ids('NOT ($."s" LIKE \'a%\')'))
+    return _eq(got, (["b"], ["b"], ["b"], ["b"]))
+
+
+def d20(p: Probe):
+    def ids(where: str, binds=None) -> list:
+        return sorted(r["id"] for r in p.sql(f'SELECT $."id" AS id FROM pcn WHERE {where}', binds))
+
+    got = (ids('NOT (FOR ANY "e" IN $."l" SATISFIES "e" = CAST(:v AS BIGINT) END)', {"v": 5}), ids('NOT ((FOR ANY "e" IN $."l" SATISFIES "e" = CAST(:v AS BIGINT) END) OR $."i" = CAST(:w AS BIGINT))', {"v": 5, "w": 2}))
+    return _eq(got, (["b", "c", "d"], []))
+
+
+def d22(p: Probe):
+    p.run("CREATE COLLECTION pck")
+    for n, k in enumerate(CUSTOM_KEYS):
+        p.run("INSERT INTO pck VALUES(:doc)", {"doc": json.dumps({"id": k, "v": n}, ensure_ascii=False)})
+    found = [p.sql('SELECT $."id" AS id FROM pck WHERE $."id" = CAST(:k AS NVARCHAR(256))', {"k": k}) for k in CUSTOM_KEYS]
+    hits = [r[0]["id"] == k for r, k in zip(found, CUSTOM_KEYS) if r]
+    order = [r["id"] for r in p.sql('SELECT $."id" AS id FROM pck ORDER BY $."id" ASC')]
+    ok = len(hits) == len(CUSTOM_KEYS) and all(hits)
+    return ok, f"{sum(hits)}/{len(CUSTOM_KEYS)} keys found by equality; ORDER BY $.\"id\" {'is' if order == _utf16_order(CUSTOM_KEYS) else 'is NOT'} UTF-16 order"
+
+
+def d23(p: Probe):
+    p.run("CREATE COLLECTION pd1")
+    p.run("CREATE COLLECTION pd2")
+    for d in [{"id": "a", "b1": 1, "f1": "x"}, {"id": "b"}, {"id": "c", "b1": 3}]:
+        p.run("INSERT INTO pd1 VALUES(:doc)", {"doc": json.dumps(d)})
+    for d in [{"id": "x", "b1": 2, "f1": True}, {"id": "y", "b1": 3}]:
+        p.run("INSERT INTO pd2 VALUES(:doc)", {"doc": json.dumps(d)})
+    views = 'WITH raw_v_pd1 AS (SELECT $."id" AS id, $."b1" AS b1 FROM pd1), v_pd1 AS (SELECT id, TO_BIGINT(b1) AS b1 FROM raw_v_pd1), raw_v_pd2 AS (SELECT $."id" AS id, $."b1" AS b1 FROM pd2), v_pd2 AS (SELECT id, TO_BIGINT(b1) AS b1 FROM raw_v_pd2), v_PD0 AS (SELECT id, b1 FROM v_pd1 UNION ALL SELECT id, b1 FROM v_pd2)'
+    ids = sorted(r["id"] for r in p.sql(f"{views} SELECT t.id AS id FROM v_PD0 t WHERE t.b1 > :p", {"p": 1}))
+    grouped = sorted(((r["k"], r["v"]) for r in p.sql(f"{views} SELECT t.b1 AS k, COUNT(*) AS v FROM v_PD0 t GROUP BY t.b1")), key=repr)
+    union = p.error(lambda: p.sql('SELECT $."id" AS id FROM pd1 WHERE $."b1" > CAST(:p AS BIGINT) UNION ALL SELECT $."id" AS id FROM pd2 WHERE $."b1" > CAST(:p AS BIGINT)', {"p": 1}))[:70] or "accepted"
+    ok = ids == ["c", "x", "y"] and grouped == sorted([(None, 1), (1, 1), (2, 1), (3, 2)], key=repr)
+    return ok, f"filtered {ids}, grouped {grouped}; a UNION ALL of collection queries: {union}"
+
+
 D = [
     Fact("D0", "CREATE COLLECTION; INSERT a JSON text parameter and an object expression", d_setup),
     Fact("D1", "SELECT * reads a document back as JSON text; an integer above 2^53 and a double keep their values", lambda p: (lambda d: (d["b"]["i"] == 9007199254740993 and float(d["b"]["f"]) == 0.30000000000000004 and d["a"]["f"] == 0.1, json.dumps(d["b"])))(_docs(p))),
@@ -141,6 +244,10 @@ D = [
     Fact("D16", "a WITH view over a collection joins SQL; the boolean CASE lives one CTE removed from the collection (the doc store rejects a BOOLEAN constant in a query that reads a collection)", lambda p: _eq(p.one("WITH raw AS (SELECT \"id\" AS id, \"b\" AS b FROM pc), v AS (SELECT id, CASE b WHEN 'true' THEN TRUE WHEN 'false' THEN FALSE END AS b FROM raw) SELECT COUNT(*) AS v FROM v x JOIN v y ON x.id = y.id WHERE x.b = TRUE"), 2)),
     Fact("D17", "a collection's INSERT rolls back with the transaction", lambda p: (p.s._transaction(lambda: p.run("INSERT INTO pc VALUES(:doc)", {"doc": '{"id": "z"}'}), commit=False), _eq(p.one('SELECT COUNT(*) AS v FROM pc WHERE "id" = CAST(:k AS NVARCHAR(256))', {"k": "z"}), 0))[-1]),
     Fact("D18", "LIKE on a string field: its right-hand side is a constant string literal (the doc store refuses a parameter there), so the provider inlines the pattern", lambda p: _eq([r["id"] for r in p.sql('SELECT $."id" AS id FROM pc WHERE $."s" LIKE \'y%\'')], ["b"])),
+    Fact("D19", "NOT kept as written in a collection filter is three-valued as SQL: NOT (i = 1) drops an absent and a null i; NOT (i = 1 OR i IS NULL), NOT (NOT (i > 1)), NOT (s LIKE 'a%') likewise (the `neg` position)", d19),
+    Fact("D20", "NOT over FOR ANY and over a disjunction holding one: NOT (FOR ANY ...) holds for an absent array (FOR ANY is false there, D8); NOT (FOR ANY ... OR i = 2) drops a document where the OR is unknown", d20),
+    Fact("D22", "custom keys in a collection: every style found by $.\"id\" = CAST(? AS NVARCHAR(256)); ORDER BY $.\"id\" against UTF-16 order (recorded)", d22),
+    Fact("D23", "the base class over collections: the views of two collections UNION ALLed in a CTE, filtered and counted in SQL (how the provider reads the base class on doc); a UNION ALL of two collection queries themselves (recorded)", d23),
 ]
 
 
@@ -169,6 +276,29 @@ def k20(p: Probe):
     return req == 7 and coal == 7, f"plain SUM over the group with an unbound value: {raw!r} (H3); value bound where present: {req!r}; COALESCE: {coal!r} (want 7)"
 
 
+def k21(p: Probe):
+    from ganda.hana.dialect import sparql_string
+
+    triples = " . ".join(f"{record_iri(k)} a c:pk ; p:id {sparql_string(k)}" for k in CUSTOM_KEYS)
+    p.update(f"INSERT DATA {{ GRAPH {G} {{ {triples} }} }}")
+    found = [p.sparql(f"SELECT ?id WHERE {{ GRAPH {G} {{ {record_iri(k)} p:id ?id }} }}") for k in CUSTOM_KEYS]
+    hits = [r[0]["id"] == k for r, k in zip(found, CUSTOM_KEYS) if r]
+    order = [r["id"] for r in p.sparql(f"SELECT ?id WHERE {{ GRAPH {G} {{ ?n a c:pk ; p:id ?id }} }} ORDER BY ASC(?id)")]
+    ok = len(hits) == len(CUSTOM_KEYS) and all(hits) and order == _utf16_order(CUSTOM_KEYS)
+    return ok, f"{sum(hits)}/{len(CUSTOM_KEYS)} keys found by IRI; ORDER BY ?id {'is' if order == _utf16_order(CUSTOM_KEYS) else 'is NOT'} the UTF-16 order"
+
+
+def k22(p: Probe):
+    p.update(f'INSERT DATA {{ GRAPH {G} {{ <urn:ganda:r:k22a> a c:k22n1 , c:K22 ; p:id "k22a" ; p:b1 "1"^^xsd:long . <urn:ganda:r:k22b> a c:k22n2 , c:K22 ; p:id "k22b" ; p:b1 "2"^^xsd:long . <urn:ganda:r:k22c> a c:k22n2 , c:K22 ; p:id "k22c" . }} }}')
+    base = p.ids(f"SELECT ?id WHERE {{ GRAPH {G} {{ ?n a c:K22 ; p:id ?id . OPTIONAL {{ ?n p:b1 ?b }} FILTER (!BOUND(?b) || ?b > 1) }} }}")
+    sub = p.ids(f"SELECT ?id WHERE {{ GRAPH {G} {{ ?n a c:k22n2 ; p:id ?id }} }}")
+    count = p.sparql(f"SELECT (COUNT(*) AS ?v) WHERE {{ GRAPH {G} {{ ?n a c:k22n1 }} }}")[0]["v"]
+    joined = sorted((r["id"], r["v"]) for r in p.sparql(f"SELECT ?id ?v WHERE {{ GRAPH {G} {{ ?n a c:K22 ; p:id ?id ; p:b1 ?f . ?m a c:K22 ; p:b1 ?mf ; p:id ?v . FILTER (?mf > ?f) }} }}"))
+    p.update(f"DELETE WHERE {{ GRAPH {G} {{ <urn:ganda:r:k22a> ?p ?o }} }}")
+    gone = p.sparql(f"SELECT (COUNT(*) AS ?v) WHERE {{ GRAPH {G} {{ <urn:ganda:r:k22a> ?p ?o }} }}")[0]["v"]
+    return _eq((base, sub, count, joined, gone), (["k22b", "k22c"], ["k22b", "k22c"], 1, [("k22a", "k22b")], 0))
+
+
 K = [
     Fact("K0", "SPARQL_EXECUTE runs an INSERT DATA into a named graph (created on first insert)", k_setup),
     Fact("K1", "a SELECT answers JSON results; xsd:long, xsd:double, xsd:boolean and an escaped string read back", lambda p: (lambda r: (r["i"] == 1 and r["f"] == 0.5 and r["b"] is True and r["s"] == 'x\n"q"', repr(r)))(p.sparql(f"SELECT ?i ?f ?b ?s WHERE {{ GRAPH {G} {{ ?n p:id \"a\" ; p:i ?i ; p:f ?f ; p:b ?b ; p:s ?s }} }}")[0])),
@@ -191,7 +321,10 @@ K = [
     Fact("K19", "an EXISTS inside GRAPH in an update's WHERE reads the named graph (the rdf write marks its records so)", lambda p: (p.update(f"INSERT {{ GRAPH {G} {{ ?n <urn:ganda:w> true }} }} WHERE {{ GRAPH {G} {{ ?n a c:t . FILTER (EXISTS {{ ?n i:l \"1\"^^xsd:long }}) }} }}"), _eq(p.ids(f"SELECT ?id WHERE {{ GRAPH {G} {{ ?n <urn:ganda:w> true ; p:id ?id }} }}"), ["a"]), p.update(f"DELETE WHERE {{ GRAPH {G} {{ ?n <urn:ganda:w> ?x }} }}"))[1]),
     Fact("K20", "SUM over a value bound where present, or over COALESCE(?w, 0), is exact on a predicate that has held several datatypes (a plain SUM over a group with an unbound value is not: H3)", k20),
     Fact("K18", "UCASE, LCASE, STRLEN, SUBSTR, CONCAT, ABS, STRSTARTS, STRENDS, CONTAINS, REGEX", lambda p: _eq(p.sparql('SELECT (CONCAT(UCASE("ab"), LCASE("C"), SUBSTR("xyz", 1, 1), STR(STRLEN("abc")), STR(ABS(-2))) AS ?v) WHERE { FILTER (STRSTARTS("abc", "a") && STRENDS("abc", "c") && CONTAINS("abc", "b") && REGEX("abc", "^a")) }')[0]["v"], "ABcx32")),
+    Fact("K21", "custom keys as percent-encoded IRIs (`dialect.record_iri`) and `p:id` literals: every style round-trips, and ORDER BY ?id (code points) is the UTF-16 order on the key pool (no key holds U+E000..U+FFFF)", k21),
+    Fact("K22", "a node typed with its class AND the base class (`a c:n1, c:N0`, the inheritance axis): a query on either class sees it once; the per-class count is unchanged; a DELETE WHERE { ?n ?p ?o } removes both types", k22),
 ]
+
 
 # --- the property graph engine ----------------------------------------------------------------
 
@@ -304,6 +437,47 @@ def g26(p: Probe):
     return _eq(p.one("SELECT COUNT(*) AS v FROM SYS.GRAPH_WORKSPACES WHERE SCHEMA_NAME = 'FZ_PROBE_GWS'"), 0)
 
 
+def g28(p: Probe):
+    for n, k in enumerate(CUSTOM_KEYS):
+        p.run("INSERT INTO pv2 (id, f1) VALUES (:k, :v)", {"k": k, "v": f"k{n}"})
+    try:
+        found = [_oc(p, "MATCH (a:pv2) WHERE a.ID = $k RETURN a.ID AS ID", {"k": k}, {"k": ":k"}) for k in CUSTOM_KEYS]
+        hits = [r[0]["id"] == k for r, k in zip(found, CUSTOM_KEYS) if r]
+        order = [r["id"] for r in _oc(p, "MATCH (a:pv2) WHERE a.PV2_F1 STARTS WITH 'k' RETURN a.ID AS ID ORDER BY a.ID ASC")]
+    finally:
+        for k in CUSTOM_KEYS:
+            p.run("DELETE FROM pv2 WHERE id = :k", {"k": k})
+    ok = len(hits) == len(CUSTOM_KEYS) and all(hits) and order == _utf16_order(CUSTOM_KEYS)
+    return ok, f"{sum(hits)}/{len(CUSTOM_KEYS)} keys matched by $k; ORDER BY a.ID {'is' if order == _utf16_order(CUSTOM_KEYS) else 'is NOT'} UTF-16 order"
+
+
+def g29(p: Probe):
+    """pv1 and pv2 both have an `f1` of DIFFERENT types (the reason for the views); the
+    shared attribute here is the key, and `ID` is what every vertex table has. A second
+    shared attribute of one type: add `b1 BIGINT` to both views."""
+    p.run("ALTER TABLE pv1 ADD (b1 BIGINT)")
+    p.run("ALTER TABLE pv2 ADD (b1 BIGINT)")
+    p.run("UPDATE pv1 SET b1 = 1 WHERE id = 'a'")
+    p.run("UPDATE pv1 SET b1 = 2 WHERE id = 'b'")
+    p.run("UPDATE pv2 SET b1 = 2 WHERE id = 'x'")
+    p.run("CREATE VIEW gv2_pv1 AS SELECT id, b1, f1 AS pv1_f1 FROM pv1")
+    p.run("CREATE VIEW gv2_pv2 AS SELECT id, b1, f1 AS pv2_f1 FROM pv2")
+    p.run("CREATE VIEW gv2_pe1 AS SELECT eid, src_id, dst_id FROM pe1")
+    p.run("CREATE VIEW gv2_pe2 AS SELECT eid, src_id, dst_id FROM pe2")
+    p.run("CREATE GRAPH WORKSPACE gw6 VERTEX TABLE gv2_pv1 KEY COLUMN id LABEL 'pv1' VERTEX TABLE gv2_pv2 KEY COLUMN id LABEL 'pv2' EDGE TABLE gv2_pe1 KEY COLUMN eid SOURCE COLUMN src_id REFERENCES gv2_pv1 TARGET COLUMN dst_id REFERENCES gv2_pv2 LABEL 'pe1' EDGE TABLE gv2_pe2 KEY COLUMN eid SOURCE COLUMN src_id REFERENCES gv2_pv1 TARGET COLUMN dst_id REFERENCES gv2_pv1 LABEL 'pe2'")
+
+    def oc(cypher: str, binds=None, params=None):
+        return p.sql(f"SELECT * FROM {opencypher_table(cypher, params).replace('GRAPH WORKSPACE gw ', 'GRAPH WORKSPACE gw6 ')}", binds)
+
+    filtered = sorted(r["id"] for r in oc("MATCH (a) WHERE a.B1 > $p RETURN a.ID AS ID", {"p": 1}, {"p": ":p"}))
+    nulls = sorted(r["id"] for r in oc("MATCH (a) WHERE a.B1 IS NULL RETURN a.ID AS ID"))
+    joined = sorted((r["id"], r["v"]) for r in oc("MATCH (t), (m) WHERE (m.B1 > t.B1) RETURN t.ID AS ID, m.ID AS V"))
+    grouped = sorted(((r["k"], r["v"]) for r in oc("MATCH (a) RETURN a.B1 AS K, COUNT(a.ID) AS V")), key=repr)
+    total = oc("MATCH (a) RETURN COUNT(a.ID) AS V")[0]["v"]
+    got = (filtered, nulls, joined, grouped, total)
+    return _eq(got, (["b", "x"], ["c", "d", "y"], [("a", "b"), ("a", "x")], sorted([(None, 3), (1, 1), (2, 2)], key=repr), 6))
+
+
 G = [
     Fact("G0", "a graph workspace over VIEWS of rel-shaped tables, with LABEL and REFERENCES, unqualified `gw` resolving in the session's schema; `(a:pv1)` matches LABEL 'pv1'", g_setup),
     Fact("G0b", "the workspace is valid (SYS.GRAPH_WORKSPACES.IS_VALID, the text 'TRUE')", lambda p: _eq(str(p.sql("SELECT IS_VALID AS v FROM SYS.GRAPH_WORKSPACES WHERE SCHEMA_NAME = CURRENT_SCHEMA AND WORKSPACE_NAME = 'GW'")[0]["v"]).upper(), "TRUE")),
@@ -336,10 +510,108 @@ G = [
     Fact("G24", "DISTINCT over a BOOLEAN attribute and over NVARCHAR(5000); COUNT grouped implicitly by the other items", lambda p: _eq((len(_oc(p, "MATCH (a:pv1) RETURN DISTINCT a.PV1_B AS B")), sorted(((r["k"], r["v"]) for r in _oc(p, "MATCH (a:pv1) RETURN a.PV1_B AS K, COUNT(a.ID) AS V")), key=repr)), (3, sorted([(None, 1), (False, 1), (True, 2)], key=repr))), required=False),
     Fact("G25", "a second workspace over the same views (heterogeneous: two edge tables) created NO CACHE answers the same rows (the graph_cache axis)", lambda p: (p.run("CREATE GRAPH WORKSPACE gw3 VERTEX TABLE gv_pv1 KEY COLUMN id LABEL 'pv1' VERTEX TABLE gv_pv2 KEY COLUMN id LABEL 'pv2' EDGE TABLE gv_pe1 KEY COLUMN eid SOURCE COLUMN src_id REFERENCES gv_pv1 TARGET COLUMN dst_id REFERENCES gv_pv2 LABEL 'pe1' EDGE TABLE gv_pe2 KEY COLUMN eid SOURCE COLUMN src_id REFERENCES gv_pv1 TARGET COLUMN dst_id REFERENCES gv_pv1 LABEL 'pe2' NO CACHE"), _eq(sorted(r["v"] for r in p.sql("SELECT * FROM OPENCYPHER_TABLE(GRAPH WORKSPACE gw3 QUERY 'MATCH (a:pv1)-[e:pe2]->(b:pv1) RETURN b.ID AS V')")), ["a", "b", "d"]))[-1]),
     Fact("G27", "a HOMOGENEOUS workspace (one vertex table, one edge table) with LABEL clauses: a labelled query fails with `invalid column name: a.CYPHER$TABLE$LABEL` (found by the first G17/G25 run; recorded -- a campaign's workspace always has two or more edge tables)", g27, required=False),
+    Fact("G28", "custom keys through the workspace: every style matched by `a.ID = $k` (bound bare) and projected back; ORDER BY a.ID is the UTF-16 order", g28),
+    Fact("G29", "the base class as an UNLABELLED vertex (the inheritance axis): `MATCH (a) WHERE a.F1 ...` over an attribute both vertex tables share (one type), a Cartesian `MATCH (t), (m)` correlated on it, COUNT grouped by it; a LIST attribute's text", g29),
     Fact("G26", "DROP SCHEMA ... CASCADE removes the schema's graph workspace", g26),
 ]
 
-FACTS = R + D + K + G
+
+# --- plan steering: the hint profiles over the statement shapes the renderers emit --------------
+
+
+def p_setup(p: Probe):
+    """Column tables with a child table, a collection, a view over it, a heterogeneous
+    workspace and a few triples in the session's graph: one of each statement shape the
+    renderers close with a hint clause."""
+    p.run("CREATE COLUMN TABLE ph1 (id NVARCHAR(256) PRIMARY KEY, i BIGINT, s NVARCHAR(5000))")
+    p.run("CREATE COLUMN TABLE ph2 (id NVARCHAR(256) PRIMARY KEY, i BIGINT)")
+    p.run("CREATE COLUMN TABLE ph1__l (owner NVARCHAR(256) NOT NULL, pos INTEGER NOT NULL, v BIGINT)")
+    p.run("CREATE COLUMN TABLE phe1 (eid NVARCHAR(256) PRIMARY KEY, src_id NVARCHAR(256) NOT NULL, dst_id NVARCHAR(256) NOT NULL)")
+    p.run("CREATE COLUMN TABLE phe2 (eid NVARCHAR(256) PRIMARY KEY, src_id NVARCHAR(256) NOT NULL, dst_id NVARCHAR(256) NOT NULL)")
+    for r in [("a", 1, "x"), ("b", 2, "y"), ("c", None, None), ("d", 2, "x"), ("e", 5, "y")]:
+        p.run("INSERT INTO ph1 (id, i, s) VALUES (:a, :b, :c)", dict(zip("abc", r)))
+    for r in [("m", 2), ("n", None), ("o", 5)]:
+        p.run("INSERT INTO ph2 (id, i) VALUES (:a, :b)", dict(zip("ab", r)))
+    for r in [("a", 0, 1), ("a", 1, 2), ("d", 0, 7)]:
+        p.run("INSERT INTO ph1__l (owner, pos, v) VALUES (:a, :b, :c)", dict(zip("abc", r)))
+    for r in [("f0", "a", "b"), ("f1", "a", "d"), ("f2", "b", "b")]:
+        p.run("INSERT INTO phe1 (eid, src_id, dst_id) VALUES (:a, :b, :c)", dict(zip("abc", r)))
+    p.run("INSERT INTO phe2 (eid, src_id, dst_id) VALUES ('f3', 'd', 'a')")
+    p.run("CREATE VIEW gv_ph1 AS SELECT id, i AS ph1_i, s AS ph1_s FROM ph1")
+    p.run("CREATE VIEW gv_phe1 AS SELECT eid, src_id, dst_id FROM phe1")
+    p.run("CREATE VIEW gv_phe2 AS SELECT eid, src_id, dst_id FROM phe2")
+    p.run("CREATE GRAPH WORKSPACE phw VERTEX TABLE gv_ph1 KEY COLUMN id LABEL 'ph1' EDGE TABLE gv_phe1 KEY COLUMN eid SOURCE COLUMN src_id REFERENCES gv_ph1 TARGET COLUMN dst_id REFERENCES gv_ph1 LABEL 'phe1' EDGE TABLE gv_phe2 KEY COLUMN eid SOURCE COLUMN src_id REFERENCES gv_ph1 TARGET COLUMN dst_id REFERENCES gv_ph1 LABEL 'phe2'")
+    p.run("CREATE COLLECTION phc")
+    for d in [{"id": "a", "i": 1, "l": [1, 2]}, {"id": "b", "i": 2}, {"id": "c"}]:
+        p.run("INSERT INTO phc VALUES(:doc)", {"doc": json.dumps(d)})
+    p.update(f'INSERT DATA {{ GRAPH {G} {{ <urn:ganda:r:ph:a> a c:ph ; p:id "a" ; p:i "1"^^xsd:long . <urn:ganda:r:ph:b> a c:ph ; p:id "b" . }} }}')
+    blocked = p.error(lambda: p.sql("SELECT 1 AS v FROM DUMMY WITH HINT (THROW_ERROR)"))
+    unknown = p.error(lambda: p.sql("SELECT 1 AS v FROM DUMMY WITH HINT (GANDA_NO_SUCH_HINT)")) or "accepted (ignored)"
+    return bool(blocked), f"THROW_ERROR: {blocked[:80] or 'NOT blocked'}; an unknown hint name: {unknown[:80]}"
+
+
+def _oct(ws: str, cypher: str) -> str:
+    return f"OPENCYPHER_TABLE(GRAPH WORKSPACE {ws} QUERY '{cypher}')"
+
+
+# (label, SQL, binds): the shapes a hinted variant takes
+P_SHAPES = [
+    ("cte, derived table, LEFT JOIN, correlated scalar subquery, GROUP BY", "WITH v AS (SELECT id, i, s FROM ph1) SELECT COUNT(*) AS v FROM (SELECT x.id FROM v x LEFT JOIN phe1 e ON e.src_id = x.id WHERE (SELECT COUNT(*) FROM v y WHERE y.id = x.id) = 1 GROUP BY x.id) z", {}),
+    ("filter, GROUP BY, ORDER BY NULLS, LIMIT OFFSET", "SELECT s AS k, COUNT(*) AS v FROM ph1 WHERE i > :p OR i IS NULL GROUP BY s ORDER BY s ASC NULLS FIRST LIMIT 2 OFFSET 1", {"p": 1}),
+    ("semi-join IN (SELECT ...), EXISTS over the child table, a disjunction", "SELECT t.id AS id FROM ph1 t WHERE t.i IN (SELECT u.i FROM ph2 u WHERE u.i IS NOT NULL) OR EXISTS (SELECT 1 FROM ph1__l x WHERE x.owner = t.id AND x.v = :e)", {"e": 7}),
+    ("a self-join's count per record, DISTINCT, NOT IN", "SELECT DISTINCT t.id AS id, (SELECT COUNT(*) FROM ph1 m WHERE m.i > t.i) AS v FROM ph1 t WHERE t.id NOT IN (SELECT e.src_id FROM phe2 e)", {}),
+    ("PERCENTILE_CONT in a scalar subquery over DUMMY", "SELECT (SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY i) FROM ph1) AS v FROM DUMMY", {}),
+    ("a view over a collection (the doc views)", 'WITH raw_v AS (SELECT $."id" AS id, $."i" AS i FROM phc), v AS (SELECT id, TO_BIGINT(i) AS i FROM raw_v) SELECT COUNT(*) AS v FROM v t WHERE t.i > :p', {"p": 0}),
+    ("the starts LEFT JOINed to OPENCYPHER_TABLE paths (the graph wrappers)", f"SELECT s.ID AS id, COALESCE(p.V, 0) AS v FROM {_oct('phw', 'MATCH (a:ph1) RETURN a.ID AS ID')} s LEFT JOIN {_oct('phw', 'MATCH (a:ph1)-[e:phe1]->(b:ph1) RETURN a.ID AS ID, COUNT(b.ID) AS V')} p ON p.ID = s.ID", {}),
+    ("SPARQL_TABLE (rdf's table_fn position)", f"SELECT * FROM SPARQL_TABLE('{PREFIX} SELECT ?id WHERE {{ GRAPH {G} {{ ?n a c:ph ; p:id ?id }} }}')", {}),
+]
+# the collection query takes no hint clause in the provider (recorded only)
+P_COLLECTION = ("the collection query itself", 'SELECT $."id" AS id FROM phc WHERE $."i" > CAST(:p AS BIGINT)', {"p": 0})
+
+
+def _rows(p: Probe, text: str, binds: dict):
+    return sorted((tuple(sorted(r.items())) for r in p.sql(text, binds)), key=repr)
+
+
+def p_profile(profile: str):
+    def check(p: Probe):
+        bad = []
+        for label, text, binds in P_SHAPES:
+            plain = _rows(p, text, binds)
+            try:
+                steered = _rows(p, hints.hinted(text, profile), binds)
+            except EngineError as e:
+                bad.append(f"{label}: {str(e)[:90]}")
+                continue
+            if steered != plain:
+                bad.append(f"{label}: plain {plain} hinted {steered}")
+        coll = p.error(lambda: p.sql(hints.hinted(P_COLLECTION[1], profile), P_COLLECTION[2]))[:60] or "accepted"
+        return not bad, (f"{len(P_SHAPES)} shapes answer alike; collection query: {coll}" if not bad else " | ".join(bad))
+
+    return check
+
+
+def p_obs(hint: str):
+    """A hint the provider does not use: what each shape does with it (recorded)."""
+
+    def check(p: Probe):
+        out = []
+        for label, text, binds in P_SHAPES:
+            err = p.error(lambda: p.sql(f"{text} WITH HINT ({hint})", binds))
+            out.append(f"{label.split(',')[0]}: {err[:60] if err else 'ok'}")
+        return True, " | ".join(out)
+
+    return check
+
+
+P = [Fact("P0", "WITH HINT (...) closes a SELECT; THROW_ERROR blocks a statement (the clause is parsed); an unknown hint name (recorded)", p_setup)]
+P += [Fact(f"P{n}", f"profile `{name}` ({', '.join(hint_names)}): every statement shape answers as its plain twin does", p_profile(name)) for n, (name, hint_names) in enumerate(hints.PROFILES.items(), 1)]
+P += [
+    Fact(f"P{len(hints.PROFILES) + 1}", "USE_HEX_PLAN enforced on every shape (recorded: left out of the profiles)", p_obs("USE_HEX_PLAN"), required=False),
+    Fact(f"P{len(hints.PROFILES) + 2}", "USE_ESX_PLAN on every shape (recorded: left out of the profiles)", p_obs("USE_ESX_PLAN"), required=False),
+]
+
+FACTS = R + D + K + G + P
 
 
 def main(argv=None) -> int:
@@ -354,7 +626,7 @@ def main(argv=None) -> int:
             sessions[kind] = server.fresh_session(f"fz_probe_{kind}")
         try:
             for f in facts:
-                p = Probe(sessions[{"R": "rel", "D": "doc", "K": "rdf", "G": "graph"}[f.id[0]]])
+                p = Probe(sessions[{"R": "rel", "D": "doc", "K": "rdf", "G": "graph", "P": "rel"}[f.id[0]]])
                 try:
                     ok, detail = f.check(p)
                 except Exception as e:  # noqa: BLE001 -- the fact did not hold: say how

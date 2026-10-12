@@ -370,10 +370,13 @@ class HanaSession(Session):
             answer: list = []
             captured: list = []
             rows_kept: list = []
+            # the row counts of every counted step so far (a write on the base class of
+            # the inheritance axis is one statement per subclass: `count_part`,
+            # `each_count` per class, summed)
+            summed = 0
             for s in steps:
                 text = s.text
                 if s.role in ("each_run", "each_count"):
-                    total = 0
                     for row in rows_kept:
                         params = {**s.params, "cid": row["id"]}
                         if s.arith is not None:
@@ -381,9 +384,9 @@ class HanaSession(Session):
 
                             sym, c, ftype = s.arith
                             params["cnew"] = apply_arith(row.get("v"), sym, c, ftype)
-                        total += self.sql(text, params, rows=False)
+                        summed += self.sql(text, params, rows=False)
                     if s.role == "each_count":
-                        answer = [{"count": total}]
+                        answer = [{"count": summed}]
                     continue
                 if s.role == "rows_captured":
                     if not captured:
@@ -413,13 +416,16 @@ class HanaSession(Session):
                         rows_kept = rows
                         captured = [r["id"] for r in rows]
                     continue
-                if s.role == "count":
-                    answer = [{"count": self.sql(text, s.params, rows=False)}]
+                if s.role in ("count", "count_part"):
+                    summed = (summed if s.role == "count_part" else 0) + self.sql(text, s.params, rows=False)
+                    answer = [{"count": summed}]
                 elif s.role == "rows":
                     answer = self.sql(text, s.params)
-                elif s.role == "capture":
+                elif s.role in ("capture", "capture_more"):
+                    # `capture_more`: the rows kept for the `each_*` steps that follow are
+                    # this statement's; the ids read back at the end accumulate
                     rows_kept = self.sql(text, s.params)
-                    captured = [r["id"] for r in rows_kept]
+                    captured = (captured if s.role == "capture_more" else []) + [r["id"] for r in rows_kept]
                 else:
                     self.sql(text, s.params, rows=False)
             return answer

@@ -89,7 +89,9 @@ def ddl(instance: Instance) -> list:
             continue
         if schema.field(ix.table, ix.field).type not in (FieldType.INT, FieldType.STRING):
             continue
-        steps.append(Sql(f"CREATE HASH INDEX {ix.name()} ON {ix.table}({path(ix.field)})"))
+        # an index on the base class (the inheritance axis) is one per subclass collection
+        tables = [(nt.name, f"{ix.name()}_{nt.name}") for nt in schema.node_types] if schema.is_base(ix.table) else [(ix.table, ix.name())]
+        steps += [Sql(f"CREATE HASH INDEX {name} ON {t}({path(ix.field)})") for t, name in tables]
     return steps
 
 

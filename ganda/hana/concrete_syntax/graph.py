@@ -123,7 +123,7 @@ def view_query(schema: Schema, table: str) -> str:
     """The openCypher text behind `g_<table>`: a class's records, or an edge type's
     relationships with the endpoints the engine resolved (`a.ID AS SRC_ID`)."""
     if not _is_edge(schema, table):
-        return f"MATCH (a:{label(table)}) RETURN {scan_items(schema, table, 'a')}"
+        return f"MATCH {vertex(schema, table, 'a')} RETURN {scan_items(schema, table, 'a')}"
     et = schema.edge_type(table)
     attrs = ", ".join(f"e.{a} AS {c.upper()}" for c, a in graph_columns(schema, table) if c not in ("eid", "src_id", "dst_id"))
     items = "e.EID AS EID, a.ID AS SRC_ID, b.ID AS DST_ID" + (f", {attrs}" if attrs else "")
@@ -135,8 +135,9 @@ def view_definition(schema: Schema, name: str) -> str:
     return f"{name} AS (SELECT * FROM {opencypher_table(view_query(schema, table))})"
 
 
-# a view is `g_` and a generated class or edge type name (`n3`, `e12`)
-_VIEW_NAME = re.compile(r"\bg_[ne]\d+\b")
+# a view is `g_` and a generated class or edge type name (`n3`, `e12`), or the base
+# class of the inheritance axis (`N0`: the unlabelled MATCH over every vertex table)
+_VIEW_NAME = re.compile(r"\bg_[neN]\d+\b")
 
 
 def with_views(schema: Schema, text: str) -> str:
@@ -322,11 +323,19 @@ def expressible(p, schema: Schema, table: str) -> bool:
 # --- the native family: one table's filtered projection -----------------------------------------
 
 
+def vertex(schema: Schema, table: str, var: str) -> str:
+    """`(t:n1)` for a class; `(t)` for the base class of the inheritance axis: an
+    unlabelled vertex spans every vertex table (G21), which is what every subclass's
+    records are, and a base-class attribute keeps one name across them (`attr`)."""
+    return f"({var})" if schema.is_base(table) else f"({var}:{label(table)})"
+
+
 def match_clause(schema: Schema, table: str, var: str) -> str:
-    """`MATCH (t:n1)` for a class; `MATCH (a:n1)-[t:e1]->(b:n2)` for an edge type (the
-    relationship bound as `t`, its endpoints as `a` and `b`)."""
+    """`MATCH (t:n1)` for a class (`MATCH (t)` for the base class); `MATCH
+    (a:n1)-[t:e1]->(b:n2)` for an edge type (the relationship bound as `t`, its
+    endpoints as `a` and `b`)."""
     if not _is_edge(schema, table):
-        return f"MATCH ({var}:{label(table)})"
+        return f"MATCH {vertex(schema, table, var)}"
     et = schema.edge_type(table)
     return f"MATCH (a:{label(et.from_type)})-[{var}:{label(table)}]->(b:{label(et.to_type)})"
 

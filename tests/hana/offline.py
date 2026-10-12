@@ -29,7 +29,13 @@ can check. What the translation does:
   (one relationship per edge variable within a clause, both orientations of an
   undirected edge, a trail for a variable-length path, SUM 0 over nothing, NULL first
   ascending), so the state read back through openCypher and every graph variant are
-  checked against the other data models and the reference.
+  checked against the other data models and the reference; an unlabelled vertex (the
+  base class of the inheritance axis) is the union of the vertex views over the
+  attributes they share.
+
+SQLite has no `WITH HINT (...)` clause: the session strips it off every statement
+(`hints.strip`), so a plan-steered twin runs as its plain statement here and plan
+steering itself is compared live only.
 """
 from __future__ import annotations
 
@@ -388,7 +394,10 @@ class OfflineSession(HanaSession):
     # the three primitives the real session sends to the driver
 
     def sql(self, text: str, binds=None, rows: bool = True):
-        text = self._bind_graph(text)
+        from ganda.hana.concrete_syntax import hints
+
+        # no plan steering offline: the hinted twin runs as its plain statement
+        text = hints.strip(self._bind_graph(text))
         if self.data_model == "rdf":
             m = re.match(r"^SELECT \* FROM SPARQL_TABLE\('(.*)'\)$", text, re.S)
             if not m:

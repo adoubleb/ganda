@@ -35,6 +35,12 @@ before / after the write:
 
 `before` is a SELECT run before the write; `after` captures the matched ids first and
 reads them back after it.
+
+A write on the BASE CLASS of the inheritance axis (`N0`, every node class) reads its
+records through the base view (rel, graph: the UNION ALL view; doc: the views' union)
+and writes each subclass table or collection in turn (`_targets`), the row counts
+summed by the session (`Step` roles `count_part`, `capture_more`); rdf's `?n a c:N0`
+names every member directly.
 """
 from __future__ import annotations
 
@@ -44,6 +50,7 @@ from dataclasses import dataclass, field
 
 from ganda.core.ast.predicates import reverse
 from ganda.core.ast.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
+from ganda.core.data_generator import BASE_CLASS
 from ganda.core.model import FieldType, Instance, Schema
 from ganda.hana import rewrites as _rewrites
 from ganda.hana.concrete_syntax import document
@@ -82,11 +89,14 @@ class WriteRewrites:
 @dataclass
 class Step:
     """One statement. `role`: run (no answer), count (its row count is the answer),
-    count_rows (its single `v` is the count), rows (its rows are the answer), capture
-    (its rows -- `id`, and the field's value as `v` -- are kept), rows_captured (its
-    rows, read with the captured ids as `:captured`), each_run / each_count (run once
-    per captured row with its id as `:cid`, and with `arith` = (sym, constant, type)
-    the row's value shifted as `:cnew`; the row counts summed are the answer)."""
+    count_part (its row count added to the answer: a write on the base class of the
+    inheritance axis is one statement per subclass), count_rows (its single `v` is the
+    count), rows (its rows are the answer), capture (its rows -- `id`, and the field's
+    value as `v` -- are kept), capture_more (kept for the `each_*` steps that follow, the
+    ids added to those read back), rows_captured (its rows, read with the captured ids as
+    `:captured`), each_run / each_count (run once per captured row with its id as
+    `:cid`, and with `arith` = (sym, constant, type) the row's value shifted as `:cnew`;
+    the row counts summed are the answer)."""
 
     text: str
     params: dict = field(default_factory=dict)
@@ -102,7 +112,7 @@ class Statements:
     @property
     def main(self):
         """The compared statement, or None (nothing compared on this data model)."""
-        return next((s for s in self.steps if s.role in ("count", "count_rows", "rows", "rows_captured", "each_count")), None)
+        return next((s for s in self.steps if s.role in ("count", "count_part", "count_rows", "rows", "rows_captured", "each_count")), None)
 
     @property
     def params(self) -> dict:
@@ -135,11 +145,24 @@ def applicable(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_mod
     if data_model == "doc":
         if q.edge:
             return sp.filter == "plain" and sp.target == "table"
+        if q.table == BASE_CLASS and not document.views_ask(pred):
+            # a base-class write reads its matched records through the views (the
+            # union of the collections): the filter must have a views form
+            return False
         if not (document.doc_filter_ok(pred) or document.views_ask(pred)):
             return False
         if sp.target == "table":
             return q.op != "arith" and update_filter_ok(pred)
     return True
+
+
+def _targets(q: WriteQuery, schema: Schema) -> list:
+    """The tables a node write addresses: the class's, or under the inheritance axis
+    every subclass's for a write on the base class (which is a view on rel and the
+    graph data model, and no collection on doc)."""
+    if q.edge:
+        return [q.edge_type]
+    return [nt.name for nt in schema.node_types] if schema.is_base(q.table) else [q.table]
 
 
 # --- shared ----------------------------------------------------------------------------------
@@ -180,6 +203,9 @@ def _children(table: str, f: str, ids: list, value) -> list:
 
 
 def _rel(q: WriteQuery, sp: WriteSyntax, pred, schema: Schema, before: Instance) -> Statements:
+    """The column-table statements. A write on the base class of the inheritance axis
+    reads its records through the base VIEW (`mapping.relational.base_view_ddl`) and
+    writes each subclass table in turn, the row counts summed (`count_part`)."""
     st = Statements(door=sp.door)
     if q.edge:
         table, key = q.edge_type, "eid"
@@ -187,26 +213,34 @@ def _rel(q: WriteQuery, sp: WriteSyntax, pred, schema: Schema, before: Instance)
     else:
         table, key = q.table, "id"
         hits = node_hits(q, before)
+    targets = _targets(q, schema)
+    poly = len(targets) > 1 or targets[0] != table
     where = _rel_where(q, pred, key, table)
     if sp.target == "nest" and where:
         where = f"{key} IN (SELECT {key} FROM {table} WHERE {where})"
     w = f" WHERE {where}" if where else ""
+
+    def ids_in(t: str) -> list:
+        return [r.record_id for r in hits if q.edge or r.type_name == t]
+
+    count_role = "count_part" if poly else "count"
     if q.op in ("delete", "edge_delete"):
         if q.op == "delete":
             for et in schema.edge_types:
-                if et.from_type == table or et.to_type == table:
+                if et.from_type in targets or et.to_type in targets:
                     victims = f"(SELECT id FROM {table}{w})"
                     gone = f"SELECT eid FROM {et.name} WHERE src_id IN {victims} OR dst_id IN {victims}"
                     for f in et.fields:
                         if f.type is FieldType.LIST:
                             st.steps.append(Step(f"DELETE FROM {child_table(et.name, f.name)} WHERE owner IN ({gone})"))
                     st.steps.append(Step(f"DELETE FROM {et.name} WHERE src_id IN {victims} OR dst_id IN {victims}"))
-        st.steps.append(Step(f"DELETE FROM {table}{w}", role="count"))
         owner_fields = schema.edge_type(table).fields if q.edge else schema.query_fields(table)
-        ids = _ids(hits)
-        for f in owner_fields:
-            if f.type is FieldType.LIST and ids:
-                st.steps.append(Step(f"DELETE FROM {child_table(table, f.name)} WHERE owner IN :wgone", {"wgone": ids}))
+        for t in targets:
+            # the LIST child rows go first: the victims are chosen by the table's own rows
+            for f in owner_fields:
+                if f.type is FieldType.LIST and ids_in(t):
+                    st.steps.append(Step(f"DELETE FROM {child_table(t, f.name)} WHERE owner IN :wgone", {"wgone": ids_in(t)}))
+            st.steps.append(Step(f"DELETE FROM {t}{w}", role=count_role))
         return st
     ftype = _ftype(q, schema)
     f = q.field
@@ -230,15 +264,17 @@ def _rel(q: WriteQuery, sp: WriteSyntax, pred, schema: Schema, before: Instance)
         st.steps.append(Step(f"SELECT id, {f} AS {'v__json' if ftype is FieldType.LIST else 'v'} FROM {table}{w}", role="rows"))
     if not q.edge and q.returning == "after":
         st.steps.append(Step(f"SELECT id FROM {table}{w}", role="capture"))
-    role = "count" if q.returning == "count" or q.edge else "run"
-    if sp.target == "merge":
-        st.steps.append(Step(f"MERGE INTO {table} USING (SELECT {key} FROM {table}{w}) s ON {table}.{key} = s.{key} WHEN MATCHED THEN UPDATE SET {table}.{change}", params, role))
-    else:
-        st.steps.append(Step(f"UPDATE {table} SET {change}{w}", params, role))
+    role = count_role if q.returning == "count" or q.edge else "run"
+    for t in targets:
+        if sp.target == "merge":
+            st.steps.append(Step(f"MERGE INTO {t} USING (SELECT {key} FROM {t}{w}) s ON {t}.{key} = s.{key} WHEN MATCHED THEN UPDATE SET {t}.{change}", params, role))
+        else:
+            st.steps.append(Step(f"UPDATE {t} SET {change}{w}", params, role))
     if not q.edge and q.returning == "after":
         st.steps.append(Step(f"SELECT id, {f} AS {'v__json' if ftype is FieldType.LIST else 'v'} FROM {table} WHERE id IN :captured", role="rows_captured"))
     if ftype is FieldType.LIST:
-        st.steps += _children(table, f, _ids(hits), new)
+        for t in targets:
+            st.steps += _children(t, f, ids_in(t), new)
     return st
 
 
@@ -296,6 +332,11 @@ def _doc(q: WriteQuery, sp: WriteSyntax, pred, schema: Schema, before: Instance,
         else:
             st.steps.append(Step(f"INSERT INTO {t} VALUES(:wdoc)", {"wdoc": json.dumps({"id": q.target_id, f: q.value}, ensure_ascii=False)}, "count"))
         return st
+    # the base class of the inheritance axis is no collection: its records are read
+    # through the views (the union of the subclasses' views) and each collection is
+    # written in turn, the counts summed
+    targets = _targets(q, schema)
+    poly = schema.is_base(t)
     stated = document.doc_filter_ok(pred)
     where = document.doc_pred(pred) if pred is not None and stated else None
     if q.extra_notnull:
@@ -304,24 +345,36 @@ def _doc(q: WriteQuery, sp: WriteSyntax, pred, schema: Schema, before: Instance,
     by_id = sp.target == "nest" or q.op == "arith" or not stated
     ftype = _ftype(q, schema) if f else None
     alias = {FieldType.INT: "v__int", FieldType.FLOAT: "v__float", FieldType.BOOL: "v__bool", FieldType.LIST: "v__json"}.get(ftype, "v")
+    view_alias = "v__json" if ftype is FieldType.LIST else "v"
 
-    def chosen(cols: str) -> str:
-        """The matched records: a collection query where its filter language states
-        the filter, else the views read in SQL (`document`)."""
-        if stated:
-            return f"SELECT {document.path('id')} AS id{cols} FROM {t}{w}"
-        conds = [sql(pred, "t", t, "id", document.NAMES)] + ([f"t.{f} IS NOT NULL"] if q.extra_notnull else [])
+    def chosen(cols: str, table: str, views: bool) -> str:
+        """The matched records of `table`: a collection query where its filter language
+        states the filter, else (or for the base class) the views read in SQL."""
+        if not views:
+            return f"SELECT {document.path('id')} AS id{cols} FROM {table}{w}"
+        conds = ([sql(pred, "t", table, "id", document.NAMES)] if pred is not None else []) + ([f"t.{f} IS NOT NULL"] if q.extra_notnull else [])
         view_cols = cols.replace(document.path(f), f"t.{f}") if f else cols
-        return document.with_views(schema, f"SELECT t.id AS id{view_cols} FROM {document.NAMES.table(t)} t WHERE {' AND '.join(conds)}")
+        where_v = f" WHERE {' AND '.join(conds)}" if conds else ""
+        return document.with_views(schema, f"SELECT t.id AS id{view_cols} FROM {document.NAMES.table(table)} t{where_v}")
 
-    if by_id or q.returning == "after":
-        st.steps.append(Step(chosen(f", {document.path(f)} AS v__int" if q.op == "arith" else ""), role="capture"))
+    capture_cols = f", {document.path(f)} AS v__int" if q.op == "arith" else ""
+    if not poly:
+        if by_id or q.returning == "after":
+            st.steps.append(Step(chosen(capture_cols, t, not stated), role="capture"))
+    elif q.returning == "after" and not by_id:
+        st.steps.append(Step(chosen("", t, True), role="capture"))
     if q.op == "delete":
         gone = {n.record_id for n in node_hits(q, before)}
-        incoming = [et for et in schema.edge_types if et.to_type == t]
+        incoming = [et for et in schema.edge_types if et.to_type in targets]
         sources = {et.name: {e.from_record for e in before.edges if e.type_name == et.name and e.to_record in gone and e.from_record not in gone} for et in incoming}
         st.steps += _link_arrays(q, schema, after, sources, incoming)
-        st.steps.append(Step(f"DELETE FROM {t} {_KEY.format('cid')}", role="each_count") if by_id else Step(f"DELETE FROM {t}{w}", role="count"))
+        for x in targets:
+            if by_id:
+                if poly:
+                    st.steps.append(Step(chosen("", x, not stated), role="capture_more"))
+                st.steps.append(Step(f"DELETE FROM {x} {_KEY.format('cid')}", role="each_count"))
+            else:
+                st.steps.append(Step(f"DELETE FROM {x}{w}", role="count_part" if poly else "count"))
         return st
     new = _new_value(q)
     params: dict = {}
@@ -337,16 +390,22 @@ def _doc(q: WriteQuery, sp: WriteSyntax, pred, schema: Schema, before: Instance,
         params["wv"] = new
         change = f"SET {path} = {_doc_value('wv')}"
     if q.returning == "before":
-        st.steps.append(Step(chosen(f", {path} AS {alias}"), role="rows"))
+        st.steps.append(Step(chosen(f", {path} AS {alias}", t, poly or not stated), role="rows"))
     counted = q.returning == "count"
-    if by_id:
-        st.steps.append(Step(f"UPDATE {t} {change} {_KEY.format('cid')}", params, "each_count" if counted else "each_run", arith=arith))
-    else:
-        st.steps.append(Step(f"UPDATE {t} {change}{w}", params, "count" if counted else "run"))
+    for x in targets:
+        if by_id:
+            if poly:
+                st.steps.append(Step(chosen(capture_cols, x, not stated), role="capture_more"))
+            st.steps.append(Step(f"UPDATE {x} {change} {_KEY.format('cid')}", params, "each_count" if counted else "each_run", arith=arith))
+        else:
+            st.steps.append(Step(f"UPDATE {x} {change}{w}", params, ("count_part" if poly else "count") if counted else "run"))
     if q.returning == "after":
-        # a collection filter takes only cast parameters ("please specify the types for
-        # parameter"): the session expands CAPTURED into one cast marker per captured id
-        st.steps.append(Step(f"SELECT {document.path('id')} AS id, {path} AS {alias} FROM {t} WHERE {document.path('id')} IN {CAPTURED}", role="rows_captured"))
+        if poly:
+            st.steps.append(Step(document.with_views(schema, f"SELECT t.id AS id, t.{f} AS {view_alias} FROM {document.NAMES.table(t)} t WHERE t.id IN {CAPTURED}"), role="rows_captured"))
+        else:
+            # a collection filter takes only cast parameters ("please specify the types for
+            # parameter"): the session expands CAPTURED into one cast marker per captured id
+            st.steps.append(Step(f"SELECT {document.path('id')} AS id, {path} AS {alias} FROM {t} WHERE {document.path('id')} IN {CAPTURED}", role="rows_captured"))
     return st
 
 
@@ -377,12 +436,14 @@ def _rdf(q: WriteQuery, sp: WriteSyntax, pred, schema: Schema) -> Statements:
         cls, idp = f"c:{q.table}", "p:id"
     f = q.field
     if q.op == "upsert":
+        from ganda.hana.mapping.rdf import class_triples
+
         st.steps.append(Step(f"{PREFIX_TEXT} SELECT (1 AS ?v) WHERE {{ BIND (1 AS ?one) }}", role="count_rows"))
         n = record_iri(q.target_id)
         st.steps.append(update(f"DELETE WHERE {{ GRAPH {g} {{ {n} p:{f} ?o }} }}"))
         if isinstance(q.value, list) or _ftype(q, schema) is FieldType.LIST:
             st.steps.append(update(f"DELETE WHERE {{ GRAPH {g} {{ {n} i:{f} ?i }} }}"))
-        values = [f"{n} a {cls}", f"{n} p:id {sparql_string(q.target_id)}"]
+        values = class_triples(n, q.table, schema) + [f"{n} p:id {sparql_string(q.target_id)}"]
         if q.value is not None:
             values.append(f"{n} p:{f} {sparql_literal(q.value)}")
             if isinstance(q.value, list):

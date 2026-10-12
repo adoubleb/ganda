@@ -654,3 +654,194 @@ def test_the_graph_model_round_trips_offline_without_rdflib(seed):
     results = run_cases(kept, sessions, instance)
     bad = [r for r in results if not r.ok]
     assert len(kept) > 100 and not bad, [(r.finding_class, r.case.shape, r.errors, [str(m)[:200] for m in r.mismatches[:1]]) for r in bad[:3]]
+
+
+# --- plan steering, the kept NOT, custom keys, the inheritance axis (2026-10-12) ---------------
+
+
+def test_hint_profiles_close_a_statement_and_strip_back():
+    from ganda.hana.concrete_syntax import hints
+
+    text = "SELECT t.id AS id FROM n1 t ORDER BY t.f1 ASC NULLS FIRST, t.id ASC LIMIT 3 OFFSET 2"
+    for name in hints.NAMES:
+        h = hints.hinted(text, name)
+        assert h.startswith(text + " WITH HINT (") and h.endswith(")") and hints.is_hinted(h) and hints.strip(h) == text
+        assert all(x in h for x in hints.PROFILES[name])
+    assert not hints.is_hinted(text) and hints.strip(text) == text
+    assert hints.choose("abc") in hints.NAMES and hints.choose("abc") == hints.choose("abc")
+    assert "USE_HEX_PLAN" not in {h for hs in hints.PROFILES.values() for h in hs}
+
+
+@pytest.mark.parametrize("seed", range(1, 4))
+def test_every_case_carries_one_hint_profile_per_sql_data_model(seed):
+    """A hinted twin: one profile per question, named in the tag, on a SQL statement
+    only (never a SPARQL text, never the collection query), the clause closing it."""
+    from ganda.hana.concrete_syntax import hints, tx as _tx
+
+    _schema, _instance, cases = _cases(seed)
+    seen = 0
+    for c in cases:
+        profiles: dict = {}
+        for v, t in c.queries.items():
+            last = _tx.parts(t)[-1] if _tx.is_script(t) else t
+            dm, _, tag = v.partition(":")
+            # a traversal's base variant may be the hinted syntax (drawn like any other):
+            # the case's `concrete_syntax` names it then
+            if c.generator_name == "ir_traversal":
+                tag = "+".join([tag, c.params.get("concrete_syntax", {}).get(v, "")])
+            named = sorted({p.removeprefix("hint_") for p in tag.split("+") if p in hints.NAMES or p.startswith("hint_")})
+            assert hints.is_hinted(last) == (len(named) == 1), v
+            if not named:
+                continue
+            seen += 1
+            profiles.setdefault(dm, set()).add(named[0])
+            plain = hints.strip(last)
+            assert not plain.lstrip().startswith("PREFIX ")
+            if dm == "doc":
+                assert plain.startswith("WITH raw_v_") or plain.startswith("WITH v_"), v
+            if dm == "rdf":
+                assert plain.startswith("SELECT * FROM SPARQL_TABLE("), v
+        assert all(len(ps) == 1 for ps in profiles.values()) and len(set().union(*profiles.values()) if profiles else set()) <= 1, (c.shape, profiles)
+        if c.generator_name == "ir_select" and profiles:
+            assert c.params["hint"] == next(iter(next(iter(profiles.values()))))
+            assert not hints.is_hinted(_tx.parts(c.queries["rel"])[-1] if _tx.is_script(c.queries["rel"]) else c.queries["rel"])
+    assert seen > 100
+
+
+def test_the_doc_neg_position_keeps_the_nots_the_store_can_say():
+    from ganda.hana.concrete_syntax.document import doc_filter_ok, doc_pred, has_not
+
+    leaf = Predicate("source", "f1", "=", "p", 1, True, "int")
+    tree = Compound("source", "NOT", (Compound("source", "OR", (leaf, Predicate("source", "f2", "IS NULL", "", None, True, "string"))),))
+    assert has_not(tree) and not has_not(leaf) and not has_not(None)
+    assert doc_pred(tree) == '($."f1" <> CAST(:p AS BIGINT) AND $."f2" IS NOT NULL)'
+    assert doc_pred(tree, keep_not=True) == 'NOT (($."f1" = CAST(:p AS BIGINT) OR $."f2" IS NULL))'
+    member = Compound("source", "NOT", (Predicate("source", "f3", "CONTAINS", "p", 5, True, "list"),))
+    assert not doc_filter_ok(member) and doc_filter_ok(member, keep_not=True)
+    assert doc_pred(member, keep_not=True) == 'NOT (FOR ANY "e" IN $."f3" SATISFIES "e" = CAST(:p AS BIGINT) END)'
+    like = Compound("source", "NOT", (Predicate("source", "f2", "LIKE", "p", "a%", True, "string"),))
+    assert doc_pred(like) == "$.\"f2\" NOT LIKE 'a%'" and doc_pred(like, keep_not=True) == "NOT ($.\"f2\" LIKE 'a%')"
+    # the position in the cases: a collection query with a NOT kept, only where the tree has one
+    negs = [(c, v, t) for seed in (1, 2, 3) for c in _cases(seed)[2] for v, t in c.queries.items() if v.startswith("doc:") and "neg" in v.split(":", 1)[1].split("+")]
+    assert negs
+    for c, v, t in negs:
+        assert "NOT (" in t and not t.startswith("WITH ") and ('$."' in t or '"l"."' in t), v
+
+
+def test_the_custom_key_pool_orders_alike_in_sql_and_sparql():
+    """The axis is on because SQL's UTF-16 code-unit order and SPARQL's code-point order
+    part only for an astral key against one in U+E000..U+FFFF, which no key style
+    draws (`data_generator._custom_key`); the probe's CUSTOM_KEYS cover every style."""
+    from ganda.core.data_generator import _KEY_PUNCT_BASES, _KEY_UNICODE_BASES
+    from ganda.hana.dialect import is_valid_key
+    from ganda.hana.scripts.probe import CUSTOM_KEYS
+
+    keys = [b + "7" for b in _KEY_PUNCT_BASES + _KEY_UNICODE_BASES] + CUSTOM_KEYS
+    assert not any(0xE000 <= ord(ch) <= 0xFFFF for k in keys for ch in k)
+    assert any(ord(ch) > 0xFFFF for k in keys for ch in k)
+    assert sorted(keys, key=lambda k: k.encode("utf-16-be", "surrogatepass")) == sorted(keys, key=lambda k: [ord(c) for c in k])
+    assert all(is_valid_key(k) for k in keys)
+    assert "custom_key_probability" not in UNSUPPORTED_AXES and "inheritance_probability" not in UNSUPPORTED_AXES
+
+
+def _poly(seed: int):
+    cfg = CFG.with_(inheritance_probability=1.0, custom_key_probability=0.5)
+    schema, instance, rng = build(seed, cfg, E)
+    return cfg, schema, instance, rng
+
+
+@pytest.mark.parametrize("seed", range(1, 4))
+def test_the_base_class_is_a_union_view_a_second_class_triple_and_an_unlabelled_match(seed):
+    from ganda.hana.mapping.common import Sparql, Sql
+
+    cfg, schema, instance, rng = _poly(seed)
+    assert schema.base is not None and schema.base.name == "N0"
+    rel = E.mappers["rel"](instance)
+    texts = [s.text for s in rel if isinstance(s, Sql)]
+    views = [t for t in texts if t.startswith("CREATE VIEW N0")]
+    assert views[0].startswith("CREATE VIEW N0 AS SELECT id, b1") and views[0].count(" UNION ALL ") == len(schema.node_types) - 1
+    assert len(views) == 1 + sum(1 for f in schema.base.fields if f.type is FieldType.LIST)
+    for ix in schema.indexes:
+        if ix.table == "N0" and ix.applies_to("rel"):
+            assert sum(1 for t in texts if t.startswith(("CREATE INDEX ix_N0_", "CREATE UNIQUE INDEX ix_N0_")) and f"_{ix.field}_" in t) == len(schema.node_types)
+    assert not any(" ON N0 " in t for t in texts if t.startswith("CREATE"))
+    graph = [s.text for s in E.mappers["graph"](instance) if isinstance(s, Sql)]
+    assert any(t.startswith("CREATE VIEW N0 ") for t in graph) and not any("gv_N0" in t for t in graph)
+    doc = [s.text for s in E.mappers["doc"](instance) if isinstance(s, Sql)]
+    assert not any("N0" in t and t.startswith("CREATE COLLECTION") for t in doc) and not any(" ON N0(" in t for t in doc)
+    from ganda.hana.mapping.common import Transaction
+
+    def texts_of(steps):
+        for s in steps:
+            if isinstance(s, Transaction):
+                yield from texts_of(s.steps)
+            elif isinstance(s, Sparql):
+                yield s.text
+
+    rdf = " ".join(texts_of(E.mappers["rdf"](instance)))
+    assert " a c:N0" in rdf and rdf.count(" a c:N0") >= len(schema.node_types)
+    cases = all_cases(rng, schema, instance, cfg=cfg)
+    on_base = [c for c in cases if c.generator_name == "ir_select" and c.params.get("table") == "N0"]
+    assert on_base
+    for c in on_base:
+        assert "N0" in c.queries["rel"] and "?n a c:N0" in c.queries["rdf"]
+        g = c.queries["graph"]
+        assert ("g_N0 AS (SELECT * FROM OPENCYPHER_TABLE(GRAPH WORKSPACE gw QUERY 'MATCH (a) RETURN a.ID AS ID, a.B1 AS B1" in g) or "MATCH (t)" in g, g[:200]
+        assert "(t:N0)" not in g and "(a:N0)" not in g and "(m:N0)" not in g
+        # the doc base is the views' union (none where the views cannot ask the filter:
+        # a whole-list comparison, a membership under OR or NOT)
+        d = c.queries.get("doc")
+        if d is not None:
+            assert d.startswith("WITH ") and "v_N0 AS (SELECT id, b1" in d
+            assert d.index("v_N0 AS (") > max(d.index(f", v_{nt.name} AS (") for nt in schema.node_types)
+        assert "doc:neg" not in c.queries and not any(v.startswith("doc:") and v.endswith("+neg") for v in c.queries)
+
+
+def test_a_write_on_the_base_class_addresses_every_subclass():
+    cfg, schema, instance, rng = _poly(1)
+    wr = rng.for_generator("ir_write")
+    cur = instance
+    seen = set()
+    for step in range(60):
+        drawn = sample_write(wr, schema, cur, step)
+        if drawn is None:
+            continue
+        q, rw, syntaxes = drawn
+        after = apply(q, cur)
+        if not q.edge and q.table == "N0":
+            for dm in E.data_models:
+                st = E.write_syntax.render(q, syntaxes[dm][0], rw, dm, cur, after)
+                writes = [s for s in st.steps if s.text.startswith(("UPDATE ", "DELETE ", "MERGE "))]
+                if dm == "rdf":
+                    assert "?n a c:N0" in st.main.text
+                    continue
+                assert not any(re.match(r"(UPDATE|DELETE FROM|MERGE INTO) N0\b", s.text) for s in writes), st.display()
+                tables = {re.match(r"(?:UPDATE|DELETE FROM|MERGE INTO) (\w+)", s.text).group(1) for s in writes}
+                assert tables >= {nt.name for nt in schema.node_types}, (dm, st.display())
+                if q.returning == "count" or q.op == "delete":
+                    counted = [s for s in st.steps if s.role in ("count_part", "each_count")]
+                    assert len(counted) == len(schema.node_types) and st.main is counted[0], st.display()
+                if q.returning == "after":
+                    assert [s for s in st.steps if s.role == "rows_captured"] and any(s.role in ("capture", "capture_more") for s in st.steps)
+            seen.add(q.op)
+        cur = after
+    assert seen
+
+
+def test_translator_unlabelled_vertex_projects_the_shared_attributes():
+    import sqlite3
+
+    from tests.hana.opencypher_sqlite import Workspace, to_sql
+
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE gv_n1 (id TEXT, b1 INTEGER, n1_f1 INTEGER)")
+    db.execute("CREATE TABLE gv_n2 (id TEXT, b1 INTEGER, n2_f1 TEXT)")
+    db.executemany("INSERT INTO gv_n1 VALUES (?, ?, ?)", [("a", 1, 5), ("b", None, 6)])
+    db.executemany("INSERT INTO gv_n2 VALUES (?, ?, ?)", [("x", 2, "s")])
+    vertices = {"n1": {"table": "gv_n1", "label": "n1", "key": "id", "columns": [["id", "ID"], ["b1", "B1"], ["f1", "N1_F1"]]}, "n2": {"table": "gv_n2", "label": "n2", "key": "id", "columns": [["id", "ID"], ["b1", "B1"], ["f1", "N2_F1"]]}}
+    ws = Workspace("gw", vertices, {})
+    rows = db.execute(to_sql("MATCH (a) WHERE NOT (a.B1 IS NULL) RETURN a.ID AS ID, a.B1 AS B1", {}, ws)).fetchall()
+    assert sorted(rows) == [("a", 1), ("x", 2)]
+    joined = db.execute(to_sql("MATCH (t), (m) WHERE (m.B1 > t.B1) RETURN t.ID AS ID, m.ID AS V", {}, ws)).fetchall()
+    assert sorted(joined) == [("a", "x")]
+    assert db.execute(to_sql("MATCH (a) RETURN COUNT(a.ID) AS V", {}, ws)).fetchall() == [(3,)]

@@ -162,6 +162,19 @@ so native `page` / `keys` are not asked; parameters bind bare only; an undirecte
 self-loop matches once; SUM over nothing answered NULL (the docs say 0: every native sum
 carries its COUNT and SQL decides). The switches in `graph.py` are named after the facts.
 
+Added 2026-10-12 (each with a RULES.md section and probe facts): plan steering
+(`concrete_syntax/hints.py`: every SQL text asked once more under one of fourteen `WITH
+HINT (...)` profiles -- HEX off, OLAP, the join engine, row vs column operators, the
+optimizer levels, the rewrites off, HEX's disk operators and join kinds, no indexes,
+single-threaded -- one profile per question, the variants `rel:<profile>` /
+`graph:nest+<profile>` / `rdf:table_fn+<profile>` / `rel:hint_<profile>`; a hinted twin
+that answers differently is an engine defect with no cross-model confound); the Document
+Store's `NOT` kept as written (`doc:neg`); the custom-key axis; and the inheritance axis
+(the base class `N0` as a UNION ALL view on rel and the graph data model, the views'
+union on doc, a second class triple on rdf, the unlabelled `MATCH (a)` in openCypher; a
+write on it one statement per subclass, the counts summed). SQLite has no hints, so plan
+steering is compared live only (the offline session strips the clause).
+
 Verified live against HANA Cloud 4.00.000.00 (2026-10-09): the probe is 57/57, the first
 campaigns run, and six engine defects are written up with repros under
 `ganda/hana/issues-draft/` -- **H1** (an `xsd:double` is serialized to ~6 significant
@@ -186,7 +199,7 @@ a direct address. `connection.connect()` retries a lost connect (`HANA_CONNECT_R
 pytest tests/hana tests/test_layering.py -q        # no server (test_offline needs rdflib)
 python3 -m tests.hana.run_offline --seeds 1 10     # whole campaigns on SQLite + rdflib through the real session code
 python3 -m ganda hana doctor
-python3 -m ganda hana probe                        # 90 facts (R/D/K 2026-10-10, G 2026-10-11); `probe K5 D` for a subset
+python3 -m ganda hana probe                        # 117 facts (R/D/K 2026-10-10, G 2026-10-11, P and the 2026-10-12 facts); `probe K5 D` for a subset
 ```
 
 After any change to a HANA renderer, mapping or semantics: the offline runner first (it

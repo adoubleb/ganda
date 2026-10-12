@@ -25,14 +25,24 @@ combination is an equivalent text.
                             in SQL over what it projected
               literal       graph: the native text with its constants inlined
                             instead of bound (`graph.literal`)
+              neg           doc: the collection query with the filter's NOTs kept as
+                            written (`NOT (...)`, `NOT (FOR ANY ...)`) instead of pushed
+                            down to the leaves
     form      base          the kind's own text
               order         `max` / `min` as the first row of an ordering
               fn            a distinct count as `COUNT(*)` over `SELECT DISTINCT`
               jscan         a join's inner relation as a derived table
               jrev          a join's correlation with its operands swapped
+    hint      (none)        the statement as it is
+              <profile>     the SQL statement closed by a `WITH HINT (...)` clause steering
+                            it to another execution engine or optimizer mode
+                            (`hints.PROFILES`): one profile per question, drawn with the
+                            rewrites; on every data model whose text is SQL (rdf: the
+                            `table_fn` position; doc: the views, never the collection
+                            query)
 
 A variant is `<data model>:<tag>`, the tag the non-default choices joined by `+` (form,
-filter, position). The base (plain, table, base) is asked of every data model; on the
+filter, position, hint). The base (plain, table, base) is asked of every data model; on the
 doc data model it is the collection query where the document store can ask the
 question (no semi-join, join, method or median there) and the views otherwise; on the
 graph data model it is openCypher where the language states the question
@@ -48,27 +58,29 @@ The transaction door (`tx`) wraps every concrete syntax alike (`tx.script`).
 """
 from __future__ import annotations
 
+import dataclasses
 import itertools
 import random
 from dataclasses import dataclass, field
 
 from ganda.core.ast.predicates import MIRROR, Predicate, fields_of
 from ganda.core.ast.select import SelectQuery, column, notnull_fields
+from ganda.core.data_generator import BASE_CLASS
 from ganda.core.model import FieldType, Instance, Schema
 from ganda.hana import rewrites as _rewrites
-from ganda.hana.concrete_syntax import document, graph, tx as _tx
+from ganda.hana.concrete_syntax import document, graph, hints, tx as _tx
 from ganda.hana.concrete_syntax.methods import METHODS, method_fn, result_type, sparql_text, sql_text  # noqa: F401
 from ganda.hana.concrete_syntax.predicate import REL, Names, sparql_filter, sql
 from ganda.hana.concrete_syntax.traversal import agg_proj, guarded, sparql_table
 from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT
 
 FILTERS = ("plain", "rw", "rev", "arith")
-POSITIONS = ("table", "scan", "nest", "view", "from", "table_fn", "native", "match", "literal")
+POSITIONS = ("table", "scan", "nest", "view", "from", "table_fn", "native", "match", "literal", "neg")
 FORMS = ("base", "order", "fn", "jscan", "jrev")
 DATA_MODELS = ("doc", "rel", "graph", "rdf")
 _POSITIONS_OF = {
     "rel": ("table", "scan", "nest"),
-    "doc": ("table", "scan", "nest", "view"),
+    "doc": ("table", "scan", "nest", "view", "neg"),
     "graph": ("table", "scan", "nest", "view", "match", "literal"),
     "rdf": ("table", "nest", "from", "table_fn", "native"),
 }
@@ -84,15 +96,17 @@ class SelectSyntax:
     filter: str = "plain"
     position: str = "table"
     form: str = "base"
+    # a plan-steering profile (`hints.PROFILES`), or none
+    hint: str = ""
 
     @property
     def tag(self) -> str:
-        parts = [x for x, default in ((self.form, "base"), (self.filter, "plain"), (self.position, "table")) if x != default]
+        parts = [x for x, default in ((self.form, "base"), (self.filter, "plain"), (self.position, "table"), (self.hint, "")) if x != default]
         return "+".join(parts)
 
     @property
     def axes(self) -> int:
-        return len([x for x in (self.form != "base", self.filter != "plain", self.position != "table") if x])
+        return len([x for x in (self.form != "base", self.filter != "plain", self.position != "table", self.hint != "") if x])
 
 
 BASE = SelectSyntax()
@@ -104,26 +118,34 @@ class Rewrites:
     rev: object = None
     arith: object = None
     present: list = field(default_factory=list)
+    # the question's plan-steering profile (`hints.NAMES`), drawn once per question
+    hint: str = ""
 
     def filter_pred(self, q: SelectQuery, name: str):
         return q.where if name == "plain" else getattr(self, name)
 
 
-def all_syntaxes() -> list:
-    return [SelectSyntax(f, p, m) for m, f, p in itertools.product(FORMS, FILTERS, POSITIONS)]
+def all_syntaxes(hint: str = "") -> list:
+    """Every concrete syntax: with `hint`, each one twice, plain and hinted by that one
+    profile (a question carries one profile, `Rewrites.hint`)."""
+    return [SelectSyntax(f, p, m, h) for h in dict.fromkeys(("", hint)) for m, f, p in itertools.product(FORMS, FILTERS, POSITIONS)]
 
 
 # --- what the doc data model's collection query can ask ---------------------------------------
 
 
-def collection_asks(q: SelectQuery, schema: Schema, pred) -> bool:
+def collection_asks(q: SelectQuery, schema: Schema, pred, keep_not: bool = False) -> bool:
     """Whether the document store asks the question itself: no semi-join, no join, no
-    method, no median, and a filter whose leaves it renders."""
+    method, no median, and a filter whose leaves it renders (with `keep_not`, its NOTs
+    kept as written: the `neg` position)."""
     if q.kind in ("join", "method") or (q.kind == "agg" and q.fn == "median"):
+        return False
+    if q.table == BASE_CLASS and not q.edge:
+        # the base class of the inheritance axis is no collection: the views unite them
         return False
     if _string_extremum(q, schema):
         return False
-    return document.doc_filter_ok(pred)
+    return document.doc_filter_ok(pred, keep_not)
 
 
 def _string_extremum(q: SelectQuery, schema: "Schema | None") -> bool:
@@ -163,15 +185,29 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
         return False
     if sp.position == "nest" and q.where is None:
         return False
+    if sp.hint:
+        # the question's one profile, on a SQL statement: never the collection query
+        # (its own dialect), never a SPARQL text
+        if sp.hint != rewrites.hint or data_model not in hints.DATA_MODELS:
+            return False
+        if data_model == "rdf" and sp.position != "table_fn":
+            return False
+        if data_model == "doc" and sp.position in ("table", "neg"):
+            if sp.position == "neg" or collection_asks(q, schema, pred):
+                return False
+            return dataclasses.replace(sp, hint="") == BASE and _views_ask(q, pred)
     if data_model == "doc":
         if sp.filter == "arith" and pred is not None and any(leaf.ftype == "float" for leaf in pred.leaves()):
             # a DECIMAL-stored double does not scale like a double (0.30000000000000004 * 2)
             return False
-        if sp.form == "fn" and sp.position == "table" and collection_asks(q, schema, pred):
+        if sp.form == "fn" and sp.position in ("table", "neg") and collection_asks(q, schema, pred, sp.position == "neg"):
             # the `fn` distinct count nests a GROUP BY in a subquery; over a COLLECTION the
             # Document Store refuses it ("GROUP BY clause after GROUP BY clause on collection
             # tables") -- the base COUNT(DISTINCT) form and the views cover it
             return False
+        if sp.position == "neg":
+            # the collection query with its NOTs kept: a tree with one, that the store asks
+            return pred is not None and document.has_not(pred) and collection_asks(q, schema, pred, keep_not=True)
         if sp.position == "table":
             # the base is the collection query, or the views where the store cannot ask
             if sp == BASE:
@@ -208,7 +244,7 @@ def base_data_models(q: SelectQuery) -> tuple:
 
 
 def syntaxes_for(q: SelectQuery, schema: Schema, rewrites: Rewrites, data_model: str) -> list:
-    return [sp for sp in all_syntaxes() if sp != BASE and applicable(q, schema, sp, rewrites, data_model)]
+    return [sp for sp in all_syntaxes(rewrites.hint) if sp != BASE and applicable(q, schema, sp, rewrites, data_model)]
 
 
 # --- rendering --------------------------------------------------------------------------------
@@ -219,8 +255,8 @@ def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites,
     if data_model == "rel":
         text = _sql(q, schema, sp, pred, REL)
     elif data_model == "doc":
-        if sp.position == "table" and collection_asks(q, schema, pred):
-            text = _collection(q, schema, sp, pred)
+        if sp.position == "neg" or (sp.position == "table" and not sp.hint and collection_asks(q, schema, pred)):
+            text = _collection(q, schema, sp, pred, keep_not=sp.position == "neg")
         else:
             text = document.with_views(schema, _sql(q, schema, sp, pred, document.NAMES))
     elif data_model == "graph":
@@ -235,6 +271,8 @@ def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites,
         text = sparql_table(_sparql(q, schema, sp, pred, "table"))
     else:
         text = _sparql(q, schema, sp, pred, sp.position)
+    if sp.hint:
+        text = hints.hinted(text, sp.hint)
     if q.tx:
         return _tx.script(_tx.statements(q.tx, schema, data_model), text)
     return text
@@ -366,10 +404,11 @@ def _agg_suffix(fn: str, ftype: FieldType) -> str:
     return _DECODE[ftype] if fn in ("max", "min") else "__num"
 
 
-def _collection(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred) -> str:
+def _collection(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, keep_not: bool = False) -> str:
     """The question asked of the collection itself (an edge type: of its source class's
     collection, the link array UNNESTed). A projected field is the document store's own
-    text, the alias telling the session how to read it (`__int`, `__float`, ...)."""
+    text, the alias telling the session how to read it (`__int`, `__float`, ...). With
+    `keep_not` the filter's NOTs stay as written (the `neg` position)."""
     alias = "l" if q.edge else ""
     if q.edge:
         et = schema.edge_type(q.table)
@@ -385,7 +424,7 @@ def _collection(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred) -> str:
     def out(f: str, name: str) -> str:
         return f"{p(f)} AS {name}{_DECODE[_ftype(schema, q, f)]}"
 
-    conds = [document.doc_pred(pred, alias)] if pred is not None else []
+    conds = [document.doc_pred(pred, alias, keep_not=keep_not)] if pred is not None else []
     notnull = list(notnull_fields(q, "order" if sp.form == "order" else "base"))
     if q.kind == "agg" and q.fn in ("set", "list", "distinct_count"):
         notnull.append(q.field)
@@ -563,7 +602,7 @@ def _cypher_select(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, liter
         m = f"m.{graph.attr(schema, q.table, f)}"
         corr = f"({a(f)} {MIRROR[op]} {m})" if sp.form == "jrev" else f"({m} {op} {a(f)})"
         # the two classes as two patterns of ONE clause (the Cartesian product, filtered)
-        clauses = f"{head}, (m:{graph.label(q.table)})"
+        clauses = f"{head}, {graph.vertex(schema, q.table, 'm')}"
         cond = f" WHERE {' AND '.join(conds + [corr])}"
         if q.arg == "count":
             paths = oct("t.ID AS ID, COUNT(m.ID) AS V", clauses=clauses, cond=cond)
@@ -713,7 +752,7 @@ def _graph_wrap(select: str, body: str, tail: str, position: str) -> str:
 def build_rewrites(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> Rewrites:
     from ganda.core.ast.select import present_values, records, view
 
-    rewrites = Rewrites(present=present_values(q, instance) if q.kind == "agg" else [])
+    rewrites = Rewrites(present=present_values(q, instance) if q.kind == "agg" else [], hint=rng.choice(hints.NAMES))
     p = q.where
     if p is None:
         return rewrites
@@ -743,7 +782,7 @@ def extra_binds(q: SelectQuery, schema: Schema, rewrites: Rewrites) -> dict:
 
 
 def rewrite_params(rewrites: Rewrites) -> dict:
-    params: dict = {}
+    params: dict = {"hint": rewrites.hint} if rewrites.hint else {}
     for name in ("rw", "rev", "arith"):
         rewritten = getattr(rewrites, name)
         if rewritten is not None:

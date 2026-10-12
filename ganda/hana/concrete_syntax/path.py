@@ -26,15 +26,21 @@ level:
            views      rel's `levels` over the `g_` CTEs reading the junctions through
                       the graph engine (`frontier` too, where the engine nests the
                       table function inside IN (...))
+    every  hint_<profile>  the data model's SQL levels (rel, doc, the graph views, rdf's
+                      `table`) closed by a `WITH HINT (...)` clause steering them to
+                      another execution engine or optimizer mode (`hints.PROFILES`),
+                      one profile per question
 
 The relationship relation of a question: one edge type's junction or every type's,
 oriented by the direction (both: each relationship in both orientations).
 """
 from __future__ import annotations
 
+import json
+
 from ganda.core.ast.path import PathQuery
 from ganda.core.model import Instance, Schema
-from ganda.hana.concrete_syntax import document, graph
+from ganda.hana.concrete_syntax import document, graph, hints
 from ganda.hana.concrete_syntax.predicate import REL, Names
 from ganda.hana.concrete_syntax.traversal import sparql_table
 from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT, record_iri
@@ -154,4 +160,7 @@ def render_all(q: PathQuery, schema: Schema, instance: Instance) -> "tuple[dict,
         queries["graph:chain"] = _cypher_levels(q, schema, "chain")
     if graph.NESTED_TABLE_FN_OK:
         queries["graph:frontier"] = graph.with_views(schema, _sql(q, schema, "frontier", graph.NAMES))
+    profile = hints.choose(json.dumps(q.to_params(), sort_keys=True, default=repr))
+    for dm, base in (("rel", "rel"), ("doc", "doc"), ("graph", "graph:views"), ("rdf", "rdf:table")):
+        queries[f"{dm}:hint_{profile}"] = hints.hinted(queries[base], profile)
     return queries, {}
