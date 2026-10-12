@@ -192,6 +192,14 @@ another one errored; the finding key names the mismatching pairs and the error's
 through `error_signature`). Cross-type numeric pivots and `NOT IN` are drawn
 (`hana/pivots.py`), each typed per data model (RULES.md "Values"); no variant repeats
 another's text on its data model; a decoding failure is an internal `EngineError`.
+More engine paths per question (track 2, 2026-10-12): `rel:again` (the base text a second
+time), the profile `plan_cache`, the hinted collection query, `rel:inline` (constants in the
+text), `rel:block` / `rel:block_ni` (a SQLScript anonymous block, inlining on or off), the
+form `tlp` (EXCEPT the false EXCEPT the unknown; MINUS with BIND in SPARQL), the
+transaction door's peer check (a second connection must not see the junk) and the path's
+`graph:script` (GraphScript's `Shortest_Path` over a keys-only workspace `gws`). The
+stand-in skips the GraphScript objects, unwraps blocks and strips hints; those three are
+compared live only.
 
 Verified live against HANA Cloud 4.00.000.00 (2026-10-09): the probe is 57/57, the first
 campaigns run, and six engine defects are written up with repros under

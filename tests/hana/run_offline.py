@@ -27,7 +27,9 @@ def _offline(variant: str, text: str, syntax: "str | None" = None) -> bool:
     if variant.startswith("graph"):
         from tests.hana.opencypher_sqlite import translatable
 
-        return translatable(text)
+        # a GraphScript procedure called from a SQLScript block (the path `script`
+        # syntax) has no stand-in
+        return not text.startswith("DO ") and translatable(text)
     if not variant.startswith("rdf"):
         return True
     # a traversal's BASE variant (`rdf`, and its `rdf:pull_up`) may be the native syntax,

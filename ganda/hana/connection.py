@@ -39,7 +39,7 @@ from decimal import Decimal
 
 from ganda.core.provider import EngineCrash, EngineError, Server, Session
 from ganda.hana.concrete_syntax import tx as _tx
-from ganda.hana.dialect import GRAPH_TOKEN, child_table, from_rdf_term, graph_iri, list_text, number, opencypher_table, record_iri
+from ganda.hana.dialect import GRAPH_TOKEN, SCHEMA_TOKEN, child_table, from_rdf_term, graph_iri, list_text, number, opencypher_table, record_iri
 
 SPARQL_QUERY_HEADERS = "Accept: application/sparql-results+json\r\nContent-Type: application/sparql-query"
 SPARQL_UPDATE_HEADERS = ""
@@ -183,6 +183,13 @@ def unwrap_block(text: str) -> str:
     if not m:
         return text
     return re.sub(r"(?<![\w:]):sv_", ":", m.group("body"))
+
+
+def rows_differ(a: "list | None", b: "list | None") -> bool:
+    """Whether two answers to one question differ as multisets of rows (the order of
+    an unordered answer is the engine's to choose)."""
+    key = lambda r: repr(sorted(r.items(), key=lambda kv: kv[0])) if isinstance(r, dict) else repr(r)  # noqa: E731
+    return sorted(map(key, a or [])) != sorted(map(key, b or []))
 
 
 def positional(text: str, binds: "dict | None") -> "tuple[str, list]":
@@ -409,7 +416,7 @@ class HanaSession(Session):
     # --- statements ---------------------------------------------------------------------------
 
     def _bind_graph(self, text: str) -> str:
-        return text.replace(GRAPH_TOKEN, self.graph)
+        return text.replace(GRAPH_TOKEN, self.graph).replace(SCHEMA_TOKEN, self.database.upper())
 
     def _cursor(self):
         cur = self.conn.cursor()
@@ -484,14 +491,42 @@ class HanaSession(Session):
 
     # --- the contract -------------------------------------------------------------------------
 
+    # the transaction door's PEER CHECK: a second connection asks the question before and
+    # after this one's uncommitted junk is in; the two answers must agree (the junk is
+    # invisible to it: probe R24 / D26 / K27 / G37), else the engine let a dirty read
+    # through -- an internal finding. Off where there is no second connection (offline).
+    peer_check = True
+
+    def _peer(self) -> "HanaSession":
+        if getattr(self, "_peer_session", None) is None:
+            self._peer_session = HanaSession(connect(self.database), self.database, self.data_model, self.timeout_ms)
+            self._peer_session.types, self._peer_session.workspace = self.types, self.workspace
+        return self._peer_session
+
+    def close(self) -> None:
+        for conn in (getattr(getattr(self, "_peer_session", None), "conn", None), self.conn):
+            try:
+                if conn is not None:
+                    conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+        self._peer_session = None
+
     def execute(self, text: str, binds: "dict | None" = None, options: "dict | None" = None) -> list:
         if _tx.is_script(text):
             parts = _tx.parts(text)
+            peer = self._peer() if self.peer_check else None
 
             def run():
+                before = peer.statement(parts[-1], binds) if peer is not None else None
                 for t in parts[:-1]:
                     self.statement(t, binds)
-                return self.statement(parts[-1], binds)
+                answer = self.statement(parts[-1], binds)
+                if peer is not None:
+                    after = peer.statement(parts[-1], binds)
+                    if rows_differ(before, after):
+                        raise EngineError(f"[dirty read] another connection's answer changed while this one's transaction was open: before {str(before)[:300]} after {str(after)[:300]}", internal=True)
+                return answer
 
             return self._transaction(run, commit=False)
         return self.statement(text, binds)
@@ -793,10 +828,7 @@ class HanaServer(Server):
 
     def stop(self) -> None:
         for s in list(self.sessions.values()):
-            try:
-                s.conn.close()
-            except Exception:  # noqa: BLE001
-                pass
+            s.close()
         self.sessions.clear()
         if self.admin is not None:
             try:
@@ -831,10 +863,7 @@ class HanaServer(Server):
         s = self._admin_session(database)
         old = self.sessions.pop(database, None)
         if old is not None:
-            try:
-                old.conn.close()
-            except Exception:  # noqa: BLE001
-                pass
+            old.close()
         try:
             s.sql(f"DROP SCHEMA {database} CASCADE", rows=False)
         except EngineError as e:

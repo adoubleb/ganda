@@ -70,6 +70,25 @@ whose FILTER names one OPTIONAL variable removes every solution; A10, to be file
 K25 closed the rdf `avg` question (the store's `xsd:decimal` arithmetic is double: B13
 stays). The campaign statistics count `cases_partial`.
 
+**Track 2** (the same day, the renderers; a live campaign with them is the next step):
+every SQL question is also asked as `rel:again` (the base text a second time, through
+the plan cache) and under the profile `plan_cache` (`IGNORE_PLAN_CACHE`); the collection
+query itself is hinted where the store asks the question (`doc:<profile>`, D27);
+`rel:inline` writes every bound value as a SQL constant (`connection.inline_binds`, R22);
+`rel:block` / `rel:block_ni` run the statement inside a SQLScript anonymous block, the
+binds typed in its header, through a table variable, with statement inlining on or off
+(`connection.sqlscript_block`, P20); the form `tlp` asks an `ids` / `count` question as
+every record EXCEPT the false ones EXCEPT the unknown ones on rel, the doc views and the
+graph views, and as MINUS with `BIND ... FILTER (?t)` in SPARQL (R23 / D25 / K26); the
+transaction door's PEER CHECK asks the question on a second connection before and after
+the junk and files a `[dirty read]` internal error if the two answers differ (R24 / D26 /
+K27 / G37; `HanaSession.peer_check`, off offline); the path question has
+`graph:script` -- GraphScript's `Shortest_Path` over a second, keys-only homogeneous
+workspace `gws` with its two procedures (`mapping.graph.script_ddl`, G35), read through
+a SQLScript block (compared live only: the offline stand-in skips the workspace and the
+procedures and drops the variant). `connection.positional` leaves `:sv_*` alone (the
+SQLScript variables); `dialect.SCHEMA_TOKEN` is the session's schema in a text.
+
 The provider fills every slot of the core's contract (`ganda/core/provider.py`):
 traversal, select, path and write ASTs, mappings, semantics, rewrites, a probe, mutants.
 `known_bugs.py` guards H4 and B13; A8 and A9 are worked around in the graph renderings.
@@ -238,7 +257,7 @@ ganda/hana/
   semantics.py         the reference: three-valued logic, order, aggregates
   pivots.py            operators a predicate draws (null tests: IS NULL / IS NOT NULL only)
   rewrites.py          equivalent predicate trees (three-valued), arithmetic rewrite
-  connection.py        HanaServer / HanaSession (hdbcli), parameter binding, decoding
+  connection.py        HanaServer / HanaSession (hdbcli), parameter binding (`positional`, `inline_binds`, `sqlscript_block`), decoding (a failure is a `[decode]` finding), the transaction door's peer check
   mapping/             one setup plan per data model (document.py, relational.py, rdf.py)
   concrete_syntax/
     predicate.py       a predicate as SQL (rel, doc views) and as a SPARQL filter
@@ -308,17 +327,14 @@ tests/hana/
    on the compared statement of a WRITE (`UPDATE ... WITH HINT`), and the column-view
    estimation hints once a shape is found that they change. A base-class question on
    doc as a UNION ALL of collection queries is out: the Document Store refuses it (D23).
-8. Track 2 of the improvement plan (probed 2026-10-12, the renderers to come): the
-   `IGNORE_PLAN_CACHE` profile and a repeat twin (`rel:again`); the hinted collection
-   query (D27); constants inlined in SQL (`inline`, R22); SQLScript anonymous blocks
-   with and without `NO_INLINE` (`block`, P20: the body's `:sv_*` are SQLScript
-   variables `connection.positional` leaves alone); the set-operation form `tlp` (R23 /
-   D25 / K26: SPARQL's partition carries its filter through `BIND ... FILTER (?t)`); the
-   peer isolation check of the transaction door (R24 / D26 / K27 / G37); GraphScript
-   `Shortest_Path` / `Neighbors` over a second, homogeneous workspace of UNION ALL views
-   (G35: `Neighbors` takes no direction, an edge-induced `SubGraph` drops a vertex with
-   no edge of the KIND, so the SQLScript block tests the ends first). Also to file:
-   **A10** (K26), with a minimal repro, and the GraphScript doc check for G35's verdict.
+8. Track 2 of the improvement plan (probed and rendered 2026-10-12, its first live
+   campaign still to run): what is left of it -- a reach traversal through GraphScript's
+   `Neighbors` (G35: the four-argument form, outgoing; an edge-induced `SubGraph` drops
+   a vertex with no edge of the KIND, so a per-start guard is needed inside the block,
+   or a GraphScript loop over the starts: probe it first, G38); the `block` positions on
+   the doc views and the graph views (rel only so far); a hint on a write's statement.
+   Also to file: **A10** (K26; `findings/A10-sparql-minus-filter-optional-variable/repro.py`
+   awaits its live run and README), and the GraphScript doc check for G35's verdict.
 
 ## 8. The offline stand-in's limits
 

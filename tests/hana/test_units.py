@@ -713,9 +713,12 @@ def test_the_graph_model_round_trips_offline_without_rdflib(seed):
         diff = verify_state(s, dm, instance)
         assert diff.ok, (dm, diff.problems[:3])
         sessions[dm] = s
+    from tests.hana.run_offline import _offline
+
     kept = []
     for c in cases:
-        queries = {v: t for v, t in c.queries.items() if v.split(":", 1)[0] in sessions}
+        syntaxes = c.params.get("concrete_syntax", {})
+        queries = {v: t for v, t in c.queries.items() if v.split(":", 1)[0] in sessions and _offline(v, t, syntaxes.get(v) if isinstance(syntaxes, dict) else None)}
         if "rel" in queries and "graph" in queries:
             kept.append(dataclasses.replace(c, queries=queries, params={**c.params, "partial": True}))
     results = run_cases(kept, sessions, instance)
@@ -936,6 +939,34 @@ def test_the_set_operation_form_partitions_a_filter_on_every_sql_path_and_in_spa
     tlp = [c for c in cases if c.generator_name == "ir_select" and any(v.endswith(":tlp") or ":tlp+" in v or "+tlp" in v for v in c.queries)]
     assert tlp and all(c.params["select"]["kind"] in ("ids", "count") for c in tlp)
     assert all("rel:tlp" in c.queries and "rdf:tlp" in c.queries for c in tlp)
+
+
+def test_the_graphscript_path_syntax_and_its_workspace():
+    from ganda.hana.dialect import SCHEMA_TOKEN
+    from ganda.hana.mapping import graph as mapping_graph
+
+    schema, instance, cases = _cases(1)
+    steps = [s.text for s in mapping_graph.script_ddl(schema)]
+    assert steps[0].startswith("CREATE VIEW gs_v AS SELECT id, CAST('") and " UNION ALL " in steps[0] and all(nt.name in steps[0] for nt in schema.node_types)
+    assert steps[1].startswith("CREATE VIEW gs_e AS SELECT eid, src_id, dst_id, CAST('") and all(et.name in steps[1] for et in schema.edge_types)
+    assert steps[2] == "CREATE GRAPH WORKSPACE gws VERTEX TABLE gs_v KEY COLUMN id EDGE TABLE gs_e KEY COLUMN eid SOURCE COLUMN src_id TARGET COLUMN dst_id"
+    assert len(steps) == 5 and all(s.startswith("CREATE PROCEDURE p_gs_path") and "LANGUAGE GRAPH READS SQL DATA" in s and SCHEMA_TOKEN in s for s in steps[3:])
+    # every GraphScript variable is sv_*: the texts bind nothing
+    for s in steps[3:]:
+        assert positional(s, {}) == (s, [])
+    assert any(isinstance(s, type(mapping_graph.Sql(""))) and s.text == steps[2] for s in E.mappers["graph"](instance))
+    paths = [c for c in cases if c.generator_name == "ir_path"]
+    assert paths
+    for c in paths:
+        t = c.queries["graph:script"]
+        assert t.startswith("DO (IN sv_a NVARCHAR(256) => :a, IN sv_b NVARCHAR(256) => :b) BEGIN") and t.endswith("END")
+        stmt, params = positional(t, c.bind_vars)
+        assert params == [c.bind_vars["a"], c.bind_vars["b"]] and stmt.count("?") == 2
+        depth = c.params["path"]["depth"] if "path" in c.params else None
+        assert f"HAVING COUNT(*) BETWEEN 1 AND {depth + 1}" in t if depth else "HAVING COUNT(*) BETWEEN 1 AND" in t
+        kind = c.params.get("path", {}).get("edge_type")
+        assert ("p_gs_path_kind(" in t) == (kind is not None) and ("DECLARE sv_na BIGINT" in t) == (kind is not None)
+        assert any(d in t for d in ("'OUTGOING'", "'INCOMING'", "'ANY'"))
 
 
 def test_the_mutant_catalog_corrupts_a_node_value_on_every_data_model():

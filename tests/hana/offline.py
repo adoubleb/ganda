@@ -153,7 +153,9 @@ def _rel_sql(text: str) -> "str | None":
     text = text.replace("CREATE INVERTED HASH INDEX", "CREATE INDEX")
     # a boolean is one of the two strings (`TRUE`, `FALSE`): a cast keeps it one
     text = text.replace("AS BOOLEAN)", "AS TEXT)")
-    if text.startswith("MERGE DELTA OF"):
+    # no delta merge, no second graph workspace and no GraphScript in SQLite (the
+    # `script` path syntax is compared live only)
+    if text.startswith(("MERGE DELTA OF", "CREATE GRAPH WORKSPACE", "CREATE PROCEDURE")):
         return None
     return _inline_literals(text)
 
@@ -380,6 +382,10 @@ def _params(values: list) -> list:
 
 
 class OfflineSession(HanaSession):
+    # one SQLite / rdflib store per session: no second connection for the transaction
+    # door's peer check (compared live only)
+    peer_check = False
+
     def __init__(self, database: str, data_model: str):
         super().__init__(None, database, data_model, timeout_ms=0)
         self.collections: set = set()
