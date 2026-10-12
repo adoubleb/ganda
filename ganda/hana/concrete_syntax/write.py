@@ -236,11 +236,14 @@ def _rel(q: WriteQuery, sp: WriteSyntax, pred, schema: Schema, before: Instance)
                     st.steps.append(Step(f"DELETE FROM {et.name} WHERE src_id IN {victims} OR dst_id IN {victims}"))
         owner_fields = schema.edge_type(table).fields if q.edge else schema.query_fields(table)
         for t in targets:
-            # the LIST child rows go first: the victims are chosen by the table's own rows
+            # the table's own rows go first: a filter may read the LIST child rows (a
+            # membership's EXISTS over the child table), which must still be there when
+            # the victims are chosen; the child rows then go by the victims' ids (the
+            # Instance's, so the order changes nothing about them)
+            st.steps.append(Step(f"DELETE FROM {t}{w}", role=count_role))
             for f in owner_fields:
                 if f.type is FieldType.LIST and ids_in(t):
                     st.steps.append(Step(f"DELETE FROM {child_table(t, f.name)} WHERE owner IN :wgone", {"wgone": ids_in(t)}))
-            st.steps.append(Step(f"DELETE FROM {t}{w}", role=count_role))
         return st
     ftype = _ftype(q, schema)
     f = q.field

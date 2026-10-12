@@ -969,6 +969,36 @@ def test_the_graphscript_path_syntax_and_its_workspace():
         assert any(d in t for d in ("'OUTGOING'", "'INCOMING'", "'ANY'"))
 
 
+def test_a_rel_delete_removes_the_rows_before_their_list_children():
+    """A delete's filter may read the LIST child rows (a membership's EXISTS): the
+    table's own DELETE runs first, the child rows go by the victims' ids afterwards
+    (offline seed 9 caught the reverse order: a delete with `OR(CONTAINSANY, CONTAINS)`
+    removed nothing on rel and graph)."""
+    seen = 0
+    for seed in (1, 2, 3, 9):
+        schema, instance, rng = build(seed, CFG, E)
+        wr = rng.for_generator("ir_write")
+        cur = instance
+        for step in range(40):
+            drawn = sample_write(wr, schema, cur, step)
+            if drawn is None:
+                continue
+            q, rw, syntaxes = drawn
+            after = apply(q, cur)
+            if q.op == "delete":
+                st = E.write_syntax.render(q, syntaxes["rel"][0], rw, "rel", cur, after)
+                texts = [s.text for s in st.steps]
+                mains = [i for i, t in enumerate(texts) if re.match(rf"DELETE FROM (\w+)(\s|$)", t) and re.match(r"DELETE FROM (\w+)", t).group(1) in {nt.name for nt in schema.node_types}]
+                children = [i for i, t in enumerate(texts) if "__" in t.split()[2] and "WHERE owner IN :wgone" in t]
+                for c in children:
+                    owner = texts[c].split()[2].split("__")[0]
+                    main = next(i for i in mains if re.match(r"DELETE FROM (\w+)", texts[i]).group(1) == owner)
+                    assert main < c, st.display()
+                    seen += 1
+            cur = after
+    assert seen > 0
+
+
 def test_the_mutant_catalog_corrupts_a_node_value_on_every_data_model():
     from ganda.hana import mutants
 
