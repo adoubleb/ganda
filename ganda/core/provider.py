@@ -97,6 +97,17 @@ class Semantics:
         `ftype` (a collation the reference does not model makes it inexact)."""
         raise NotImplementedError
 
+    def aggregates_exactly(self, fn: str, ftype) -> bool:
+        """Whether the reference reproduces `fn` (`max` / `min`) over a column of `ftype`
+        (an order the reference does not model, a collated string, makes it inexact)."""
+        return True
+
+    def canonical(self, value):
+        """A bare answer's values as the engine puts them on the wire, so the reference's
+        rows compare in the same form (an engine that prints an integral double as an
+        integer says so here); the identity by default."""
+        return value
+
 
 class Session:
     """One database of a running server: the data model it holds."""
@@ -180,7 +191,10 @@ class Provider:
                     the large-data axes stay inside (`ganda <engine> limits` prints it)
     semantics       `Semantics`: what the reference interpreter must reproduce
     pivots          predicate sampling: NULL_OPS, ORDERED_OPS, LIKE_WILDCARDS,
-                    cross_type(rng, ftype, v), refine(rng, ftype, v)
+                    ordered_ops(ftype) (the comparison operators a column of the type
+                    admits: a subset of ORDERED_OPS where the engine orders a type
+                    the reference cannot model), cross_type(rng, ftype, v),
+                    refine(rng, ftype, v)
     physical_design index kinds and what they enforce, write forms, key rules:
                     draw_index_kind(rng), NON_UNIQUE_KINDS, EDGE_INDEX_DATA_MODELS,
                     is_unique(ix), holds_one_record_per_key(ix), demoted_kind(kind),

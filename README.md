@@ -13,7 +13,7 @@ from the Instance. A disagreement is a finding.
 |---|---|
 | OrientDB | full provider, seed-for-seed equal to the legacy `../OrientDB` fuzzer |
 | SurrealDB | skeleton: connection layer and contract, no query supply yet |
-| ArangoDB | skeleton: connection layer and contract, no query supply yet |
+| ArangoDB | full: three data models (embedded link arrays, edge collections, junction collections), every query generator, verified live against 3.12.11 (`ganda/arangodb/RULES.md`) |
 | SAP HANA | full provider (`doc` / `rel` / `rdf`: Document Store, column tables, Knowledge Graph Engine), verified offline only; `ganda/hana/HANDOFF.md` |
 
 ## Running
@@ -163,7 +163,7 @@ in 350 lines (an in-memory engine whose sessions answer from the AST evaluators)
 4. `concrete_syntax/`: render the four ASTs, at least one syntax per data model.
 5. `known_bugs.py`, `mutants.py`, then set `has_generators = True`.
 
-`ganda/surrealdb/PORTING.md` and `ganda/arangodb/PORTING.md` map each legacy module to
+`ganda/surrealdb/PORTING.md` maps each legacy module to
 its slot.
 
 ## Vocabulary

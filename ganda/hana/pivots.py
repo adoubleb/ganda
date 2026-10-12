@@ -17,6 +17,12 @@ NULL_OPS = ("IS NULL", "IS NOT NULL")
 LIKE_WILDCARDS = "%_\\"
 
 
+def ordered_ops(ftype) -> tuple:
+    """Every comparison operator, on every ordered type: the reference models this
+    engine's order inside each type."""
+    return ORDERED_OPS
+
+
 def cross_type(rng: random.Random, ftype, v):
     return v
 

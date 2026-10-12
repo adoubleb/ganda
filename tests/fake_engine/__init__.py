@@ -348,6 +348,10 @@ class _Pivots:
     LIKE_WILDCARDS = "%"
 
     @staticmethod
+    def ordered_ops(ftype):
+        return _Pivots.ORDERED_OPS
+
+    @staticmethod
     def cross_type(rng, ftype, v):
         return v
 

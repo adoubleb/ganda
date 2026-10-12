@@ -6,7 +6,8 @@ Guidance for Claude Code when working in this repository.
 
 Ganda: a multi-model metamorphic fuzzer with an engine-agnostic core (`ganda/core`) and
 one provider per DBMS (`ganda/orientdb` full; `ganda/hana` full, verified live against
-HANA Cloud 4.00.000.00; `ganda/surrealdb`, `ganda/arangodb` skeletons). `README.md` has the architecture, the provider contract and the glossary
+HANA Cloud 4.00.000.00; `ganda/arangodb` full, verified live against ArangoDB 3.12.11;
+`ganda/surrealdb` skeleton). `README.md` has the architecture, the provider contract and the glossary
 that maps the legacy ports' terms to the ones used here. The legacy fuzzers
 (`../OrientDB`, `../surrealDB`, `../arangoDB`) are reference material: do not edit them.
 
@@ -20,6 +21,8 @@ python3 -m ganda orientdb probe                    # Docker (or ORIENT_URL / ORI
 python3 -m ganda orientdb run --iterations 20 --seed 1000 --workers 2
 python3 -m ganda orientdb mutate --trials 8 --seed 1 --tag before-change
 python3 -m ganda surrealdb doctor
+python3 -m ganda arangodb probe                    # Docker (or ARANGO_URL / ARANGO_PASSWORD); ARANGO_IMAGE picks the image
+python3 -m ganda arangodb run --scale large --iterations 4 --seed 1 --workers 4   # ArangoDB at the large scale
 python3 -m ganda orientdb limits                   # what the engine can hold; the large profile on it
 python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the storage-engine stress mode
 ```
@@ -84,6 +87,58 @@ Adding a concrete syntax: a choice in the catalog of its module (`SYNTAXES` and
 the probe if a new fact is relied on, a campaign, and the mutation benchmark A/B over
 the same seeds. A new syntax changes the cases, so parity with the legacy tree ends
 there on purpose: record that in the commit.
+
+## ArangoDB
+
+`ganda/arangodb/RULES.md` holds the engine rules the oracle rests on, each marked
+documented / legacy-probed / probed (`ganda arangodb probe`, fact ids `V` values, `S`
+statement forms, `W` write doors, `L` limits, `T` timeout, `A` findings pinned). Layout
+mirrors OrientDB's: `dialect.py` (the logical `id` attribute, the percent-encoded
+`_key`, `engine_id` / `logical_id`), `physical_design.py` (persistent indexes, unique
+or sparse; the expanded `f[*]` array index for a LIST field; no signed zero in the
+pools), `config.py`, `limits.py`, `connection.py` (the cursor API, `bind_subset`, stream
+transactions, `maxRuntime` as the timeout), `tx.py` (the transaction door's script
+text), `mapping/` (bulk inserts chunked under half the request bound, `mergeObjects:
+false` on every update door), `semantics.py` (the total type order, exact numbers, code
+point string equality, `LIKE` as an ICU regex), `pivots.py` (`ordered_ops`: a string
+column takes the equality family only -- ICU collation has no reference), `rewrites.py`,
+`concrete_syntax/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),
+`known_bugs.py` (A40 guarded), `mutants.py`, `scripts/probe.py`.
+
+Campaigns run on mousedeer (`ssh mousedeer`, a ControlMaster socket the user opens with
+`ssh -fN mousedeer`; the tree is rsynced to `/home/hakam/ganda/ganda`, the image there is
+`arangodb:3.12.11`, so `export ARANGO_IMAGE=arangodb:3.12.11`); the probe and the unit
+tests run anywhere. The legacy port `../arangoDB` is reference material (its A1..A39
+are in `../arangoDB/issue-drafts/`); this port's findings go under `issues/` (A40 on).
+
+## Live verification of ArangoDB (2026-10-09, ArangoDB 3.12.11 on mousedeer)
+
+- `ganda arangodb probe`: 25 facts hold (`RULES.md` lists them with their status); the
+  value facts V2, V3 and V5 are MIRROR checks of `semantics.py` against the engine over
+  boundary pools, which is how three assumptions fell (numbers compare exactly, `LIKE`
+  crosses a newline, two nulls are not ordered).
+- `run --iterations 3 --seed 1` at the default scale with every axis on: 707 cases, 0
+  findings, 0 symmetric or internal errors, 0 setup asymmetries; A40 withheld on 87
+  variants. The smokes before it found five faults of the port (the door's collections,
+  `mergeObjects`, the hint on a sparse or composite index, the base class in a semi-join,
+  `VALUES()` on a null map) and the engine inconsistency A40.
+- `run --scale large --iterations 4 --seed 1 --workers 4` with every axis on (seeds of
+  7645 / 10181 / 5239 / 10077 nodes and 16000 / 13649 / 35015 / 42332 edges, hubs of up
+  to 6456 edges, up to 242 grown values and 3.3 M string characters, up to 6 binary
+  columns, three with the base class): 254 cases, 92.1 % asserting, 0 setup asymmetries,
+  0 write-state diffs, 16 writes, 30 timeouts (the doc data model's incoming hops scan
+  the sources per start record), 3824 s on one server shared by the four workers. Its
+  one bundle was a cursor whose time to live expired between batch fetches of a
+  self-join's millions of ids (fixed: an hour of `ttl`, errorNum 1600 read as no answer).
+  The first attempt at this profile sat for an hour in one stream transaction of a
+  hundred thousand single-statement requests (fixed: `fold_steps` and a transaction per
+  chunk) and found **A41** on seed 3.
+- `mutate --trials 3 --seed 1`: 17 of 18 mutants caught, mean rate 0.944 (the miss is
+  `graph_stale_edge_update`, which needs edge-update churn); with
+  `--churn-edge-update-probability 0.2`: 16 of 18, mean 0.833 -- the two structural
+  misses drop edges whose EdgeUpdate churn then updates a missing document, which fails
+  the mutant's SETUP (errorNum 1202), and the runner skips rather than scores a trial
+  whose setup fails.
 
 ## SAP HANA
 

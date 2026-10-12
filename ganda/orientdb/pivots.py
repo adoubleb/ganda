@@ -46,6 +46,12 @@ def lossy_pivot(ftype: FieldType, v) -> bool:
     return False
 
 
+def ordered_ops(ftype) -> tuple:
+    """Every comparison operator, on every ordered type: the reference models this
+    engine's order inside each type."""
+    return ORDERED_OPS
+
+
 def cross_type(rng: random.Random, ftype: FieldType, v):
     """The same pivot rendered in a form the column does not hold exactly: a LONG
     pivot as an exact double (`5.0`) or a half-step off it (`5.5`, where an index key

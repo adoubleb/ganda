@@ -95,7 +95,10 @@ def normalize_deep(value: Any) -> Any:
 
 
 def normalize_bare(case, value: Any) -> Any:
-    """A bare answer's canonical form, under the case's engine's value order."""
+    """A bare answer's canonical form, under the case's engine's value order and its
+    wire form (`Semantics.canonical`)."""
+    engine = getattr(case, "engine", None)
+    value = (engine.semantics if engine is not None else DEFAULT_SEMANTICS).canonical(value)
     if case.comparison is Comparison.NESTED_VALUE and case.params.get("unordered_values"):
         return normalize_deep(value)
     return normalize(case.comparison, value, _key_of(case))

@@ -159,6 +159,16 @@ def sample_query(rng: random.Random, schema: Schema, instance: Instance, max_hop
     return q
 
 
+def _aggregates_exactly(q: TraversalQuery, schema: Schema, instance: Instance) -> bool:
+    """Whether the semantics reproduce a `max` / `min` projection over the projected
+    field's type (`Semantics.aggregates_exactly`)."""
+    if q.projection not in ("max", "min", "emax", "emin"):
+        return True
+    from ganda.core.ast.traversal import projected_type
+
+    return schema.engine.semantics.aggregates_exactly(q.projection.lstrip("e"), FieldType(projected_type(q, instance)))
+
+
 def build_case(q: TraversalQuery, rng: random.Random, schema: Schema, instance: Instance) -> "QueryCase | None":
     syn = schema.engine.traversal_syntax
     queries: dict = {}
@@ -183,7 +193,7 @@ def build_case(q: TraversalQuery, rng: random.Random, schema: Schema, instance: 
     params = {
         "shape": shape_signature(q),
         "traversal": q.to_params(),
-        "reference": q.reference,
+        "reference": q.reference and _aggregates_exactly(q, schema, instance),
         "projection": q.projection,
         "field": q.field,
         "concrete_syntax": chosen,

@@ -391,13 +391,19 @@ def evaluate(q: SelectQuery, instance: Instance):
 
 
 def reference_ok(q: SelectQuery, instance: Instance) -> bool:
-    """Whether `evaluate` is exact for `q`: the filter's leaves are, and an id-tiebroken
+    """Whether `evaluate` is exact for `q`: the filter's leaves are, an id-tiebroken
     ordering is one the engine's semantics reproduce (`orders_exactly`: a collated
-    string order or custom keys may not be)."""
+    string order or custom keys may not be), and so is a `max` / `min`
+    (`aggregates_exactly`)."""
     if q.where is not None and not q.where.reference:
         return False
+    sem = instance.schema.engine.semantics
     if q.kind == "page":
         ftype = column(instance.schema, q, q.field).type
         custom_keys = any(getattr(n, "custom_key", None) is not None for n in records(q, view(q, instance)))
-        return instance.schema.engine.semantics.orders_exactly(ftype, custom_keys)
+        return sem.orders_exactly(ftype, custom_keys)
+    if q.kind == "agg" and q.fn in ("max", "min"):
+        return sem.aggregates_exactly(q.fn, column(instance.schema, q, q.field).type)
+    if q.kind == "group" and q.fn in ("max", "min"):
+        return sem.aggregates_exactly(q.fn, column(instance.schema, q, q.arg).type)
     return True
