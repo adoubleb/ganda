@@ -63,7 +63,10 @@ ADMIN_TIMEOUT_MS = 300000
 ADMIN_RETRIES = 3
 BOOLEAN_TYPE_CODES = {28}
 
-_TOKEN = re.compile(r"('(?:[^']|'')*')|(\"(?:[^\"]|\"\")*\")|(?<![\w:]):([A-Za-z_][A-Za-z0-9_]*)")
+# a `:name` is a bind marker -- except a SQLScript variable of an anonymous block, which
+# the renderers name `:tv_*` (`concrete_syntax/select.py`, the `block` positions): the
+# block's header binds the real markers (`IN tv_p BIGINT => :p`) and its body reads them
+_TOKEN = re.compile(r"('(?:[^']|'')*')|(\"(?:[^\"]|\"\")*\")|(?<![\w:]):(?!tv_)([A-Za-z_][A-Za-z0-9_]*)")
 _SUFFIXES = ("__json", "__bool", "__int", "__float", "__num")
 
 
