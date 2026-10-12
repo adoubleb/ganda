@@ -8,9 +8,10 @@ answers its id where the variant's text is the bug's shape
     H4   SQL over the doc views (collections read through UNNEST) adds up the values of
          rows the joins exclude: a traversal sum fails with [314] numeric overflow where
          the answer fits BIGINT, even where no path exists (`issues-draft/H4_repro.py`)
-    B13  the triple store's AVG over xsd:long computes in double (a sum above 2^53 loses
-         its last bit, the quotient keeps every double digit) while HANA SQL's AVG over
-         BIGINT is DECIMAL(25,6), the quotient truncated to six places (probe R20 / K23).
+    B13  the triple store's AVG over xsd:long is double(SUM) / COUNT (a sum above 2^53
+         loses its low bits, a quotient keeps seventeen digits) while HANA SQL's AVG over
+         BIGINT is DECIMAL(25,6), the quotient truncated to six places (probe R20 / K23,
+         `findings/B13-sparql-avg-in-double/`).
          An rdf average is compared only where the two agree: a sum below 2^53 and a
          quotient exact in six places.
 
