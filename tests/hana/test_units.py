@@ -179,8 +179,11 @@ def test_cross_type_pivots_stay_inside_the_bound_and_render_typed_on_every_data_
     assert predicate.sql(fint, "t", "n1") == "t.f5 = :p"
     # the collection filter casts the pivot; a double against an integer field as DOUBLE
     assert document.doc_pred(gt) == '$."f1" > CAST(:p AS DOUBLE)' and document.doc_pred(fint) == '$."f5" = CAST(:p__dec AS DECIMAL)'
-    # SPARQL: literals of the pivot's own type, compared numerically
+    # SPARQL: literals of the pivot's own type, compared numerically -- except an integer
+    # pivot on a FLOAT field, written as the double it is (rdflib's IN compares by term)
     assert predicate.sparql_filter(gt, "r") == 'OPTIONAL { ?r p:f1 ?r_f1 } FILTER ((BOUND(?r_f1) && (?r_f1 > "1.5"^^xsd:double)))'
+    assert predicate.sparql_filter(fint, "r").endswith('(?r_f5 = "2.0"^^xsd:double)))')
+    assert predicate.sparql_filter(Predicate("source", "f5", "IN", "p", [2, 3.5], True, "float"), "r").endswith('(?r_f5 IN ("2.0"^^xsd:double, "3.5"^^xsd:double))))')
     # openCypher: both sides doubles, the pivot as TOFLOAT of its text (G36), no parameter
     for leaf, text in ((gt, "(TOFLOAT(t.N1_F1) > TOFLOAT('1.5'))"), (isin, "(TOFLOAT(t.N1_F1) = TOFLOAT('1.5') OR TOFLOAT(t.N1_F1) = TOFLOAT('2'))"), (btw, "(TOFLOAT(t.N1_F1) >= TOFLOAT('0.5') AND TOFLOAT(t.N1_F1) <= TOFLOAT('2.5'))"), (rev, "(TOFLOAT('1.5') > TOFLOAT(t.N1_F1))"), (fint, "(t.N1_F5 = TOFLOAT('2'))")):
         params = graph.Params()
@@ -762,7 +765,8 @@ def test_every_case_carries_one_hint_profile_per_sql_data_model(seed):
             plain = hints.strip(last)
             assert not plain.lstrip().startswith("PREFIX ")
             if dm == "doc":
-                assert plain.startswith("WITH raw_v_") or plain.startswith("WITH v_"), v
+                # the views, or the collection query itself where the store asks (D27)
+                assert plain.startswith(("WITH raw_v_", "WITH v_", "SELECT ")), v
             if dm == "rdf":
                 assert plain.startswith("SELECT * FROM SPARQL_TABLE("), v
         assert all(len(ps) == 1 for ps in profiles.values()) and len(set().union(*profiles.values()) if profiles else set()) <= 1, (c.shape, profiles)
@@ -784,6 +788,8 @@ def test_no_variant_repeats_a_text_and_the_hint_reaches_every_rdf_question(seed)
             continue
         by_model: dict = {}
         for v, t in c.queries.items():
+            if v.endswith(":again"):
+                continue  # the repeat twin IS the base text again, on purpose
             by_model.setdefault(v.split(":", 1)[0], []).append((v, t))
         for dm, pairs in by_model.items():
             texts = [t for _, t in pairs]
@@ -792,6 +798,48 @@ def test_no_variant_repeats_a_text_and_the_hint_reaches_every_rdf_question(seed)
             assert f"rdf:table_fn+{c.params['hint']}" in c.queries, (c.shape, sorted(c.queries))
             hinted_rdf += 1
     assert hinted_rdf > 20
+
+
+@pytest.mark.parametrize("seed", range(1, 4))
+def test_a_traversal_the_doc_views_cannot_ask_is_still_asked_of_the_other_data_models(seed):
+    """A traversal with a LIST membership (or a whole-list comparison) in a predicate has
+    no doc syntax (B6 / H2); the case is partial -- rel, the graph data model and rdf
+    still compare -- where it used to be dropped on every data model."""
+    _schema, _instance, cases = _cases(seed)
+    partial = [c for c in cases if c.generator_name == "ir_traversal" and c.params.get("partial")]
+    assert partial, "no partial traversal case: the LIST predicates of this seed all have a doc form?"
+    for c in partial:
+        assert not any(v.split(":")[0] == "doc" for v in c.queries), (c.shape, sorted(c.queries))
+        assert {v.split(":")[0] for v in c.queries} == {"rel", "graph", "rdf"}, (c.shape, sorted(c.queries))
+        # a membership or a whole-list comparison somewhere in the predicates' signatures
+        assert any(any(tok in sig for tok in ("CONTAINS", "=", "<>", "IN")) for sig in c.params["predicates"]), c.params["predicates"]
+    assert not any(c.params.get("partial") for c in cases if c.generator_name == "ir_traversal" and "doc" in c.queries)
+
+
+@pytest.mark.parametrize("seed", range(1, 3))
+def test_the_repeat_twin_and_the_hinted_collection_query(seed):
+    """`rel:again` is the rel base text verbatim on every select question (a second run,
+    through the plan cache); `doc:<profile>` is the hinted collection query where the
+    store asks the question, the hinted views otherwise; `plan_cache` is a profile."""
+    from ganda.hana.concrete_syntax import hints
+
+    assert "plan_cache" in hints.NAMES and hints.PROFILES["plan_cache"] == ("IGNORE_PLAN_CACHE",)
+    _schema, _instance, cases = _cases(seed)
+    selects = [c for c in cases if c.generator_name == "ir_select"]
+    assert selects
+    collection_hinted = 0
+    for c in selects:
+        assert c.queries["rel:again"] == c.queries["rel"], c.shape
+        assert not any(v.startswith("rel:") and v != "rel:again" and "again" in v for v in c.queries)
+        profile = c.params["hint"]
+        hinted = c.queries.get(f"doc:{profile}")
+        base = c.queries.get("doc")
+        if hinted is None or base is None:
+            continue
+        assert hints.strip(hinted) == base, (c.shape, hinted, base)
+        if not base.startswith("WITH "):
+            collection_hinted += 1
+    assert collection_hinted > 10
 
 
 def test_the_mutant_catalog_corrupts_a_node_value_on_every_data_model():

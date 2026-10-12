@@ -221,6 +221,12 @@ class Provider:
     mutants         the mutation benchmark's catalog (`ganda.core.mutation.mutants`)
     extra_generators  {generator name: (rng, schema, instance, cfg) -> cases}: the
                     engine-only query generators, with `reference_for` for their answers
+    compare_despite_errors  the oracle compares the variants that answered when another
+                    errored (default False: an error ends the comparison)
+    partial_traversals  a traversal with no syntax on some data model stays as a partial
+                    case (default False: the question is dropped)
+    error_signature(message) -> str  the class of an error's text the finding key adds to
+                    the erroring variant ('' by default: the key names variants alone)
     """
 
     name = ""
@@ -244,6 +250,23 @@ class Provider:
     coverage_levels = ("off", "seed", "case", "variant")
     # False for a provider that only has its connection layer so far
     has_generators = True
+    # the oracle compares the variants that answered even when another one errored: the
+    # error asymmetry then carries any mismatch among the rest, and the finding key names
+    # it (`oracle.build_result`, `dedup`). Off, an error ends the comparison -- the legacy
+    # fuzzers' behaviour, which the OrientDB parity baseline records
+    compare_despite_errors = False
+    # a traversal question some data model has no concrete syntax for is kept as a
+    # PARTIAL case (the others compare among themselves and with the reference, as a
+    # select does); off, the question is dropped on every data model -- the legacy
+    # behaviour the OrientDB parity baseline records
+    partial_traversals = False
+
+    def error_signature(self, message: str) -> str:
+        """A short class of an engine error's text (its code, say) that the finding key of
+        an error asymmetry or an internal error adds to the erroring variant's name, so
+        two different refusals on one shape are two findings; '' (the default) keeps the
+        key by variants alone."""
+        return ""
 
     def schema(self, *args, **kwargs):
         """A `Schema` bound to this engine (hand-built schemas in tests and probes)."""

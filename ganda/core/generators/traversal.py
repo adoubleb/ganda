@@ -174,10 +174,19 @@ def build_case(q: TraversalQuery, rng: random.Random, schema: Schema, instance: 
     queries: dict = {}
     chosen: dict = {}
     pulled_up: list = []
+    skipped: list = []
     for data_model in schema.engine.data_models:
         options = syn.syntaxes_for(q, schema, data_model)
         if not options:
-            return None
+            # a data model with no syntax for the question (a LIST membership the doc
+            # data model's views cannot ask in a traversal, on SAP HANA) leaves the case
+            # PARTIAL where the provider says so (`Provider.partial_traversals`), as a
+            # select does: the others still compare among themselves and with the
+            # reference; otherwise the question is dropped on every data model
+            if not getattr(schema.engine, "partial_traversals", False):
+                return None
+            skipped.append(data_model)
+            continue
         base = rng.choice(options)
         chosen[data_model] = base
         queries[data_model] = syn.render(q, schema, data_model, base)
@@ -190,6 +199,8 @@ def build_case(q: TraversalQuery, rng: random.Random, schema: Schema, instance: 
             queries[f"{data_model}:pull_up"] = syn.render(q, schema, data_model, base, pull_up=True)
             chosen[f"{data_model}:pull_up"] = base
             pulled_up.append(f"{data_model}:pull_up")
+    if not queries:
+        return None
     params = {
         "shape": shape_signature(q),
         "traversal": q.to_params(),
@@ -200,6 +211,8 @@ def build_case(q: TraversalQuery, rng: random.Random, schema: Schema, instance: 
         "pulled_up": pulled_up,
         "predicates": [p.signature for p in q.predicates],
     }
+    if skipped:
+        params["partial"] = True
     case = QueryCase(
         generator_name="ir_traversal",
         edge_type=q.hops[0].edge_type,
@@ -224,7 +237,7 @@ def generate_traversal_cases(rng: random.Random, schema: Schema, instance: Insta
         case = build_case(q, rng, schema, instance)
         if case is None:
             continue
-        key = (*(case.queries[dm] for dm in schema.engine.data_models), repr(sorted(case.bind_vars.items(), key=lambda kv: kv[0])))
+        key = (*(case.queries.get(dm, "") for dm in schema.engine.data_models), repr(sorted(case.bind_vars.items(), key=lambda kv: kv[0])))
         if key in seen:
             continue
         seen.add(key)

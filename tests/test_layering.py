@@ -69,6 +69,8 @@ def test_a_full_provider_fills_every_slot():
             missing = [m for m in members if not hasattr(getattr(engine, slot), m)]
             assert not missing, (name, slot, missing)
         assert engine.mutants and len({m.name for m in engine.mutants}) == len(engine.mutants)
+        # the oracle's two provider-set options (`core/provider.py`)
+        assert isinstance(engine.compare_despite_errors, bool) and isinstance(engine.partial_traversals, bool) and isinstance(engine.error_signature("[1] x"), str)
 
 
 def test_the_fake_engine_fills_the_same_contract():

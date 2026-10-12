@@ -338,10 +338,16 @@ def _reference_check(case: QueryCase, instance: "Instance | None", data_model_va
 
 
 def build_result(case: QueryCase, rows: dict, errors: dict, instance: "Instance | None") -> CaseResult:
-    if any(errors.values()):
+    """The comparison. An error on any variant ends it (`ok` only when every variant
+    erred alike) -- unless the provider says `compare_despite_errors`: the variants that
+    answered are then compared among themselves and with the reference, so an error
+    asymmetry does not hide a wrong answer among the rest (the result carries both)."""
+    failed = any(errors.values())
+    if failed and not getattr(case.engine, "compare_despite_errors", False):
         return CaseResult(case=case, ok=all(errors.values()), rows=rows, errors=errors)
+    asymmetry = failed and not all(errors.values())
 
-    variants = [s for s in case.variants if s in rows]
+    variants = [s for s in case.variants if s in rows and not errors.get(s)]
     pairs = list(itertools.combinations(variants, 2))
     base_data_models = [s for s in variants if ":" not in s]
 
@@ -353,7 +359,7 @@ def build_result(case: QueryCase, rows: dict, errors: dict, instance: "Instance 
             if normalized[left] != normalized[right]
         ]
         ref_mismatches = _reference_check(case, instance, {s: rows[s] for s in base_data_models})
-        return CaseResult(case=case, ok=not mismatches and not ref_mismatches, rows=rows, errors=errors, mismatches=mismatches, reference_mismatches=ref_mismatches)
+        return CaseResult(case=case, ok=not mismatches and not ref_mismatches and not asymmetry, rows=rows, errors=errors, mismatches=mismatches, reference_mismatches=ref_mismatches)
 
     key = _key_of(case)
     maps: dict = {}
@@ -373,7 +379,7 @@ def build_result(case: QueryCase, rows: dict, errors: dict, instance: "Instance 
     ref_mismatches = _reference_check(case, instance, {s: maps[s] for s in base_data_models})
     return CaseResult(
         case=case,
-        ok=not mismatches and not ref_mismatches and not dups,
+        ok=not mismatches and not ref_mismatches and not dups and not asymmetry,
         rows=rows,
         errors=errors,
         mismatches=mismatches,

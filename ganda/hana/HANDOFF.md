@@ -48,6 +48,28 @@ paths, 4 writes each; the base class drawn in selects and writes) ran 32 and 30 
 findings, 0 setup asymmetries, 0 state leaks and 0 write-state diffs; the 125-fact probe's
 new facts hold.
 
+Later on 2026-10-12, after a review of where the oracle was blind (**track 1** of the
+improvement plan): a traversal the doc views cannot ask (a LIST membership next to the
+UNNEST edge views) is a PARTIAL case asked of rel, graph and rdf instead of being dropped
+on every data model (`Provider.partial_traversals`, HANA on); the oracle compares the
+variants that answered when another one errored, so an error asymmetry no longer hides a
+wrong answer (`Provider.compare_despite_errors`, HANA on; the finding key then names the
+mismatching pairs and the error's `[code]`, `Provider.error_signature`); a failure in
+result decoding is an internal `EngineError` `[decode] ...` (a finding, never a dead
+worker), and a message confessing an internal failure is internal under any code;
+cross-type numeric pivots (`pivots.cross_type`: a double against an INT column, an
+integer against a FLOAT column, below 10^12) and `NOT IN` are drawn, each typed per data
+model (RULES.md "Values"); no variant repeats another's text on its data model
+(`select._rewrite_changes_text`, `doc:view` on a views-only question, `rdf:from` on a
+median, `rdf:native` on a null test); the rdf hint rides `table_fn` as a single-axis
+variant on every question; the mutant catalog has a node-value corruption per data model
+and its strict-to-inclusive corruption meets the collection filter's casts. Sixteen probe
+facts ran live for it and for track 2 (R21-R24, D24-D27, K24-K27, G35-G37, P20: 141
+facts in all); K26 turned up a candidate defect of the triple store (a `MINUS` group
+whose FILTER names one OPTIONAL variable removes every solution; A10, to be filed) and
+K25 closed the rdf `avg` question (the store's `xsd:decimal` arithmetic is double: B13
+stays). The campaign statistics count `cases_partial`.
+
 The provider fills every slot of the core's contract (`ganda/core/provider.py`):
 traversal, select, path and write ASTs, mappings, semantics, rewrites, a probe, mutants.
 `known_bugs.py` guards H4 and B13; A8 and A9 are worked around in the graph renderings.
@@ -229,7 +251,7 @@ ganda/hana/
     write.py           the write AST and its execution steps (a base-class write per subclass)
     tx.py              the transaction door of the select AST
     methods.py         the method catalog (SQL / SPARQL / Python mirror)
-  known_bugs.py        filed findings (none yet)
+  known_bugs.py        the guards: H4 (a doc traversal sum the views overflow), B13 (an rdf avg where double arithmetic parts from DECIMAL(25,6))
   mutants.py           the mutation benchmark's catalog
   scripts/probe.py     `ganda hana probe`
 tests/hana/
@@ -283,10 +305,20 @@ tests/hana/
    `RDF_GRAPH_TO_GRAPH_WORKSPACE` loading the graph from the rdf model (new in QRC
    2/2026); typed parameters (`graph.TYPED_PARAMS`) as a syntax of their own.
 7. Plan steering (done 2026-10-12, `concrete_syntax/hints.py`): what is left -- a hint
-   on the compared statement of a WRITE (`UPDATE ... WITH HINT`), and profiles for the
-   plan-cache (`IGNORE_PLAN_CACHE`) and the column-view estimation hints once a shape is
-   found that they change. A base-class question on doc as a UNION ALL of collection
-   queries (the engine's own union) once probe D23 says the Document Store takes it.
+   on the compared statement of a WRITE (`UPDATE ... WITH HINT`), and the column-view
+   estimation hints once a shape is found that they change. A base-class question on
+   doc as a UNION ALL of collection queries is out: the Document Store refuses it (D23).
+8. Track 2 of the improvement plan (probed 2026-10-12, the renderers to come): the
+   `IGNORE_PLAN_CACHE` profile and a repeat twin (`rel:again`); the hinted collection
+   query (D27); constants inlined in SQL (`inline`, R22); SQLScript anonymous blocks
+   with and without `NO_INLINE` (`block`, P20: the body's `:sv_*` are SQLScript
+   variables `connection.positional` leaves alone); the set-operation form `tlp` (R23 /
+   D25 / K26: SPARQL's partition carries its filter through `BIND ... FILTER (?t)`); the
+   peer isolation check of the transaction door (R24 / D26 / K27 / G37); GraphScript
+   `Shortest_Path` / `Neighbors` over a second, homogeneous workspace of UNION ALL views
+   (G35: `Neighbors` takes no direction, an edge-induced `SubGraph` drops a vertex with
+   no edge of the KIND, so the SQLScript block tests the ends first). Also to file:
+   **A10** (K26), with a minimal repro, and the GraphScript doc check for G35's verdict.
 
 ## 8. The offline stand-in's limits
 

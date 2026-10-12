@@ -184,6 +184,15 @@ variant is gone. Also found: HANA SQL's `AVG(BIGINT)` is `DECIMAL(25,6)` TRUNCAT
 places (the reference follows it) while the triple store's AVG computes in double (B13,
 guarded in `known_bugs`); a BOOLEAN is refused inside COUNT and in a comparison (B14).
 
+The oracle on HANA runs with two provider options the core added 2026-10-12 and the
+other providers keep off (so the OrientDB parity baseline stands): `partial_traversals`
+(a traversal the doc views cannot ask stays a partial case instead of being dropped
+everywhere) and `compare_despite_errors` (the variants that answered are compared when
+another one errored; the finding key names the mismatching pairs and the error's code
+through `error_signature`). Cross-type numeric pivots and `NOT IN` are drawn
+(`hana/pivots.py`), each typed per data model (RULES.md "Values"); no variant repeats
+another's text on its data model; a decoding failure is an internal `EngineError`.
+
 Verified live against HANA Cloud 4.00.000.00 (2026-10-09): the probe is 57/57, the first
 campaigns run, and six engine defects are written up with repros under
 `ganda/hana/issues-draft/` -- **H1** (an `xsd:double` is serialized to ~6 significant
@@ -208,7 +217,7 @@ a direct address. `connection.connect()` retries a lost connect (`HANA_CONNECT_R
 pytest tests/hana tests/test_layering.py -q        # no server (test_offline needs rdflib)
 python3 -m tests.hana.run_offline --seeds 1 10     # whole campaigns on SQLite + rdflib through the real session code
 python3 -m ganda hana doctor
-python3 -m ganda hana probe                        # 118 facts (R/D/K 2026-10-10, G 2026-10-11, P and the 2026-10-12 facts); `probe K5 D` for a subset
+python3 -m ganda hana probe                        # 141 facts (R/D/K 2026-10-10, G 2026-10-11, P and the 2026-10-12 facts); `probe K5 D` for a subset
 ```
 
 After any change to a HANA renderer, mapping or semantics: the offline runner first (it

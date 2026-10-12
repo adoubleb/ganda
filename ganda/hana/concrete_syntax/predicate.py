@@ -156,6 +156,17 @@ def _like(v: str, pattern: str, regex: bool) -> str:
     return f"({v} = {sparql_literal(pattern)})"
 
 
+def _lit(p, value) -> str:
+    """A pivot as a SPARQL literal: its own type -- except an integer pivot against a
+    FLOAT field (`pivots.cross_type`), written as the double it equals: the triple store
+    compares `IN` by numeric promotion either way (probe K24), the offline stand-in
+    (rdflib) compares `IN` by term, so the same-typed literal keeps the two in step
+    while the SQL, collection and cypher texts still ask the cross-type question."""
+    if p.ftype == "float" and isinstance(value, int) and not isinstance(value, bool):
+        return sparql_literal(float(value))
+    return sparql_literal(value)
+
+
 def _leaf(p, record: str, regex: bool, native: bool) -> "tuple[str, str | None]":
     """(a leaf's test, the variable whose unboundness makes it UNKNOWN, or None for a
     two-valued test). The test itself never raises once that variable is bound."""
@@ -185,12 +196,12 @@ def _leaf(p, record: str, regex: bool, native: bool) -> "tuple[str, str | None]"
     if p.op == "LIKE":
         return _like(expr, p.pivot, regex), v
     if p.op == "BETWEEN":
-        return f"({expr} >= {sparql_literal(p.pivot[0])} && {expr} <= {sparql_literal(p.pivot[1])})", v
+        return f"({expr} >= {_lit(p, p.pivot[0])} && {expr} <= {_lit(p, p.pivot[1])})", v
     if p.op in ("IN", "NOT IN"):
-        listed = ", ".join(sparql_literal(x) for x in p.pivot)
+        listed = ", ".join(_lit(p, x) for x in p.pivot)
         return f"({expr} {p.op} ({listed}))", v
     op = "!=" if p.op == "<>" else p.op
-    lit = sparql_literal(p.pivot)
+    lit = _lit(p, p.pivot)
     if p.rev:
         mirrored = "!=" if MIRROR[p.op] == "<>" else MIRROR[p.op]
         return f"({lit} {mirrored} {expr})", v

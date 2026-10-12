@@ -10,8 +10,11 @@ Every rule below is something the provider's renderings or its reference semanti
 - **probed 2026-10-09**: confirmed live against HANA Cloud 4.00.000.00 (`SYS.M_DATABASE.VERSION`
   = `4.00.000.00.1788859455`), the whole probe green (57/57) and the first campaigns run;
   **probed 2026-10-11 / 2026-10-12**: the graph facts, then the plan-steering, NOT, custom-key
-  and inheritance facts (118 facts in all; the K facts re-run 2026-10-12 after a probe-script
-  bug had kept them from running since the graph commit).
+  and inheritance facts, then the sixteen facts of the improvement plan (cross-type pivots,
+  SQL constants, the set-operation form, isolation across connections, SQLScript blocks,
+  GraphScript, the triple store's decimal AVG, the hinted collection query: 141 facts in
+  all; the K facts re-run 2026-10-12 after a probe-script bug had kept them from running
+  since the graph commit).
 
 Engine defects found live, written up with repros under `issues-draft/`:
 **H1** (an `xsd:double` is serialized to ~6 significant figures in SPARQL results though stored
@@ -141,7 +144,7 @@ no cross-model confound.
 |---|---|
 | The hint clause is the last clause of a SELECT, after LIMIT / OFFSET, and closes a `WITH ... SELECT` query, a statement over a derived table with a LEFT JOIN and a correlated scalar subquery, one reading `OPENCYPHER_TABLE` or `SPARQL_TABLE`, and a SQL view over a collection alike; `THROW_ERROR` blocks the statement (`[256] statement execution blocked by the THROW_ERROR hint`), and an unknown hint name is an error, not ignored (`[468] hint error: invalid hint`). | doc, probe P0, probed 2026-10-12 |
 | Every profile is accepted on every one of those shapes and answers the plain statement's rows. A profile the engine refuses on some shape would be dropped from `hints.PROFILES`, not worked around. | probe P1-P16, probed 2026-10-12 (fourteen profiles; `hex` and `esx` accepted on every shape the same day, their row comparison the next run) |
-| `USE_HEX_PLAN` and `USE_ESX_PLAN` are accepted on every shape (the first run recorded them), so they are the profiles `hex` and `esx`; `IGNORE_PLAN_CACHE` is recorded as a candidate. | probed 2026-10-12, probe P17 (observed) |
+| `USE_HEX_PLAN` and `USE_ESX_PLAN` are accepted on every shape (the first run recorded them), so they are the profiles `hex` and `esx`; `IGNORE_PLAN_CACHE` was accepted on every shape as an observation and is the profile `plan_cache` (its row comparison: probe P17, the next live run). Beside it the `again` position runs the rel base text a second time, through the cached plan. | probed 2026-10-12, probe P17 |
 | The collection query under every profile answers its plain rows (a filter with LIKE, an ordering with LIMIT, a count, a GROUP BY): the hinted `doc:<profile>` variant rides the collection query where the store asks the question, the views otherwise. | probe D27, probed 2026-10-12 |
 
 ## The collection filter's NOT (`concrete_syntax/document.py`, the `neg` position)
