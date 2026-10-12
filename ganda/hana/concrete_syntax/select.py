@@ -73,11 +73,13 @@ from ganda.hana.concrete_syntax.traversal import agg_proj, guarded, sparql_table
 from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT
 
 FILTERS = ("plain", "rw", "rev", "arith")
-POSITIONS = ("table", "scan", "nest", "view", "from", "table_fn", "native", "match", "neg")
+POSITIONS = ("table", "scan", "nest", "view", "from", "table_fn", "native", "match", "neg", "again")
 FORMS = ("base", "order", "fn", "jscan", "jrev")
 DATA_MODELS = ("doc", "rel", "graph", "rdf")
 _POSITIONS_OF = {
-    "rel": ("table", "scan", "nest"),
+    # `again`: the base text a second time, after the base has run -- the second execution
+    # goes through the plan cache (beside the `plan_cache` hint profile, which ignores it)
+    "rel": ("table", "scan", "nest", "again"),
     "doc": ("table", "scan", "nest", "view", "neg"),
     "graph": ("table", "scan", "nest", "view", "match"),
     "rdf": ("table", "nest", "from", "table_fn", "native"),
@@ -212,16 +214,23 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
         return False
     if sp.position == "nest" and q.where is None:
         return False
+    if sp.position == "again":
+        # the plain base text once more, nothing else about it
+        return sp == SelectSyntax(position="again")
     if sp.hint:
-        # the question's one profile, on a SQL statement: never the collection query
-        # (its own dialect), never a SPARQL text
+        # the question's one profile, on a statement the clause closes: SQL, and the
+        # collection query where the store asks the question (D27); never a SPARQL text
         if sp.hint != rewrites.hint or data_model not in hints.DATA_MODELS:
             return False
         if data_model == "rdf" and sp.position != "table_fn":
             return False
         if data_model == "doc" and sp.position in ("table", "neg"):
-            if sp.position == "neg" or collection_asks(q, schema, pred):
+            if sp.position == "neg":
                 return False
+            if collection_asks(q, schema, pred):
+                # the hinted collection query: the base's twin (`doc:<profile>`), or a
+                # rewritten filter's where the plain collection query asks it
+                return dataclasses.replace(sp, hint="") == BASE or applicable(q, schema, dataclasses.replace(sp, hint=""), rewrites, data_model)
             return dataclasses.replace(sp, hint="") == BASE and _views_ask(q, pred)
     if data_model == "doc":
         if sp.filter == "arith" and pred is not None and any(leaf.ftype == "float" for leaf in pred.leaves()):
@@ -287,10 +296,12 @@ def syntaxes_for(q: SelectQuery, schema: Schema, rewrites: Rewrites, data_model:
 
 def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str) -> str:
     pred = rewrites.filter_pred(q, sp.filter)
+    if sp.position == "again":
+        sp = dataclasses.replace(sp, position="table")
     if data_model == "rel":
         text = _sql(q, schema, sp, pred, REL)
     elif data_model == "doc":
-        if sp.position == "neg" or (sp.position == "table" and not sp.hint and collection_asks(q, schema, pred)):
+        if sp.position == "neg" or (sp.position == "table" and collection_asks(q, schema, pred)):
             text = _collection(q, schema, sp, pred, keep_not=sp.position == "neg")
         else:
             text = document.with_views(schema, _sql(q, schema, sp, pred, document.NAMES))

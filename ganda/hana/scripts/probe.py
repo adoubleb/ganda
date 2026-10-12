@@ -1205,7 +1205,8 @@ P_SHAPES = [
     ("the starts LEFT JOINed to OPENCYPHER_TABLE paths (the graph wrappers)", f"SELECT s.ID AS id, COALESCE(p.V, 0) AS v FROM {_oct('phw', 'MATCH (a:ph1) RETURN a.ID AS ID')} s LEFT JOIN {_oct('phw', 'MATCH (a:ph1)-[e:phe1]->(b:ph1) RETURN a.ID AS ID, COUNT(b.ID) AS V')} p ON p.ID = s.ID", {}),
     ("SPARQL_TABLE (rdf's table_fn position)", f"SELECT * FROM SPARQL_TABLE('{PREFIX} SELECT ?id WHERE {{ GRAPH {G} {{ ?n a c:ph ; p:id ?id }} }}')", {}),
 ]
-# the collection query takes no hint clause in the provider (recorded only)
+# the collection query (hinted in the provider since D27; here its acceptance is recorded
+# per profile, D27 compares the rows)
 P_COLLECTION = ("the collection query itself", 'SELECT $."id" AS id FROM phc WHERE $."i" > CAST(:p AS BIGINT)', {"p": 0})
 
 
@@ -1284,8 +1285,8 @@ def p20(p: Probe):
 
 P = [Fact("P0", "WITH HINT (...) closes a SELECT; THROW_ERROR blocks a statement (the clause is parsed); an unknown hint name (recorded)", p_setup)]
 P += [Fact(f"P{n}", f"profile `{name}` ({', '.join(hint_names)}): every statement shape answers as its plain twin does", p_profile(name)) for n, (name, hint_names) in enumerate(hints.PROFILES.items(), 1)]
-P += [Fact(f"P{len(hints.PROFILES) + 1}", "IGNORE_PLAN_CACHE on every shape (recorded: a candidate profile)", p_obs("IGNORE_PLAN_CACHE"), required=False)]
-# P20: a fixed id (the profile facts above are numbered after `hints.PROFILES`)
+# P20: a fixed id (the profile facts above are numbered after `hints.PROFILES`; the
+# former P17, IGNORE_PLAN_CACHE as an observation, is the profile `plan_cache` now)
 P += [Fact("P20", "SQLScript anonymous blocks: every statement shape answers its plain rows as the block's own SELECT, through a table variable, and with NO_INLINE on the assignment, the binds typed in the header (the `block` positions); a hinted inner SELECT and the collection query in a block recorded", p20)]
 
 FACTS = R + D + K + GF + P

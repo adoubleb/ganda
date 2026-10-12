@@ -28,6 +28,9 @@ Each PROFILE is one coherent steering, the hint names SAP documents:
     hash_join         HEX_HASH_JOIN
     no_index          NO_INDEX_SEARCH, NO_INDEX_JOIN: scans and joins without the indexes
     serial            MAX_CONCURRENCY(1): single-threaded execution
+    plan_cache        IGNORE_PLAN_CACHE: the statement compiled afresh, the cached plan
+                      ignored (beside it, the `again` position runs the plain text a
+                      second time, through the cached plan)
 
 The probe (`ganda hana probe P`, run 2026-10-12 against HANA Cloud 4.00.000.00) runs
 every profile over the statement shapes the renderers emit -- a CTE query, a derived
@@ -65,10 +68,12 @@ PROFILES = {
     "hash_join": ("HEX_HASH_JOIN",),
     "no_index": ("NO_INDEX_SEARCH", "NO_INDEX_JOIN"),
     "serial": ("MAX_CONCURRENCY(1)",),
+    "plan_cache": ("IGNORE_PLAN_CACHE",),
 }
 NAMES = tuple(PROFILES)
-# the data models whose texts are SQL statements a hint clause closes (rdf: its
-# `table_fn` position only; doc: never the collection query, see `select.applicable`)
+# the data models whose texts a hint clause closes (rdf: its `table_fn` position only;
+# doc: the views, and the collection query itself where the store asks the question --
+# the Document Store takes the clause, probe D27)
 DATA_MODELS = ("rel", "doc", "graph", "rdf")
 
 _CLAUSE = re.compile(r"\s+WITH HINT \((?:[^()]|\([^()]*\))*\)$")
