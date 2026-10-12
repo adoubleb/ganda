@@ -478,7 +478,8 @@ def g29(p: Probe):
     return _eq(got, (["b", "x"], ["c", "d", "y"], [("a", "b"), ("a", "x")], sorted([(None, 3), (1, 1), (2, 2)], key=repr), 6))
 
 
-G = [
+# `GF`, not `G`: `G` is the graph IRI token the K and P facts interpolate at call time
+GF = [
     Fact("G0", "a graph workspace over VIEWS of rel-shaped tables, with LABEL and REFERENCES, unqualified `gw` resolving in the session's schema; `(a:pv1)` matches LABEL 'pv1'", g_setup),
     Fact("G0b", "the workspace is valid (SYS.GRAPH_WORKSPACES.IS_VALID, the text 'TRUE')", lambda p: _eq(str(p.sql("SELECT IS_VALID AS v FROM SYS.GRAPH_WORKSPACES WHERE SCHEMA_NAME = CURRENT_SCHEMA AND WORKSPACE_NAME = 'GW'")[0]["v"]).upper(), "TRUE")),
     Fact("G1", "OPENCYPHER_TABLE composes: in a CTE, as a derived table, LEFT JOINed to a column table with GROUP BY, under a correlated scalar subquery (the views family)", lambda p: _eq(p.one(f"WITH g AS (SELECT * FROM {opencypher_table('MATCH (a:pv1) RETURN a.ID AS ID, a.PV1_F1 AS F1')}) SELECT COUNT(*) AS v FROM (SELECT x.id FROM g x LEFT JOIN pe2 e ON e.src_id = x.id WHERE (SELECT COUNT(*) FROM g y WHERE y.id = x.id) = 1 GROUP BY x.id) z"), 4)),
@@ -611,7 +612,7 @@ P += [
     Fact(f"P{len(hints.PROFILES) + 2}", "USE_ESX_PLAN on every shape (recorded: left out of the profiles)", p_obs("USE_ESX_PLAN"), required=False),
 ]
 
-FACTS = R + D + K + G + P
+FACTS = R + D + K + GF + P
 
 
 def main(argv=None) -> int:
