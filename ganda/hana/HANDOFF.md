@@ -42,7 +42,11 @@ parameters in the wrong order), two quirks (B13: the triple store's AVG in doubl
 BOOLEAN refused in COUNT and in a comparison) and three provider bugs (C11: the
 reference's AVG, now `DECIMAL(25,6)` truncated; C12, C13: the native texts). The graph
 renderings now bind doubles only and inline every other pivot; the `literal` variant is
-gone.
+gone. Live after the fixes (2026-10-12, through the Mac's tunnel): seeds 7 and 6 with
+`--inheritance-probability 1 --custom-key-probability 1` (14 selects, 4 traversals, 2
+paths, 4 writes each; the base class drawn in selects and writes) ran 32 and 30 cases with 0
+findings, 0 setup asymmetries, 0 state leaks and 0 write-state diffs; the 125-fact probe's
+new facts hold.
 
 The provider fills every slot of the core's contract (`ganda/core/provider.py`):
 traversal, select, path and write ASTs, mappings, semantics, rewrites, a probe, mutants.
