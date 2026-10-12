@@ -34,11 +34,16 @@ BIGINT / DOUBLE / NVARCHAR attributes; a BOOLEAN is projected only. ORDER BY put
 last ascending (HANA SQL: first), so a native ordering over a nullable field is not
 asked.
 
-Parameters: a cypher `$name` is bound by `PARAMETERS ('name' = :name)` outside the
-literal (`Params`; `connection.positional` skips the quoted query), under the SQL bind
-names `predicate.sql` uses, so a case's `bind_vars` serve both. The `literal` position
-inlines the constants instead (`literal`: a double as digits with a point, a string with
-`\'` and `\\` escapes), exercising the engine's parser.
+Parameters and constants: a DOUBLE pivot is bound, a cypher `$name` in `PARAMETERS
+('name' = :name)` outside the literal (`Params`; `connection.positional` skips the
+quoted query), under the SQL bind name `predicate.sql` uses, so a case's `bind_vars`
+serve both; every other pivot -- an integer, a string (`\'` and `\\` the escapes), a
+LIST's text -- is a constant in the query (`literal`). So one OPENCYPHER_TABLE call
+binds parameters of one type: a statement holding two calls types the second call's
+bare parameters in the wrong order when they mix a string and a number (A9, G32); a
+double constant would lose digits beyond the fifteenth (A8, G31: a bound double and
+`TOFLOAT` of a string constant compare exactly), while an integer and a string constant
+are exact (G30, G34).
 
 The result columns are typed by the workspace (unlike SPARQL_TABLE), so a projection
 needs no decode suffix except a LIST's `__JSON`; aliases are uppercase so a SQL wrapper
@@ -196,49 +201,17 @@ def cypher_string(s: str) -> str:
 
 
 def literal(value, ftype: "str | None" = None) -> str:
-    """A constant inlined in a cypher text: an integer as its digits, a double as
-    digits with a point (the grammar has no exponent, no infinity), a string or a
-    LIST's canonical text as a string constant; a boolean has no constant."""
-    if isinstance(value, bool) or value is None:
+    """A constant inlined in a cypher text: an integer as its digits (exact, G30), a
+    string or a LIST's canonical text as a string constant (G34). A double has NO
+    constant: the parser keeps about fifteen significant digits of one (A8, G31), so a
+    double is always bound; a boolean has no constant either."""
+    if isinstance(value, bool) or value is None or isinstance(value, float) or ftype == "float":
         raise Unsupported(f"no cypher constant for {value!r}")
     if isinstance(value, int):
         return str(value)
-    if isinstance(value, float):
-        if ftype == "float" or not float(value).is_integer():
-            text = repr(float(value))
-        else:
-            text = repr(value)
-        if "e" in text or "n" in text:  # 1e+16, inf, nan
-            raise Unsupported(f"no cypher constant for {value!r}")
-        return text
     if isinstance(value, list):
         return cypher_string(list_text(value))
     return cypher_string(str(value))
-
-
-def binds_parameters(p) -> bool:
-    """Whether the cypher text of a tree carries a `$parameter` at all: a LIKE's constant
-    and a null test bind nothing (so a `literal` rendering of such a tree would be the
-    native base over again)."""
-    return any(leaf.op not in ("LIKE", "IS NULL", "IS NOT NULL") or leaf.arith is not None for leaf in p.leaves())
-
-
-def literal_safe(p) -> bool:
-    """Whether every constant of a tree inlines (`literal`)."""
-    try:
-        for leaf in p.leaves():
-            if leaf.sub is not None:
-                return False
-            if leaf.arith is not None:
-                literal(leaf.arith[2], leaf.ftype)
-            if leaf.op in ("IS NULL", "IS NOT NULL"):
-                continue
-            pivots = leaf.pivot if leaf.op in ("IN", "NOT IN", "BETWEEN", "CONTAINSANY", "CONTAINSALL") else [leaf.pivot]
-            for v in pivots:
-                literal(v, leaf.ftype)
-    except Unsupported:
-        return False
-    return True
 
 
 # --- the native family: a predicate tree as a cypher filter ------------------------------------
@@ -262,10 +235,17 @@ def _like(expr: str, pattern: str) -> str:
 
 def cypher_filter(p, var: str, table: str, schema: Schema, params: "Params | None") -> str:
     """The cypher text of a tree over the record variable `var` of class or edge type
-    `table`; `params` None inlines the constants (`literal`). Three-valued logic is the
-    engine's own (a comparison with NULL is NULL, dropped by WHERE; NOT / AND / OR
-    combine as in SQL), so the text is the tree. Raises `Unsupported` for a membership,
-    a semi-join, a case-insensitive or (unless `BOOL_FILTERS`) a boolean comparison."""
+    `table`. Three-valued logic is the engine's own (a comparison with NULL is NULL,
+    dropped by WHERE; NOT / AND / OR combine as in SQL), so the text is the tree.
+
+    A DOUBLE pivot is BOUND (`$name`, `params`); every other pivot -- an integer, a
+    string, a LIST's text -- is a constant in the text, so one OPENCYPHER_TABLE call
+    binds parameters of one type only: a statement with two calls types the second
+    call's bare parameters in the wrong order when they mix a string and a number
+    (A9, G32), a double constant loses digits (A8, G31), an integer constant and a
+    string constant are exact (G30, G34). Raises `Unsupported` for a membership, a
+    semi-join, a case-insensitive or (unless `BOOL_FILTERS`) a boolean comparison, and
+    for a string constant the grammar cannot spell (a control character)."""
     if isinstance(p, Compound):
         if p.op == "NOT":
             return f"NOT ({cypher_filter(p.children[0], var, table, schema, params)})"
@@ -278,7 +258,11 @@ def cypher_filter(p, var: str, table: str, schema: Schema, params: "Params | Non
         raise Unsupported("a BOOLEAN attribute is projected only")
 
     def value(name: str, v, ftype: "str | None"):
-        return literal(v, ftype) if params is None else params.use(name, ftype)
+        if ftype == "float" or isinstance(v, float):
+            if params is None:
+                raise Unsupported("a double has no cypher constant")
+            return params.use(name, "float")
+        return literal(v, ftype)
 
     col = f"{var}.{attr(schema, table, p.field)}"
     if p.op in ("IS NULL", "IS NOT NULL"):
@@ -300,10 +284,7 @@ def cypher_filter(p, var: str, table: str, schema: Schema, params: "Params | Non
         return f"({ors})" if p.op == "IN" else f"NOT ({ors})"
     if p.op not in MIRROR:
         raise Unsupported(f"no cypher form of {p.op}")
-    if p.ftype == "list":
-        rhs = literal(p.pivot, "list") if params is None else params.use(f"{p.bind}__json", "list")
-    else:
-        rhs = value(p.bind, p.pivot, p.ftype)
+    rhs = literal(p.pivot, "list") if p.ftype == "list" else value(p.bind, p.pivot, p.ftype)
     if p.rev:
         return f"({rhs} {MIRROR[p.op]} {expr})"
     return f"({expr} {p.op} {rhs})"

@@ -23,8 +23,6 @@ combination is an equivalent text.
                             propagation instead of spelled out
               match         graph: the filter in openCypher (`graph.scan`), the kind
                             in SQL over what it projected
-              literal       graph: the native text with its constants inlined
-                            instead of bound (`graph.literal`)
               neg           doc: the collection query with the filter's NOTs kept as
                             written (`NOT (...)`, `NOT (FOR ANY ...)`) instead of pushed
                             down to the leaves
@@ -75,13 +73,13 @@ from ganda.hana.concrete_syntax.traversal import agg_proj, guarded, sparql_table
 from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT
 
 FILTERS = ("plain", "rw", "rev", "arith")
-POSITIONS = ("table", "scan", "nest", "view", "from", "table_fn", "native", "match", "literal", "neg")
+POSITIONS = ("table", "scan", "nest", "view", "from", "table_fn", "native", "match", "neg")
 FORMS = ("base", "order", "fn", "jscan", "jrev")
 DATA_MODELS = ("doc", "rel", "graph", "rdf")
 _POSITIONS_OF = {
     "rel": ("table", "scan", "nest"),
     "doc": ("table", "scan", "nest", "view", "neg"),
-    "graph": ("table", "scan", "nest", "view", "match", "literal"),
+    "graph": ("table", "scan", "nest", "view", "match"),
     "rdf": ("table", "nest", "from", "table_fn", "native"),
 }
 # the largest LIMIT, where an ordering has an OFFSET and no limit of its own
@@ -217,8 +215,6 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
     if data_model == "graph":
         if q.tx and not graph.TX_VISIBLE:
             return False
-        if sp.position == "literal":
-            return pred is not None and graph.binds_parameters(pred) and graph.literal_safe(pred) and _cypher_asks(q, schema, sp, pred)
         if sp.position == "match":
             return pred is not None and graph.expressible(pred, schema, q.table)
         if sp.position == "view":
@@ -260,8 +256,8 @@ def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites,
         else:
             text = document.with_views(schema, _sql(q, schema, sp, pred, document.NAMES))
     elif data_model == "graph":
-        if sp.position in ("table", "literal") and _cypher_asks(q, schema, sp, pred):
-            text = _cypher_select(q, schema, sp, pred, literal=sp.position == "literal")
+        if sp.position == "table" and _cypher_asks(q, schema, sp, pred):
+            text = _cypher_select(q, schema, sp, pred)
         elif sp.position == "match":
             text = _sql(q, schema, sp, None, graph.NAMES, source=f"(SELECT * FROM {graph.scan(schema, q.table, pred)})")
         else:
@@ -494,12 +490,16 @@ def _cypher_asks(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred) -> bool
     def numeric(f: str) -> bool:
         return _ftype(schema, q, f) in (FieldType.INT, FieldType.FLOAT)
 
+    def boolean(f: str) -> bool:
+        return _ftype(schema, q, f) is FieldType.BOOL
+
     def orderable(f: str, nulls_excluded: bool = False) -> bool:
         ft = _ftype(schema, q, f)
         if ft is FieldType.BOOL or (ft is FieldType.STRING and not graph.STRING_ORDER_NATIVE):
             return False
         return nulls_excluded or graph.NULLS_LIKE_SQL
 
+    # a BOOLEAN attribute is projected only (G10): never inside COUNT (G33), never compared
     if q.kind == "agg":
         if q.fn in ("avg", "median"):
             return False
@@ -510,11 +510,17 @@ def _cypher_asks(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred) -> bool
             return orderable(q.field, nulls_excluded=True) if sp.form == "order" else numeric(q.field)
         if q.fn == "sum":
             return numeric(q.field)
+        if q.fn == "count":
+            return not boolean(q.field)
         return True
     if q.kind == "group":
-        return q.fn in ("count_star", "count") or numeric(q.arg)
+        if q.fn == "count_star":
+            return True
+        return (q.fn == "count" and not boolean(q.arg)) or numeric(q.arg)
     if q.kind in ("page", "keys"):
         return all(orderable(f) for f in q.fields)
+    if q.kind == "join":
+        return not boolean(q.field)
     return True
 
 
@@ -526,14 +532,14 @@ def _cypher_limit(limit: int, skip: int) -> str:
     return f" LIMIT {limit or NO_LIMIT}" + (f" SKIP {skip}" if skip else "")
 
 
-def _cypher_select(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, literal: bool) -> str:
+def _cypher_select(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred) -> str:
     """The native text: `MATCH (t:n1) WHERE ... RETURN ...` inside `OPENCYPHER_TABLE`,
     the aliases uppercase. SQL wraps only what the language lacks: a sum's NULL over no
     present value (cypher answers 0: the COUNT travels along), an aggregate over no
     match where the engine answers no row (`graph.AGG_EMPTY_ROW`), COUNT(*) over a
     DISTINCT, and a join's count per record (a LEFT JOIN to the records, as the
     traversal's aggregates)."""
-    params = None if literal else graph.Params()
+    params = graph.Params()
     rid = "t.EID" if q.edge else "t.ID"
 
     def a(f: str) -> str:

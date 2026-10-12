@@ -130,6 +130,19 @@ def r19(p: Probe):
     return _eq(got, (["c", "x", "y"], [("c", "y"), ("y", "c")], ["a", "x"], ["a", "x", "c"], 3, 2))
 
 
+def r20(p: Probe):
+    """AVG over BIGINT answers DECIMAL(25,6) (documented): the exact quotient rounded to six
+    places; which way a half at the seventh place rounds (7/128 = 0.0546875, -7/128), and
+    whether the sixth place rounds or truncates (2/3, -2/3)."""
+    p.run("CREATE COLUMN TABLE pavg (id INTEGER PRIMARY KEY, a BIGINT, b BIGINT, c BIGINT, d BIGINT)")
+    for k in range(128):
+        p.run("INSERT INTO pavg VALUES (:k, :a, :b, :c, :d)", {"k": k, "a": 7 if k == 0 else 0, "b": -7 if k == 0 else 0, "c": (2 if k < 2 else 0) if k < 3 else None, "d": (-2 if k < 2 else 0) if k < 3 else None})
+    texts = p.sql("SELECT TO_NVARCHAR(AVG(a)) AS a, TO_NVARCHAR(AVG(b)) AS b, TO_NVARCHAR(AVG(c)) AS c, TO_NVARCHAR(AVG(d)) AS d FROM pavg")[0]
+    raw = p.sql("SELECT AVG(a) AS v FROM pavg")[0]["v"]
+    ok = texts["c"] == "0.666667" and texts["d"] == "-0.666667" and texts["a"] in ("0.054688", "0.054687") and texts["b"] in ("-0.054687", "-0.054688")
+    return ok, f"7/128 -> {texts['a']}, -7/128 -> {texts['b']}, 4/3 over three rows: 2,2,0 -> {texts['c']}, -2,-2,0 -> {texts['d']} (the texts HANA sends); the client's value for 7/128: {raw!r} ({type(raw).__name__})"
+
+
 R = [
     Fact("R0", "a column table with BIGINT, DOUBLE, NVARCHAR, BOOLEAN columns takes the boundary values", r_setup),
     Fact("R1", "BIGINT keeps 2^63 - 1 and DOUBLE keeps DBL_MAX exactly", lambda p: _eq([(r["i"], r["d"]) for r in p.sql("SELECT i, d FROM pt WHERE id = 'd'")], [(9223372036854775807, 1.7976931348623157e308)])),
@@ -150,6 +163,7 @@ R = [
     Fact("R16", "a derived table, a correlated scalar subquery, UNION ALL in FROM, EXISTS", lambda p: _eq(p.one("SELECT COUNT(*) AS v FROM (SELECT x.id FROM (SELECT id FROM pt UNION ALL SELECT id FROM pt) x WHERE EXISTS (SELECT 1 FROM pt y WHERE y.id = x.id AND (SELECT COUNT(*) FROM pt z WHERE z.id = y.id) = 1)) w"), 10)),
     Fact("R17", "a unique violation is error 301 (a rejection, not an internal error)", lambda p: (lambda e: (" 301]" in e or "[301]" in e, e[:120]))(p.error(lambda: p.run("INSERT INTO pt (id) VALUES ('a')")))),    Fact("R18", "custom keys: an astral emoji, a combining sequence, quotes, spaces, `%`, a 193-character key and a 19-digit one round-trip through an NVARCHAR(256) key, by equality and in UTF-16 order (the `custom_key_probability` axis)", r18),
     Fact("R19", "the base class as a UNION ALL view over the subclass tables (the inheritance axis): filtered, joined to itself, a LIST base field's child-table union inside EXISTS, an index per subclass table; a DELETE through the tables is what the view then shows", r19),
+    Fact("R20", "AVG over BIGINT answers DECIMAL(25,6): the exact quotient rounded to six places (how a half at the seventh place rounds is recorded in the detail)", r20),
 ]
 
 
@@ -299,6 +313,30 @@ def k22(p: Probe):
     return _eq((base, sub, count, joined, gone), (["k22b", "k22c"], ["k22b", "k22c"], 1, [("k22a", "k22b")], 0))
 
 
+def k23(p: Probe):
+    """How the triple store averages longs: AVG itself (the campaign of 2026-10-12 saw a
+    sum above 2^53 lose its last bit: computed in double), SUM / COUNT (xsd:decimal
+    division per SPARQL 1.1), and a rounding to six places with a half away from zero."""
+    rows = " . ".join(f'<urn:ganda:r:k23{k}> a c:k23 ; p:k23 "{v}"^^xsd:long' for k, v in enumerate([-5479] + [0] * 28))
+    big = " . ".join(f'<urn:ganda:r:k23b{k}> a c:k23b ; p:k23 "{v}"^^xsd:long' for k, v in enumerate([6004799503160473, 0]))
+    neg = " . ".join(f'<urn:ganda:r:k23c{k}> a c:k23c ; p:k23 "{v}"^^xsd:long' for k, v in enumerate([-7] + [0] * 127))
+    p.update(f"INSERT DATA {{ GRAPH {G} {{ {rows} . {big} . {neg} }} }}")
+
+    def one(cls: str, expr: str):
+        try:
+            return p.sparql(f"SELECT (STR({expr}) AS ?v) WHERE {{ GRAPH {G} {{ ?n a c:{cls} ; p:k23 ?w }} }}")[0]["v"]
+        except EngineError as e:
+            return f"ERR {str(e)[:70]}"
+
+    avg29, div29 = one("k23", "AVG(?w)"), one("k23", "SUM(?w) / COUNT(?w)")
+    avg_big, div_big = one("k23b", "AVG(?w)"), one("k23b", "SUM(?w) / COUNT(?w)")
+    rounded = one("k23", "ROUND((SUM(?w) / COUNT(?w)) * 1000000) / 1000000")
+    half = one("k23c", "ROUND((SUM(?w) / COUNT(?w)) * 1000000) / 1000000")
+    away = one("k23c", "IF(SUM(?w) >= 0, FLOOR((SUM(?w) / COUNT(?w)) * 1000000 + 0.5), CEIL((SUM(?w) / COUNT(?w)) * 1000000 - 0.5)) / 1000000")
+    ok = div29.startswith("-188.93103448") and div_big.startswith("3002399751580736.5")
+    return ok, f"AVG -5479/29 = {avg29}; SUM/COUNT = {div29}; AVG of 6004799503160473 over 2 = {avg_big}; SUM/COUNT = {div_big}; ROUND to 6 = {rounded}; -7/128 ROUND = {half}; half away from zero = {away}"
+
+
 K = [
     Fact("K0", "SPARQL_EXECUTE runs an INSERT DATA into a named graph (created on first insert)", k_setup),
     Fact("K1", "a SELECT answers JSON results; xsd:long, xsd:double, xsd:boolean and an escaped string read back", lambda p: (lambda r: (r["i"] == 1 and r["f"] == 0.5 and r["b"] is True and r["s"] == 'x\n"q"', repr(r)))(p.sparql(f"SELECT ?i ?f ?b ?s WHERE {{ GRAPH {G} {{ ?n p:id \"a\" ; p:i ?i ; p:f ?f ; p:b ?b ; p:s ?s }} }}")[0])),
@@ -323,6 +361,7 @@ K = [
     Fact("K18", "UCASE, LCASE, STRLEN, SUBSTR, CONCAT, ABS, STRSTARTS, STRENDS, CONTAINS, REGEX", lambda p: _eq(p.sparql('SELECT (CONCAT(UCASE("ab"), LCASE("C"), SUBSTR("xyz", 1, 1), STR(STRLEN("abc")), STR(ABS(-2))) AS ?v) WHERE { FILTER (STRSTARTS("abc", "a") && STRENDS("abc", "c") && CONTAINS("abc", "b") && REGEX("abc", "^a")) }')[0]["v"], "ABcx32")),
     Fact("K21", "custom keys as percent-encoded IRIs (`dialect.record_iri`) and `p:id` literals: every style round-trips, and ORDER BY ?id (code points) is the UTF-16 order on the key pool (no key holds U+E000..U+FFFF)", k21),
     Fact("K22", "a node typed with its class AND the base class (`a c:n1, c:N0`, the inheritance axis): a query on either class sees it once; the per-class count is unchanged; a DELETE WHERE { ?n ?p ?o } removes both types", k22),
+    Fact("K23", "an average of longs: SUM(?w) / COUNT(?w) is exact decimal division (AVG(?w) itself computes in double: a sum above 2^53 loses its last bit); a rounding to six places as HANA SQL's DECIMAL(25,6) (recorded)", k23),
 ]
 
 
@@ -478,6 +517,62 @@ def g29(p: Probe):
     return _eq(got, (["b", "x"], ["c", "d", "y"], [("a", "b"), ("a", "x")], sorted([(None, 3), (1, 1), (2, 2)], key=repr), 6))
 
 
+def g30(p: Probe):
+    """Integer constants parse exactly (2^63 - 1, -5)."""
+    big = _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F1 = 9223372036854775807 RETURN a.ID AS ID")
+    neg = _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F1 = -5 RETURN a.ID AS ID")
+    return _eq((big, neg), (["b"], ["d"]))
+
+
+def g31(p: Probe):
+    """A DOUBLE constant in the query text is parsed to about fifteen significant digits
+    (one and two ulps above 0.5 match the stored 0.5: A8), while a bound parameter one
+    or two ulps away does not match. Over pv1.d = 0.5 (a), 2^53 (b), 1e-300 (d)."""
+    import math
+
+    one_ulp = math.nextafter(0.5, 1)
+    two_ulp = math.nextafter(one_ulp, 1)
+    p_one = _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_D = $d RETURN a.ID AS ID", {"d": one_ulp}, {"d": ":d"})
+    p_two = _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_D = $d RETURN a.ID AS ID", {"d": two_ulp}, {"d": ":d"})
+    l_one = _oc_ids(p, f"MATCH (a:pv1) WHERE a.PV1_D = {one_ulp!r} RETURN a.ID AS ID")
+    l_two = _oc_ids(p, f"MATCH (a:pv1) WHERE a.PV1_D = {two_ulp!r} RETURN a.ID AS ID")
+    l_far = _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_D = 0.5000000001 RETURN a.ID AS ID")
+    return p_one == [] and p_two == [], f"param one ulp above 0.5: {p_one}, two ulps: {p_two} (want []: bound doubles compare exactly); constant {one_ulp!r}: {l_one}, {two_ulp!r}: {l_two}, 0.5000000001: {l_far} (a constant matching 'a' is A8: the renderings never write one)"
+
+
+def g32(p: Probe):
+    """Two OPENCYPHER_TABLE calls in one statement, the second declaring a string parameter
+    next to a numeric one: the second call's bare parameters are typed in the wrong order
+    (A9: the string one as a number, `-10427` from the client); the call alone is fine."""
+    paths = "MATCH (b:pv1)-[e:pe2]->(a:pv1) WHERE (a.PV1_F2 >= $s1 AND a.PV1_F2 <= $s2) AND (e.PE2_W > $w) RETURN a.ID AS ID, COUNT(b.ID) AS V"
+    alone = p.error(lambda: _oc(p, paths, {"s1": "a", "s2": "z", "w": 0.0}, {"s1": ":s1", "s2": ":s2", "w": ":w"}))[:90] or "answers"
+    starts = opencypher_table("MATCH (a:pv1) WHERE (a.PV1_F2 >= $s1 AND a.PV1_F2 <= $s2) RETURN a.ID AS ID", {"s1": ":s1", "s2": ":s2"})
+    both = opencypher_table(paths, {"s1": ":s1", "s2": ":s2", "w": ":w"})
+    two = p.error(lambda: p.sql(f"SELECT s.ID AS id, p.V AS v FROM {starts} s LEFT JOIN {both} p ON p.ID = s.ID", {"s1": "a", "s2": "z", "w": 0.0}))[:90] or "answers"
+    return True, f"the paths call alone: {alone}; the starts call LEFT JOINed to it: {two}"
+
+
+def g33(p: Probe):
+    """A BOOLEAN attribute inside COUNT, and two BOOLEAN attributes compared: refused
+    (`4906`; G10 says BOOLEAN is projected only); a BOOLEAN as a group key answers."""
+    count = p.error(lambda: _oc(p, "MATCH (a:pv1) RETURN COUNT(a.PV1_B) AS V"))[:80] or "answers"
+    join = p.error(lambda: _oc(p, "MATCH (t:pv1), (m:pv1) WHERE (m.PV1_B <> t.PV1_B) RETURN t.ID AS ID, m.ID AS V"))[:80] or "answers"
+    key = p.error(lambda: _oc(p, "MATCH (a:pv1) RETURN a.PV1_B AS K, COUNT(a.ID) AS V"))[:80] or "answers"
+    return "answers" not in (count, join) and key == "answers", f"COUNT(bool): {count} | bool <> bool: {join} | bool group key: {key}"
+
+
+def g34(p: Probe):
+    """String constants in the filter: a quote, a 5000-character value and a LIST's JSON
+    text inline exactly (the renderings bind no string: A9)."""
+    long = "x" * 4999 + "y"
+    p.run("INSERT INTO pv2 (id, f1) VALUES ('g34', :v)", {"v": long})
+    try:
+        got = (_oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F2 = 'it\\'s' RETURN a.ID AS ID"), _oc_ids(p, f"MATCH (a:pv2) WHERE a.PV2_F1 = '{long}' RETURN a.ID AS ID"), _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_L = '[1,2]' RETURN a.ID AS ID"))
+    finally:
+        p.run("DELETE FROM pv2 WHERE id = 'g34'")
+    return _eq(got, (["d"], ["g34"], ["a"]))
+
+
 # `GF`, not `G`: `G` is the graph IRI token the K and P facts interpolate at call time
 GF = [
     Fact("G0", "a graph workspace over VIEWS of rel-shaped tables, with LABEL and REFERENCES, unqualified `gw` resolving in the session's schema; `(a:pv1)` matches LABEL 'pv1'", g_setup),
@@ -513,6 +608,11 @@ GF = [
     Fact("G27", "a HOMOGENEOUS workspace (one vertex table, one edge table) with LABEL clauses: a labelled query fails with `invalid column name: a.CYPHER$TABLE$LABEL` (found by the first G17/G25 run; recorded -- a campaign's workspace always has two or more edge tables)", g27, required=False),
     Fact("G28", "custom keys through the workspace: every style matched by `a.ID = $k` (bound bare) and projected back; ORDER BY a.ID is the UTF-16 order", g28),
     Fact("G29", "the base class as an UNLABELLED vertex (the inheritance axis): `MATCH (a) WHERE a.F1 ...` over an attribute both vertex tables share (one type), a Cartesian `MATCH (t), (m)` correlated on it, COUNT grouped by it; a LIST attribute's text", g29),
+    Fact("G30", "integer constants parse exactly (2^63 - 1, -5): the renderings inline every integer pivot", g30),
+    Fact("G31", "a bound DOUBLE parameter compares exactly (one ulp off is not equal); a DOUBLE constant in the text loses digits beyond the fifteenth (A8, recorded in the detail)", g31),
+    Fact("G32", "two OPENCYPHER_TABLE calls in one statement: the second call's bare parameters typed in the wrong order when they mix a string and a number (A9; recorded -- the renderings bind floats only)", g32, required=False),
+    Fact("G33", "a BOOLEAN attribute inside COUNT and two BOOLEAN attributes compared are refused (4906); a BOOLEAN group key answers", g33),
+    Fact("G34", "string constants inline exactly: a quote, a 5000-character value, a LIST's JSON text", g34),
     Fact("G26", "DROP SCHEMA ... CASCADE removes the schema's graph workspace", g26),
 ]
 

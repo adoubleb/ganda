@@ -471,11 +471,11 @@ def test_graph_texts_are_well_formed(seed):
     resolvable, no two graph variants of a case alike."""
     by_case: dict = {}
     for c, v, t in _graph_texts(seed):
-        # every NATIVE graph variant of a case is its own text -- except that two
-        # `literal` variants may coincide (a rewrite of `IN [x]` as `= x` inlines the same
-        # constant); the views family inherits rel's own coincidences (join / scalar on a
-        # reach question)
-        native = "g_" not in t and ("literal" not in v or v == "graph:literal")
+        # every NATIVE graph variant of a case is its own text -- except that a `rw`
+        # variant may coincide with its base (a rewrite of `IN [x]` as `= x` inlines the
+        # same constant); the views family inherits rel's own coincidences (join / scalar
+        # on a reach question)
+        native = "g_" not in t and "rw" not in v.split(":", 1)[-1].split("+")
         by_case.setdefault(id(c), []).append(t if native else None)
         positional(t, {**c.bind_vars})
         for lit in _cypher_literals(t):
@@ -497,17 +497,20 @@ def test_cypher_literals_escape_and_refuse():
     from ganda.hana.concrete_syntax import graph
 
     assert graph.cypher_string("it's\\") == "'it\\'s\\\\'"
-    assert graph.literal(0.1) == "0.1" and graph.literal(2**63 - 1) == "9223372036854775807" and graph.literal(-2.0, "float") == "-2.0"
+    assert graph.literal(2**63 - 1) == "9223372036854775807" and graph.literal(-5) == "-5" and graph.literal("it's") == "'it\\'s'"
     assert graph.literal([1, 2]) == "'[1,2]'"
-    for bad in ("a\nb", 1e-05, float("inf"), True, None):
+    # a double has no constant (the parser keeps ~15 digits, A8): bound instead
+    for bad in ("a\nb", 0.1, -2.0, 1e-05, float("inf"), True, None):
         with pytest.raises(graph.Unsupported):
             graph.literal(bad)
+    with pytest.raises(graph.Unsupported):
+        graph.literal(2, "float")
 
 
 def test_cypher_filter_mirrors_the_sql_binds_and_refuses_what_has_no_form():
     from ganda.hana.concrete_syntax import graph, predicate
 
-    schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f2", FieldType.STRING), FieldSpec("f3", FieldType.LIST), FieldSpec("f4", FieldType.BOOL))),), ())
+    schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f2", FieldType.STRING), FieldSpec("f3", FieldType.LIST), FieldSpec("f4", FieldType.BOOL), FieldSpec("f5", FieldType.FLOAT))),), ())
     leaves = {
         "cmp": Predicate("source", "f1", ">", "p", 1, True, "int"),
         "rev": Predicate("source", "f1", "<", "p", 1, True, "int", rev=True),
@@ -515,8 +518,12 @@ def test_cypher_filter_mirrors_the_sql_binds_and_refuses_what_has_no_form():
         "between": Predicate("source", "f1", "BETWEEN", "p", [1, 2], True, "int"),
         "null": Predicate("source", "f1", "IS NOT NULL", "", None, True, "int"),
         "like": Predicate("source", "f2", "LIKE", "p", "ab%", True, "string"),
+        "str": Predicate("source", "f2", "=", "p", "it's", True, "string"),
         "arith": Predicate("source", "f1", ">=", "p", 3, True, "int", arith=("+", "arc", 2)),
         "list": Predicate("source", "f3", "=", "p", [1], True, "list"),
+        "fcmp": Predicate("source", "f5", "<=", "p", 1.5, True, "float"),
+        "fin": Predicate("source", "f5", "IN", "p", [1.5, 2.5], True, "float"),
+        "farith": Predicate("source", "f5", ">", "p", 3.0, True, "float", arith=("*", "arc", 2.0)),
     }
     texts = {}
     for name, leaf in leaves.items():
@@ -524,15 +531,17 @@ def test_cypher_filter_mirrors_the_sql_binds_and_refuses_what_has_no_form():
         texts[name] = graph.cypher_filter(leaf, "t", "n1", schema, params)
         assert set(re.findall(r"\$(\w+)", texts[name])) == set(params.items)
         sql_binds = set(re.findall(r":(\w+)", predicate.sql(leaf, "t", "n1")))
-        # the same names as the SQL binds, but an IN list one marker per element (the
-        # session's `name__k`) and a LIKE constant inlined (no `$` at all)
-        expected = {"in": {"p__0", "p__1"}, "like": set()}.get(name, sql_binds)
+        # a DOUBLE pivot binds under the SQL bind's name (an IN list one marker per
+        # element, the session's `name__k`); every other pivot is a constant (A9)
+        expected = {"fcmp": sql_binds, "fin": {"p__0", "p__1"}, "farith": sql_binds}.get(name, set())
         assert set(params.items) == expected, (name, texts[name])
-        assert graph.binds_parameters(leaf) == bool(expected)
-    assert texts["cmp"] == "(t.N1_F1 > $p)" and texts["rev"] == "($p > t.N1_F1)"
-    assert texts["in"] == "(t.N1_F1 = $p__0 OR t.N1_F1 = $p__1)"
-    assert texts["between"] == "(t.N1_F1 >= $pa AND t.N1_F1 <= $pb)" and texts["null"] == "NOT (t.N1_F1 IS NULL)"
-    assert texts["like"] == "t.N1_F2 STARTS WITH 'ab'" and texts["arith"] == "((t.N1_F1 + $arc) >= $p)" and texts["list"] == "(t.N1_F3 = $p__json)"
+    assert texts["cmp"] == "(t.N1_F1 > 1)" and texts["rev"] == "(1 > t.N1_F1)" and texts["str"] == "(t.N1_F2 = 'it\\'s')"
+    assert texts["in"] == "(t.N1_F1 = 1 OR t.N1_F1 = 2)"
+    assert texts["between"] == "(t.N1_F1 >= 1 AND t.N1_F1 <= 2)" and texts["null"] == "NOT (t.N1_F1 IS NULL)"
+    assert texts["like"] == "t.N1_F2 STARTS WITH 'ab'" and texts["arith"] == "((t.N1_F1 + 2) >= 3)" and texts["list"] == "(t.N1_F3 = '[1]')"
+    assert texts["fcmp"] == "(t.N1_F5 <= $p)" and texts["fin"] == "(t.N1_F5 = $p__0 OR t.N1_F5 = $p__1)" and texts["farith"] == "((t.N1_F5 * $arc) > $p)"
+    # a string the grammar cannot spell has no native form
+    assert not graph.expressible(Predicate("source", "f2", "=", "p", "a\nb", True, "string"), schema, "n1")
     for leaf in (Predicate("source", "f3", "CONTAINS", "p", 1, True, "list"), Predicate("source", "f4", "=", "p", True, True, "bool"), Predicate("source", "f2", "=", "p", "x", True, "string", ci=True)):
         assert not graph.expressible(leaf, schema, "n1")
     assert not graph.expressible(Predicate("source", "f1", "IN", "p", [], True, "int", sub=("n1", "f1", None, False)), schema, "n1")
@@ -845,3 +854,15 @@ def test_translator_unlabelled_vertex_projects_the_shared_attributes():
     joined = db.execute(to_sql("MATCH (t), (m) WHERE (m.B1 > t.B1) RETURN t.ID AS ID, m.ID AS V", {}, ws)).fetchall()
     assert sorted(joined) == [("a", "x")]
     assert db.execute(to_sql("MATCH (a) RETURN COUNT(a.ID) AS V", {}, ws)).fetchall() == [(3,)]
+
+
+
+def test_the_mean_is_hana_sql_avg():
+    """AVG over BIGINT is DECIMAL(25,6): the quotient truncated to six places (R20); the
+    B13 guard withholds an rdf average the triple store's double arithmetic cannot
+    answer as SQL does."""
+    from ganda.hana import known_bugs
+
+    assert mean([7] + [0] * 127) == 0.054687 and mean([-7] + [0] * 127) == -0.054687 and mean([2, 2, 0]) == 1.333333
+    assert mean([1, 2]) == 1.5 and mean([2, 4]) == 3 and isinstance(mean([2, 4]), int) and mean([0.5, 1.0]) == 0.75
+    assert known_bugs.select_known is not None

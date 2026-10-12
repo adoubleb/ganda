@@ -58,10 +58,11 @@ def _strict_to_inclusive(text: str) -> str:
 
 def _cypher_strict_to_inclusive(text: str) -> str:
     """The first strict comparison of a graph text served inclusively: a cypher one
-    (`> $p`) where the text has it, else a SQL one (the views family)."""
-    for a, b in ((" > $", " >= $"), (" < $", " <= $")):
-        if a in text:
-            return text.replace(a, b, 1)
+    (`> $p` for a bound double, `> 5` / `> 'x'` for an inlined constant) where the text
+    has it, else a SQL one (the views family)."""
+    m = re.search(r" ([<>]) (\$\w+|-?\d|')", text)
+    if m:
+        return text[: m.start(1)] + m.group(1) + "=" + text[m.end(1):]
     return _strict_to_inclusive(text)
 
 

@@ -191,9 +191,19 @@ def evaluate(values: dict, p) -> bool:
 
 
 def mean(values: list):
+    """AVG as HANA SQL answers it: over integers a DECIMAL(25,6) (documented), the exact
+    quotient TRUNCATED to six places (7/128 is 0.054687, probe R20) -- read back as an
+    int when integral; over doubles the double quotient. The triple store's AVG computes
+    in double instead (B13, probe K23): an rdf average is compared only where the two
+    agree (`known_bugs`)."""
     total, n = sum(values), len(values)
-    if all(isinstance(v, int) and not isinstance(v, bool) for v in values) and total % n == 0:
-        return total // n
+    if all(isinstance(v, int) and not isinstance(v, bool) for v in values):
+        if total % n == 0:
+            return total // n
+        from decimal import ROUND_DOWN, Decimal
+
+        q = (Decimal(total) / Decimal(n)).quantize(Decimal("0.000001"), rounding=ROUND_DOWN)
+        return int(q) if q == q.to_integral_value() else float(q)
     return total / n
 
 

@@ -34,9 +34,19 @@ the views' union on doc, a second class triple on rdf, the unlabelled MATCH in
 openCypher; a write on it per subclass). Their probe facts (`P0-P16`, `D19`, `D20`,
 `D22`, `D23`, `R18`, `R19`, `K21`, `K22`, `G28`, `G29`) ran live 2026-10-12 (RULES.md).
 
+The first ninety minutes of the 12-hour bastion campaign (`camp12h`, 2026-10-12, 25
+bundles) were triaged the same day: two engine defects of the Property Graph Engine
+(`findings/A8-...`: a DOUBLE constant in a cypher text is parsed to ~15 digits;
+`findings/A9-...`: two OPENCYPHER_TABLE calls in one statement type the second call's
+parameters in the wrong order), two quirks (B13: the triple store's AVG in double; B14:
+BOOLEAN refused in COUNT and in a comparison) and three provider bugs (C11: the
+reference's AVG, now `DECIMAL(25,6)` truncated; C12, C13: the native texts). The graph
+renderings now bind doubles only and inline every other pivot; the `literal` variant is
+gone.
+
 The provider fills every slot of the core's contract (`ganda/core/provider.py`):
 traversal, select, path and write ASTs, mappings, semantics, rewrites, a probe, mutants.
-`known_bugs.py` is empty: no HANA finding is filed yet.
+`known_bugs.py` guards H4 and B13; A8 and A9 are worked around in the graph renderings.
 
 What was verified, offline only:
 
@@ -146,6 +156,8 @@ says where each fact lives:
 | K17, K18 | ordering, string functions | `semantics.py`, `concrete_syntax/methods.py` |
 | P0-P17 | the hint clause; every plan-steering profile over every statement shape | `concrete_syntax/hints.py` (`PROFILES`: drop a profile a shape refuses; never a workaround in a renderer) |
 | D19, D20 | NOT kept as written in a collection filter, NOT over FOR ANY | `concrete_syntax/document.py` (`doc_pred`'s `keep_not`); if one fails, drop `neg` from `select._POSITIONS_OF["doc"]` |
+| R20, K23 | AVG over BIGINT as DECIMAL(25,6) (truncated to six places); the triple store's AVG in double | `semantics.mean`; `known_bugs._b13` |
+| G30-G34 | integer and string constants exact, a double constant lossy (A8), two calls' parameter typing (A9), BOOLEAN in COUNT / compared refused | `concrete_syntax/graph.py` (`literal`, `cypher_filter`), `select._cypher_asks` |
 | R18, D22, K21, G28 | custom keys on the four data models, their order | `dialect.is_valid_key`, `record_iri`; `semantics.hana_key`; put the axis back into `config.UNSUPPORTED_AXES` if a style fails everywhere |
 | R19, D23, K22, G29 | the base class: the UNION ALL view, the views' union, the second class triple, the unlabelled MATCH | `mapping/relational.py` (`base_view_ddl`), `concrete_syntax/document.py` (`view_definition`, `with_views`), `mapping/rdf.py` (`class_triples`), `concrete_syntax/graph.py` (`vertex`), `concrete_syntax/write.py` (`_targets`) |
 

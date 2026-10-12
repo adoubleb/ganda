@@ -175,6 +175,15 @@ union on doc, a second class triple on rdf, the unlabelled `MATCH (a)` in openCy
 write on it one statement per subclass, the counts summed). SQLite has no hints, so plan
 steering is compared live only (the offline session strips the clause).
 
+The 12-hour campaign of 2026-10-12 (its first ninety minutes, 25 bundles) added **A8** (a
+DOUBLE constant in a cypher text is parsed to ~15 significant digits; bound doubles are
+exact) and **A9** (two OPENCYPHER_TABLE calls in one statement type the second call's bare
+parameters in the wrong order when they mix a string and a number): the graph renderings
+now bind DOUBLE pivots only and inline every other pivot as a constant, and the `literal`
+variant is gone. Also found: HANA SQL's `AVG(BIGINT)` is `DECIMAL(25,6)` TRUNCATED to six
+places (the reference follows it) while the triple store's AVG computes in double (B13,
+guarded in `known_bugs`); a BOOLEAN is refused inside COUNT and in a comparison (B14).
+
 Verified live against HANA Cloud 4.00.000.00 (2026-10-09): the probe is 57/57, the first
 campaigns run, and six engine defects are written up with repros under
 `ganda/hana/issues-draft/` -- **H1** (an `xsd:double` is serialized to ~6 significant

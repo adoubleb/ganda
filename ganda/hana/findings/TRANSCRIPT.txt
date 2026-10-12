@@ -285,3 +285,49 @@ w7 two vertex tables, LABELs
      not), a MATCH naming the vertex label fails with `invalid column name: ...CYPHER$TABLE$LABEL`
      (an internal column of the rewrite); the edge label, LABEL(a) and the unlabelled pattern
      answer, and so does every pattern over a second vertex table (w7) or edge table (w6).
+
+
+=== 2026-10-12: A8 and A9 (the 12-hour campaign's graph findings), run through the Mac's tunnel ===
+(the A8 script's closing lines were reworded afterwards: the parameter rows show exact comparisons)
+
+### A8-opencypher-double-compares-one-ulp-tolerant/repro.py
+HANA version: 4.00.000.00.1788859455 
+
+stored d = -985.195; one ulp below = -985.1950000000002; two ulps below = -985.1950000000003
+
+  SQL      d = one ulp below                          : []
+  SQL      d <= one ulp below                         : []
+  cypher   d = $p, one ulp below                      : []
+  cypher   d <= $p, one ulp below                     : []
+  cypher   d <> $p, one ulp below                     : ['b', 'h']
+  cypher   d = $p, two ulps below                     : []
+  cypher   d = $p, exactly                            : ['b']
+  cypher   d = TOFLOAT(''-985.1950000000002'')        : []
+  cypher   d = -985.1950000000002 (constant)          : ['b']
+  cypher   d = -985.1950000000003 (constant)          : ['b']
+  cypher   d <= two ulps below as TOFLOAT             : []
+  cypher   0.5 = 0.5000000000000001 (constant, 1 ulp) : ['h']
+  cypher   0.5 = 0.5000000000000002 (constant, 2 ulps): ['h']
+  cypher   0.5 = $p, 0.5000000000000002 (2 ulps)      : []
+  cypher   TOFLOAT(''-985.1950000000002'') projected  : [-985.1950000000002]
+
+  => SQL compares the DOUBLE exactly (no row for a neighbour one ulp away); openCypher calls a
+     parameter or a TOFLOAT constant one ulp away EQUAL (and `<=` holds, `<>` fails for it), two ulps
+     away not; a DOUBLE constant written in the query text matches even two ulps away (parsed to ~15
+     significant digits), while TOFLOAT of the same digits is exact.
+
+### A9-opencypher-two-calls-parameter-types/repro.py
+HANA version: 4.00.000.00.1788859455 
+
+  the paths call alone (p0a, p0b strings; p1 an integer)    : OK [('b', 1)]
+  the starts call alone                                     : OK [('a',), ('b',)]
+  starts LEFT JOIN paths (the fuzzer's traversal text)      : [-10427] Conversion of parameter/column (3) from data type UCS2 (LE) to BIGINT failed (invalid number: not a valid numb
+  the same, p1 declared first in the second call            : [339] invalid number: not a valid number string 'o' (at pos 62)
+  the same with the string pivots as constants              : OK [('a', None), ('b', 1)]
+  two calls, both calls' parameters strings only            : OK [('a', 1), ('b', 2)]
+
+  => each call alone types its parameters by the attributes they are compared with; once a second
+     call joins the statement, the second call's string parameter is typed as the integer's type
+     (the client reports the conversion failure for that `?`). Constants, or parameters of one
+     type per call, are the workaround the fuzzer now uses.
+
