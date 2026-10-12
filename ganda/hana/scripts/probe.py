@@ -607,10 +607,7 @@ def p_obs(hint: str):
 
 P = [Fact("P0", "WITH HINT (...) closes a SELECT; THROW_ERROR blocks a statement (the clause is parsed); an unknown hint name (recorded)", p_setup)]
 P += [Fact(f"P{n}", f"profile `{name}` ({', '.join(hint_names)}): every statement shape answers as its plain twin does", p_profile(name)) for n, (name, hint_names) in enumerate(hints.PROFILES.items(), 1)]
-P += [
-    Fact(f"P{len(hints.PROFILES) + 1}", "USE_HEX_PLAN enforced on every shape (recorded: left out of the profiles)", p_obs("USE_HEX_PLAN"), required=False),
-    Fact(f"P{len(hints.PROFILES) + 2}", "USE_ESX_PLAN on every shape (recorded: left out of the profiles)", p_obs("USE_ESX_PLAN"), required=False),
-]
+P += [Fact(f"P{len(hints.PROFILES) + 1}", "IGNORE_PLAN_CACHE on every shape (recorded: a candidate profile)", p_obs("IGNORE_PLAN_CACHE"), required=False)]
 
 FACTS = R + D + K + GF + P
 

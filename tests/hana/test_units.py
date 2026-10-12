@@ -669,7 +669,7 @@ def test_hint_profiles_close_a_statement_and_strip_back():
         assert all(x in h for x in hints.PROFILES[name])
     assert not hints.is_hinted(text) and hints.strip(text) == text
     assert hints.choose("abc") in hints.NAMES and hints.choose("abc") == hints.choose("abc")
-    assert "USE_HEX_PLAN" not in {h for hs in hints.PROFILES.values() for h in hs}
+    assert {"USE_HEX_PLAN", "USE_ESX_PLAN", "NO_USE_HEX_PLAN"} <= {h for hs in hints.PROFILES.values() for h in hs}
 
 
 @pytest.mark.parametrize("seed", range(1, 4))

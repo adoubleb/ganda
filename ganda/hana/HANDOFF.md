@@ -24,16 +24,15 @@ not yet done there: a live campaign with the graph model in it, and the triage o
 it finds.
 
 Added 2026-10-12 (RULES.md has a section each): **plan steering** -- every SQL text asked
-once more under one of fourteen `WITH HINT (...)` profiles (`concrete_syntax/hints.py`:
-the HEX, OLAP, join and row engines, the optimizer levels, the rewrites off, HEX's disk
+once more under one of sixteen `WITH HINT (...)` profiles (`concrete_syntax/hints.py`:
+the HEX, ESX, OLAP, join and row engines, the optimizer levels, the rewrites off, HEX's disk
 operators and join kinds, no indexes, single-threaded), the variants `rel:<profile>`,
 `graph:nest+<profile>`, `rdf:table_fn+<profile>`, `rel:hint_<profile>`; the Document
 Store's **NOT kept as written** (`doc:neg`); the **custom-key** axis; and the
 **inheritance** axis (the base class as a UNION ALL view on rel and the graph data model,
 the views' union on doc, a second class triple on rdf, the unlabelled MATCH in
 openCypher; a write on it per subclass). Their probe facts (`P0-P16`, `D19`, `D20`,
-`D22`, `D23`, `R18`, `R19`, `K21`, `K22`, `G28`, `G29`) are written; see RULES.md for
-which have run live.
+`D22`, `D23`, `R18`, `R19`, `K21`, `K22`, `G28`, `G29`) ran live 2026-10-12 (RULES.md).
 
 The provider fills every slot of the core's contract (`ganda/core/provider.py`):
 traversal, select, path and write ASTs, mappings, semantics, rewrites, a probe, mutants.
@@ -145,7 +144,7 @@ says where each fact lives:
 | K7-K9, K16 | aggregates | `concrete_syntax/traversal.py` and `select.py` (`_sparql`): the `IF(COUNT(?w) > 0, ...)` guards, `HAVING` |
 | K10, K11, K14, K15, K19 | paths, MINUS, updates, transactions, EXISTS in updates | `concrete_syntax/path.py`, `traversal.py`, `write.py` (`_rdf`), `mapping/rdf.py` |
 | K17, K18 | ordering, string functions | `semantics.py`, `concrete_syntax/methods.py` |
-| P0-P16 | the hint clause; every plan-steering profile over every statement shape | `concrete_syntax/hints.py` (`PROFILES`: drop a profile a shape refuses; never a workaround in a renderer) |
+| P0-P17 | the hint clause; every plan-steering profile over every statement shape | `concrete_syntax/hints.py` (`PROFILES`: drop a profile a shape refuses; never a workaround in a renderer) |
 | D19, D20 | NOT kept as written in a collection filter, NOT over FOR ANY | `concrete_syntax/document.py` (`doc_pred`'s `keep_not`); if one fails, drop `neg` from `select._POSITIONS_OF["doc"]` |
 | R18, D22, K21, G28 | custom keys on the four data models, their order | `dialect.is_valid_key`, `record_iri`; `semantics.hana_key`; put the axis back into `config.UNSUPPORTED_AXES` if a style fails everywhere |
 | R19, D23, K22, G29 | the base class: the UNION ALL view, the views' union, the second class triple, the unlabelled MATCH | `mapping/relational.py` (`base_view_ddl`), `concrete_syntax/document.py` (`view_definition`, `with_views`), `mapping/rdf.py` (`class_triples`), `concrete_syntax/graph.py` (`vertex`), `concrete_syntax/write.py` (`_targets`) |

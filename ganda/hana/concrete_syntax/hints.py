@@ -9,6 +9,8 @@ Each PROFILE is one coherent steering, the hint names SAP documents:
 
     nohex             NO_USE_HEX_PLAN: the classic engines instead of HEX (HANA Cloud's
                       default engine)
+    hex               USE_HEX_PLAN: HEX preferred where the optimizer would leave it
+    esx               USE_ESX_PLAN: the ESX engine
     olap              the OLAP (column search) engine, HEX avoided
     join_engine       neither HEX nor OLAP: the join engine
     row_ops           the classic plan with the ROW engine's sort, limit, filter, distinct,
@@ -27,13 +29,12 @@ Each PROFILE is one coherent steering, the hint names SAP documents:
     no_index          NO_INDEX_SEARCH, NO_INDEX_JOIN: scans and joins without the indexes
     serial            MAX_CONCURRENCY(1): single-threaded execution
 
-(`USE_HEX_PLAN` is left out: HEX is the default, and enforcing it where the engine cannot
-select it is an error, not a plan; `USE_ESX_PLAN` is left out until the probe says HANA
-Cloud takes it, `P` facts.) The probe (`ganda hana probe P`) runs every profile over the
-statement shapes the renderers emit -- a CTE query, a derived table with a LEFT JOIN and
-a correlated scalar subquery, LIMIT / OFFSET, a collection query, a view over a
+The probe (`ganda hana probe P`, run 2026-10-12 against HANA Cloud 4.00.000.00) runs
+every profile over the statement shapes the renderers emit -- a CTE query, a derived
+table with a LEFT JOIN and a correlated scalar subquery, LIMIT / OFFSET, a view over a
 collection, OPENCYPHER_TABLE and SPARQL_TABLE -- and compares the rows with the plain
-statement's.
+statement's; an unknown hint name is an error (`[468] hint error: invalid hint`), never
+ignored, and `THROW_ERROR` blocks a statement (`[256]`), so the clause is always parsed.
 
 One profile per question: the select catalog draws it with the other rewrites
 (`select.Rewrites.hint`), a traversal or a path picks it from a hash of the question
@@ -49,6 +50,8 @@ import zlib
 
 PROFILES = {
     "nohex": ("NO_USE_HEX_PLAN",),
+    "hex": ("USE_HEX_PLAN",),
+    "esx": ("USE_ESX_PLAN",),
     "olap": ("NO_USE_HEX_PLAN", "USE_OLAP_PLAN"),
     "join_engine": ("NO_USE_HEX_PLAN", "NO_USE_OLAP_PLAN"),
     "row_ops": ("NO_USE_HEX_PLAN", "NO_CS_SORT", "NO_CS_LIMIT", "NO_CS_FILTER", "NO_CS_DISTINCT", "NO_CS_AGGR", "NO_CS_JOIN", "NO_CS_UNION_ALL"),
