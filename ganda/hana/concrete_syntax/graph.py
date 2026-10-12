@@ -233,6 +233,16 @@ def _like(expr: str, pattern: str) -> str:
     return f"({expr} = {cypher_string(pattern)})"
 
 
+def crosses(p) -> bool:
+    """Whether a numeric leaf's pivot is of the other numeric type than its column (a
+    double against INT, an integer against FLOAT: `pivots.cross_type`)."""
+    if p.ftype not in ("int", "float") or p.op in ("IS NULL", "IS NOT NULL") or p.sub is not None:
+        return False
+    pv = p.pivot if isinstance(p.pivot, list) else [p.pivot]
+    other = float if p.ftype == "int" else int
+    return any(type(v) is other for v in pv)
+
+
 def cypher_filter(p, var: str, table: str, schema: Schema, params: "Params | None") -> str:
     """The cypher text of a tree over the record variable `var` of class or edge type
     `table`. Three-valued logic is the engine's own (a comparison with NULL is NULL,
@@ -256,8 +266,15 @@ def cypher_filter(p, var: str, table: str, schema: Schema, params: "Params | Non
         raise Unsupported("a LIST membership has no cypher form")
     if p.ftype == "bool" and not BOOL_FILTERS:
         raise Unsupported("a BOOLEAN attribute is projected only")
+    # a cross-type pivot (`pivots.cross_type`): the engine refuses a BIGINT attribute
+    # against a float and a DOUBLE attribute against an integer outright (G36, `[4906]
+    # Type mismatch`), so both sides are doubles -- an integer attribute through TOFLOAT,
+    # the pivot as TOFLOAT of its text (exact, unlike a double constant: A8)
+    cross = crosses(p)
 
     def value(name: str, v, ftype: "str | None"):
+        if cross:
+            return f"TOFLOAT('{v!r}')"
         if ftype == "float" or isinstance(v, float):
             if params is None:
                 raise Unsupported("a double has no cypher constant")
@@ -269,7 +286,9 @@ def cypher_filter(p, var: str, table: str, schema: Schema, params: "Params | Non
         if p.arith is not None:
             raise Unsupported("IS NULL takes an attribute, not an expression")
         return f"({col} IS NULL)" if p.op == "IS NULL" else f"NOT ({col} IS NULL)"
-    expr = col
+    expr = f"TOFLOAT({col})" if cross and p.ftype == "int" else col
+    if p.arith is not None and cross:
+        raise Unsupported("arithmetic over a cross-type pivot")
     if p.arith is not None:
         sym, cbind, c = p.arith
         expr = f"({col} {sym} {value(cbind, float(c) if p.ftype == 'float' else c, p.ftype)})"

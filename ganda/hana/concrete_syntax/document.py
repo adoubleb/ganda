@@ -244,6 +244,10 @@ def _param(ftype: "str | None", bind: str, value) -> str:
         return _bool_literal(value)
     if ftype == "list":
         return f"PARSE_JSON(:{bind}__json)"
+    if ftype == "int" and isinstance(value, float):
+        # a cross-type pivot against an integer field (`pivots.cross_type`): the store
+        # compares integer and number as one type (D4, D24)
+        return f"CAST(:{bind} AS DOUBLE)"
     if ftype == "float" or isinstance(value, float):
         return f"CAST(:{bind}__dec AS DECIMAL)"
     if ftype == "int" or isinstance(value, int):

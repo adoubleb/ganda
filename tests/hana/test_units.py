@@ -112,8 +112,13 @@ def _random_tree(rng, depth=0):
         op = rng.choice(("CONTAINS", "CONTAINSANY", "CONTAINSALL", "=", "IS NULL"))
         pivot = {"CONTAINS": rng.randint(0, 3), "=": [rng.randint(0, 3)], "IS NULL": None}.get(op, [rng.randint(0, 3) for _ in range(2)])
         return _leaf(f, op, pivot, "list")
-    op = rng.choice(("=", "<>", "<", "<=", ">", ">=", "IN", "BETWEEN", "IS NULL", "IS NOT NULL"))
-    pivot = {"IN": [rng.randint(0, 3), rng.randint(0, 3)], "BETWEEN": sorted([rng.randint(0, 3), rng.randint(0, 3)])}.get(op, rng.randint(0, 3) if op not in ("IS NULL", "IS NOT NULL") else None)
+    op = rng.choice(("=", "<>", "<", "<=", ">", ">=", "IN", "NOT IN", "BETWEEN", "IS NULL", "IS NOT NULL"))
+
+    def num():
+        # an integer, or a cross-type pivot (a double half a unit off: `pivots.cross_type`)
+        return rng.randint(0, 3) + (0.5 if rng.random() < 0.3 else 0)
+
+    pivot = {"IN": [num(), num()], "NOT IN": [num(), num()], "BETWEEN": sorted([num(), num()])}.get(op, num() if op not in ("IS NULL", "IS NOT NULL") else None)
     return _leaf(f, op, pivot)
 
 
@@ -149,6 +154,56 @@ def test_the_arithmetic_rewrite_keeps_every_answer():
         assert r is not None
         for v in values:
             assert tri({"a": v}, p) == tri({"a": v}, r)
+
+
+def test_cross_type_pivots_stay_inside_the_bound_and_render_typed_on_every_data_model():
+    from ganda.hana import pivots
+    from ganda.hana.concrete_syntax import document, graph, predicate
+
+    rng = random.Random(5)
+    assert pivots.cross_type(rng, FieldType.INT, 7) in (6.5, 7.5) and pivots.cross_type(rng, FieldType.FLOAT, 2.6) == 3
+    for v in (None, True, 10**12, -(10**12), 2**63 - 1, 1e300):
+        assert pivots.cross_type(rng, FieldType.INT, v) is v or pivots.cross_type(rng, FieldType.INT, v) == v
+    assert "NOT IN" in pivots.ORDERED_OPS
+    schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f5", FieldType.FLOAT))),), ())
+    gt = Predicate("source", "f1", ">", "p", 1.5, True, "int")
+    isin = Predicate("source", "f1", "IN", "p", [1.5, 2], True, "int")
+    btw = Predicate("source", "f1", "BETWEEN", "p", [0.5, 2.5], True, "int")
+    rev = Predicate("source", "f1", "<", "p", 1.5, True, "int", rev=True)
+    fint = Predicate("source", "f5", "=", "p", 2, True, "float")
+    # SQL types the parameter by the pivot (a bare `?` would take BIGINT and truncate)
+    assert predicate.sql(gt, "t", "n1") == "t.f1 > CAST(:p AS DOUBLE)"
+    assert predicate.sql(isin, "t", "n1") == "t.f1 IN (CAST(:p__0 AS DOUBLE), :p__1)"
+    assert predicate.sql(btw, "t", "n1") == "t.f1 BETWEEN CAST(:pa AS DOUBLE) AND CAST(:pb AS DOUBLE)"
+    assert predicate.sql(rev, "t", "n1") == "CAST(:p AS DOUBLE) > t.f1"
+    assert predicate.sql(fint, "t", "n1") == "t.f5 = :p"
+    # the collection filter casts the pivot; a double against an integer field as DOUBLE
+    assert document.doc_pred(gt) == '$."f1" > CAST(:p AS DOUBLE)' and document.doc_pred(fint) == '$."f5" = CAST(:p__dec AS DECIMAL)'
+    # SPARQL: literals of the pivot's own type, compared numerically
+    assert predicate.sparql_filter(gt, "r") == 'OPTIONAL { ?r p:f1 ?r_f1 } FILTER ((BOUND(?r_f1) && (?r_f1 > "1.5"^^xsd:double)))'
+    # openCypher: both sides doubles, the pivot as TOFLOAT of its text (G36), no parameter
+    for leaf, text in ((gt, "(TOFLOAT(t.N1_F1) > TOFLOAT('1.5'))"), (isin, "(TOFLOAT(t.N1_F1) = TOFLOAT('1.5') OR TOFLOAT(t.N1_F1) = TOFLOAT('2'))"), (btw, "(TOFLOAT(t.N1_F1) >= TOFLOAT('0.5') AND TOFLOAT(t.N1_F1) <= TOFLOAT('2.5'))"), (rev, "(TOFLOAT('1.5') > TOFLOAT(t.N1_F1))"), (fint, "(t.N1_F5 = TOFLOAT('2'))")):
+        params = graph.Params()
+        assert graph.cypher_filter(leaf, "t", "n1", schema, params) == text and not params.items
+    # the reference compares exactly across the types
+    assert tri({"f1": 2}, gt) is True and tri({"f1": 1}, gt) is False and tri({}, gt) is UNKNOWN and tri({"f5": 2.0}, fint) is True
+
+
+def test_not_in_renders_on_every_data_model_and_rewrites_three_valued():
+    from ganda.hana.concrete_syntax import document, graph, predicate
+
+    schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT),)),), ())
+    p = Predicate("source", "f1", "NOT IN", "p", [1, 2], True, "int")
+    assert predicate.sql(p, "t", "n1") == "t.f1 NOT IN :p"
+    assert document.doc_pred(p) == '($."f1" <> CAST(:p__0 AS BIGINT) AND $."f1" <> CAST(:p__1 AS BIGINT))'
+    assert predicate.sparql_filter(p, "r").endswith('FILTER ((BOUND(?r_f1) && (?r_f1 NOT IN ("1"^^xsd:long, "2"^^xsd:long))))')
+    assert graph.cypher_filter(p, "t", "n1", schema, graph.Params()) == "NOT (t.N1_F1 = 1 OR t.N1_F1 = 2)"
+    assert tri({"f1": 3}, p) is True and tri({"f1": 2}, p) is False and tri({}, p) is UNKNOWN
+    rng = random.Random(1)
+    r = rewrites.rewrite(p, rng, "q")
+    assert isinstance(r, Compound) and r.op == "NOT" and r.children[0].op == "IN"
+    back = rewrites.rewrite(r, rng, "q")
+    assert back.op == "NOT IN" and back.pivot == [1, 2]
 
 
 def test_the_value_pools_hold_what_every_data_model_keeps_alike():
@@ -822,7 +877,8 @@ def test_a_write_on_the_base_class_addresses_every_subclass():
                 st = E.write_syntax.render(q, syntaxes[dm][0], rw, dm, cur, after)
                 writes = [s for s in st.steps if s.text.startswith(("UPDATE ", "DELETE ", "MERGE "))]
                 if dm == "rdf":
-                    assert "?n a c:N0" in st.main.text
+                    # the write names the base class (a read-back by captured ids need not)
+                    assert any("?n a c:N0" in s.text for s in st.steps), st.display()
                     continue
                 assert not any(re.match(r"(UPDATE|DELETE FROM|MERGE INTO) N0\b", s.text) for s in writes), st.display()
                 tables = {re.match(r"(?:UPDATE|DELETE FROM|MERGE INTO) (\w+)", s.text).group(1) for s in writes}

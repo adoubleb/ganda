@@ -345,7 +345,7 @@ def draw(rng: random.Random, on: str, f: FieldSpec, values: list, bind: str, eng
     op = rng.choice(pivots_of.ordered_ops(f.type))
     distinct = list({repr(v): v for v in present}.values())
     cross = f.type in NUMERIC_TYPES and rng.random() < cross_type_probability
-    if op == "IN":
+    if op in ("IN", "NOT IN"):
         k = rng.randint(1, min(3, len(distinct)))
         pivots = rng.sample(distinct, k)
         if cross:

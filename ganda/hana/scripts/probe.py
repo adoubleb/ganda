@@ -998,16 +998,16 @@ def _gs_procedures(p: Probe, ws: str, suffix: str = "") -> list:
     """GraphScript procedures over a workspace: a shortest path OUTGOING, one with the
     direction as a parameter, the neighbours within k hops, a shortest path over the
     subgraph of one edge KIND; the engine's refusals, if any, as text."""
-    # every GraphScript variable is `tv_*`: the texts go through `connection.positional`,
+    # every GraphScript variable is `sv_*`: the texts go through `connection.positional`,
     # which binds any other `:name`
-    head = f'GRAPH tv_g = Graph("{p.s.database.upper()}", "{ws}");'
-    out = 'tv_o = SELECT :tv_v."ID" FOREACH tv_v IN Vertices(:tv_p);'
-    ends = "VERTEX tv_va = Vertex(:tv_g, :tv_ia); VERTEX tv_vb = Vertex(:tv_g, :tv_ib);"
+    head = f'GRAPH sv_g = Graph("{p.s.database.upper()}", "{ws}");'
+    out = 'sv_o = SELECT :sv_v."ID" FOREACH sv_v IN Vertices(:sv_p);'
+    ends = "VERTEX sv_va = Vertex(:sv_g, :sv_ia); VERTEX sv_vb = Vertex(:sv_g, :sv_ib);"
     bodies = {
-        "p_gs_path_out": ("IN tv_ia NVARCHAR(256), IN tv_ib NVARCHAR(256), OUT tv_o TABLE (ID NVARCHAR(256))", f"{head} {ends} WeightedPath<BIGINT> tv_p = Shortest_Path(:tv_g, :tv_va, :tv_vb, 'OUTGOING'); {out}"),
-        "p_gs_path_dir": ("IN tv_ia NVARCHAR(256), IN tv_ib NVARCHAR(256), IN tv_dir NVARCHAR(16), OUT tv_o TABLE (ID NVARCHAR(256))", f"{head} {ends} WeightedPath<BIGINT> tv_p = Shortest_Path(:tv_g, :tv_va, :tv_vb, :tv_dir); {out}"),
-        "p_gs_reach": ("IN tv_ia NVARCHAR(256), IN tv_k BIGINT, OUT tv_o TABLE (ID NVARCHAR(256))", f'{head} VERTEX tv_va = Vertex(:tv_g, :tv_ia); MULTISET<Vertex> tv_m = Neighbors(:tv_g, :tv_va, 1, :tv_k, \'OUTGOING\'); tv_o = SELECT :tv_v."ID" FOREACH tv_v IN :tv_m;'),
-        "p_gs_path_kind": ("IN tv_ia NVARCHAR(256), IN tv_ib NVARCHAR(256), IN tv_kind NVARCHAR(256), OUT tv_o TABLE (ID NVARCHAR(256))", f'{head} GRAPH tv_sg = SubGraph(:tv_g, tv_e IN Edges(:tv_g) WHERE :tv_e."KIND" == :tv_kind); VERTEX tv_va = Vertex(:tv_sg, :tv_ia); VERTEX tv_vb = Vertex(:tv_sg, :tv_ib); WeightedPath<BIGINT> tv_p = Shortest_Path(:tv_sg, :tv_va, :tv_vb, \'OUTGOING\'); {out}'),
+        "p_gs_path_out": ("IN sv_ia NVARCHAR(256), IN sv_ib NVARCHAR(256), OUT sv_o TABLE (ID NVARCHAR(256))", f"{head} {ends} WeightedPath<BIGINT> sv_p = Shortest_Path(:sv_g, :sv_va, :sv_vb, 'OUTGOING'); {out}"),
+        "p_gs_path_dir": ("IN sv_ia NVARCHAR(256), IN sv_ib NVARCHAR(256), IN sv_dir NVARCHAR(16), OUT sv_o TABLE (ID NVARCHAR(256))", f"{head} {ends} WeightedPath<BIGINT> sv_p = Shortest_Path(:sv_g, :sv_va, :sv_vb, :sv_dir); {out}"),
+        "p_gs_reach": ("IN sv_ia NVARCHAR(256), IN sv_k BIGINT, OUT sv_o TABLE (ID NVARCHAR(256))", f'{head} VERTEX sv_va = Vertex(:sv_g, :sv_ia); MULTISET<Vertex> sv_m = Neighbors(:sv_g, :sv_va, 1, :sv_k, \'OUTGOING\'); sv_o = SELECT :sv_v."ID" FOREACH sv_v IN :sv_m;'),
+        "p_gs_path_kind": ("IN sv_ia NVARCHAR(256), IN sv_ib NVARCHAR(256), IN sv_kind NVARCHAR(256), OUT sv_o TABLE (ID NVARCHAR(256))", f'{head} GRAPH sv_sg = SubGraph(:sv_g, sv_e IN Edges(:sv_g) WHERE :sv_e."KIND" == :sv_kind); VERTEX sv_va = Vertex(:sv_sg, :sv_ia); VERTEX sv_vb = Vertex(:sv_sg, :sv_ib); WeightedPath<BIGINT> sv_p = Shortest_Path(:sv_sg, :sv_va, :sv_vb, \'OUTGOING\'); {out}'),
     }
     errors = []
     for name, (sig, body) in bodies.items():
@@ -1029,10 +1029,10 @@ def _gs_workspace(p: Probe) -> str:
 
 def _gs(p: Probe, call: str, binds: dict) -> list:
     """The ids a GraphScript procedure answers, read through a SQLScript anonymous block
-    (the header binds the markers, the body reads `:tv_*` variables; `tv_o` is the
+    (the header binds the markers, the body reads `:sv_*` variables; `sv_o` is the
     procedure's table output)."""
-    header = ", ".join(f"IN tv_{k} {'BIGINT' if isinstance(v, int) else 'NVARCHAR(256)'} => :{k}" for k, v in binds.items())
-    return sorted(r["id"] for r in p.sql(f"DO ({header}) BEGIN CALL {call}; SELECT ID AS id FROM :tv_o; END", binds))
+    header = ", ".join(f"IN sv_{k} {'BIGINT' if isinstance(v, int) else 'NVARCHAR(256)'} => :{k}" for k, v in binds.items())
+    return sorted(r["id"] for r in p.sql(f"DO ({header}) BEGIN CALL {call}; SELECT ID AS id FROM :sv_o; END", binds))
 
 
 def g35(p: Probe):
@@ -1044,18 +1044,18 @@ def g35(p: Probe):
     over_gw = _gs_procedures(p, "GW", "_gw")
     ws_err = _gs_workspace(p)
     errors = _gs_procedures(p, "GWS")
-    path = "p_gs_path_out(:tv_a, :tv_b, tv_o)"
+    path = "p_gs_path_out(:sv_a, :sv_b, sv_o)"
     ad = _try(lambda: _gs(p, path, {"a": "a", "b": "d"}))
     ax = _try(lambda: _gs(p, path, {"a": "a", "b": "x"}))
     none = _try(lambda: _gs(p, path, {"a": "d", "b": "a"}), 60)
     same = _try(lambda: _gs(p, path, {"a": "a", "b": "a"}), 60)
-    dir_any = _try(lambda: _gs(p, "p_gs_path_dir(:tv_a, :tv_b, :tv_d, tv_o)", {"a": "d", "b": "a", "d": "ANY"}), 60)
-    dir_in = _try(lambda: _gs(p, "p_gs_path_dir(:tv_a, :tv_b, :tv_d, tv_o)", {"a": "d", "b": "a", "d": "INCOMING"}), 60)
-    reach1 = _try(lambda: _gs(p, "p_gs_reach(:tv_a, :tv_k, tv_o)", {"a": "a", "k": 1}), 60)
-    reach2 = _try(lambda: _gs(p, "p_gs_reach(:tv_a, :tv_k, tv_o)", {"a": "a", "k": 2}), 60)
-    kind_ab = _try(lambda: _gs(p, "p_gs_path_kind(:tv_a, :tv_b, :tv_k, tv_o)", {"a": "a", "b": "b", "k": "pe2"}), 60)
-    kind_ax = _try(lambda: _gs(p, "p_gs_path_kind(:tv_a, :tv_b, :tv_k, tv_o)", {"a": "a", "b": "x", "k": "pe2"}), 60)
-    kind_c = _try(lambda: _gs(p, "p_gs_path_kind(:tv_a, :tv_b, :tv_k, tv_o)", {"a": "c", "b": "a", "k": "pe2"}), 60)
+    dir_any = _try(lambda: _gs(p, "p_gs_path_dir(:sv_a, :sv_b, :sv_d, sv_o)", {"a": "d", "b": "a", "d": "ANY"}), 60)
+    dir_in = _try(lambda: _gs(p, "p_gs_path_dir(:sv_a, :sv_b, :sv_d, sv_o)", {"a": "d", "b": "a", "d": "INCOMING"}), 60)
+    reach1 = _try(lambda: _gs(p, "p_gs_reach(:sv_a, :sv_k, sv_o)", {"a": "a", "k": 1}), 60)
+    reach2 = _try(lambda: _gs(p, "p_gs_reach(:sv_a, :sv_k, sv_o)", {"a": "a", "k": 2}), 60)
+    kind_ab = _try(lambda: _gs(p, "p_gs_path_kind(:sv_a, :sv_b, :sv_k, sv_o)", {"a": "a", "b": "b", "k": "pe2"}), 60)
+    kind_ax = _try(lambda: _gs(p, "p_gs_path_kind(:sv_a, :sv_b, :sv_k, sv_o)", {"a": "a", "b": "x", "k": "pe2"}), 60)
+    kind_c = _try(lambda: _gs(p, "p_gs_path_kind(:sv_a, :sv_b, :sv_k, sv_o)", {"a": "c", "b": "a", "k": "pe2"}), 60)
     ok = ad == ["a", "b", "d"] and ax == ["a", "x"]
     return ok, (f"over the labelled heterogeneous gw: {(over_gw[0].split(': ', 1)[1] if over_gw else 'compiled')[:90]} | the homogeneous gws (UNION ALL views, no labels): {ws_err[:80] or 'created'}; procedures: {' ; '.join(errors) or 'all four created'} | a->d OUTGOING: {ad} (want a, b, d); a->x: {ax} (want a, x) | d->a OUTGOING: {none}; a->a: {same} | direction parameter: d->a ANY {dir_any}, INCOMING {dir_in} | Neighbors(a, 1..1): {reach1}, (a, 1..2): {reach2} (BFS from a over every type: 1 hop a, b, x; 2 hops + d, y) | SubGraph KIND pe2: a->b {kind_ab}, a->x {kind_ax} (no pe2 path), c->a {kind_c} (c has no pe2 edge)")
 
@@ -1246,18 +1246,18 @@ def p_obs(hint: str):
 
 def _block(text: str, binds: dict, form: str) -> str:
     """A statement as a SQLScript anonymous block (the `block` positions): the binds typed
-    BIGINT in the header (every P bind is one), the body reading `:tv_*` variables;
+    BIGINT in the header (every P bind is one), the body reading `:sv_*` variables;
     `select` runs the statement as the block's own SELECT, `table` through a table
     variable, `noinline` with NO_INLINE on the assignment."""
-    header = ", ".join(f"IN tv_{k} BIGINT => :{k}" for k in binds)
+    header = ", ".join(f"IN sv_{k} BIGINT => :{k}" for k in binds)
     body = text
     for k in binds:
-        body = body.replace(f":{k}", f":tv_{k}")
+        body = body.replace(f":{k}", f":sv_{k}")
     do = f"DO ({header}) BEGIN" if header else "DO BEGIN"
     if form == "select":
         return f"{do} {body}; END"
     hint = " WITH HINT (NO_INLINE)" if form == "noinline" else ""
-    return f"{do} tv_t = {body}{hint}; SELECT * FROM :tv_t; END"
+    return f"{do} sv_t = {body}{hint}; SELECT * FROM :sv_t; END"
 
 
 def p20(p: Probe):
