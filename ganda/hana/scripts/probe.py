@@ -695,19 +695,37 @@ def k26(p: Probe):
     _k_class(p, "k26", {"a": {"i": '"1"^^xsd:long', "s": '"ab"'}, "b": {"i": '"2"^^xsd:long'}, "c": {"s": '"zz"'}, "d": {"i": '"2"^^xsd:long', "s": '"ac"'}, "e": {}})
     pattern = "OPTIONAL { ?n p:i ?i } OPTIONAL { ?n p:s ?s }"
     preds = ["?i > 1", '?i > 1 || STRSTARTS(?s, "a")', "?i IN (1, 2)", "!BOUND(?i)", "?i != 2", "!(?i > 1) && BOUND(?s)"]
-    bad = []
+    # the right-hand side of a MINUS (or the body of a NOT EXISTS) holding the partition's
+    # filter, four ways: the first run (2026-10-12) saw the plain group remove EVERY
+    # solution when the filter named one OPTIONAL variable alone (`?i > 1`), and answer
+    # right when it named two (`?i > 1 || STRSTARTS(?s, "a")`)
+    base = "?n a c:k26 ; p:id ?id ."
+    forms = {
+        "group": lambda f: f"MINUS {{ {base} {pattern} FILTER ({f}) }}",
+        "subselect": lambda f: f"MINUS {{ SELECT ?n ?id WHERE {{ {base} {pattern} FILTER ({f}) }} }}",
+        "bind": lambda f: f"MINUS {{ {base} {pattern} BIND (({f}) AS ?t) FILTER (?t) }}",
+        "not exists": lambda f: f"FILTER NOT EXISTS {{ {pattern} FILTER ({f}) }}",
+    }
+    agree: dict = {k: [] for k in forms}
+    notes = []
     for pred in preds:
         direct = _k_ids(p, "k26", pattern, pred)
-        body = f"{{ ?n a c:k26 ; p:id ?id }} MINUS {{ ?n a c:k26 ; p:id ?id . {pattern} FILTER (!({pred})) }} MINUS {{ ?n a c:k26 ; p:id ?id . {pattern} FILTER (COALESCE(IF({pred}, 1, 0), 2) = 2) }}"
-        try:
-            tlp = p.ids(f"SELECT ?id WHERE {{ GRAPH {G} {{ {body} }} }}")
-            count = p.sparql(f"SELECT (COUNT(?id) AS ?v) WHERE {{ GRAPH {G} {{ {body} }} }}")[0]["v"]
-        except EngineError as e:
-            bad.append(f"{pred}: {str(e)[:80]}")
-            continue
-        if tlp != direct or count != len(direct):
-            bad.append(f"{pred}: direct {direct}, set form {tlp}, count {count}")
-    return not bad, (f"{len(preds)} filters agree with their MINUS form and its count" if not bad else " | ".join(bad))
+        for form, rhs in forms.items():
+            body = f"{{ {base.rstrip(' .')} }} {rhs(f'!({pred})')} {rhs(f'COALESCE(IF({pred}, 1, 0), 2) = 2')}"
+            if form == "not exists":
+                body = f"{base} {rhs(f'!({pred})')} {rhs(f'COALESCE(IF({pred}, 1, 0), 2) = 2')}"
+            try:
+                tlp = p.ids(f"SELECT ?id WHERE {{ GRAPH {G} {{ {body} }} }}")
+                count = p.sparql(f"SELECT (COUNT(?id) AS ?v) WHERE {{ GRAPH {G} {{ {body} }} }}")[0]["v"]
+            except EngineError as e:
+                notes.append(f"{form} / {pred}: {str(e)[:70]}")
+                continue
+            if tlp == direct and count == len(direct):
+                agree[form].append(pred)
+            else:
+                notes.append(f"{form} / {pred}: direct {direct}, set form {tlp}, count {count}")
+    whole = [form for form, preds_ok in agree.items() if len(preds_ok) == len(preds)]
+    return bool(whole), f"forms agreeing on every filter: {whole or 'NONE'}; per form: " + ", ".join(f"{k} {len(v)}/{len(preds)}" for k, v in agree.items()) + (" | " + " | ".join(notes[:8]) if notes else "")
 
 
 def k27(p: Probe):
@@ -976,14 +994,13 @@ def g34(p: Probe):
     return _eq(got, (["d"], ["g34"], ["a"]))
 
 
-def _gs_procedures(p: Probe) -> list:
-    """GraphScript procedures over the probe workspace (`gw`, two vertex and two edge
-    tables): a shortest path OUTGOING, one with the direction as a parameter, the
-    neighbours within k hops, a shortest path over the subgraph of one edge KIND; the
-    engine's refusals, if any, as text."""
+def _gs_procedures(p: Probe, ws: str, suffix: str = "") -> list:
+    """GraphScript procedures over a workspace: a shortest path OUTGOING, one with the
+    direction as a parameter, the neighbours within k hops, a shortest path over the
+    subgraph of one edge KIND; the engine's refusals, if any, as text."""
     # every GraphScript variable is `tv_*`: the texts go through `connection.positional`,
     # which binds any other `:name`
-    head = f'GRAPH tv_g = Graph("{p.s.database.upper()}", "GW");'
+    head = f'GRAPH tv_g = Graph("{p.s.database.upper()}", "{ws}");'
     out = 'tv_o = SELECT :tv_v."ID" FOREACH tv_v IN Vertices(:tv_p);'
     ends = "VERTEX tv_va = Vertex(:tv_g, :tv_ia); VERTEX tv_vb = Vertex(:tv_g, :tv_ib);"
     bodies = {
@@ -994,10 +1011,20 @@ def _gs_procedures(p: Probe) -> list:
     }
     errors = []
     for name, (sig, body) in bodies.items():
-        err = p.error(lambda: p.run(f"CREATE PROCEDURE {name} ({sig}) LANGUAGE GRAPH READS SQL DATA AS BEGIN {body} END"))
+        err = p.error(lambda: p.run(f"CREATE PROCEDURE {name}{suffix} ({sig}) LANGUAGE GRAPH READS SQL DATA AS BEGIN {body} END"))
         if err:
             errors.append(f"{name}: {err[:110]}")
     return errors
+
+
+def _gs_workspace(p: Probe) -> str:
+    """A HOMOGENEOUS workspace beside `gw` for GraphScript (which refused the labelled
+    heterogeneous one: `UNKNOWN is not supported as vertex label data type`): one view
+    uniting every node table's keys, one uniting every junction table's keys and ends,
+    each row carrying its table's name as KIND; no LABEL clauses."""
+    p.run("CREATE VIEW gs_v AS SELECT id, CAST('pv1' AS NVARCHAR(256)) AS kind FROM pv1 UNION ALL SELECT id, CAST('pv2' AS NVARCHAR(256)) AS kind FROM pv2")
+    p.run("CREATE VIEW gs_e AS SELECT eid, src_id, dst_id, CAST('pe1' AS NVARCHAR(256)) AS kind FROM pe1 UNION ALL SELECT eid, src_id, dst_id, CAST('pe2' AS NVARCHAR(256)) AS kind FROM pe2")
+    return p.error(lambda: p.run("CREATE GRAPH WORKSPACE gws VERTEX TABLE gs_v KEY COLUMN id EDGE TABLE gs_e KEY COLUMN eid SOURCE COLUMN src_id TARGET COLUMN dst_id"))
 
 
 def _gs(p: Probe, call: str, binds: dict) -> list:
@@ -1014,7 +1041,9 @@ def g35(p: Probe):
     shortest path (a -> b -> d over pe2: three; a -> x over pe1: two) -- required; the
     direction as a parameter, 'ANY' and 'INCOMING', the unreachable pair, start = goal,
     `Neighbors` within k, and the SubGraph of one edge KIND (recorded)."""
-    errors = _gs_procedures(p)
+    over_gw = _gs_procedures(p, "GW", "_gw")
+    ws_err = _gs_workspace(p)
+    errors = _gs_procedures(p, "GWS")
     path = "p_gs_path_out(:tv_a, :tv_b, tv_o)"
     ad = _try(lambda: _gs(p, path, {"a": "a", "b": "d"}))
     ax = _try(lambda: _gs(p, path, {"a": "a", "b": "x"}))
@@ -1028,29 +1057,34 @@ def g35(p: Probe):
     kind_ax = _try(lambda: _gs(p, "p_gs_path_kind(:tv_a, :tv_b, :tv_k, tv_o)", {"a": "a", "b": "x", "k": "pe2"}), 60)
     kind_c = _try(lambda: _gs(p, "p_gs_path_kind(:tv_a, :tv_b, :tv_k, tv_o)", {"a": "c", "b": "a", "k": "pe2"}), 60)
     ok = ad == ["a", "b", "d"] and ax == ["a", "x"]
-    return ok, (f"procedures: {' ; '.join(errors) or 'all four created'} | a->d OUTGOING: {ad} (want a, b, d); a->x: {ax} (want a, x) | d->a OUTGOING: {none}; a->a: {same} | direction parameter: d->a ANY {dir_any}, INCOMING {dir_in} | Neighbors(a, 1..1): {reach1}, (a, 1..2): {reach2} (BFS from a over every type: 1 hop a, b, x; 2 hops + d, y) | SubGraph KIND pe2: a->b {kind_ab}, a->x {kind_ax} (no pe2 path), c->a {kind_c} (c has no pe2 edge)")
+    return ok, (f"over the labelled heterogeneous gw: {(over_gw[0].split(': ', 1)[1] if over_gw else 'compiled')[:90]} | the homogeneous gws (UNION ALL views, no labels): {ws_err[:80] or 'created'}; procedures: {' ; '.join(errors) or 'all four created'} | a->d OUTGOING: {ad} (want a, b, d); a->x: {ax} (want a, x) | d->a OUTGOING: {none}; a->a: {same} | direction parameter: d->a ANY {dir_any}, INCOMING {dir_in} | Neighbors(a, 1..1): {reach1}, (a, 1..2): {reach2} (BFS from a over every type: 1 hop a, b, x; 2 hops + d, y) | SubGraph KIND pe2: a->b {kind_ab}, a->x {kind_ax} (no pe2 path), c->a {kind_c} (c has no pe2 edge)")
 
 
 def g36(p: Probe):
-    """A cross-type pivot in openCypher: a DOUBLE pivot against a BIGINT attribute as the
-    constant `TOFLOAT('<repr>')` (exact, unlike a double constant: A8) and an integer
-    constant against a DOUBLE attribute compare numerically; recorded: a bound double
-    parameter against a BIGINT attribute (how the engine types it)."""
+    """A cross-type pivot in openCypher: the engine refuses a BIGINT attribute against a
+    float outright (`Type mismatch between bigint and float`, recorded), so both sides
+    are doubles -- `TOFLOAT(a.F) > TOFLOAT('<repr>')` (exact: a BIGINT below 2^53
+    converts exactly, and a pivot below 10^12 orders the same against any BIGINT) -- and
+    an integer pivot against a DOUBLE attribute is `TOFLOAT('<int>')`; recorded: a bound
+    double parameter against a BIGINT attribute."""
     checks = [
-        ("f1 > 0.5", _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F1 > TOFLOAT('0.5') RETURN a.ID AS ID"), ["a", "b"]),
-        ("f1 < -0.5", _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F1 < TOFLOAT('-0.5') RETURN a.ID AS ID"), ["d"]),
-        ("f1 = 1.0", _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F1 = TOFLOAT('1.0') RETURN a.ID AS ID"), ["a"]),
-        ("f1 <> 1.0", _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F1 <> TOFLOAT('1.0') RETURN a.ID AS ID"), ["b", "d"]),
-        ("f1 = 1.5 OR f1 = 1.0", _oc_ids(p, "MATCH (a:pv1) WHERE (a.PV1_F1 = TOFLOAT('1.5') OR a.PV1_F1 = TOFLOAT('1.0')) RETURN a.ID AS ID"), ["a"]),
-        ("f1 >= -5.5 AND f1 <= 1.5", _oc_ids(p, "MATCH (a:pv1) WHERE (a.PV1_F1 >= TOFLOAT('-5.5') AND a.PV1_F1 <= TOFLOAT('1.5')) RETURN a.ID AS ID"), ["a", "d"]),
-        ("d > 0", _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_D > 0 RETURN a.ID AS ID"), ["a", "b", "d"]),
+        ("f1 > 0.5", _oc_ids(p, "MATCH (a:pv1) WHERE TOFLOAT(a.PV1_F1) > TOFLOAT('0.5') RETURN a.ID AS ID"), ["a", "b"]),
+        ("f1 < -0.5", _oc_ids(p, "MATCH (a:pv1) WHERE TOFLOAT(a.PV1_F1) < TOFLOAT('-0.5') RETURN a.ID AS ID"), ["d"]),
+        ("f1 = 1.0", _oc_ids(p, "MATCH (a:pv1) WHERE TOFLOAT(a.PV1_F1) = TOFLOAT('1.0') RETURN a.ID AS ID"), ["a"]),
+        ("f1 <> 1.0", _oc_ids(p, "MATCH (a:pv1) WHERE TOFLOAT(a.PV1_F1) <> TOFLOAT('1.0') RETURN a.ID AS ID"), ["b", "d"]),
+        ("f1 = 1.5 OR f1 = 1.0", _oc_ids(p, "MATCH (a:pv1) WHERE (TOFLOAT(a.PV1_F1) = TOFLOAT('1.5') OR TOFLOAT(a.PV1_F1) = TOFLOAT('1.0')) RETURN a.ID AS ID"), ["a"]),
+        ("f1 >= -5.5 AND f1 <= 1.5", _oc_ids(p, "MATCH (a:pv1) WHERE (TOFLOAT(a.PV1_F1) >= TOFLOAT('-5.5') AND TOFLOAT(a.PV1_F1) <= TOFLOAT('1.5')) RETURN a.ID AS ID"), ["a", "d"]),
+        ("f1 > 1e12 (2^63 - 1 converted)", _oc_ids(p, "MATCH (a:pv1) WHERE TOFLOAT(a.PV1_F1) > TOFLOAT('999999999999.5') RETURN a.ID AS ID"), ["b"]),
+        ("d > 0", _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_D > TOFLOAT('0') RETURN a.ID AS ID"), ["a", "b", "d"]),
         ("d = 1e-300", _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_D = TOFLOAT('1e-300') RETURN a.ID AS ID"), ["d"]),
-        ("d = 2^53", _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_D = TOFLOAT('9007199254740992.0') RETURN a.ID AS ID"), ["b"]),
-        ("d <> 0", _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_D <> 0 RETURN a.ID AS ID"), ["a", "b", "d"]),
+        ("d = 2^53", _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_D = TOFLOAT('9007199254740992') RETURN a.ID AS ID"), ["b"]),
+        ("d <> 0", _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_D <> TOFLOAT('0') RETURN a.ID AS ID"), ["a", "b", "d"]),
     ]
     bad = [f"{label}: got {got} want {want}" for label, got, want in checks if got != want]
+    mixed = _try(lambda: _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F1 > TOFLOAT('0.5') RETURN a.ID AS ID"), 70)
+    plain_int = _try(lambda: _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_D > 0 RETURN a.ID AS ID"), 70)
     bound = _try(lambda: _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F1 >= $p RETURN a.ID AS ID", {"p": 1.5}, {"p": ":p"}), 70)
-    return not bad, (f"{len(checks)} comparisons exact" if not bad else " | ".join(bad)) + f"; f1 >= $p with 1.5 bound: {bound} (b alone: compared as a double; a and b: truncated to 1)"
+    return not bad, (f"{len(checks)} comparisons exact with both sides TOFLOAT" if not bad else " | ".join(bad)) + f"; BIGINT attribute against TOFLOAT: {mixed}; DOUBLE attribute against an integer constant: {plain_int}; f1 >= $p with 1.5 bound: {bound}"
 
 
 def g37(p: Probe):
