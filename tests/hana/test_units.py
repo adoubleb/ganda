@@ -772,6 +772,62 @@ def test_every_case_carries_one_hint_profile_per_sql_data_model(seed):
     assert seen > 100
 
 
+@pytest.mark.parametrize("seed", range(1, 4))
+def test_no_variant_repeats_a_text_and_the_hint_reaches_every_rdf_question(seed):
+    """Two variants of one data model never share a text (`doc:view` on a views-only
+    question and `rdf:from` on a median used to); the rdf hint rides `table_fn` as a
+    single-axis variant, so every select question with a profile asks it."""
+    _schema, _instance, cases = _cases(seed)
+    hinted_rdf = 0
+    for c in cases:
+        if c.generator_name != "ir_select":
+            continue
+        by_model: dict = {}
+        for v, t in c.queries.items():
+            by_model.setdefault(v.split(":", 1)[0], []).append((v, t))
+        for dm, pairs in by_model.items():
+            texts = [t for _, t in pairs]
+            assert len(set(texts)) == len(texts), (c.shape, dm, [v for v, t in pairs if texts.count(t) > 1])
+        if "rdf" in c.queries and c.params.get("hint"):
+            assert f"rdf:table_fn+{c.params['hint']}" in c.queries, (c.shape, sorted(c.queries))
+            hinted_rdf += 1
+    assert hinted_rdf > 20
+
+
+def test_the_mutant_catalog_corrupts_a_node_value_on_every_data_model():
+    from ganda.hana import mutants
+
+    names = [m.name for m in mutants.MUTANTS]
+    assert len(names) == len(set(names))
+    assert {f"{dm}_offset_node_numeric" for dm in mutants.DATA_MODELS} <= set(names)
+    for m in mutants.MUTANTS:
+        if m.name.endswith("_offset_node_numeric"):
+            assert set(m.instance_for_data_model) == {m.name.split("_", 1)[0]}
+    # the strict-to-inclusive corruption meets the collection filter's cast parameter too
+    assert mutants._strict_to_inclusive('SELECT $."id" AS id FROM n1 WHERE $."f1" > CAST(:p AS BIGINT)') == 'SELECT $."id" AS id FROM n1 WHERE $."f1" >= CAST(:p AS BIGINT)'
+    assert mutants._strict_to_inclusive("SELECT t.id FROM n1 t WHERE t.f1 < :p AND t.f2 > CAST(:q AS DOUBLE)") == "SELECT t.id FROM n1 t WHERE t.f1 <= :p AND t.f2 > CAST(:q AS DOUBLE)"
+
+
+def test_a_decoding_failure_is_an_internal_engine_error_not_a_dead_worker():
+    from ganda.core.provider import EngineError
+    from ganda.hana.connection import _error, decoded_rows, decoded_sparql, document_of
+
+    assert decoded_rows(["v__int", "w"], [("7", 1)]) == [{"v": 7, "w": 1}]
+    for bad in (lambda: decoded_rows(["v__int"], [("seven",)]), lambda: decoded_rows(["v__json"], [("{not json",)]), lambda: decoded_sparql("{not json"), lambda: document_of({"x": "{not json"})):
+        with pytest.raises(EngineError) as e:
+            bad()
+        assert e.value.internal and str(e.value).startswith("[decode]")
+
+    class Err(Exception):
+        def __init__(self, code, text):
+            self.errorcode, self.errortext = code, text
+
+    assert _error(Err(2048, "column store error: search table error")).internal
+    assert _error(Err(257, "sql syntax error: assertion failed in planner")).internal
+    assert not _error(Err(4901, "GraphEngine: compilation failed: exception 73002602: UNKNOWN is not supported")).internal
+    assert not _error(Err(129, "transaction rolled back by an internal error: generic. Error - unknown prefix")).internal
+
+
 def test_the_doc_neg_position_keeps_the_nots_the_store_can_say():
     from ganda.hana.concrete_syntax.document import doc_filter_ok, doc_pred, has_not
 

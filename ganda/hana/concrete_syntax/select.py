@@ -104,7 +104,11 @@ class SelectSyntax:
 
     @property
     def axes(self) -> int:
-        return len([x for x in (self.form != "base", self.filter != "plain", self.position != "table", self.hint != "") if x])
+        # the hint is no axis of its own on rdf's `table_fn`, the only SQL path a SPARQL
+        # question has: `rdf:table_fn+<profile>` is asked on every question, not in the
+        # few random multi-axis combinations
+        hinted = self.hint != "" and self.position != "table_fn"
+        return len([x for x in (self.form != "base", self.filter != "plain", self.position != "table", hinted) if x])
 
 
 BASE = SelectSyntax()
@@ -169,12 +173,37 @@ def _views_ask(q: SelectQuery, pred) -> bool:
     return True
 
 
+def _rewrite_changes_text(q: SelectQuery, schema: "Schema | None", sp: SelectSyntax, pred, data_model: str) -> bool:
+    """Whether a rewritten filter reads differently from the plain one on the engine path
+    the position takes. A NOT over a complement comes out as the plain text where the
+    renderer pushes NOTs down (the collection filter) or spells three-valued logic out
+    (the guarded SPARQL filter), a one-element IN as the equality it is in cypher, a
+    semi-join's derived table as the same pattern in SPARQL: the variant would be the
+    same statement twice."""
+    plain = q.where
+    try:
+        if data_model == "doc" and sp.position in ("table", "neg"):
+            keep = sp.position == "neg"
+            return document.doc_pred(pred, keep_not=keep) != document.doc_pred(plain, keep_not=keep)
+        if data_model == "graph" and (sp.position == "match" or _cypher_asks(q, schema, sp, pred)):
+            return graph.cypher_filter(pred, "t", q.table, schema, graph.Params()) != graph.cypher_filter(plain, "t", q.table, schema, graph.Params())
+        if data_model == "rdf":
+            native = sp.position == "native"
+            return sparql_filter(pred, "n", native=native) != sparql_filter(plain, "n", native=native)
+        names = {"doc": document.NAMES, "graph": graph.NAMES}.get(data_model, REL)
+        return sql(pred, "t", q.table, names=names) != sql(plain, "t", q.table, names=names)
+    except (document.Unsupported, graph.Unsupported):
+        return True
+
+
 def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str) -> bool:
     if sp.position not in _POSITIONS_OF[data_model]:
         return False
     if sp.filter != "plain" and (q.where is None or getattr(rewrites, sp.filter) is None):
         return False
     pred = rewrites.filter_pred(q, sp.filter)
+    if sp.filter != "plain" and not _rewrite_changes_text(q, schema, sp, pred, data_model):
+        return False
     if sp.form in ("jscan", "jrev") and q.kind != "join":
         return False
     if sp.form == "order" and not (q.kind == "agg" and q.fn in ("max", "min") and rewrites.present):
@@ -211,6 +240,10 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
             if sp == BASE:
                 return collection_asks(q, schema, pred) or _views_ask(q, pred)
             return collection_asks(q, schema, pred)
+        if sp.position == "view" and dataclasses.replace(sp, position="table", hint="") == BASE and not collection_asks(q, schema, pred):
+            # the base (and its hinted twin) is the views text already: `doc:view`
+            # would be the same statement again
+            return False
         return _views_ask(q, pred)
     if data_model == "graph":
         if q.tx and not graph.TX_VISIBLE:
@@ -223,8 +256,14 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
         return True
     if data_model == "rdf" and sp.position == "nest" and q.kind == "join":
         return False
-    if sp.position == "native" and pred is None:
+    if data_model == "rdf" and sp.position == "from" and q.kind == "agg" and q.fn == "median":
+        # the median is one fixed query (a MEDIAN under GROUP BY on a constant), the
+        # position changes nothing in it: `rdf:from` would be the base again
         return False
+    if sp.position == "native":
+        # the error-propagating filter is a variant only where it reads differently from
+        # the BOUND-guarded one (a null test alone is `BOUND(?x)` either way)
+        return pred is not None and sparql_filter(pred, "n", native=True) != sparql_filter(pred, "n")
     return True
 
 

@@ -4,9 +4,11 @@ corrupt one data model's text the way a broken engine path would answer.
 
 The core's catalog names `doc`, `graph` and `rel`. The graph data model is the Property
 Graph Engine here, so a corruption aimed at `graph` stays there; the triple store gets a
-copy of each (`rdf_*`), being a graph of its own; a reference-only corruption (every data
-model alike, only the reference sees it) covers all four, or it would stop being
-oracle-blind.
+copy of each (`rdf_*`), being a graph of its own; the relational node-value corruption
+gets a copy per data model (`doc_` / `graph_` / `rdf_offset_node_numeric`: the core has
+one, and a stored scalar wrong on one model is the plainest thing a select must see); a
+reference-only corruption (every data model alike, only the reference sees it) covers
+all four, or it would stop being oracle-blind.
 """
 from __future__ import annotations
 
@@ -28,6 +30,13 @@ def _every_model(m: Mutant) -> Mutant:
     return dataclasses.replace(m, instance_for_data_model={dm: fn for dm in DATA_MODELS})
 
 
+def _node_value_copy(m: Mutant, data_model: str) -> Mutant:
+    """The relational node-value corruption aimed at another data model: a stored
+    scalar wrong on one model is what a select or a traversal projection must see."""
+    fn = m.instance_for_data_model["rel"]
+    return dataclasses.replace(m, name=f"{data_model}_offset_node_numeric", description=m.description.replace("relational data model", f"{data_model} data model"), instance_for_data_model={data_model: fn})
+
+
 def _instance_mutants() -> list:
     out = []
     for m in INSTANCE_MUTANTS:
@@ -37,6 +46,8 @@ def _instance_mutants() -> list:
         out.append(m)
         if "graph" in m.instance_for_data_model:
             out.append(_rdf_copy(m))
+        if m.name == "rel_offset_node_numeric":
+            out.extend(_node_value_copy(m, dm) for dm in ("doc", "graph", "rdf"))
     return out
 
 
@@ -49,11 +60,14 @@ def _variants(case, data_model: str, fn):
 
 
 def _strict_to_inclusive(text: str) -> str:
-    """The first strict comparison of a SQL text served inclusively."""
-    for a, b in ((" > :", " >= :"), (" < :", " <= :")):
-        if a in text:
-            return text.replace(a, b, 1)
-    return text
+    """The first strict comparison of a SQL text served inclusively: against a bound
+    parameter (`> :p`), a cast one (the collection filter's `> CAST(:p AS BIGINT)`, the
+    cross-type pivot's `> CAST(:p AS DOUBLE)`)."""
+    hits = [(text.index(a), a, b) for a, b in ((" > :", " >= :"), (" < :", " <= :"), (" > CAST(:", " >= CAST(:"), (" < CAST(:", " <= CAST(:")) if a in text]
+    if not hits:
+        return text
+    _, a, b = min(hits)
+    return text.replace(a, b, 1)
 
 
 def _cypher_strict_to_inclusive(text: str) -> str:

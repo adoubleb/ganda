@@ -56,6 +56,8 @@ INTERNAL_CODES = {2, 3, 129, 2048}
 # functionality"; a collection's MAX over a string -- "supports only numeric values"): a
 # 129 carrying one of these is a rejection, compared across variants like any other
 REJECTION_129 = ("generic. Error -", "Unsupported functionality", "supports only")
+# message texts that mark an internal failure whatever the code
+INTERNAL_TEXTS = ("internal error", "assertion", "must not reach here")
 DEFAULT_TIMEOUT_MS = 30000
 # dropping and creating a campaign database: not a compared statement, so a slow one is
 # waited for and retried rather than reported
@@ -158,6 +160,38 @@ def decode_row(names: list, values, booleans: "set | None" = None) -> dict:
     return out
 
 
+_DECODE_ERRORS = (ValueError, TypeError, KeyError, ArithmeticError, AttributeError)
+
+
+def decoded_rows(names: list, rows, booleans: "set | None" = None) -> list:
+    """Every row decoded -- or, where a value is not what its column's decoding expects
+    (a typed alias over a text the engine did not promise, a JSON text that does not
+    parse), an INTERNAL `EngineError` `[decode] ...`: a finding of its own, never a dead
+    worker thread (the worker catches `EngineError` only)."""
+    try:
+        return [decode_row(names, r, booleans) for r in rows]
+    except _DECODE_ERRORS as e:
+        raise EngineError(f"[decode] {type(e).__name__}: {str(e)[:300]} (columns {names})", internal=True) from e
+
+
+def decoded_sparql(response) -> list:
+    """`sparql_rows`, a decoding failure an internal `EngineError` (as `decoded_rows`)."""
+    try:
+        return sparql_rows(response)
+    except _DECODE_ERRORS as e:
+        raise EngineError(f"[decode] {type(e).__name__}: {str(e)[:300]} (a SPARQL result)", internal=True) from e
+
+
+def document_of(row: dict) -> dict:
+    """The JSON document a `SELECT * FROM <collection>` row holds (as `decoded_rows`, a
+    text that does not parse is an internal `EngineError`)."""
+    text = next(iter(row.values()))
+    try:
+        return json.loads(text)
+    except _DECODE_ERRORS as e:
+        raise EngineError(f"[decode] {type(e).__name__}: {str(e)[:300]} (a document: {str(text)[:120]!r})", internal=True) from e
+
+
 def sparql_rows(response) -> list:
     """The rows of a SPARQL JSON result (`application/sparql-results+json`)."""
     if response is None:
@@ -203,7 +237,12 @@ def _error(e) -> Exception:
         return EngineCrash(message)
     if code in TIMEOUT_CODES or "timeout" in text.lower() and "abort" in text.lower():
         return EngineError(message, status=code, timeout=True)
-    internal = code in INTERNAL_CODES and not (code == 129 and any(m in text for m in REJECTION_129))
+    # a message confessing an internal failure under any code is one too (a compile
+    # error naming an "exception <number>" is not: the Property Graph Engine words its
+    # clean refusals so, probe G35) -- unless it is the triple store's 129 wrapping of an
+    # ordinary refusal, which says "internal error" every time
+    rejection_129 = code == 129 and any(m in text for m in REJECTION_129)
+    internal = (code in INTERNAL_CODES or any(m in text.lower() for m in INTERNAL_TEXTS)) and not rejection_129
     return EngineError(message, internal=internal, status=code)
 
 
@@ -300,7 +339,7 @@ class HanaSession(Session):
                 return []
             names = [d[0] for d in cur.description]
             booleans = {i for i, d in enumerate(cur.description) if d[1] in BOOLEAN_TYPE_CODES}
-            return [decode_row(names, r, booleans) for r in cur.fetchall()]
+            return decoded_rows(names, cur.fetchall(), booleans)
         except dbapi.Error as e:
             raise _error(e) from e
         finally:
@@ -325,7 +364,7 @@ class HanaSession(Session):
         cur = self._cursor()
         try:
             result = cur.callproc("SYS.SPARQL_EXECUTE", (self._bind_graph(text), SPARQL_UPDATE_HEADERS if update else SPARQL_QUERY_HEADERS, "?", "?"))
-            return [] if update else sparql_rows(result[2])
+            return [] if update else decoded_sparql(result[2])
         except dbapi.Error as e:
             raise _error(e) from e
         finally:
@@ -532,7 +571,7 @@ class HanaSession(Session):
         elif self.data_model == "doc":
             out = {}
             for r in self.sql(f"SELECT * FROM {table}"):
-                doc = json.loads(next(iter(r.values())))
+                doc = document_of(r)
                 out[doc["id"]] = {k: v for k, v in doc.items() if k != "id"}
         else:
             out = self._rdf_records(f"c:{table}", "p:id", table)
@@ -607,7 +646,7 @@ class HanaSession(Session):
         elif self.data_model == "doc":
             out = []
             for r in self.sql(f"SELECT * FROM {et.from_type}"):
-                doc = json.loads(next(iter(r.values())))
+                doc = document_of(r)
                 for link in doc.get(et.name) or []:
                     out.append((link.get("eid"), doc["id"], link.get("to"), {k: v for k, v in link.items() if k not in ("eid", "to")}))
         else:
