@@ -12,6 +12,8 @@ For each fuzzing round, multiple query ASTs are generated from four query IR gen
 Ganda then runs the queries on the DBMS under test and results are normalized. Normalized results are compared and any difference between normalized results suggests a bug. The query and the setup is then logged for a human (or LLM ◡̈) review.
 
 
+New contributors: start with [`docs/`](docs/README.md) (architecture, contributing guide, glossary).
+
 ## Running
 
 ```bash
