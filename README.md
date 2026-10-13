@@ -1,20 +1,16 @@
-# Ganda
+# What is Ganda?
 
-A multi-model metamorphic fuzzer for database engines, built the way SQLancer is: one
-engine-agnostic **core** and one **provider** per DBMS.
+A multi-model metamorphic fuzzer for DBMSs that can find logic bugs (but also finds crashes/hangs/etc.)
 
-One abstract property-graph `Instance` is materialized once per *data model* of an
-engine (document, graph, relational) into separate databases on one server. The same
-question is then asked of every data model, through several *concrete syntaxes* each,
-and every pair of answers must agree, with each other and with a reference computed
-from the Instance. A disagreement is a finding.
+# How does Ganda work?
+On a high level, each fuzzing round randomly generates a Python object representing a property-graph.
 
-| Engine | Status |
-|---|---|
-| OrientDB | full provider, seed-for-seed equal to the legacy `../OrientDB` fuzzer |
-| SurrealDB | skeleton: connection layer and contract, no query supply yet |
-| ArangoDB | full: three data models (embedded link arrays, edge collections, junction collections), every query generator, verified live against 3.12.11 (`ganda/arangodb/RULES.md`) |
-| SAP HANA | full provider (`doc` / `rel` / `rdf`: Document Store, column tables, Knowledge Graph Engine), verified offline only; `ganda/hana/HANDOFF.md` |
+Using user-supplied translators, each model under test materializes the object in the DBMS as a single database. 
+
+For each fuzzing round, multiple query ASTs are generated from four query IR generators. DBMS specific provider classes provide translator methods to translate the ASTs into concrete queries.
+
+Ganda then runs the queries on the DBMS under test and results are normalized. Normalized results are compared and any difference between normalized results suggests a bug. The query and the setup is then logged for a human (or LLM ◡̈) review.
+
 
 ## Running
 
