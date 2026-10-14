@@ -697,8 +697,8 @@ def k26(p: Probe):
     preds = ["?i > 1", '?i > 1 || STRSTARTS(?s, "a")', "?i IN (1, 2)", "!BOUND(?i)", "?i != 2", "!(?i > 1) && BOUND(?s)"]
     # the right-hand side of a MINUS (or the body of a NOT EXISTS) holding the partition's
     # filter, four ways: the first run (2026-10-12) saw the plain group remove EVERY
-    # solution when the filter named one OPTIONAL variable alone (`?i > 1`), and answer
-    # right when it named two (`?i > 1 || STRSTARTS(?s, "a")`)
+    # solution, because a plain FILTER over COALESCE of an OPTIONAL variable is true
+    # for every solution here (A10, narrowed 2026-10-13); the BIND form is right
     base = "?n a c:k26 ; p:id ?id ."
     forms = {
         "group": lambda f: f"MINUS {{ {base} {pattern} FILTER ({f}) }}",

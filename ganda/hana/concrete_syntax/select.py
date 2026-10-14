@@ -752,9 +752,10 @@ def _sparql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, position: st
     if sp.form == "tlp":
         # every solution MINUS those the filter makes false MINUS those it leaves an
         # error (unknown): the filter carried through BIND ... FILTER (?t) -- a plain
-        # FILTER naming one OPTIONAL variable in a MINUS group removes every solution
-        # (A10, probe K26); the guarded expression never raises, so the error partition
-        # is empty there and the false one carries the unknowns, which is the same set
+        # FILTER over COALESCE of an OPTIONAL variable keeps or drops the wrong
+        # solutions (A10, probe K26); the guarded expression never raises, so the error
+        # partition is empty there and the false one carries the unknowns, which is the
+        # same set
         expr = filter_expr(pred, "n")
         opts = optionals(pred, "n")
         left = f"{{ {head.rstrip(' .')} {required}}}"

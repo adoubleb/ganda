@@ -65,8 +65,8 @@ median, `rdf:native` on a null test); the rdf hint rides `table_fn` as a single-
 variant on every question; the mutant catalog has a node-value corruption per data model
 and its strict-to-inclusive corruption meets the collection filter's casts. Sixteen probe
 facts ran live for it and for track 2 (R21-R24, D24-D27, K24-K27, G35-G37, P20: 141
-facts in all); K26 turned up a candidate defect of the triple store (a `MINUS` group
-whose FILTER names one OPTIONAL variable removes every solution; A10, to be filed) and
+facts in all); K26 turned up a defect of the triple store (a FILTER over COALESCE of an
+OPTIONAL variable keeps or drops the wrong solutions; A10, confirmed live 2026-10-13) and
 K25 closed the rdf `avg` question (the store's `xsd:decimal` arithmetic is double: B13
 stays). The campaign statistics count `cases_partial`.
 
@@ -333,8 +333,8 @@ tests/hana/
    a vertex with no edge of the KIND, so a per-start guard is needed inside the block,
    or a GraphScript loop over the starts: probe it first, G38); the `block` positions on
    the doc views and the graph views (rel only so far); a hint on a write's statement.
-   Also to file: **A10** (K26; `findings/A10-sparql-minus-filter-optional-variable/repro.py`
-   awaits its live run and README), and the GraphScript doc check for G35's verdict.
+   Also to file: **A10** (K26; `findings/A10-sparql-filter-coalesce-optional-variable/repro.py`,
+   run live 2026-10-13; it still needs a README), and the GraphScript doc check for G35's verdict.
 
 ## 8. The offline stand-in's limits
 
