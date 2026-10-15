@@ -180,6 +180,7 @@ attributes are **slots** the core reads; a slot may be an object or a module.
 | `mutants` | The engine's own corruptions for the mutation benchmark | `mutants.py` |
 | `coverage()` | A code-coverage collector, or `None` | `coverage.py` |
 | `extra_generators` | Engine-only query generators | |
+| `compare_despite_errors`, `partial_traversals`, `error_signature` | Oracle options (off by default; HANA turns them on) | `provider.py` |
 
 Every provider has the same layout, so once you know one you can find your way in
 the others. `tests/fake_engine/` is a complete provider in a few hundred lines: an
