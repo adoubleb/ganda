@@ -68,8 +68,16 @@ class Workspace:
         return self.edges[label]
 
     def all_vertices(self) -> str:
-        """Every vertex as (id, _label): an unlabeled vertex."""
-        return "(" + " UNION ALL ".join(f"SELECT {v['key']} AS id, '{label}' AS _label FROM {v['table']}" for label, v in self.vertices.items()) + ")"
+        """Every vertex as (id, _label, <the attributes every vertex table has>): an
+        unlabeled vertex. The shared attributes are the base class's under the
+        inheritance axis (an attribute absent from a table would be NULL, G21; the
+        renderers never ask one of an unlabelled vertex)."""
+        shared = None
+        for v in self.vertices.values():
+            attrs = {a for c, a in v["columns"] if c != v["key"]}
+            shared = attrs if shared is None else shared & attrs
+        extra = "".join(f", {a.lower()}" for a in sorted(shared or ()))
+        return "(" + " UNION ALL ".join(f"SELECT {v['key']} AS id, '{label}' AS _label{extra} FROM {v['table']}" for label, v in self.vertices.items()) + ")"
 
     def all_edges(self, undirected: bool) -> str:
         """Every relationship as (eid, src_id, dst_id) -- or, undirected, (eid, _near, _far)

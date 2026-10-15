@@ -5,7 +5,11 @@ a SPARQL filter for the triple store -- the same three-valued question on both
 SQL: parameters are `:name` (the session binds them positionally; a list parameter
 becomes `(?, ?, ...)` after `IN`, and `:name__json` is the canonical JSON text of the
 list bound as `name`). A LIST column compares its text for `=` and asks its child table
-for membership through `EXISTS`, which is two-valued as the semantics says.
+for membership through `EXISTS`, which is two-valued as the semantics says. A bare
+parameter takes the COLUMN's type (a BIGINT column's `?` truncates 1.5 to 1), so a
+cross-type pivot -- a double against an INT column (`pivots.cross_type`) -- is written
+`CAST(:name AS DOUBLE)`, one cast per element of an IN list (`:name__k`), and the column
+converts to DOUBLE for the comparison (probe R21).
 
 SPARQL: no parameters reach the engine, so the values are literals in the text
 (`dialect.sparql_literal`). A field is a variable `?<record>_<field>` bound by an
@@ -52,6 +56,20 @@ class Names:
 REL = Names()
 
 
+def crosses(p) -> bool:
+    """Whether a leaf's pivot is of the other numeric type than its INT column (a double
+    pivot on an int column; an integer pivot on a DOUBLE column needs no cast: the
+    parameter takes the column's type exactly)."""
+    if p.ftype != "int" or p.op in ("IS NULL", "IS NOT NULL") or p.sub is not None:
+        return False
+    pv = p.pivot if isinstance(p.pivot, list) else [p.pivot]
+    return any(isinstance(v, float) for v in pv)
+
+
+def _param(name: str, value, cross: bool) -> str:
+    return f"CAST(:{name} AS DOUBLE)" if cross and isinstance(value, float) else f":{name}"
+
+
 def sql(p, alias: str = "", table: str = "", key: str = "id", names: Names = REL) -> str:
     """The SQL text of a tree over a record of `table` (its child tables are named after
     it) reached as `alias` (no alias: bare column names), keyed by column `key`."""
@@ -84,12 +102,15 @@ def sql(p, alias: str = "", table: str = "", key: str = "id", names: Names = REL
         expr = f"({col} {p.arith[0]} :{p.arith[1]})"
     if p.op in ("IS NULL", "IS NOT NULL"):
         return f"{expr} {p.op}"
-    value = f":{p.bind}__json" if p.ftype == "list" and p.op in MIRROR else f":{p.bind}"
+    cross = crosses(p)
+    value = f":{p.bind}__json" if p.ftype == "list" and p.op in MIRROR else _param(p.bind, p.pivot, cross)
     if p.rev:
         return f"{value} {MIRROR[p.op]} {expr}"
     if p.op == "BETWEEN":
-        return f"{expr} BETWEEN :{p.bind}a AND :{p.bind}b"
+        return f"{expr} BETWEEN {_param(p.bind + 'a', p.pivot[0], cross)} AND {_param(p.bind + 'b', p.pivot[1], cross)}"
     if p.op in ("IN", "NOT IN"):
+        if cross:
+            return f"{expr} {p.op} (" + ", ".join(_param(f"{p.bind}__{k}", v, True) for k, v in enumerate(p.pivot)) + ")"
         return f"{expr} {p.op} :{p.bind}"
     return f"{expr} {p.op} {value}"
 
@@ -135,6 +156,17 @@ def _like(v: str, pattern: str, regex: bool) -> str:
     return f"({v} = {sparql_literal(pattern)})"
 
 
+def _lit(p, value) -> str:
+    """A pivot as a SPARQL literal: its own type -- except an integer pivot against a
+    FLOAT field (`pivots.cross_type`), written as the double it equals: the triple store
+    compares `IN` by numeric promotion either way (probe K24), the offline stand-in
+    (rdflib) compares `IN` by term, so the same-typed literal keeps the two in step
+    while the SQL, collection and cypher texts still ask the cross-type question."""
+    if p.ftype == "float" and isinstance(value, int) and not isinstance(value, bool):
+        return sparql_literal(float(value))
+    return sparql_literal(value)
+
+
 def _leaf(p, record: str, regex: bool, native: bool) -> "tuple[str, str | None]":
     """(a leaf's test, the variable whose unboundness makes it UNKNOWN, or None for a
     two-valued test). The test itself never raises once that variable is bound."""
@@ -164,12 +196,12 @@ def _leaf(p, record: str, regex: bool, native: bool) -> "tuple[str, str | None]"
     if p.op == "LIKE":
         return _like(expr, p.pivot, regex), v
     if p.op == "BETWEEN":
-        return f"({expr} >= {sparql_literal(p.pivot[0])} && {expr} <= {sparql_literal(p.pivot[1])})", v
+        return f"({expr} >= {_lit(p, p.pivot[0])} && {expr} <= {_lit(p, p.pivot[1])})", v
     if p.op in ("IN", "NOT IN"):
-        listed = ", ".join(sparql_literal(x) for x in p.pivot)
+        listed = ", ".join(_lit(p, x) for x in p.pivot)
         return f"({expr} {p.op} ({listed}))", v
     op = "!=" if p.op == "<>" else p.op
-    lit = sparql_literal(p.pivot)
+    lit = _lit(p, p.pivot)
     if p.rev:
         mirrored = "!=" if MIRROR[p.op] == "<>" else MIRROR[p.op]
         return f"({lit} {mirrored} {expr})", v

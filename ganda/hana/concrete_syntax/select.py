@@ -23,16 +23,33 @@ combination is an equivalent text.
                             propagation instead of spelled out
               match         graph: the filter in openCypher (`graph.scan`), the kind
                             in SQL over what it projected
-              literal       graph: the native text with its constants inlined
-                            instead of bound (`graph.literal`)
+              neg           doc: the collection query with the filter's NOTs kept as
+                            written (`NOT (...)`, `NOT (FOR ANY ...)`) instead of pushed
+                            down to the leaves
+              again         rel: the base text a second time (through the plan cache)
+              inline        rel: every bound value a SQL constant in the text
+                            (`connection.inline_binds`)
+              block         rel: the statement inside a SQLScript anonymous block, its
+                            binds typed in the header, assigned to a table variable
+                            (`connection.sqlscript_block`)
+              block_ni      rel: the block with `WITH HINT (NO_INLINE)` on the assignment
     form      base          the kind's own text
               order         `max` / `min` as the first row of an ordering
               fn            a distinct count as `COUNT(*)` over `SELECT DISTINCT`
               jscan         a join's inner relation as a derived table
               jrev          a join's correlation with its operands swapped
+              tlp           ids / count as every record EXCEPT the filter's false ones
+                            EXCEPT its unknown ones (SQL; MINUS with BIND in SPARQL)
+    hint      (none)        the statement as it is
+              <profile>     the SQL statement closed by a `WITH HINT (...)` clause steering
+                            it to another execution engine or optimizer mode
+                            (`hints.PROFILES`): one profile per question, drawn with the
+                            rewrites; on every data model whose text is SQL (rdf: the
+                            `table_fn` position; doc: the views, never the collection
+                            query)
 
 A variant is `<data model>:<tag>`, the tag the non-default choices joined by `+` (form,
-filter, position). The base (plain, table, base) is asked of every data model; on the
+filter, position, hint). The base (plain, table, base) is asked of every data model; on the
 doc data model it is the collection query where the document store can ask the
 question (no semi-join, join, method or median there) and the views otherwise; on the
 graph data model it is openCypher where the language states the question
@@ -48,28 +65,38 @@ The transaction door (`tx`) wraps every concrete syntax alike (`tx.script`).
 """
 from __future__ import annotations
 
+import dataclasses
 import itertools
 import random
 from dataclasses import dataclass, field
 
 from ganda.core.ast.predicates import MIRROR, Predicate, fields_of
 from ganda.core.ast.select import SelectQuery, column, notnull_fields
+from ganda.core.data_generator import BASE_CLASS
 from ganda.core.model import FieldType, Instance, Schema
 from ganda.hana import rewrites as _rewrites
-from ganda.hana.concrete_syntax import document, graph, tx as _tx
+from ganda.hana.concrete_syntax import document, graph, hints, tx as _tx
 from ganda.hana.concrete_syntax.methods import METHODS, method_fn, result_type, sparql_text, sql_text  # noqa: F401
-from ganda.hana.concrete_syntax.predicate import REL, Names, sparql_filter, sql
+from ganda.hana.concrete_syntax.predicate import REL, Names, filter_expr, optionals, sparql_filter, sql
 from ganda.hana.concrete_syntax.traversal import agg_proj, guarded, sparql_table
 from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT
 
 FILTERS = ("plain", "rw", "rev", "arith")
-POSITIONS = ("table", "scan", "nest", "view", "from", "table_fn", "native", "match", "literal")
-FORMS = ("base", "order", "fn", "jscan", "jrev")
+POSITIONS = ("table", "scan", "nest", "view", "from", "table_fn", "native", "match", "neg", "again", "inline", "block", "block_ni")
+FORMS = ("base", "order", "fn", "jscan", "jrev", "tlp")
 DATA_MODELS = ("doc", "rel", "graph", "rdf")
 _POSITIONS_OF = {
-    "rel": ("table", "scan", "nest"),
-    "doc": ("table", "scan", "nest", "view"),
-    "graph": ("table", "scan", "nest", "view", "match", "literal"),
+    # `again`: the base text a second time, after the base has run -- the second execution
+    # goes through the plan cache (beside the `plan_cache` hint profile, which ignores it).
+    # `inline`: the same statement with every bound value written as a SQL constant
+    # (`connection.inline_binds`, probe R22): the parser's typing and the plan cache's
+    # key differ from the bound statement's. `block` / `block_ni`: the statement inside
+    # a SQLScript anonymous block, its binds typed in the header, assigned to a table
+    # variable and selected -- the SQLScript optimizer's path, with statement inlining
+    # on, or off under `WITH HINT (NO_INLINE)` (`connection.sqlscript_block`, probe P20)
+    "rel": ("table", "scan", "nest", "again", "inline", "block", "block_ni"),
+    "doc": ("table", "scan", "nest", "view", "neg"),
+    "graph": ("table", "scan", "nest", "view", "match"),
     "rdf": ("table", "nest", "from", "table_fn", "native"),
 }
 # the largest LIMIT, where an ordering has an OFFSET and no limit of its own
@@ -84,15 +111,21 @@ class SelectSyntax:
     filter: str = "plain"
     position: str = "table"
     form: str = "base"
+    # a plan-steering profile (`hints.PROFILES`), or none
+    hint: str = ""
 
     @property
     def tag(self) -> str:
-        parts = [x for x, default in ((self.form, "base"), (self.filter, "plain"), (self.position, "table")) if x != default]
+        parts = [x for x, default in ((self.form, "base"), (self.filter, "plain"), (self.position, "table"), (self.hint, "")) if x != default]
         return "+".join(parts)
 
     @property
     def axes(self) -> int:
-        return len([x for x in (self.form != "base", self.filter != "plain", self.position != "table") if x])
+        # the hint is no axis of its own on rdf's `table_fn`, the only SQL path a SPARQL
+        # question has: `rdf:table_fn+<profile>` is asked on every question, not in the
+        # few random multi-axis combinations
+        hinted = self.hint != "" and self.position != "table_fn"
+        return len([x for x in (self.form != "base", self.filter != "plain", self.position != "table", hinted) if x])
 
 
 BASE = SelectSyntax()
@@ -104,26 +137,34 @@ class Rewrites:
     rev: object = None
     arith: object = None
     present: list = field(default_factory=list)
+    # the question's plan-steering profile (`hints.NAMES`), drawn once per question
+    hint: str = ""
 
     def filter_pred(self, q: SelectQuery, name: str):
         return q.where if name == "plain" else getattr(self, name)
 
 
-def all_syntaxes() -> list:
-    return [SelectSyntax(f, p, m) for m, f, p in itertools.product(FORMS, FILTERS, POSITIONS)]
+def all_syntaxes(hint: str = "") -> list:
+    """Every concrete syntax: with `hint`, each one twice, plain and hinted by that one
+    profile (a question carries one profile, `Rewrites.hint`)."""
+    return [SelectSyntax(f, p, m, h) for h in dict.fromkeys(("", hint)) for m, f, p in itertools.product(FORMS, FILTERS, POSITIONS)]
 
 
 # --- what the doc data model's collection query can ask ---------------------------------------
 
 
-def collection_asks(q: SelectQuery, schema: Schema, pred) -> bool:
+def collection_asks(q: SelectQuery, schema: Schema, pred, keep_not: bool = False) -> bool:
     """Whether the document store asks the question itself: no semi-join, no join, no
-    method, no median, and a filter whose leaves it renders."""
+    method, no median, and a filter whose leaves it renders (with `keep_not`, its NOTs
+    kept as written: the `neg` position)."""
     if q.kind in ("join", "method") or (q.kind == "agg" and q.fn == "median"):
+        return False
+    if q.table == BASE_CLASS and not q.edge:
+        # the base class of the inheritance axis is no collection: the views unite them
         return False
     if _string_extremum(q, schema):
         return False
-    return document.doc_filter_ok(pred)
+    return document.doc_filter_ok(pred, keep_not)
 
 
 def _string_extremum(q: SelectQuery, schema: "Schema | None") -> bool:
@@ -149,12 +190,61 @@ def _views_ask(q: SelectQuery, pred) -> bool:
     return True
 
 
+def _rewrite_changes_text(q: SelectQuery, schema: "Schema | None", sp: SelectSyntax, pred, data_model: str) -> bool:
+    """Whether a rewritten filter reads differently from the plain one on the engine path
+    the position takes. A NOT over a complement comes out as the plain text where the
+    renderer pushes NOTs down (the collection filter) or spells three-valued logic out
+    (the guarded SPARQL filter), a one-element IN as the equality it is in cypher, a
+    semi-join's derived table as the same pattern in SPARQL: the variant would be the
+    same statement twice."""
+    plain = q.where
+    try:
+        if data_model == "doc" and sp.position in ("table", "neg"):
+            keep = sp.position == "neg"
+            return document.doc_pred(pred, keep_not=keep) != document.doc_pred(plain, keep_not=keep)
+        if data_model == "graph" and (sp.position == "match" or _cypher_asks(q, schema, sp, pred)):
+            return graph.cypher_filter(pred, "t", q.table, schema, graph.Params()) != graph.cypher_filter(plain, "t", q.table, schema, graph.Params())
+        if data_model == "rdf":
+            native = sp.position == "native"
+            return sparql_filter(pred, "n", native=native) != sparql_filter(plain, "n", native=native)
+        names = {"doc": document.NAMES, "graph": graph.NAMES}.get(data_model, REL)
+        return sql(pred, "t", q.table, names=names) != sql(plain, "t", q.table, names=names)
+    except (document.Unsupported, graph.Unsupported):
+        return True
+
+
+def _string_pivots(pred) -> list:
+    """Every string pivot a tree binds, the semi-joins' inner trees included."""
+    out: list = []
+    for leaf in pred.leaves():
+        if leaf.sub is not None:
+            if leaf.sub[2] is not None:
+                out.extend(_string_pivots(leaf.sub[2]))
+            continue
+        for v in leaf.pivot if isinstance(leaf.pivot, list) else [leaf.pivot]:
+            if isinstance(v, str):
+                out.append(v)
+    return out
+
+
 def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str) -> bool:
     if sp.position not in _POSITIONS_OF[data_model]:
         return False
     if sp.filter != "plain" and (q.where is None or getattr(rewrites, sp.filter) is None):
         return False
     pred = rewrites.filter_pred(q, sp.filter)
+    if sp.filter != "plain" and not _rewrite_changes_text(q, schema, sp, pred, data_model):
+        return False
+    if sp.form == "tlp":
+        # the set-operation form (probe R23 / D25 / K26): the records a filter keeps are
+        # every record EXCEPT the false ones EXCEPT the unknown ones -- ids and counts,
+        # over a plain FROM (no nested filter, no cypher scan, no NOT-kept collection text,
+        # no error-propagating SPARQL); the collection query has no EXCEPT: the doc views
+        if q.kind not in ("ids", "count") or pred is None or sp.position in ("nest", "match", "neg", "native", "again"):
+            return False
+        if data_model == "doc":
+            # the views at the table position already (`view` would be the same text)
+            return sp.position in ("table", "scan") and _views_ask(q, pred)
     if sp.form in ("jscan", "jrev") and q.kind != "join":
         return False
     if sp.form == "order" and not (q.kind == "agg" and q.fn in ("max", "min") and rewrites.present):
@@ -163,26 +253,56 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
         return False
     if sp.position == "nest" and q.where is None:
         return False
+    if sp.position == "again":
+        # the plain base text once more, nothing else about it
+        return sp == SelectSyntax(position="again")
+    if sp.position == "inline":
+        # a string pivot holding a control character (the code-unit successor of a stored
+        # value appends U+0000) has no constant the probe vouches for
+        return pred is not None and bool(pred.bind_vars) and not any(any(ord(ch) < 32 for ch in v) for v in _string_pivots(pred))
+    if sp.position == "block_ni" and sp.hint:
+        # one hint clause on the assignment: NO_INLINE, not the question's profile too
+        return False
+    if sp.hint:
+        # the question's one profile, on a statement the clause closes: SQL, and the
+        # collection query where the store asks the question (D27); never a SPARQL text
+        if sp.hint != rewrites.hint or data_model not in hints.DATA_MODELS:
+            return False
+        if data_model == "rdf" and sp.position != "table_fn":
+            return False
+        if data_model == "doc" and sp.position in ("table", "neg"):
+            if sp.position == "neg":
+                return False
+            if collection_asks(q, schema, pred):
+                # the hinted collection query: the base's twin (`doc:<profile>`), or a
+                # rewritten filter's where the plain collection query asks it
+                return dataclasses.replace(sp, hint="") == BASE or applicable(q, schema, dataclasses.replace(sp, hint=""), rewrites, data_model)
+            return dataclasses.replace(sp, hint="") == BASE and _views_ask(q, pred)
     if data_model == "doc":
         if sp.filter == "arith" and pred is not None and any(leaf.ftype == "float" for leaf in pred.leaves()):
             # a DECIMAL-stored double does not scale like a double (0.30000000000000004 * 2)
             return False
-        if sp.form == "fn" and sp.position == "table" and collection_asks(q, schema, pred):
+        if sp.form == "fn" and sp.position in ("table", "neg") and collection_asks(q, schema, pred, sp.position == "neg"):
             # the `fn` distinct count nests a GROUP BY in a subquery; over a COLLECTION the
             # Document Store refuses it ("GROUP BY clause after GROUP BY clause on collection
             # tables") -- the base COUNT(DISTINCT) form and the views cover it
             return False
+        if sp.position == "neg":
+            # the collection query with its NOTs kept: a tree with one, that the store asks
+            return pred is not None and document.has_not(pred) and collection_asks(q, schema, pred, keep_not=True)
         if sp.position == "table":
             # the base is the collection query, or the views where the store cannot ask
             if sp == BASE:
                 return collection_asks(q, schema, pred) or _views_ask(q, pred)
             return collection_asks(q, schema, pred)
+        if sp.position == "view" and dataclasses.replace(sp, position="table", hint="") == BASE and not collection_asks(q, schema, pred):
+            # the base (and its hinted twin) is the views text already: `doc:view`
+            # would be the same statement again
+            return False
         return _views_ask(q, pred)
     if data_model == "graph":
         if q.tx and not graph.TX_VISIBLE:
             return False
-        if sp.position == "literal":
-            return pred is not None and graph.binds_parameters(pred) and graph.literal_safe(pred) and _cypher_asks(q, schema, sp, pred)
         if sp.position == "match":
             return pred is not None and graph.expressible(pred, schema, q.table)
         if sp.position == "view":
@@ -191,8 +311,14 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
         return True
     if data_model == "rdf" and sp.position == "nest" and q.kind == "join":
         return False
-    if sp.position == "native" and pred is None:
+    if data_model == "rdf" and sp.position == "from" and q.kind == "agg" and q.fn == "median":
+        # the median is one fixed query (a MEDIAN under GROUP BY on a constant), the
+        # position changes nothing in it: `rdf:from` would be the base again
         return False
+    if sp.position == "native":
+        # the error-propagating filter is a variant only where it reads differently from
+        # the BOUND-guarded one (a null test alone is `BOUND(?x)` either way)
+        return pred is not None and sparql_filter(pred, "n", native=True) != sparql_filter(pred, "n")
     return True
 
 
@@ -208,7 +334,7 @@ def base_data_models(q: SelectQuery) -> tuple:
 
 
 def syntaxes_for(q: SelectQuery, schema: Schema, rewrites: Rewrites, data_model: str) -> list:
-    return [sp for sp in all_syntaxes() if sp != BASE and applicable(q, schema, sp, rewrites, data_model)]
+    return [sp for sp in all_syntaxes(rewrites.hint) if sp != BASE and applicable(q, schema, sp, rewrites, data_model)]
 
 
 # --- rendering --------------------------------------------------------------------------------
@@ -216,16 +342,31 @@ def syntaxes_for(q: SelectQuery, schema: Schema, rewrites: Rewrites, data_model:
 
 def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str) -> str:
     pred = rewrites.filter_pred(q, sp.filter)
+    inline, block = sp.position == "inline", sp.position if sp.position in ("block", "block_ni") else ""
+    if sp.position in ("again", "inline", "block", "block_ni"):
+        sp = dataclasses.replace(sp, position="table")
     if data_model == "rel":
         text = _sql(q, schema, sp, pred, REL)
+        if inline:
+            from ganda.hana.connection import inline_binds
+
+            text = inline_binds(text, pred.bind_vars)
+        if block:
+            from ganda.hana.connection import sqlscript_block
+
+            # the question's profile hints the inner SELECT; NO_INLINE sits on the assignment
+            if sp.hint:
+                text = hints.hinted(text, sp.hint)
+            text = sqlscript_block(text, pred.bind_vars if pred is not None else {}, noinline=block == "block_ni")
+            return _tx.script(_tx.statements(q.tx, schema, data_model), text) if q.tx else text
     elif data_model == "doc":
-        if sp.position == "table" and collection_asks(q, schema, pred):
-            text = _collection(q, schema, sp, pred)
+        if sp.form != "tlp" and (sp.position == "neg" or (sp.position == "table" and collection_asks(q, schema, pred))):
+            text = _collection(q, schema, sp, pred, keep_not=sp.position == "neg")
         else:
             text = document.with_views(schema, _sql(q, schema, sp, pred, document.NAMES))
     elif data_model == "graph":
-        if sp.position in ("table", "literal") and _cypher_asks(q, schema, sp, pred):
-            text = _cypher_select(q, schema, sp, pred, literal=sp.position == "literal")
+        if sp.position == "table" and _cypher_asks(q, schema, sp, pred):
+            text = _cypher_select(q, schema, sp, pred)
         elif sp.position == "match":
             text = _sql(q, schema, sp, None, graph.NAMES, source=f"(SELECT * FROM {graph.scan(schema, q.table, pred)})")
         else:
@@ -235,6 +376,8 @@ def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites,
         text = sparql_table(_sparql(q, schema, sp, pred, "table"))
     else:
         text = _sparql(q, schema, sp, pred, sp.position)
+    if sp.hint:
+        text = hints.hinted(text, sp.hint)
     if q.tx:
         return _tx.script(_tx.statements(q.tx, schema, data_model), text)
     return text
@@ -293,6 +436,13 @@ def _sql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, names: Names, s
         frm, after = f"FROM {rel} t", where
     src = frm + after
     kind = q.kind
+    if sp.form == "tlp":
+        # every record EXCEPT those the filter makes false EXCEPT those it leaves
+        # unknown (a CASE over the predicate is NULL there): the records it keeps
+        p = conds[0]
+        rows = f"SELECT t.{rid} AS id {frm}"
+        text = f"{rows} EXCEPT {rows} WHERE NOT ({p}) EXCEPT {rows} WHERE (CASE WHEN {p} THEN 1 WHEN NOT ({p}) THEN 0 END) IS NULL"
+        return text if kind == "ids" else f"SELECT COUNT(*) AS v FROM ({text}) z"
     if kind == "ids":
         return f"SELECT t.{rid} AS id {src}"
     if kind == "count":
@@ -366,10 +516,11 @@ def _agg_suffix(fn: str, ftype: FieldType) -> str:
     return _DECODE[ftype] if fn in ("max", "min") else "__num"
 
 
-def _collection(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred) -> str:
+def _collection(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, keep_not: bool = False) -> str:
     """The question asked of the collection itself (an edge type: of its source class's
     collection, the link array UNNESTed). A projected field is the document store's own
-    text, the alias telling the session how to read it (`__int`, `__float`, ...)."""
+    text, the alias telling the session how to read it (`__int`, `__float`, ...). With
+    `keep_not` the filter's NOTs stay as written (the `neg` position)."""
     alias = "l" if q.edge else ""
     if q.edge:
         et = schema.edge_type(q.table)
@@ -385,7 +536,7 @@ def _collection(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred) -> str:
     def out(f: str, name: str) -> str:
         return f"{p(f)} AS {name}{_DECODE[_ftype(schema, q, f)]}"
 
-    conds = [document.doc_pred(pred, alias)] if pred is not None else []
+    conds = [document.doc_pred(pred, alias, keep_not=keep_not)] if pred is not None else []
     notnull = list(notnull_fields(q, "order" if sp.form == "order" else "base"))
     if q.kind == "agg" and q.fn in ("set", "list", "distinct_count"):
         notnull.append(q.field)
@@ -443,11 +594,11 @@ def _collection(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred) -> str:
 def _cypher_asks(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred) -> bool:
     """Whether openCypher states the question itself (the native family): the filter
     has a cypher form, and the kind is one its RETURN expresses -- no method, no avg or
-    median, COUNT(DISTINCT) only as the `fn` form's COUNT over a DISTINCT, MAX / MIN /
+    median, no set-operation form, COUNT(DISTINCT) only as the `fn` form's COUNT over a DISTINCT, MAX / MIN /
     SUM over numbers, an ordering only where the engine orders as the semantics do
     (`graph.NULLS_LIKE_SQL`, `graph.STRING_ORDER_NATIVE`; never a boolean key), a join's
     inner relation never a derived table (`jscan`)."""
-    if sp.form == "jscan" or q.kind == "method":
+    if sp.form in ("jscan", "tlp") or q.kind == "method":
         return False
     if pred is not None and not graph.expressible(pred, schema, q.table):
         return False
@@ -455,12 +606,16 @@ def _cypher_asks(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred) -> bool
     def numeric(f: str) -> bool:
         return _ftype(schema, q, f) in (FieldType.INT, FieldType.FLOAT)
 
+    def boolean(f: str) -> bool:
+        return _ftype(schema, q, f) is FieldType.BOOL
+
     def orderable(f: str, nulls_excluded: bool = False) -> bool:
         ft = _ftype(schema, q, f)
         if ft is FieldType.BOOL or (ft is FieldType.STRING and not graph.STRING_ORDER_NATIVE):
             return False
         return nulls_excluded or graph.NULLS_LIKE_SQL
 
+    # a BOOLEAN attribute is projected only (G10): never inside COUNT (G33), never compared
     if q.kind == "agg":
         if q.fn in ("avg", "median"):
             return False
@@ -471,11 +626,17 @@ def _cypher_asks(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred) -> bool
             return orderable(q.field, nulls_excluded=True) if sp.form == "order" else numeric(q.field)
         if q.fn == "sum":
             return numeric(q.field)
+        if q.fn == "count":
+            return not boolean(q.field)
         return True
     if q.kind == "group":
-        return q.fn in ("count_star", "count") or numeric(q.arg)
+        if q.fn == "count_star":
+            return True
+        return (q.fn == "count" and not boolean(q.arg)) or numeric(q.arg)
     if q.kind in ("page", "keys"):
         return all(orderable(f) for f in q.fields)
+    if q.kind == "join":
+        return not boolean(q.field)
     return True
 
 
@@ -487,14 +648,14 @@ def _cypher_limit(limit: int, skip: int) -> str:
     return f" LIMIT {limit or NO_LIMIT}" + (f" SKIP {skip}" if skip else "")
 
 
-def _cypher_select(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, literal: bool) -> str:
+def _cypher_select(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred) -> str:
     """The native text: `MATCH (t:n1) WHERE ... RETURN ...` inside `OPENCYPHER_TABLE`,
     the aliases uppercase. SQL wraps only what the language lacks: a sum's NULL over no
     present value (cypher answers 0: the COUNT travels along), an aggregate over no
     match where the engine answers no row (`graph.AGG_EMPTY_ROW`), COUNT(*) over a
     DISTINCT, and a join's count per record (a LEFT JOIN to the records, as the
     traversal's aggregates)."""
-    params = None if literal else graph.Params()
+    params = graph.Params()
     rid = "t.EID" if q.edge else "t.ID"
 
     def a(f: str) -> str:
@@ -563,7 +724,7 @@ def _cypher_select(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, liter
         m = f"m.{graph.attr(schema, q.table, f)}"
         corr = f"({a(f)} {MIRROR[op]} {m})" if sp.form == "jrev" else f"({m} {op} {a(f)})"
         # the two classes as two patterns of ONE clause (the Cartesian product, filtered)
-        clauses = f"{head}, (m:{graph.label(q.table)})"
+        clauses = f"{head}, {graph.vertex(schema, q.table, 'm')}"
         cond = f" WHERE {' AND '.join(conds + [corr])}"
         if q.arg == "count":
             paths = oct("t.ID AS ID, COUNT(m.ID) AS V", clauses=clauses, cond=cond)
@@ -588,6 +749,19 @@ def _sparql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, position: st
     else:
         records = f"{head} {filt} {required}"
     kind = q.kind
+    if sp.form == "tlp":
+        # every solution MINUS those the filter makes false MINUS those it leaves an
+        # error (unknown): the filter carried through BIND ... FILTER (?t) -- a plain
+        # FILTER over COALESCE of an OPTIONAL variable keeps or drops the wrong
+        # solutions (A10, probe K26); the guarded expression never raises, so the error
+        # partition is empty there and the false one carries the unknowns, which is the
+        # same set
+        expr = filter_expr(pred, "n")
+        opts = optionals(pred, "n")
+        left = f"{{ {head.rstrip(' .')} {required}}}"
+        part = lambda f: f"MINUS {{ {head} {opts} BIND (({f}) AS ?t) FILTER (?t) }}"  # noqa: E731
+        body = f"{left} {part(f'!({expr})')} {part(f'COALESCE(IF({expr}, 1, 0), 2) = 2')}"
+        return _graph_wrap("SELECT ?id" if kind == "ids" else "SELECT (COUNT(?id) AS ?v)", body, "", position)
 
     def opt(f: str, var: str) -> str:
         return f"OPTIONAL {{ ?n p:{f} {var} }}"
@@ -713,7 +887,7 @@ def _graph_wrap(select: str, body: str, tail: str, position: str) -> str:
 def build_rewrites(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> Rewrites:
     from ganda.core.ast.select import present_values, records, view
 
-    rewrites = Rewrites(present=present_values(q, instance) if q.kind == "agg" else [])
+    rewrites = Rewrites(present=present_values(q, instance) if q.kind == "agg" else [], hint=rng.choice(hints.NAMES))
     p = q.where
     if p is None:
         return rewrites
@@ -743,7 +917,7 @@ def extra_binds(q: SelectQuery, schema: Schema, rewrites: Rewrites) -> dict:
 
 
 def rewrite_params(rewrites: Rewrites) -> dict:
-    params: dict = {}
+    params: dict = {"hint": rewrites.hint} if rewrites.hint else {}
     for name in ("rw", "rev", "arith"):
         rewritten = getattr(rewrites, name)
         if rewritten is not None:

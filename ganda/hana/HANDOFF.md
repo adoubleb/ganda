@@ -23,9 +23,75 @@ graph data model" has every outcome, four of them departures from the SAP docs).
 not yet done there: a live campaign with the graph model in it, and the triage of what
 it finds.
 
+Added 2026-10-12 (RULES.md has a section each): **plan steering** -- every SQL text asked
+once more under one of sixteen `WITH HINT (...)` profiles (`concrete_syntax/hints.py`:
+the HEX, ESX, OLAP, join and row engines, the optimizer levels, the rewrites off, HEX's disk
+operators and join kinds, no indexes, single-threaded), the variants `rel:<profile>`,
+`graph:nest+<profile>`, `rdf:table_fn+<profile>`, `rel:hint_<profile>`; the Document
+Store's **NOT kept as written** (`doc:neg`); the **custom-key** axis; and the
+**inheritance** axis (the base class as a UNION ALL view on rel and the graph data model,
+the views' union on doc, a second class triple on rdf, the unlabelled MATCH in
+openCypher; a write on it per subclass). Their probe facts (`P0-P16`, `D19`, `D20`,
+`D22`, `D23`, `R18`, `R19`, `K21`, `K22`, `G28`, `G29`) ran live 2026-10-12 (RULES.md).
+
+The first ninety minutes of the 12-hour bastion campaign (`camp12h`, 2026-10-12, 25
+bundles) were triaged the same day: two engine defects of the Property Graph Engine
+(`findings/A8-...`: a DOUBLE constant in a cypher text is parsed to ~15 digits;
+`findings/A9-...`: two OPENCYPHER_TABLE calls in one statement type the second call's
+parameters in the wrong order), two quirks (B13: the triple store's AVG in double; B14:
+BOOLEAN refused in COUNT and in a comparison) and three provider bugs (C11: the
+reference's AVG, now `DECIMAL(25,6)` truncated; C12, C13: the native texts). The graph
+renderings now bind doubles only and inline every other pivot; the `literal` variant is
+gone. Live after the fixes (2026-10-12, through the Mac's tunnel): seeds 7 and 6 with
+`--inheritance-probability 1 --custom-key-probability 1` (14 selects, 4 traversals, 2
+paths, 4 writes each; the base class drawn in selects and writes) ran 32 and 30 cases with 0
+findings, 0 setup asymmetries, 0 state leaks and 0 write-state diffs; the 125-fact probe's
+new facts hold.
+
+Later on 2026-10-12, after a review of where the oracle was blind (**track 1** of the
+improvement plan): a traversal the doc views cannot ask (a LIST membership next to the
+UNNEST edge views) is a PARTIAL case asked of rel, graph and rdf instead of being dropped
+on every data model (`Provider.partial_traversals`, HANA on); the oracle compares the
+variants that answered when another one errored, so an error asymmetry no longer hides a
+wrong answer (`Provider.compare_despite_errors`, HANA on; the finding key then names the
+mismatching pairs and the error's `[code]`, `Provider.error_signature`); a failure in
+result decoding is an internal `EngineError` `[decode] ...` (a finding, never a dead
+worker), and a message confessing an internal failure is internal under any code;
+cross-type numeric pivots (`pivots.cross_type`: a double against an INT column, an
+integer against a FLOAT column, below 10^12) and `NOT IN` are drawn, each typed per data
+model (RULES.md "Values"); no variant repeats another's text on its data model
+(`select._rewrite_changes_text`, `doc:view` on a views-only question, `rdf:from` on a
+median, `rdf:native` on a null test); the rdf hint rides `table_fn` as a single-axis
+variant on every question; the mutant catalog has a node-value corruption per data model
+and its strict-to-inclusive corruption meets the collection filter's casts. Sixteen probe
+facts ran live for it and for track 2 (R21-R24, D24-D27, K24-K27, G35-G37, P20: 141
+facts in all); K26 turned up a defect of the triple store (a FILTER over COALESCE of an
+OPTIONAL variable keeps or drops the wrong solutions; A10, confirmed live 2026-10-13) and
+K25 closed the rdf `avg` question (the store's `xsd:decimal` arithmetic is double: B13
+stays). The campaign statistics count `cases_partial`.
+
+**Track 2** (the same day, the renderers; a live campaign with them is the next step):
+every SQL question is also asked as `rel:again` (the base text a second time, through
+the plan cache) and under the profile `plan_cache` (`IGNORE_PLAN_CACHE`); the collection
+query itself is hinted where the store asks the question (`doc:<profile>`, D27);
+`rel:inline` writes every bound value as a SQL constant (`connection.inline_binds`, R22);
+`rel:block` / `rel:block_ni` run the statement inside a SQLScript anonymous block, the
+binds typed in its header, through a table variable, with statement inlining on or off
+(`connection.sqlscript_block`, P20); the form `tlp` asks an `ids` / `count` question as
+every record EXCEPT the false ones EXCEPT the unknown ones on rel, the doc views and the
+graph views, and as MINUS with `BIND ... FILTER (?t)` in SPARQL (R23 / D25 / K26); the
+transaction door's PEER CHECK asks the question on a second connection before and after
+the junk and files a `[dirty read]` internal error if the two answers differ (R24 / D26 /
+K27 / G37; `HanaSession.peer_check`, off offline); the path question has
+`graph:script` -- GraphScript's `Shortest_Path` over a second, keys-only homogeneous
+workspace `gws` with its two procedures (`mapping.graph.script_ddl`, G35), read through
+a SQLScript block (compared live only: the offline stand-in skips the workspace and the
+procedures and drops the variant). `connection.positional` leaves `:sv_*` alone (the
+SQLScript variables); `dialect.SCHEMA_TOKEN` is the session's schema in a text.
+
 The provider fills every slot of the core's contract (`ganda/core/provider.py`):
 traversal, select, path and write ASTs, mappings, semantics, rewrites, a probe, mutants.
-`known_bugs.py` is empty: no HANA finding is filed yet.
+`known_bugs.py` guards H4 and B13; A8 and A9 are worked around in the graph renderings.
 
 What was verified, offline only:
 
@@ -133,6 +199,12 @@ says where each fact lives:
 | K7-K9, K16 | aggregates | `concrete_syntax/traversal.py` and `select.py` (`_sparql`): the `IF(COUNT(?w) > 0, ...)` guards, `HAVING` |
 | K10, K11, K14, K15, K19 | paths, MINUS, updates, transactions, EXISTS in updates | `concrete_syntax/path.py`, `traversal.py`, `write.py` (`_rdf`), `mapping/rdf.py` |
 | K17, K18 | ordering, string functions | `semantics.py`, `concrete_syntax/methods.py` |
+| P0-P17 | the hint clause; every plan-steering profile over every statement shape | `concrete_syntax/hints.py` (`PROFILES`: drop a profile a shape refuses; never a workaround in a renderer) |
+| D19, D20 | NOT kept as written in a collection filter, NOT over FOR ANY | `concrete_syntax/document.py` (`doc_pred`'s `keep_not`); if one fails, drop `neg` from `select._POSITIONS_OF["doc"]` |
+| R20, K23 | AVG over BIGINT as DECIMAL(25,6) (truncated to six places); the triple store's AVG in double | `semantics.mean`; `known_bugs._b13` |
+| G30-G34 | integer and string constants exact, a double constant lossy (A8), two calls' parameter typing (A9), BOOLEAN in COUNT / compared refused | `concrete_syntax/graph.py` (`literal`, `cypher_filter`), `select._cypher_asks` |
+| R18, D22, K21, G28 | custom keys on the four data models, their order | `dialect.is_valid_key`, `record_iri`; `semantics.hana_key`; put the axis back into `config.UNSUPPORTED_AXES` if a style fails everywhere |
+| R19, D23, K22, G29 | the base class: the UNION ALL view, the views' union, the second class triple, the unlabelled MATCH | `mapping/relational.py` (`base_view_ddl`), `concrete_syntax/document.py` (`view_definition`, `with_views`), `mapping/rdf.py` (`class_triples`), `concrete_syntax/graph.py` (`vertex`), `concrete_syntax/write.py` (`_targets`) |
 
 After a change: step 0 again (offline), then the probe again.
 
@@ -185,18 +257,20 @@ ganda/hana/
   semantics.py         the reference: three-valued logic, order, aggregates
   pivots.py            operators a predicate draws (null tests: IS NULL / IS NOT NULL only)
   rewrites.py          equivalent predicate trees (three-valued), arithmetic rewrite
-  connection.py        HanaServer / HanaSession (hdbcli), parameter binding, decoding
+  connection.py        HanaServer / HanaSession (hdbcli), parameter binding (`positional`, `inline_binds`, `sqlscript_block`), decoding (a failure is a `[decode]` finding), the transaction door's peer check
   mapping/             one setup plan per data model (document.py, relational.py, rdf.py)
   concrete_syntax/
     predicate.py       a predicate as SQL (rel, doc views) and as a SPARQL filter
-    document.py        the doc data model: collection filter, views, typed reads
-    traversal.py       the traversal AST: rel join / scalar, doc over views, rdf graph / from / link / minus / table / native
-    select.py          the select AST: filter x position x form
+    document.py        the doc data model: collection filter (NOT pushed down or kept), views, typed reads
+    graph.py           the graph data model: the `g_` views family and the native openCypher family
+    hints.py           plan steering: the `WITH HINT (...)` profiles every SQL text is asked under once more
+    traversal.py       the traversal AST: rel join / scalar, doc over views, graph match / paths / undirected, rdf graph / from / link / minus / table / native, every data model's hint_<profile>
+    select.py          the select AST: filter x position x form x hint
     path.py            the path AST: levels of walks
-    write.py           the write AST and its execution steps
+    write.py           the write AST and its execution steps (a base-class write per subclass)
     tx.py              the transaction door of the select AST
     methods.py         the method catalog (SQL / SPARQL / Python mirror)
-  known_bugs.py        filed findings (none yet)
+  known_bugs.py        the guards: H4 (a doc traversal sum the views overflow), B13 (an rdf avg where double arithmetic parts from DECIMAL(25,6))
   mutants.py           the mutation benchmark's catalog
   scripts/probe.py     `ganda hana probe`
 tests/hana/
@@ -238,17 +312,29 @@ tests/hana/
 4. `NOT (...)` in a collection filter: the doc filter pushes NOT down because the
    documented grammar does not show NOT. If HANA accepts `NOT (...)` and `NOT FOR ANY`,
    add a doc variant that keeps the NOT.
-5. Narrow types (INTEGER, REAL, DECIMAL), dates, maps, binaries, collation,
-   inheritance, custom keys: refused by `config.UNSUPPORTED_AXES`. Each needs its value
-   forms in all three data models and its semantics.
+5. Narrow types (INTEGER, REAL, DECIMAL), dates, maps, binaries, collation: refused by
+   `config.UNSUPPORTED_AXES`. Each needs its value forms in all four data models and its
+   semantics (dates and maps share one core axis, `date_map_probability`; a map has no
+   HANA type, so it would be JSON text plus a child table of entries on rel, an object on
+   doc, entry triples on rdf). Inheritance and custom keys are modelled (2026-10-12).
 6. The graph data model (done 2026-10-11, offline): what is left there -- GraphScript
    (`SHORTEST_PATH`, `NEIGHBORS` in a `DO ... LANGUAGE GRAPH` block) as path and reach
    syntaxes; a workspace on a JSON COLLECTION (`CREATE GRAPH WORKSPACE ... COLLECTION
    ... TYPE / VERTEX KEY / EDGE KEY SOURCE TARGET`) as a second backing drawn per seed;
    `RDF_GRAPH_TO_GRAPH_WORKSPACE` loading the graph from the rdf model (new in QRC
    2/2026); typed parameters (`graph.TYPED_PARAMS`) as a syntax of their own.
-7. Index hints and plan steering (`variant_options`): HANA's `WITH HINT(...)` on the SQL
-   variants, the same question through another plan.
+7. Plan steering (done 2026-10-12, `concrete_syntax/hints.py`): what is left -- a hint
+   on the compared statement of a WRITE (`UPDATE ... WITH HINT`), and the column-view
+   estimation hints once a shape is found that they change. A base-class question on
+   doc as a UNION ALL of collection queries is out: the Document Store refuses it (D23).
+8. Track 2 of the improvement plan (probed and rendered 2026-10-12, its first live
+   campaign still to run): what is left of it -- a reach traversal through GraphScript's
+   `Neighbors` (G35: the four-argument form, outgoing; an edge-induced `SubGraph` drops
+   a vertex with no edge of the KIND, so a per-start guard is needed inside the block,
+   or a GraphScript loop over the starts: probe it first, G38); the `block` positions on
+   the doc views and the graph views (rel only so far); a hint on a write's statement.
+   Also to file: **A10** (K26; `findings/A10-sparql-filter-coalesce-optional-variable/repro.py`,
+   run live 2026-10-13; it still needs a README), and the GraphScript doc check for G35's verdict.
 
 ## 8. The offline stand-in's limits
 
@@ -268,4 +354,10 @@ through switches named after the probe facts (`SELF_LOOP_TWICE`,
 `ISOMORPHIC_WITHIN_CLAUSE`, `TRAIL_PATHS`, `SUM_EMPTY_ZERO`, `NULLS_FIRST_ASC`). A text
 it does not cover makes its case partial (`run_offline._offline`, `translatable`); a new
 cypher construct in a renderer needs the translator extended, or that variant is
-compared live only.
+compared live only. An unlabelled vertex (the base class) is the union of the vertex
+views over the attributes they all share.
+
+SQLite has no hint clause: the offline session strips it (`hints.strip`), so a hinted
+twin runs as its plain statement offline -- plan steering is compared live only; the
+offline runs check that every hinted text is a well-formed statement and that the
+variants' plumbing (one profile per question, the tags, the bundles) holds.

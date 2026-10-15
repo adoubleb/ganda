@@ -1,0 +1,22 @@
+HANA version: 4.00.000.00.1788859455 
+
+data: x has i = 1; y has no i
+
+expression values: [('x', '1', 'false'), ('y', '0', 'true')]  (expected [('x', '1', 'false'), ('y', '0', 'true')])
+
+COALESCE(?i, 0) = 0   expected ['y']
+  FILTER (expr)                : []
+  BIND ((expr) AS ?t) FILTER   : ['y']
+COALESCE(?i > 1, true)   expected ['y']
+  FILTER (expr)                : ['x', 'y']
+  BIND ((expr) AS ?t) FILTER   : ['y']
+COALESCE(IF(?i > 1, 1, 0), 2) = 2   expected ['y']
+  FILTER (expr)                : ['x', 'y']
+  BIND ((expr) AS ?t) FILTER   : ['y']
+
+required ?i: FILTER (COALESCE(?i > 1, true))   expected []
+   []
+
+as found (K26): every solution MINUS the COALESCE partition   expected ['x']
+  FILTER : []
+  BIND   : ['x']

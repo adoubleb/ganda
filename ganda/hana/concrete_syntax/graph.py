@@ -34,11 +34,16 @@ BIGINT / DOUBLE / NVARCHAR attributes; a BOOLEAN is projected only. ORDER BY put
 last ascending (HANA SQL: first), so a native ordering over a nullable field is not
 asked.
 
-Parameters: a cypher `$name` is bound by `PARAMETERS ('name' = :name)` outside the
-literal (`Params`; `connection.positional` skips the quoted query), under the SQL bind
-names `predicate.sql` uses, so a case's `bind_vars` serve both. The `literal` position
-inlines the constants instead (`literal`: a double as digits with a point, a string with
-`\'` and `\\` escapes), exercising the engine's parser.
+Parameters and constants: a DOUBLE pivot is bound, a cypher `$name` in `PARAMETERS
+('name' = :name)` outside the literal (`Params`; `connection.positional` skips the
+quoted query), under the SQL bind name `predicate.sql` uses, so a case's `bind_vars`
+serve both; every other pivot -- an integer, a string (`\'` and `\\` the escapes), a
+LIST's text -- is a constant in the query (`literal`). So one OPENCYPHER_TABLE call
+binds parameters of one type: a statement holding two calls types the second call's
+bare parameters in the wrong order when they mix a string and a number (A9, G32); a
+double constant would lose digits beyond the fifteenth (A8, G31: a bound double and
+`TOFLOAT` of a string constant compare exactly), while an integer and a string constant
+are exact (G30, G34).
 
 The result columns are typed by the workspace (unlike SPARQL_TABLE), so a projection
 needs no decode suffix except a LIST's `__JSON`; aliases are uppercase so a SQL wrapper
@@ -123,7 +128,7 @@ def view_query(schema: Schema, table: str) -> str:
     """The openCypher text behind `g_<table>`: a class's records, or an edge type's
     relationships with the endpoints the engine resolved (`a.ID AS SRC_ID`)."""
     if not _is_edge(schema, table):
-        return f"MATCH (a:{label(table)}) RETURN {scan_items(schema, table, 'a')}"
+        return f"MATCH {vertex(schema, table, 'a')} RETURN {scan_items(schema, table, 'a')}"
     et = schema.edge_type(table)
     attrs = ", ".join(f"e.{a} AS {c.upper()}" for c, a in graph_columns(schema, table) if c not in ("eid", "src_id", "dst_id"))
     items = "e.EID AS EID, a.ID AS SRC_ID, b.ID AS DST_ID" + (f", {attrs}" if attrs else "")
@@ -135,8 +140,9 @@ def view_definition(schema: Schema, name: str) -> str:
     return f"{name} AS (SELECT * FROM {opencypher_table(view_query(schema, table))})"
 
 
-# a view is `g_` and a generated class or edge type name (`n3`, `e12`)
-_VIEW_NAME = re.compile(r"\bg_[ne]\d+\b")
+# a view is `g_` and a generated class or edge type name (`n3`, `e12`), or the base
+# class of the inheritance axis (`N0`: the unlabelled MATCH over every vertex table)
+_VIEW_NAME = re.compile(r"\bg_[neN]\d+\b")
 
 
 def with_views(schema: Schema, text: str) -> str:
@@ -195,49 +201,17 @@ def cypher_string(s: str) -> str:
 
 
 def literal(value, ftype: "str | None" = None) -> str:
-    """A constant inlined in a cypher text: an integer as its digits, a double as
-    digits with a point (the grammar has no exponent, no infinity), a string or a
-    LIST's canonical text as a string constant; a boolean has no constant."""
-    if isinstance(value, bool) or value is None:
+    """A constant inlined in a cypher text: an integer as its digits (exact, G30), a
+    string or a LIST's canonical text as a string constant (G34). A double has NO
+    constant: the parser keeps about fifteen significant digits of one (A8, G31), so a
+    double is always bound; a boolean has no constant either."""
+    if isinstance(value, bool) or value is None or isinstance(value, float) or ftype == "float":
         raise Unsupported(f"no cypher constant for {value!r}")
     if isinstance(value, int):
         return str(value)
-    if isinstance(value, float):
-        if ftype == "float" or not float(value).is_integer():
-            text = repr(float(value))
-        else:
-            text = repr(value)
-        if "e" in text or "n" in text:  # 1e+16, inf, nan
-            raise Unsupported(f"no cypher constant for {value!r}")
-        return text
     if isinstance(value, list):
         return cypher_string(list_text(value))
     return cypher_string(str(value))
-
-
-def binds_parameters(p) -> bool:
-    """Whether the cypher text of a tree carries a `$parameter` at all: a LIKE's constant
-    and a null test bind nothing (so a `literal` rendering of such a tree would be the
-    native base over again)."""
-    return any(leaf.op not in ("LIKE", "IS NULL", "IS NOT NULL") or leaf.arith is not None for leaf in p.leaves())
-
-
-def literal_safe(p) -> bool:
-    """Whether every constant of a tree inlines (`literal`)."""
-    try:
-        for leaf in p.leaves():
-            if leaf.sub is not None:
-                return False
-            if leaf.arith is not None:
-                literal(leaf.arith[2], leaf.ftype)
-            if leaf.op in ("IS NULL", "IS NOT NULL"):
-                continue
-            pivots = leaf.pivot if leaf.op in ("IN", "NOT IN", "BETWEEN", "CONTAINSANY", "CONTAINSALL") else [leaf.pivot]
-            for v in pivots:
-                literal(v, leaf.ftype)
-    except Unsupported:
-        return False
-    return True
 
 
 # --- the native family: a predicate tree as a cypher filter ------------------------------------
@@ -259,12 +233,33 @@ def _like(expr: str, pattern: str) -> str:
     return f"({expr} = {cypher_string(pattern)})"
 
 
+def _crosses_value(ftype: "str | None", v) -> bool:
+    """Whether one pivot value is of the other numeric type than its column (a double
+    against INT, an integer against FLOAT: `pivots.cross_type`)."""
+    return (ftype == "int" and type(v) is float) or (ftype == "float" and type(v) is int)
+
+
+def crosses(p) -> bool:
+    """Whether any of a numeric leaf's pivot values is of the other numeric type."""
+    if p.ftype not in ("int", "float") or p.op in ("IS NULL", "IS NOT NULL") or p.sub is not None:
+        return False
+    pv = p.pivot if isinstance(p.pivot, list) else [p.pivot]
+    return any(_crosses_value(p.ftype, v) for v in pv)
+
+
 def cypher_filter(p, var: str, table: str, schema: Schema, params: "Params | None") -> str:
     """The cypher text of a tree over the record variable `var` of class or edge type
-    `table`; `params` None inlines the constants (`literal`). Three-valued logic is the
-    engine's own (a comparison with NULL is NULL, dropped by WHERE; NOT / AND / OR
-    combine as in SQL), so the text is the tree. Raises `Unsupported` for a membership,
-    a semi-join, a case-insensitive or (unless `BOOL_FILTERS`) a boolean comparison."""
+    `table`. Three-valued logic is the engine's own (a comparison with NULL is NULL,
+    dropped by WHERE; NOT / AND / OR combine as in SQL), so the text is the tree.
+
+    A DOUBLE pivot is BOUND (`$name`, `params`); every other pivot -- an integer, a
+    string, a LIST's text -- is a constant in the text, so one OPENCYPHER_TABLE call
+    binds parameters of one type only: a statement with two calls types the second
+    call's bare parameters in the wrong order when they mix a string and a number
+    (A9, G32), a double constant loses digits (A8, G31), an integer constant and a
+    string constant are exact (G30, G34). Raises `Unsupported` for a membership, a
+    semi-join, a case-insensitive or (unless `BOOL_FILTERS`) a boolean comparison, and
+    for a string constant the grammar cannot spell (a control character)."""
     if isinstance(p, Compound):
         if p.op == "NOT":
             return f"NOT ({cypher_filter(p.children[0], var, table, schema, params)})"
@@ -275,9 +270,21 @@ def cypher_filter(p, var: str, table: str, schema: Schema, params: "Params | Non
         raise Unsupported("a LIST membership has no cypher form")
     if p.ftype == "bool" and not BOOL_FILTERS:
         raise Unsupported("a BOOLEAN attribute is projected only")
+    # a cross-type pivot (`pivots.cross_type`): the engine refuses a BIGINT attribute
+    # against a float and a DOUBLE attribute against an integer outright (G36, `[4906]
+    # Type mismatch`), so for THAT value both sides are doubles -- an integer attribute
+    # through TOFLOAT, the pivot as TOFLOAT of its text (exact, unlike a double
+    # constant: A8). Per value, as SQL types each comparison of an IN list on its own: an
+    # integer pivot beside the cross-typed one keeps the exact integer comparison (a
+    # BIGINT above 2^53 through TOFLOAT would meet its neighbours)
+    cross = crosses(p)
 
     def value(name: str, v, ftype: "str | None"):
-        return literal(v, ftype) if params is None else params.use(name, ftype)
+        if ftype == "float" or isinstance(v, float):
+            if params is None:
+                raise Unsupported("a double has no cypher constant")
+            return params.use(name, "float")
+        return literal(v, ftype)
 
     col = f"{var}.{attr(schema, table, p.field)}"
     if p.op in ("IS NULL", "IS NOT NULL"):
@@ -285,27 +292,38 @@ def cypher_filter(p, var: str, table: str, schema: Schema, params: "Params | Non
             raise Unsupported("IS NULL takes an attribute, not an expression")
         return f"({col} IS NULL)" if p.op == "IS NULL" else f"NOT ({col} IS NULL)"
     expr = col
+    if p.arith is not None and cross:
+        raise Unsupported("arithmetic over a cross-type pivot")
     if p.arith is not None:
         sym, cbind, c = p.arith
         expr = f"({col} {sym} {value(cbind, float(c) if p.ftype == 'float' else c, p.ftype)})"
+
+    def sides(name: str, v) -> "tuple[str, str]":
+        """(the attribute's side, the pivot's side) for one value."""
+        if _crosses_value(p.ftype, v):
+            return (f"TOFLOAT({expr})" if p.ftype == "int" else expr), f"TOFLOAT('{v!r}')"
+        return expr, value(name, v, p.ftype)
+
     if p.op == "LIKE":
         return _like(expr, p.pivot)
     if p.op == "BETWEEN":
-        return f"({expr} >= {value(p.bind + 'a', p.pivot[0], p.ftype)} AND {expr} <= {value(p.bind + 'b', p.pivot[1], p.ftype)})"
+        la, ra = sides(p.bind + "a", p.pivot[0])
+        lb, rb = sides(p.bind + "b", p.pivot[1])
+        return f"({la} >= {ra} AND {lb} <= {rb})"
     if p.op in ("IN", "NOT IN"):
         if not p.pivot:
             raise Unsupported("an empty IN list")
-        ors = " OR ".join(f"{expr} = {value(f'{p.bind}__{k}', v, p.ftype)}" for k, v in enumerate(p.pivot))
+        ors = " OR ".join("{} = {}".format(*sides(f"{p.bind}__{k}", v)) for k, v in enumerate(p.pivot))
         return f"({ors})" if p.op == "IN" else f"NOT ({ors})"
     if p.op not in MIRROR:
         raise Unsupported(f"no cypher form of {p.op}")
     if p.ftype == "list":
-        rhs = literal(p.pivot, "list") if params is None else params.use(f"{p.bind}__json", "list")
+        lhs, rhs = expr, literal(p.pivot, "list")
     else:
-        rhs = value(p.bind, p.pivot, p.ftype)
+        lhs, rhs = sides(p.bind, p.pivot)
     if p.rev:
-        return f"({rhs} {MIRROR[p.op]} {expr})"
-    return f"({expr} {p.op} {rhs})"
+        return f"({rhs} {MIRROR[p.op]} {lhs})"
+    return f"({lhs} {p.op} {rhs})"
 
 
 def expressible(p, schema: Schema, table: str) -> bool:
@@ -322,11 +340,19 @@ def expressible(p, schema: Schema, table: str) -> bool:
 # --- the native family: one table's filtered projection -----------------------------------------
 
 
+def vertex(schema: Schema, table: str, var: str) -> str:
+    """`(t:n1)` for a class; `(t)` for the base class of the inheritance axis: an
+    unlabelled vertex spans every vertex table (G21), which is what every subclass's
+    records are, and a base-class attribute keeps one name across them (`attr`)."""
+    return f"({var})" if schema.is_base(table) else f"({var}:{label(table)})"
+
+
 def match_clause(schema: Schema, table: str, var: str) -> str:
-    """`MATCH (t:n1)` for a class; `MATCH (a:n1)-[t:e1]->(b:n2)` for an edge type (the
-    relationship bound as `t`, its endpoints as `a` and `b`)."""
+    """`MATCH (t:n1)` for a class (`MATCH (t)` for the base class); `MATCH
+    (a:n1)-[t:e1]->(b:n2)` for an edge type (the relationship bound as `t`, its
+    endpoints as `a` and `b`)."""
     if not _is_edge(schema, table):
-        return f"MATCH ({var}:{label(table)})"
+        return f"MATCH {vertex(schema, table, var)}"
     et = schema.edge_type(table)
     return f"MATCH (a:{label(et.from_type)})-[{var}:{label(table)}]->(b:{label(et.to_type)})"
 

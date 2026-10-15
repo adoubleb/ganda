@@ -18,7 +18,7 @@ from ganda.core.ast.predicates import I64_MAX, I64_MIN, MIRROR, Compound, Predic
 from ganda.core.model import FieldType
 from ganda.hana.semantics import apply_arith
 
-_COMPLEMENT = {"=": "<>", "<>": "=", "<": ">=", ">=": "<", ">": "<=", "<=": ">", "IS NULL": "IS NOT NULL", "IS NOT NULL": "IS NULL"}
+_COMPLEMENT = {"=": "<>", "<>": "=", "<": ">=", ">=": "<", ">": "<=", "<=": ">", "IN": "NOT IN", "NOT IN": "IN", "IS NULL": "IS NOT NULL", "IS NOT NULL": "IS NULL"}
 
 
 def arith_exact(v, sym: str, c, ftype) -> bool:
@@ -111,6 +111,10 @@ def rewrite(p, rng: random.Random, bind: str):
         if len(pv) == 1:
             return leaf("=", bind, pv[0])
         return Compound(on, "OR", tuple(leaf("=", f"{bind}_{k}", v) for k, v in enumerate(pv)))
+    if op == "NOT IN":
+        # three-valued as NOT (f IN (...)): unknown for a null f, and for a list holding
+        # a null the field does not equal
+        return Compound(on, "NOT", (leaf("IN", bind, pv),))
     if op == "BETWEEN":
         return Compound(on, "AND", (leaf(">=", f"{bind}_0", pv[0]), leaf("<=", f"{bind}_1", pv[1])))
     if op in (">", "<", ">=", "<="):

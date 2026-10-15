@@ -26,15 +26,25 @@ level:
            views      rel's `levels` over the `g_` CTEs reading the junctions through
                       the graph engine (`frontier` too, where the engine nests the
                       table function inside IN (...))
+           script     GraphScript's `Shortest_Path` over the keys-only workspace `gws`
+                      (`mapping.graph.script_ddl`; the subgraph of one edge KIND for one
+                      type), its vertices counted in a SQLScript block -- compared live
+                      only (the stand-in has no GraphScript)
+    every  hint_<profile>  the data model's SQL levels (rel, doc, the graph views, rdf's
+                      `table`) closed by a `WITH HINT (...)` clause steering them to
+                      another execution engine or optimizer mode (`hints.PROFILES`),
+                      one profile per question
 
 The relationship relation of a question: one edge type's junction or every type's,
 oriented by the direction (both: each relationship in both orientations).
 """
 from __future__ import annotations
 
+import json
+
 from ganda.core.ast.path import PathQuery
 from ganda.core.model import Instance, Schema
-from ganda.hana.concrete_syntax import document, graph
+from ganda.hana.concrete_syntax import document, graph, hints
 from ganda.hana.concrete_syntax.predicate import REL, Names
 from ganda.hana.concrete_syntax.traversal import sparql_table
 from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT, record_iri
@@ -136,6 +146,31 @@ def _cypher_levels(q: PathQuery, schema: Schema, syntax: str) -> str:
     return f"SELECT z.v AS v FROM (SELECT MIN(lv.d) + 1 AS v FROM ({union}) lv) z WHERE z.v IS NOT NULL"
 
 
+def _graphscript(q: PathQuery) -> str:
+    """GraphScript's `Shortest_Path` (probe G35) through a SQLScript block: the procedure
+    of `mapping.graph` answers the path's vertices, counted here (`d + 1`), kept within
+    the bound by HAVING (no row for an unreachable goal: an empty path). Over one edge
+    type the procedure walks the subgraph of that KIND, which holds only the vertices
+    with an edge of it, so the block first counts the ends' incident edges of the kind
+    (start = goal is one vertex regardless) and answers nothing when either has none."""
+    direction = {"OUT": "OUTGOING", "IN": "INCOMING", "BOTH": "ANY"}[q.direction]
+    header = f"IN sv_a {ID} => :a, IN sv_b {ID} => :b"
+    within = f"HAVING COUNT(*) BETWEEN 1 AND {q.depth + 1}"
+    if q.edge_type is None:
+        return f"DO ({header}) BEGIN CALL p_gs_path(:sv_a, :sv_b, '{direction}', sv_o); SELECT COUNT(*) AS v FROM :sv_o {within}; END"
+    kind = q.edge_type
+    incident = "FROM gs_e WHERE kind = '{kind}' AND (src_id = :{v} OR dst_id = :{v})"
+    body = (
+        "DECLARE sv_na BIGINT; DECLARE sv_nb BIGINT; "
+        f"SELECT COUNT(*) INTO sv_na {incident.format(kind=kind, v='sv_a')}; "
+        f"SELECT COUNT(*) INTO sv_nb {incident.format(kind=kind, v='sv_b')}; "
+        "IF :sv_a = :sv_b THEN SELECT 1 AS v FROM DUMMY; "
+        f"ELSEIF :sv_na > 0 AND :sv_nb > 0 THEN CALL p_gs_path_kind(:sv_a, :sv_b, '{kind}', '{direction}', sv_o); SELECT COUNT(*) AS v FROM :sv_o {within}; "
+        "ELSE SELECT 1 AS v FROM DUMMY WHERE 1 = 0; END IF;"
+    )
+    return f"DO ({header}) BEGIN {body} END"
+
+
 def render_all(q: PathQuery, schema: Schema, instance: Instance) -> "tuple[dict, dict]":
     queries = {
         "rel": _sql(q, schema, "levels", REL),
@@ -154,4 +189,8 @@ def render_all(q: PathQuery, schema: Schema, instance: Instance) -> "tuple[dict,
         queries["graph:chain"] = _cypher_levels(q, schema, "chain")
     if graph.NESTED_TABLE_FN_OK:
         queries["graph:frontier"] = graph.with_views(schema, _sql(q, schema, "frontier", graph.NAMES))
+    queries["graph:script"] = _graphscript(q)
+    profile = hints.choose(json.dumps(q.to_params(), sort_keys=True, default=repr))
+    for dm, base in (("rel", "rel"), ("doc", "doc"), ("graph", "graph:views"), ("rdf", "rdf:table")):
+        queries[f"{dm}:hint_{profile}"] = hints.hinted(queries[base], profile)
     return queries, {}

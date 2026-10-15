@@ -8,5 +8,6 @@ bugs/
 .env
 coverage/
 campaign_reports/
+campaign_results/
 mutation_reports/
 hana_tunnel.sh

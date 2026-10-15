@@ -23,6 +23,16 @@ every rel syntax runs over them unchanged:
 `with_views` prepends the definitions of the views a text names. A whole-list `=`
 compares the list's text, which the view cannot promise is canonical: a question with
 one is asked of the collection itself, never of the views (`compares_list_text`).
+
+The base class of the inheritance axis (`N0`) is no collection: `v_N0` is the UNION ALL
+of every subclass's view (its id and the base-class fields), `v_N0__b1` of their element
+views, defined after the views they read; a base-class question has the views as its
+only doc engine path (`select.collection_asks` says no).
+
+The collection filter's NOT: `doc_pred` pushes a negation down to the leaves by default
+(the documented grammar shows no NOT); with `keep_not` it writes `NOT (...)` as drawn,
+and `NOT (FOR ANY ...)` for a negated membership (D8, D19, D20: the store evaluates both
+three-valued, as SQL) -- the `doc:neg` variant.
 """
 from __future__ import annotations
 
@@ -111,6 +121,13 @@ def view_definition(schema: Schema, name: str) -> str:
     base = name[len(NAMES.prefix):]
     table, _, field = base.partition("__")
     node_names = {nt.name for nt in schema.node_types}
+    if schema.is_base(table):
+        # the base class of the inheritance axis: the UNION ALL of the subclasses' views
+        # (their id and base-class columns), or of their element views of a LIST base field
+        if field:
+            return f"{name} AS (" + " UNION ALL ".join(f"SELECT owner, v FROM {NAMES.child(nt.name, field)}" for nt in schema.node_types) + ")"
+        cols = ", ".join(["id"] + [f.name for f in schema.base.fields])
+        return f"{name} AS (" + " UNION ALL ".join(f"SELECT {cols} FROM {NAMES.table(nt.name)}" for nt in schema.node_types) + ")"
     if table in node_names:
         fields = schema.query_fields(table)
         if field:
@@ -136,18 +153,26 @@ def _main_view(name: str, cols: "list", source: str, exprs: "dict | None" = None
     return f"{raw_name} AS (SELECT {raw} FROM {source}), {name} AS (SELECT {typed_cols} FROM {raw_name})"
 
 
-# a view is `v_` and a generated class or edge type name (`n3`, `e12`), a LIST field's
-# elements `__<field>` after it (never the decoding suffix of an alias: `v__json`)
-_VIEW_NAME = re.compile(r"\bv_[ne]\d+(?:__[a-z]\d+)?\b")
+# a view is `v_` and a generated class or edge type name (`n3`, `e12`) or the base class
+# (`N0`), a LIST field's elements `__<field>` after it (never the decoding suffix of an
+# alias: `v__json`)
+_VIEW_NAME = re.compile(r"\bv_[neN]\d+(?:__[a-z]\d+)?\b")
 
 
 def with_views(schema: Schema, text: str) -> str:
     """`text` with the definitions of every view it names in front. A view's definition
-    is one or two CTEs (`view_definition`), already named."""
-    used = sorted(set(_VIEW_NAME.findall(text)))
+    is one or two CTEs (`view_definition`), already named. A base-class view (the
+    inheritance axis) unites the subclasses' views, which are defined before it."""
+    used = set(_VIEW_NAME.findall(text))
     if not used:
         return text
-    defs = ", ".join(view_definition(schema, v) for v in used)
+    if schema.base is not None:
+        for v in list(used):
+            table, _, field = v[len(NAMES.prefix):].partition("__")
+            if schema.is_base(table):
+                used |= {NAMES.child(nt.name, field) if field else NAMES.table(nt.name) for nt in schema.node_types}
+    ordered = sorted(used, key=lambda v: (schema.is_base(v[len(NAMES.prefix):].partition("__")[0]), v))
+    defs = ", ".join(view_definition(schema, v) for v in ordered)
     return f"WITH {defs} {text}"
 
 
@@ -219,6 +244,10 @@ def _param(ftype: "str | None", bind: str, value) -> str:
         return _bool_literal(value)
     if ftype == "list":
         return f"PARSE_JSON(:{bind}__json)"
+    if ftype == "int" and isinstance(value, float):
+        # a cross-type pivot against an integer field (`pivots.cross_type`): the store
+        # compares integer and number as one type (D4, D24)
+        return f"CAST(:{bind} AS DOUBLE)"
     if ftype == "float" or isinstance(value, float):
         return f"CAST(:{bind}__dec AS DECIMAL)"
     if ftype == "int" or isinstance(value, int):
@@ -238,20 +267,25 @@ class Unsupported(ValueError):
 _COMPLEMENT = {"=": "<>", "<>": "=", "<": ">=", ">=": "<", ">": "<=", "<=": ">", "IS NULL": "IS NOT NULL", "IS NOT NULL": "IS NULL"}
 
 
-def doc_pred(p, alias: str = "", negate: bool = False) -> str:
+def doc_pred(p, alias: str = "", negate: bool = False, keep_not: bool = False) -> str:
     """A tree as the document store's own WHERE over the documents of a collection (or,
     with `alias`, over an unnested element), in the documented filter language: a path
     compared with a value, IS [NOT] NULL, LIKE, FOR ANY ... SATISFIES ... END, AND, OR
     and parentheses. A NOT is pushed down to the leaves (De Morgan and the complements,
-    which keep every record's three-valued truth); `IN` is a disjunction of equalities,
-    `BETWEEN` a conjunction of two comparisons. What has no form here -- a semi-join, a
-    negated membership, arithmetic over the field, a reversed comparison -- raises
-    `Unsupported` (`doc_filter_ok`): the question is asked through the views."""
+    which keep every record's three-valued truth) -- or, with `keep_not`, written as
+    `NOT (...)` over its operand, a negated membership as `NOT (FOR ANY ...)`, which the
+    store evaluates three-valued as SQL does (D8, D19, D20; the `neg` position); `IN` is
+    a disjunction of equalities, `BETWEEN` a conjunction of two comparisons. What has no
+    form here -- a semi-join, a negated membership (pushed down), arithmetic over the
+    field, a reversed comparison -- raises `Unsupported` (`doc_filter_ok`): the question
+    is asked through the views."""
     if isinstance(p, Compound):
         if p.op == "NOT":
+            if keep_not:
+                return f"NOT ({doc_pred(p.children[0], alias, False, True)})"
             return doc_pred(p.children[0], alias, not negate)
         op = p.op if not negate else ("OR" if p.op == "AND" else "AND")
-        return "(" + f" {op} ".join(doc_pred(c, alias, negate) for c in p.children) + ")"
+        return "(" + f" {op} ".join(doc_pred(c, alias, negate, keep_not) for c in p.children) + ")"
     if p.sub is not None or p.arith is not None or p.rev:
         raise Unsupported(p.signature)
     col = path(p.field, alias)
@@ -279,12 +313,20 @@ def doc_pred(p, alias: str = "", negate: bool = False) -> str:
     return f"{col} {op} {_param(p.ftype, p.bind, p.pivot)}"
 
 
-def doc_filter_ok(p) -> bool:
-    """Whether the collection's own query language states the filter."""
+def doc_filter_ok(p, keep_not: bool = False) -> bool:
+    """Whether the collection's own query language states the filter (with `keep_not`,
+    its NOTs kept as written)."""
     if p is None:
         return True
     try:
-        doc_pred(p)
+        doc_pred(p, keep_not=keep_not)
     except Unsupported:
         return False
     return True
+
+
+def has_not(p) -> bool:
+    """Whether a tree holds a NOT node (what the `neg` position keeps as written)."""
+    if not isinstance(p, Compound):
+        return False
+    return p.op == "NOT" or any(has_not(c) for c in p.children)

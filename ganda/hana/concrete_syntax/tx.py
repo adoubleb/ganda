@@ -90,7 +90,9 @@ def _rdf(tx: dict, schema: Schema) -> list:
         if isinstance(value, list):
             values += [f"{n} i:{f} {sparql_literal(x)}" for x in sorted(set(value))]
     if tx["write"] == "insert":
-        triples = [f"{n} a c:{t}", f"{n} p:id {sparql_string(tx['tid'])}"] + values
+        from ganda.hana.mapping.rdf import class_triples
+
+        triples = class_triples(n, t, schema) + [f"{n} p:id {sparql_string(tx['tid'])}"] + values
         return [f"{PREFIX_TEXT} INSERT DATA {{ GRAPH {g} {{ {' . '.join(triples)} }} }}"]
     out = [f"{PREFIX_TEXT} DELETE WHERE {{ GRAPH {g} {{ {n} p:{f} ?o }} }}"]
     if _field(schema, tx).type is FieldType.LIST:

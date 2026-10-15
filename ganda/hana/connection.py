@@ -39,7 +39,7 @@ from decimal import Decimal
 
 from ganda.core.provider import EngineCrash, EngineError, Server, Session
 from ganda.hana.concrete_syntax import tx as _tx
-from ganda.hana.dialect import GRAPH_TOKEN, child_table, from_rdf_term, graph_iri, list_text, number, opencypher_table, record_iri
+from ganda.hana.dialect import GRAPH_TOKEN, SCHEMA_TOKEN, child_table, from_rdf_term, graph_iri, list_text, number, opencypher_table, record_iri
 
 SPARQL_QUERY_HEADERS = "Accept: application/sparql-results+json\r\nContent-Type: application/sparql-query"
 SPARQL_UPDATE_HEADERS = ""
@@ -56,6 +56,8 @@ INTERNAL_CODES = {2, 3, 129, 2048}
 # functionality"; a collection's MAX over a string -- "supports only numeric values"): a
 # 129 carrying one of these is a rejection, compared across variants like any other
 REJECTION_129 = ("generic. Error -", "Unsupported functionality", "supports only")
+# message texts that mark an internal failure whatever the code
+INTERNAL_TEXTS = ("internal error", "assertion", "must not reach here")
 DEFAULT_TIMEOUT_MS = 30000
 # dropping and creating a campaign database: not a compared statement, so a slow one is
 # waited for and retried rather than reported
@@ -63,7 +65,10 @@ ADMIN_TIMEOUT_MS = 300000
 ADMIN_RETRIES = 3
 BOOLEAN_TYPE_CODES = {28}
 
-_TOKEN = re.compile(r"('(?:[^']|'')*')|(\"(?:[^\"]|\"\")*\")|(?<![\w:]):([A-Za-z_][A-Za-z0-9_]*)")
+# a `:name` is a bind marker -- except a SQLScript variable of an anonymous block, which
+# the renderers name `:sv_*` (`concrete_syntax/select.py`, the `block` positions): the
+# block's header binds the real markers (`IN sv_p BIGINT => :p`) and its body reads them
+_TOKEN = re.compile(r"('(?:[^']|'')*')|(\"(?:[^\"]|\"\")*\")|(?<![\w:]):(?!sv_)([A-Za-z_][A-Za-z0-9_]*)")
 _SUFFIXES = ("__json", "__bool", "__int", "__float", "__num")
 
 
@@ -87,6 +92,104 @@ def resolve(name: str, binds: dict):
     if suffix.isdigit():
         return v[int(suffix)]
     raise KeyError(f"no bind variable {name!r}")
+
+
+def sql_literal(v) -> str:
+    """A bind value as a SQL constant meaning the same (probe R22): an integer as its
+    digits, a double as an approximate numeric literal (`repr` with an exponent: without
+    one the text is an exact numeric literal, a DECIMAL), a string as `N'...'` (the quote
+    doubled), a boolean `TRUE` / `FALSE`, None `NULL`, a Decimal as its digits."""
+    if v is None:
+        return "NULL"
+    if isinstance(v, bool):
+        return "TRUE" if v else "FALSE"
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, float):
+        r = repr(v)
+        return r if "e" in r or "E" in r else r + "E0"
+    if isinstance(v, Decimal):
+        return str(v)
+    if isinstance(v, list):
+        return "N'" + list_text(v).replace("'", "''") + "'"
+    return "N'" + str(v).replace("'", "''") + "'"
+
+
+def inline_binds(text: str, binds: "dict | None") -> str:
+    """The statement with every `:name` marker replaced by its value's SQL constant (the
+    `inline` position: the same question with the values in the text, where the plan
+    cache keys and the parser's typing differ from the bound statement's); a list after
+    `IN` becomes `(c1, c2, ...)`, an empty one `(NULL)`. Quoted strings and identifiers
+    are left alone, as `positional` leaves them."""
+    binds = binds or {}
+
+    def sub(m):
+        if m.group(1) or m.group(2):
+            return m.group(0)
+        v = resolve(m.group(3), binds)
+        if isinstance(v, list) and not m.group(3).endswith("__json"):
+            return "(" + ", ".join(sql_literal(x) for x in v) + ")" if v else "(NULL)"
+        return sql_literal(v)
+
+    return _TOKEN.sub(sub, text)
+
+
+_SQLSCRIPT_TYPES = {bool: "BOOLEAN", int: "BIGINT", float: "DOUBLE", Decimal: "DECIMAL", str: "NVARCHAR(5000)"}
+
+
+def sqlscript_block(text: str, binds: "dict | None", noinline: bool = False) -> str:
+    """The statement as a SQLScript anonymous block (the `block` positions, probe P20):
+    the header declares every bound value as a typed input parameter bound by the
+    original marker (`IN sv_p BIGINT => :p`; a list after `IN` one parameter per element,
+    `:p__k`; an empty list `(NULL)`), the body assigns the statement -- reading `:sv_*`
+    SQLScript variables, which `positional` leaves alone -- to a table variable and
+    selects it; with `noinline` the assignment carries `WITH HINT (NO_INLINE)`, the
+    SQLScript optimizer's statement inlining off."""
+    binds = binds or {}
+    header: list = []
+
+    def declare(name: str, v) -> str:
+        sql_type = _SQLSCRIPT_TYPES.get(type(v), "NVARCHAR(5000)")
+        if v is None:
+            sql_type = "NVARCHAR(5000)"
+        entry = f"IN sv_{name} {sql_type} => :{name}"
+        if entry not in header:
+            header.append(entry)
+        return f":sv_{name}"
+
+    def sub(m):
+        if m.group(1) or m.group(2):
+            return m.group(0)
+        name = m.group(3)
+        v = resolve(name, binds)
+        if isinstance(v, list) and not name.endswith("__json"):
+            if not v:
+                return "(NULL)"
+            return "(" + ", ".join(declare(f"{name}__{k}", x) for k, x in enumerate(v)) + ")"
+        return declare(name, v)
+
+    body = _TOKEN.sub(sub, text)
+    do = f"DO ({', '.join(header)}) BEGIN" if header else "DO BEGIN"
+    return f"{do} sv_t = {body}{' WITH HINT (NO_INLINE)' if noinline else ''}; SELECT * FROM :sv_t; END"
+
+
+_BLOCK = re.compile(r"^DO(?: \((?P<header>.*?)\))? BEGIN sv_t = (?P<body>.*); SELECT \* FROM :sv_t; END$", re.S)
+
+
+def unwrap_block(text: str) -> str:
+    """The statement a `sqlscript_block` text wraps, its binds as `:name` markers again
+    (the offline stand-in has no SQLScript); any other text unchanged."""
+    m = _BLOCK.match(text)
+    if not m:
+        return text
+    return re.sub(r"(?<![\w:]):sv_", ":", m.group("body"))
+
+
+def rows_differ(a: "list | None", b: "list | None") -> bool:
+    """Whether two answers to one question differ as multisets of rows (the order of
+    an unordered answer is the engine's to choose)."""
+    key = lambda r: repr(sorted(r.items(), key=lambda kv: kv[0])) if isinstance(r, dict) else repr(r)  # noqa: E731
+    return sorted(map(key, a or [])) != sorted(map(key, b or []))
 
 
 def positional(text: str, binds: "dict | None") -> "tuple[str, list]":
@@ -155,6 +258,38 @@ def decode_row(names: list, values, booleans: "set | None" = None) -> dict:
     return out
 
 
+_DECODE_ERRORS = (ValueError, TypeError, KeyError, ArithmeticError, AttributeError)
+
+
+def decoded_rows(names: list, rows, booleans: "set | None" = None) -> list:
+    """Every row decoded -- or, where a value is not what its column's decoding expects
+    (a typed alias over a text the engine did not promise, a JSON text that does not
+    parse), an INTERNAL `EngineError` `[decode] ...`: a finding of its own, never a dead
+    worker thread (the worker catches `EngineError` only)."""
+    try:
+        return [decode_row(names, r, booleans) for r in rows]
+    except _DECODE_ERRORS as e:
+        raise EngineError(f"[decode] {type(e).__name__}: {str(e)[:300]} (columns {names})", internal=True) from e
+
+
+def decoded_sparql(response) -> list:
+    """`sparql_rows`, a decoding failure an internal `EngineError` (as `decoded_rows`)."""
+    try:
+        return sparql_rows(response)
+    except _DECODE_ERRORS as e:
+        raise EngineError(f"[decode] {type(e).__name__}: {str(e)[:300]} (a SPARQL result)", internal=True) from e
+
+
+def document_of(row: dict) -> dict:
+    """The JSON document a `SELECT * FROM <collection>` row holds (as `decoded_rows`, a
+    text that does not parse is an internal `EngineError`)."""
+    text = next(iter(row.values()))
+    try:
+        return json.loads(text)
+    except _DECODE_ERRORS as e:
+        raise EngineError(f"[decode] {type(e).__name__}: {str(e)[:300]} (a document: {str(text)[:120]!r})", internal=True) from e
+
+
 def sparql_rows(response) -> list:
     """The rows of a SPARQL JSON result (`application/sparql-results+json`)."""
     if response is None:
@@ -200,7 +335,12 @@ def _error(e) -> Exception:
         return EngineCrash(message)
     if code in TIMEOUT_CODES or "timeout" in text.lower() and "abort" in text.lower():
         return EngineError(message, status=code, timeout=True)
-    internal = code in INTERNAL_CODES and not (code == 129 and any(m in text for m in REJECTION_129))
+    # a message confessing an internal failure under any code is one too (a compile
+    # error naming an "exception <number>" is not: the Property Graph Engine words its
+    # clean refusals so, probe G35) -- unless it is the triple store's 129 wrapping of an
+    # ordinary refusal, which says "internal error" every time
+    rejection_129 = code == 129 and any(m in text for m in REJECTION_129)
+    internal = (code in INTERNAL_CODES or any(m in text.lower() for m in INTERNAL_TEXTS)) and not rejection_129
     return EngineError(message, internal=internal, status=code)
 
 
@@ -276,7 +416,7 @@ class HanaSession(Session):
     # --- statements ---------------------------------------------------------------------------
 
     def _bind_graph(self, text: str) -> str:
-        return text.replace(GRAPH_TOKEN, self.graph)
+        return text.replace(GRAPH_TOKEN, self.graph).replace(SCHEMA_TOKEN, self.database.upper())
 
     def _cursor(self):
         cur = self.conn.cursor()
@@ -297,7 +437,7 @@ class HanaSession(Session):
                 return []
             names = [d[0] for d in cur.description]
             booleans = {i for i, d in enumerate(cur.description) if d[1] in BOOLEAN_TYPE_CODES}
-            return [decode_row(names, r, booleans) for r in cur.fetchall()]
+            return decoded_rows(names, cur.fetchall(), booleans)
         except dbapi.Error as e:
             raise _error(e) from e
         finally:
@@ -322,7 +462,7 @@ class HanaSession(Session):
         cur = self._cursor()
         try:
             result = cur.callproc("SYS.SPARQL_EXECUTE", (self._bind_graph(text), SPARQL_UPDATE_HEADERS if update else SPARQL_QUERY_HEADERS, "?", "?"))
-            return [] if update else sparql_rows(result[2])
+            return [] if update else decoded_sparql(result[2])
         except dbapi.Error as e:
             raise _error(e) from e
         finally:
@@ -351,14 +491,42 @@ class HanaSession(Session):
 
     # --- the contract -------------------------------------------------------------------------
 
+    # the transaction door's PEER CHECK: a second connection asks the question before and
+    # after this one's uncommitted junk is in; the two answers must agree (the junk is
+    # invisible to it: probe R24 / D26 / K27 / G37), else the engine let a dirty read
+    # through -- an internal finding. Off where there is no second connection (offline).
+    peer_check = True
+
+    def _peer(self) -> "HanaSession":
+        if getattr(self, "_peer_session", None) is None:
+            self._peer_session = HanaSession(connect(self.database), self.database, self.data_model, self.timeout_ms)
+            self._peer_session.types, self._peer_session.workspace = self.types, self.workspace
+        return self._peer_session
+
+    def close(self) -> None:
+        for conn in (getattr(getattr(self, "_peer_session", None), "conn", None), self.conn):
+            try:
+                if conn is not None:
+                    conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+        self._peer_session = None
+
     def execute(self, text: str, binds: "dict | None" = None, options: "dict | None" = None) -> list:
         if _tx.is_script(text):
             parts = _tx.parts(text)
+            peer = self._peer() if self.peer_check else None
 
             def run():
+                before = peer.statement(parts[-1], binds) if peer is not None else None
                 for t in parts[:-1]:
                     self.statement(t, binds)
-                return self.statement(parts[-1], binds)
+                answer = self.statement(parts[-1], binds)
+                if peer is not None:
+                    after = peer.statement(parts[-1], binds)
+                    if rows_differ(before, after):
+                        raise EngineError(f"[dirty read] another connection's answer changed while this one's transaction was open: before {str(before)[:300]} after {str(after)[:300]}", internal=True)
+                return answer
 
             return self._transaction(run, commit=False)
         return self.statement(text, binds)
@@ -370,10 +538,13 @@ class HanaSession(Session):
             answer: list = []
             captured: list = []
             rows_kept: list = []
+            # the row counts of every counted step so far (a write on the base class of
+            # the inheritance axis is one statement per subclass: `count_part`,
+            # `each_count` per class, summed)
+            summed = 0
             for s in steps:
                 text = s.text
                 if s.role in ("each_run", "each_count"):
-                    total = 0
                     for row in rows_kept:
                         params = {**s.params, "cid": row["id"]}
                         if s.arith is not None:
@@ -381,9 +552,9 @@ class HanaSession(Session):
 
                             sym, c, ftype = s.arith
                             params["cnew"] = apply_arith(row.get("v"), sym, c, ftype)
-                        total += self.sql(text, params, rows=False)
+                        summed += self.sql(text, params, rows=False)
                     if s.role == "each_count":
-                        answer = [{"count": total}]
+                        answer = [{"count": summed}]
                     continue
                 if s.role == "rows_captured":
                     if not captured:
@@ -413,13 +584,16 @@ class HanaSession(Session):
                         rows_kept = rows
                         captured = [r["id"] for r in rows]
                     continue
-                if s.role == "count":
-                    answer = [{"count": self.sql(text, s.params, rows=False)}]
+                if s.role in ("count", "count_part"):
+                    summed = (summed if s.role == "count_part" else 0) + self.sql(text, s.params, rows=False)
+                    answer = [{"count": summed}]
                 elif s.role == "rows":
                     answer = self.sql(text, s.params)
-                elif s.role == "capture":
+                elif s.role in ("capture", "capture_more"):
+                    # `capture_more`: the rows kept for the `each_*` steps that follow are
+                    # this statement's; the ids read back at the end accumulate
                     rows_kept = self.sql(text, s.params)
-                    captured = [r["id"] for r in rows_kept]
+                    captured = (captured if s.role == "capture_more" else []) + [r["id"] for r in rows_kept]
                 else:
                     self.sql(text, s.params, rows=False)
             return answer
@@ -523,7 +697,7 @@ class HanaSession(Session):
         elif self.data_model == "doc":
             out = {}
             for r in self.sql(f"SELECT * FROM {table}"):
-                doc = json.loads(next(iter(r.values())))
+                doc = document_of(r)
                 out[doc["id"]] = {k: v for k, v in doc.items() if k != "id"}
         else:
             out = self._rdf_records(f"c:{table}", "p:id", table)
@@ -598,7 +772,7 @@ class HanaSession(Session):
         elif self.data_model == "doc":
             out = []
             for r in self.sql(f"SELECT * FROM {et.from_type}"):
-                doc = json.loads(next(iter(r.values())))
+                doc = document_of(r)
                 for link in doc.get(et.name) or []:
                     out.append((link.get("eid"), doc["id"], link.get("to"), {k: v for k, v in link.items() if k not in ("eid", "to")}))
         else:
@@ -654,10 +828,7 @@ class HanaServer(Server):
 
     def stop(self) -> None:
         for s in list(self.sessions.values()):
-            try:
-                s.conn.close()
-            except Exception:  # noqa: BLE001
-                pass
+            s.close()
         self.sessions.clear()
         if self.admin is not None:
             try:
@@ -692,10 +863,7 @@ class HanaServer(Server):
         s = self._admin_session(database)
         old = self.sessions.pop(database, None)
         if old is not None:
-            try:
-                old.conn.close()
-            except Exception:  # noqa: BLE001
-                pass
+            old.close()
         try:
             s.sql(f"DROP SCHEMA {database} CASCADE", rows=False)
         except EngineError as e:

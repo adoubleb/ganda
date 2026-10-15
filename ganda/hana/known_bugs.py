@@ -1,15 +1,23 @@
 """The SAP HANA findings already filed, each withheld at its exact shape per variant so a
-campaign does not report it again: a triaged finding gets an id (`H1`, `H2`, ...), a
-write-up under `issues-draft/`, and a guard here -- a function of the case's AST and the
-variant's concrete syntax that answers its id where the variant's text is the bug's shape
+campaign does not report it again: a triaged finding gets an id (`H1`, `H2`, ..., or the
+`findings/` catalogue's `A8`, `B13`), a write-up under `issues-draft/` or `findings/`, and
+a guard here -- a function of the case's AST and the variant's concrete syntax that
+answers its id where the variant's text is the bug's shape
 (`ganda/orientdb/known_bugs.py` is the pattern).
 
     H4   SQL over the doc views (collections read through UNNEST) adds up the values of
          rows the joins exclude: a traversal sum fails with [314] numeric overflow where
          the answer fits BIGINT, even where no path exists (`issues-draft/H4_repro.py`)
+    B13  the triple store's AVG over xsd:long is double(SUM) / COUNT (a sum above 2^53
+         loses its low bits, a quotient keeps seventeen digits) while HANA SQL's AVG over
+         BIGINT is DECIMAL(25,6), the quotient truncated to six places (probe R20 / K23,
+         `findings/B13-sparql-avg-in-double/`).
+         An rdf average is compared only where the two agree: a sum below 2^53 and a
+         quotient exact in six places.
 
-H1, H2 and H3 are worked around in the renderings instead (`RULES.md`), so no variant
-meets them."""
+H1, H2, H3, A8 (no double constant in a cypher text) and A9 (one parameter type per
+OPENCYPHER_TABLE call) are worked around in the renderings instead (`RULES.md`), so no
+variant meets them."""
 from __future__ import annotations
 
 import dataclasses
@@ -30,6 +38,24 @@ def _h4(q, schema, instance) -> bool:
     return sum(abs(v) for v in values if isinstance(v, int) and not isinstance(v, bool)) >= 2**62
 
 
+# --- B13: an rdf average the triple store's double arithmetic cannot answer as SQL does ----
+
+
+def _b13(q, instance) -> bool:
+    if q.kind != "agg" or q.fn != "avg":
+        return False
+    from ganda.core.ast.select import present_values
+
+    values = present_values(q, instance)
+    if not values or not all(isinstance(v, int) and not isinstance(v, bool) for v in values):
+        return False
+    total, n = sum(values), len(values)
+    return abs(total) >= 2**53 or (total * 10**6) % n != 0
+
+
+# --- the contract ------------------------------------------------------------------------------
+
+
 def mark_known_bugs(case, q, schema, instance):
     """A traversal case with the variants that meet a filed bug marked."""
     known_bugs = dict(case.known_bugs)
@@ -41,6 +67,8 @@ def mark_known_bugs(case, q, schema, instance):
 
 
 def select_known(q, syntax, rewrites, data_model, schema, instance):
+    if data_model == "rdf" and _b13(q, instance):
+        return "B13"
     return None
 
 

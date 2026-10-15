@@ -43,6 +43,10 @@
                      THROUGH the graph engine (`concrete_syntax.graph`)
                      A `both` hop in `match` / `paths` is the two directed texts
                      UNION ALLed (the language has no incoming arrow and no UNION).
+    every  hint_<profile>  the data model's SQL text (`join`; rdf: `table`) closed by a
+                     `WITH HINT (...)` clause steering it to another execution engine
+                     or optimizer mode (`hints.PROFILES`): one profile per question,
+                     picked from a hash of it (`hints.choose`)
 
 The `strt` alias (not `start`): START is a reserved word in HANA. An rdf float value is
 read through `STR` and an int or bool aliased `__int` / `__bool` (`_rdf_proj`,
@@ -64,9 +68,11 @@ shadowed inside a membership EXISTS (`x.owner = x.id`).
 """
 from __future__ import annotations
 
+import json
+
 from ganda.core.ast.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, TraversalQuery
 from ganda.core.model import FieldType, Schema
-from ganda.hana.concrete_syntax import document, graph
+from ganda.hana.concrete_syntax import document, graph, hints
 from ganda.hana.concrete_syntax.predicate import REL, Names, fields_used, filter_expr, optionals, sparql_filter, sql, var
 from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT
 
@@ -76,8 +82,16 @@ SYNTAXES = {
     "graph": ("match", "paths", "undirected", "join", "scalar"),
     "rdf": ("graph", "from", "link", "minus", "table", "native"),
 }
+# the SQL syntax a data model's hinted twin (`hint_<profile>`) steers
+HINTED = {"doc": "join", "rel": "join", "graph": "join", "rdf": "table"}
+_HINT = "hint_"
 _AGGREGATES = ("count", "distinct_count") + AGG_PROJECTIONS + EDGE_AGG_PROJECTIONS
 _DISTINCT = ("distinct_ids", "distinct_count", "exists", "nexists")
+
+
+def hint_profile(q: TraversalQuery) -> str:
+    """The question's plan-steering profile: a function of the question alone."""
+    return hints.choose(json.dumps(q.to_params(), sort_keys=True, default=repr))
 
 
 def _target_type(schema: Schema, hop) -> str:
@@ -86,6 +100,8 @@ def _target_type(schema: Schema, hop) -> str:
 
 
 def applicable(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) -> bool:
+    if syntax.startswith(_HINT):
+        return syntax == _HINT + hint_profile(q) and applicable(q, schema, data_model, HINTED[data_model])
     if data_model == "doc":
         if any(document.compares_list_text(p) for p in q.predicates):
             return False
@@ -120,7 +136,7 @@ def applicable(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) 
 
 
 def syntaxes_for(q: TraversalQuery, schema: Schema, data_model: str) -> list:
-    return [s for s in SYNTAXES[data_model] if applicable(q, schema, data_model, s)]
+    return [s for s in SYNTAXES[data_model] + (_HINT + hint_profile(q),) if applicable(q, schema, data_model, s)]
 
 
 def can_pull_up(q: TraversalQuery) -> bool:
@@ -128,6 +144,8 @@ def can_pull_up(q: TraversalQuery) -> bool:
 
 
 def render(q: TraversalQuery, schema: Schema, data_model: str, syntax: str, pull_up: bool = False) -> str:
+    if syntax.startswith(_HINT):
+        return hints.hinted(render(q, schema, data_model, HINTED[data_model], pull_up), syntax[len(_HINT):])
     if data_model == "doc":
         return document.with_views(schema, _rel(q, schema, syntax, pull_up, document.NAMES))
     if data_model == "rel":

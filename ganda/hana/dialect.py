@@ -103,6 +103,9 @@ PREFIXES = {
 PREFIX_TEXT = " ".join(f"PREFIX {k}: <{v}>" for k, v in PREFIXES.items()) + " PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>"
 # the graph a rendered text names; the session rebinds it to its database's graph
 GRAPH_TOKEN = "<urn:ganda:graph>"
+# the session's schema name, where a text must spell it (GraphScript's `Graph("SCHEMA",
+# "GWS")`): replaced by `connection.HanaSession._bind_graph` with the database's
+SCHEMA_TOKEN = "<urn:ganda:schema>"
 XSD = "http://www.w3.org/2001/XMLSchema#"
 
 

@@ -112,8 +112,13 @@ def _random_tree(rng, depth=0):
         op = rng.choice(("CONTAINS", "CONTAINSANY", "CONTAINSALL", "=", "IS NULL"))
         pivot = {"CONTAINS": rng.randint(0, 3), "=": [rng.randint(0, 3)], "IS NULL": None}.get(op, [rng.randint(0, 3) for _ in range(2)])
         return _leaf(f, op, pivot, "list")
-    op = rng.choice(("=", "<>", "<", "<=", ">", ">=", "IN", "BETWEEN", "IS NULL", "IS NOT NULL"))
-    pivot = {"IN": [rng.randint(0, 3), rng.randint(0, 3)], "BETWEEN": sorted([rng.randint(0, 3), rng.randint(0, 3)])}.get(op, rng.randint(0, 3) if op not in ("IS NULL", "IS NOT NULL") else None)
+    op = rng.choice(("=", "<>", "<", "<=", ">", ">=", "IN", "NOT IN", "BETWEEN", "IS NULL", "IS NOT NULL"))
+
+    def num():
+        # an integer, or a cross-type pivot (a double half a unit off: `pivots.cross_type`)
+        return rng.randint(0, 3) + (0.5 if rng.random() < 0.3 else 0)
+
+    pivot = {"IN": [num(), num()], "NOT IN": [num(), num()], "BETWEEN": sorted([num(), num()])}.get(op, num() if op not in ("IS NULL", "IS NOT NULL") else None)
     return _leaf(f, op, pivot)
 
 
@@ -149,6 +154,59 @@ def test_the_arithmetic_rewrite_keeps_every_answer():
         assert r is not None
         for v in values:
             assert tri({"a": v}, p) == tri({"a": v}, r)
+
+
+def test_cross_type_pivots_stay_inside_the_bound_and_render_typed_on_every_data_model():
+    from ganda.hana import pivots
+    from ganda.hana.concrete_syntax import document, graph, predicate
+
+    rng = random.Random(5)
+    assert pivots.cross_type(rng, FieldType.INT, 7) in (6.5, 7.5) and pivots.cross_type(rng, FieldType.FLOAT, 2.6) == 3
+    for v in (None, True, 10**12, -(10**12), 2**63 - 1, 1e300):
+        assert pivots.cross_type(rng, FieldType.INT, v) is v or pivots.cross_type(rng, FieldType.INT, v) == v
+    assert "NOT IN" in pivots.ORDERED_OPS
+    schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f5", FieldType.FLOAT))),), ())
+    gt = Predicate("source", "f1", ">", "p", 1.5, True, "int")
+    isin = Predicate("source", "f1", "IN", "p", [1.5, 2], True, "int")
+    btw = Predicate("source", "f1", "BETWEEN", "p", [0.5, 2.5], True, "int")
+    rev = Predicate("source", "f1", "<", "p", 1.5, True, "int", rev=True)
+    fint = Predicate("source", "f5", "=", "p", 2, True, "float")
+    # SQL types the parameter by the pivot (a bare `?` would take BIGINT and truncate)
+    assert predicate.sql(gt, "t", "n1") == "t.f1 > CAST(:p AS DOUBLE)"
+    assert predicate.sql(isin, "t", "n1") == "t.f1 IN (CAST(:p__0 AS DOUBLE), :p__1)"
+    assert predicate.sql(btw, "t", "n1") == "t.f1 BETWEEN CAST(:pa AS DOUBLE) AND CAST(:pb AS DOUBLE)"
+    assert predicate.sql(rev, "t", "n1") == "CAST(:p AS DOUBLE) > t.f1"
+    assert predicate.sql(fint, "t", "n1") == "t.f5 = :p"
+    # the collection filter casts the pivot; a double against an integer field as DOUBLE
+    assert document.doc_pred(gt) == '$."f1" > CAST(:p AS DOUBLE)' and document.doc_pred(fint) == '$."f5" = CAST(:p__dec AS DECIMAL)'
+    # SPARQL: literals of the pivot's own type, compared numerically -- except an integer
+    # pivot on a FLOAT field, written as the double it is (rdflib's IN compares by term)
+    assert predicate.sparql_filter(gt, "r") == 'OPTIONAL { ?r p:f1 ?r_f1 } FILTER ((BOUND(?r_f1) && (?r_f1 > "1.5"^^xsd:double)))'
+    assert predicate.sparql_filter(fint, "r").endswith('(?r_f5 = "2.0"^^xsd:double)))')
+    assert predicate.sparql_filter(Predicate("source", "f5", "IN", "p", [2, 3.5], True, "float"), "r").endswith('(?r_f5 IN ("2.0"^^xsd:double, "3.5"^^xsd:double))))')
+    # openCypher: both sides doubles, the pivot as TOFLOAT of its text (G36), no parameter
+    for leaf, text in ((gt, "(TOFLOAT(t.N1_F1) > TOFLOAT('1.5'))"), (isin, "(TOFLOAT(t.N1_F1) = TOFLOAT('1.5') OR t.N1_F1 = 2)"), (btw, "(TOFLOAT(t.N1_F1) >= TOFLOAT('0.5') AND TOFLOAT(t.N1_F1) <= TOFLOAT('2.5'))"), (rev, "(TOFLOAT('1.5') > TOFLOAT(t.N1_F1))"), (fint, "(t.N1_F5 = TOFLOAT('2'))")):
+        params = graph.Params()
+        assert graph.cypher_filter(leaf, "t", "n1", schema, params) == text and not params.items
+    # the reference compares exactly across the types
+    assert tri({"f1": 2}, gt) is True and tri({"f1": 1}, gt) is False and tri({}, gt) is UNKNOWN and tri({"f5": 2.0}, fint) is True
+
+
+def test_not_in_renders_on_every_data_model_and_rewrites_three_valued():
+    from ganda.hana.concrete_syntax import document, graph, predicate
+
+    schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT),)),), ())
+    p = Predicate("source", "f1", "NOT IN", "p", [1, 2], True, "int")
+    assert predicate.sql(p, "t", "n1") == "t.f1 NOT IN :p"
+    assert document.doc_pred(p) == '($."f1" <> CAST(:p__0 AS BIGINT) AND $."f1" <> CAST(:p__1 AS BIGINT))'
+    assert predicate.sparql_filter(p, "r").endswith('FILTER ((BOUND(?r_f1) && (?r_f1 NOT IN ("1"^^xsd:long, "2"^^xsd:long))))')
+    assert graph.cypher_filter(p, "t", "n1", schema, graph.Params()) == "NOT (t.N1_F1 = 1 OR t.N1_F1 = 2)"
+    assert tri({"f1": 3}, p) is True and tri({"f1": 2}, p) is False and tri({}, p) is UNKNOWN
+    rng = random.Random(1)
+    r = rewrites.rewrite(p, rng, "q")
+    assert isinstance(r, Compound) and r.op == "NOT" and r.children[0].op == "IN"
+    back = rewrites.rewrite(r, rng, "q")
+    assert back.op == "NOT IN" and back.pivot == [1, 2]
 
 
 def test_the_value_pools_hold_what_every_data_model_keeps_alike():
@@ -471,11 +529,11 @@ def test_graph_texts_are_well_formed(seed):
     resolvable, no two graph variants of a case alike."""
     by_case: dict = {}
     for c, v, t in _graph_texts(seed):
-        # every NATIVE graph variant of a case is its own text -- except that two
-        # `literal` variants may coincide (a rewrite of `IN [x]` as `= x` inlines the same
-        # constant); the views family inherits rel's own coincidences (join / scalar on a
-        # reach question)
-        native = "g_" not in t and ("literal" not in v or v == "graph:literal")
+        # every NATIVE graph variant of a case is its own text -- except that a `rw`
+        # variant may coincide with its base (a rewrite of `IN [x]` as `= x` inlines the
+        # same constant); the views family inherits rel's own coincidences (join / scalar
+        # on a reach question)
+        native = "g_" not in t and "rw" not in v.split(":", 1)[-1].split("+")
         by_case.setdefault(id(c), []).append(t if native else None)
         positional(t, {**c.bind_vars})
         for lit in _cypher_literals(t):
@@ -497,17 +555,20 @@ def test_cypher_literals_escape_and_refuse():
     from ganda.hana.concrete_syntax import graph
 
     assert graph.cypher_string("it's\\") == "'it\\'s\\\\'"
-    assert graph.literal(0.1) == "0.1" and graph.literal(2**63 - 1) == "9223372036854775807" and graph.literal(-2.0, "float") == "-2.0"
+    assert graph.literal(2**63 - 1) == "9223372036854775807" and graph.literal(-5) == "-5" and graph.literal("it's") == "'it\\'s'"
     assert graph.literal([1, 2]) == "'[1,2]'"
-    for bad in ("a\nb", 1e-05, float("inf"), True, None):
+    # a double has no constant (the parser keeps ~15 digits, A8): bound instead
+    for bad in ("a\nb", 0.1, -2.0, 1e-05, float("inf"), True, None):
         with pytest.raises(graph.Unsupported):
             graph.literal(bad)
+    with pytest.raises(graph.Unsupported):
+        graph.literal(2, "float")
 
 
 def test_cypher_filter_mirrors_the_sql_binds_and_refuses_what_has_no_form():
     from ganda.hana.concrete_syntax import graph, predicate
 
-    schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f2", FieldType.STRING), FieldSpec("f3", FieldType.LIST), FieldSpec("f4", FieldType.BOOL))),), ())
+    schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f2", FieldType.STRING), FieldSpec("f3", FieldType.LIST), FieldSpec("f4", FieldType.BOOL), FieldSpec("f5", FieldType.FLOAT))),), ())
     leaves = {
         "cmp": Predicate("source", "f1", ">", "p", 1, True, "int"),
         "rev": Predicate("source", "f1", "<", "p", 1, True, "int", rev=True),
@@ -515,8 +576,12 @@ def test_cypher_filter_mirrors_the_sql_binds_and_refuses_what_has_no_form():
         "between": Predicate("source", "f1", "BETWEEN", "p", [1, 2], True, "int"),
         "null": Predicate("source", "f1", "IS NOT NULL", "", None, True, "int"),
         "like": Predicate("source", "f2", "LIKE", "p", "ab%", True, "string"),
+        "str": Predicate("source", "f2", "=", "p", "it's", True, "string"),
         "arith": Predicate("source", "f1", ">=", "p", 3, True, "int", arith=("+", "arc", 2)),
         "list": Predicate("source", "f3", "=", "p", [1], True, "list"),
+        "fcmp": Predicate("source", "f5", "<=", "p", 1.5, True, "float"),
+        "fin": Predicate("source", "f5", "IN", "p", [1.5, 2.5], True, "float"),
+        "farith": Predicate("source", "f5", ">", "p", 3.0, True, "float", arith=("*", "arc", 2.0)),
     }
     texts = {}
     for name, leaf in leaves.items():
@@ -524,15 +589,17 @@ def test_cypher_filter_mirrors_the_sql_binds_and_refuses_what_has_no_form():
         texts[name] = graph.cypher_filter(leaf, "t", "n1", schema, params)
         assert set(re.findall(r"\$(\w+)", texts[name])) == set(params.items)
         sql_binds = set(re.findall(r":(\w+)", predicate.sql(leaf, "t", "n1")))
-        # the same names as the SQL binds, but an IN list one marker per element (the
-        # session's `name__k`) and a LIKE constant inlined (no `$` at all)
-        expected = {"in": {"p__0", "p__1"}, "like": set()}.get(name, sql_binds)
+        # a DOUBLE pivot binds under the SQL bind's name (an IN list one marker per
+        # element, the session's `name__k`); every other pivot is a constant (A9)
+        expected = {"fcmp": sql_binds, "fin": {"p__0", "p__1"}, "farith": sql_binds}.get(name, set())
         assert set(params.items) == expected, (name, texts[name])
-        assert graph.binds_parameters(leaf) == bool(expected)
-    assert texts["cmp"] == "(t.N1_F1 > $p)" and texts["rev"] == "($p > t.N1_F1)"
-    assert texts["in"] == "(t.N1_F1 = $p__0 OR t.N1_F1 = $p__1)"
-    assert texts["between"] == "(t.N1_F1 >= $pa AND t.N1_F1 <= $pb)" and texts["null"] == "NOT (t.N1_F1 IS NULL)"
-    assert texts["like"] == "t.N1_F2 STARTS WITH 'ab'" and texts["arith"] == "((t.N1_F1 + $arc) >= $p)" and texts["list"] == "(t.N1_F3 = $p__json)"
+    assert texts["cmp"] == "(t.N1_F1 > 1)" and texts["rev"] == "(1 > t.N1_F1)" and texts["str"] == "(t.N1_F2 = 'it\\'s')"
+    assert texts["in"] == "(t.N1_F1 = 1 OR t.N1_F1 = 2)"
+    assert texts["between"] == "(t.N1_F1 >= 1 AND t.N1_F1 <= 2)" and texts["null"] == "NOT (t.N1_F1 IS NULL)"
+    assert texts["like"] == "t.N1_F2 STARTS WITH 'ab'" and texts["arith"] == "((t.N1_F1 + 2) >= 3)" and texts["list"] == "(t.N1_F3 = '[1]')"
+    assert texts["fcmp"] == "(t.N1_F5 <= $p)" and texts["fin"] == "(t.N1_F5 = $p__0 OR t.N1_F5 = $p__1)" and texts["farith"] == "((t.N1_F5 * $arc) > $p)"
+    # a string the grammar cannot spell has no native form
+    assert not graph.expressible(Predicate("source", "f2", "=", "p", "a\nb", True, "string"), schema, "n1")
     for leaf in (Predicate("source", "f3", "CONTAINS", "p", 1, True, "list"), Predicate("source", "f4", "=", "p", True, True, "bool"), Predicate("source", "f2", "=", "p", "x", True, "string", ci=True)):
         assert not graph.expressible(leaf, schema, "n1")
     assert not graph.expressible(Predicate("source", "f1", "IN", "p", [], True, "int", sub=("n1", "f1", None, False)), schema, "n1")
@@ -646,11 +713,473 @@ def test_the_graph_model_round_trips_offline_without_rdflib(seed):
         diff = verify_state(s, dm, instance)
         assert diff.ok, (dm, diff.problems[:3])
         sessions[dm] = s
+    from tests.hana.run_offline import _offline
+
     kept = []
     for c in cases:
-        queries = {v: t for v, t in c.queries.items() if v.split(":", 1)[0] in sessions}
+        syntaxes = c.params.get("concrete_syntax", {})
+        queries = {v: t for v, t in c.queries.items() if v.split(":", 1)[0] in sessions and _offline(v, t, syntaxes.get(v) if isinstance(syntaxes, dict) else None)}
         if "rel" in queries and "graph" in queries:
             kept.append(dataclasses.replace(c, queries=queries, params={**c.params, "partial": True}))
     results = run_cases(kept, sessions, instance)
     bad = [r for r in results if not r.ok]
     assert len(kept) > 100 and not bad, [(r.finding_class, r.case.shape, r.errors, [str(m)[:200] for m in r.mismatches[:1]]) for r in bad[:3]]
+
+
+# --- plan steering, the kept NOT, custom keys, the inheritance axis (2026-10-12) ---------------
+
+
+def test_hint_profiles_close_a_statement_and_strip_back():
+    from ganda.hana.concrete_syntax import hints
+
+    text = "SELECT t.id AS id FROM n1 t ORDER BY t.f1 ASC NULLS FIRST, t.id ASC LIMIT 3 OFFSET 2"
+    for name in hints.NAMES:
+        h = hints.hinted(text, name)
+        assert h.startswith(text + " WITH HINT (") and h.endswith(")") and hints.is_hinted(h) and hints.strip(h) == text
+        assert all(x in h for x in hints.PROFILES[name])
+    assert not hints.is_hinted(text) and hints.strip(text) == text
+    assert hints.choose("abc") in hints.NAMES and hints.choose("abc") == hints.choose("abc")
+    assert {"USE_HEX_PLAN", "USE_ESX_PLAN", "NO_USE_HEX_PLAN"} <= {h for hs in hints.PROFILES.values() for h in hs}
+
+
+@pytest.mark.parametrize("seed", range(1, 4))
+def test_every_case_carries_one_hint_profile_per_sql_data_model(seed):
+    """A hinted twin: one profile per question, named in the tag, on a SQL statement
+    only (never a SPARQL text, never the collection query), the clause closing it."""
+    from ganda.hana.concrete_syntax import hints, tx as _tx
+    from ganda.hana.connection import unwrap_block
+
+    _schema, _instance, cases = _cases(seed)
+    seen = 0
+    for c in cases:
+        profiles: dict = {}
+        for v, t in c.queries.items():
+            last = _tx.parts(t)[-1] if _tx.is_script(t) else t
+            # a SQLScript block carries the profile on its inner SELECT (NO_INLINE is the
+            # assignment's own, not a profile)
+            last = unwrap_block(last).replace(" WITH HINT (NO_INLINE)", "")
+            dm, _, tag = v.partition(":")
+            # a traversal's base variant may be the hinted syntax (drawn like any other):
+            # the case's `concrete_syntax` names it then
+            if c.generator_name == "ir_traversal":
+                tag = "+".join([tag, c.params.get("concrete_syntax", {}).get(v, "")])
+            named = sorted({p.removeprefix("hint_") for p in tag.split("+") if p in hints.NAMES or p.startswith("hint_")})
+            assert hints.is_hinted(last) == (len(named) == 1), v
+            if not named:
+                continue
+            seen += 1
+            profiles.setdefault(dm, set()).add(named[0])
+            plain = hints.strip(last)
+            assert not plain.lstrip().startswith("PREFIX ")
+            if dm == "doc":
+                # the views, or the collection query itself where the store asks (D27)
+                assert plain.startswith(("WITH raw_v_", "WITH v_", "SELECT ")), v
+            if dm == "rdf":
+                assert plain.startswith("SELECT * FROM SPARQL_TABLE("), v
+        assert all(len(ps) == 1 for ps in profiles.values()) and len(set().union(*profiles.values()) if profiles else set()) <= 1, (c.shape, profiles)
+        if c.generator_name == "ir_select" and profiles:
+            assert c.params["hint"] == next(iter(next(iter(profiles.values()))))
+            assert not hints.is_hinted(_tx.parts(c.queries["rel"])[-1] if _tx.is_script(c.queries["rel"]) else c.queries["rel"])
+    assert seen > 100
+
+
+@pytest.mark.parametrize("seed", range(1, 4))
+def test_no_variant_repeats_a_text_and_the_hint_reaches_every_rdf_question(seed):
+    """Two variants of one data model never share a text (`doc:view` on a views-only
+    question and `rdf:from` on a median used to); the rdf hint rides `table_fn` as a
+    single-axis variant, so every select question with a profile asks it."""
+    _schema, _instance, cases = _cases(seed)
+    hinted_rdf = 0
+    for c in cases:
+        if c.generator_name != "ir_select":
+            continue
+        by_model: dict = {}
+        for v, t in c.queries.items():
+            if v.endswith(":again"):
+                continue  # the repeat twin IS the base text again, on purpose
+            by_model.setdefault(v.split(":", 1)[0], []).append((v, t))
+        for dm, pairs in by_model.items():
+            texts = [t for _, t in pairs]
+            assert len(set(texts)) == len(texts), (c.shape, dm, [v for v, t in pairs if texts.count(t) > 1])
+        if "rdf" in c.queries and c.params.get("hint"):
+            assert f"rdf:table_fn+{c.params['hint']}" in c.queries, (c.shape, sorted(c.queries))
+            hinted_rdf += 1
+    assert hinted_rdf > 20
+
+
+@pytest.mark.parametrize("seed", range(1, 4))
+def test_a_traversal_the_doc_views_cannot_ask_is_still_asked_of_the_other_data_models(seed):
+    """A traversal with a LIST membership (or a whole-list comparison) in a predicate has
+    no doc syntax (B6 / H2); the case is partial -- rel, the graph data model and rdf
+    still compare -- where it used to be dropped on every data model."""
+    _schema, _instance, cases = _cases(seed)
+    partial = [c for c in cases if c.generator_name == "ir_traversal" and c.params.get("partial")]
+    assert partial, "no partial traversal case: the LIST predicates of this seed all have a doc form?"
+    for c in partial:
+        assert not any(v.split(":")[0] == "doc" for v in c.queries), (c.shape, sorted(c.queries))
+        assert {v.split(":")[0] for v in c.queries} == {"rel", "graph", "rdf"}, (c.shape, sorted(c.queries))
+        # a membership or a whole-list comparison somewhere in the predicates' signatures
+        assert any(any(tok in sig for tok in ("CONTAINS", "=", "<>", "IN")) for sig in c.params["predicates"]), c.params["predicates"]
+    assert not any(c.params.get("partial") for c in cases if c.generator_name == "ir_traversal" and "doc" in c.queries)
+
+
+@pytest.mark.parametrize("seed", range(1, 3))
+def test_the_repeat_twin_and_the_hinted_collection_query(seed):
+    """`rel:again` is the rel base text verbatim on every select question (a second run,
+    through the plan cache); `doc:<profile>` is the hinted collection query where the
+    store asks the question, the hinted views otherwise; `plan_cache` is a profile."""
+    from ganda.hana.concrete_syntax import hints
+
+    assert "plan_cache" in hints.NAMES and hints.PROFILES["plan_cache"] == ("IGNORE_PLAN_CACHE",)
+    _schema, _instance, cases = _cases(seed)
+    selects = [c for c in cases if c.generator_name == "ir_select"]
+    assert selects
+    collection_hinted = 0
+    for c in selects:
+        assert c.queries["rel:again"] == c.queries["rel"], c.shape
+        assert not any(v.startswith("rel:") and v != "rel:again" and "again" in v for v in c.queries)
+        profile = c.params["hint"]
+        hinted = c.queries.get(f"doc:{profile}")
+        base = c.queries.get("doc")
+        if hinted is None or base is None:
+            continue
+        assert hints.strip(hinted) == base, (c.shape, hinted, base)
+        if not base.startswith("WITH "):
+            collection_hinted += 1
+    assert collection_hinted > 10
+
+
+def test_the_inline_position_writes_every_bound_value_as_a_constant():
+    from ganda.hana.connection import inline_binds, sql_literal
+
+    assert sql_literal(5) == "5" and sql_literal(-(2**63)) == "-9223372036854775808" and sql_literal(True) == "TRUE" and sql_literal(None) == "NULL"
+    assert sql_literal(0.1) == "0.1E0" and sql_literal(1e-300) == "1e-300" and sql_literal(1.7976931348623157e308) == "1.7976931348623157e+308"
+    assert sql_literal("it's") == "N'it''s'" and sql_literal([1, 2]) == "N'[1,2]'" and sql_literal(Decimal("1.5")) == "1.5"
+    text = "SELECT t.id AS id FROM n1 t WHERE t.f1 > :p AND t.f2 IN :q AND t.f3 = :l__json AND t.f4 = :b AND t.f5 BETWEEN :ra AND :rb AND t.f6 IN :e AND t.s = 'a :not_a_bind'"
+    binds = {"p": 1.5, "q": [1, 2], "l": [3], "b": False, "ra": "x", "rb": "it's", "e": []}
+    assert inline_binds(text, binds) == "SELECT t.id AS id FROM n1 t WHERE t.f1 > 1.5E0 AND t.f2 IN (1, 2) AND t.f3 = N'[3]' AND t.f4 = FALSE AND t.f5 BETWEEN N'x' AND N'it''s' AND t.f6 IN (NULL) AND t.s = 'a :not_a_bind'"
+    # the variant: the rel base text with its constants in, no marker left
+    for seed in (1, 2):
+        _schema, _instance, cases = _cases(seed)
+        seen = 0
+        for c in cases:
+            if c.generator_name != "ir_select" or "rel:inline" not in c.queries:
+                continue
+            seen += 1
+            text = c.queries["rel:inline"]
+            question = text.split("\n;;\n")[-1]
+            assert not re.search(r"(?<![\w:]):[A-Za-z_]\w*", re.sub(r"'(?:[^']|'')*'", "", question)), question
+            assert inline_binds(c.queries["rel"].split("\n;;\n")[-1], c.bind_vars) == question
+        assert seen > 20
+
+
+def test_the_block_positions_wrap_the_statement_in_a_typed_sqlscript_block():
+    from ganda.hana.concrete_syntax import hints
+    from ganda.hana.connection import sqlscript_block, unwrap_block
+
+    text = "SELECT t.id AS id FROM n1 t WHERE t.f1 > :p AND t.f2 IN :q AND t.f3 = :l__json AND t.f4 = :b AND t.f6 IN :e"
+    binds = {"p": 1.5, "q": [1, 2], "l": [3], "b": False, "e": []}
+    block = sqlscript_block(text, binds)
+    assert block == "DO (IN sv_p DOUBLE => :p, IN sv_q__0 BIGINT => :q__0, IN sv_q__1 BIGINT => :q__1, IN sv_l__json NVARCHAR(5000) => :l__json, IN sv_b BOOLEAN => :b) BEGIN sv_t = SELECT t.id AS id FROM n1 t WHERE t.f1 > :sv_p AND t.f2 IN (:sv_q__0, :sv_q__1) AND t.f3 = :sv_l__json AND t.f4 = :sv_b AND t.f6 IN (NULL); SELECT * FROM :sv_t; END"
+    # the session binds the header's markers only, in order
+    stmt, params = positional(block, binds)
+    assert params == [1.5, 1, 2, "[3]", False] and ":sv_" in stmt and "?" not in stmt.split("BEGIN")[1]
+    assert sqlscript_block("SELECT 1 AS v FROM DUMMY", {}, noinline=True) == "DO BEGIN sv_t = SELECT 1 AS v FROM DUMMY WITH HINT (NO_INLINE); SELECT * FROM :sv_t; END"
+    # the offline stand-in unwraps it to the statement, the markers restored
+    assert unwrap_block(block) == text.replace("IN :q", "IN (:q__0, :q__1)").replace("IN :e", "IN (NULL)")
+    assert hints.strip(unwrap_block(sqlscript_block("SELECT 1 AS v FROM DUMMY", {}, noinline=True))) == "SELECT 1 AS v FROM DUMMY"
+    # the variants: one per block form on every rel question; a hinted inner SELECT under `block` only
+    for seed in (1, 2):
+        _schema, _instance, cases = _cases(seed)
+        seen = 0
+        for c in cases:
+            if c.generator_name != "ir_select":
+                continue
+            seen += 1
+            for v in ("rel:block", "rel:block_ni"):
+                t = c.queries[v].split("\n;;\n")[-1]
+                assert t.startswith("DO ") and t.endswith("; SELECT * FROM :sv_t; END"), v
+                stmt, params = positional(c.queries[v], c.bind_vars)
+                assert "?" not in stmt.split("BEGIN", 1)[1].split("; SELECT * FROM")[0] or stmt.count("?") == len(params)
+            # the unwrapped block is the base statement (a list bind expanded to its elements)
+            inner = hints.strip(unwrap_block(c.queries["rel:block"].split("\n;;\n")[-1]))
+            assert positional(inner, c.bind_vars) == positional(c.queries["rel"].split("\n;;\n")[-1], c.bind_vars)
+            assert "NO_INLINE" in c.queries["rel:block_ni"] and not any(v.startswith("rel:block_ni+") or v.endswith("+block_ni") for v in c.queries if c.params["hint"] in v)
+            hinted = c.queries.get(f"rel:block+{c.params['hint']}")
+            if hinted is not None:
+                assert "WITH HINT (" in hinted and hinted.index("WITH HINT (") < hinted.index("; SELECT * FROM :sv_t")
+        assert seen > 20
+
+
+def test_the_set_operation_form_partitions_a_filter_on_every_sql_path_and_in_sparql():
+    from ganda.core.ast.select import SelectQuery
+    from ganda.hana.concrete_syntax import select
+
+    schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT),)),), ())
+    pred = Predicate("source", "f1", ">", "p", 1, True, "int")
+    for kind in ("ids", "count"):
+        q = SelectQuery("n1", pred, kind)
+        rw = select.Rewrites()
+        sp = select.SelectSyntax(form="tlp")
+        rel = select.render(q, schema, sp, rw, "rel")
+        rows = "SELECT t.id AS id FROM n1 t"
+        core = f"{rows} EXCEPT {rows} WHERE NOT (t.f1 > :p) EXCEPT {rows} WHERE (CASE WHEN t.f1 > :p THEN 1 WHEN NOT (t.f1 > :p) THEN 0 END) IS NULL"
+        assert rel == (core if kind == "ids" else f"SELECT COUNT(*) AS v FROM ({core}) z")
+        rdf = select.render(q, schema, sp, rw, "rdf")
+        assert "MINUS { ?n a c:n1 ; p:id ?id . OPTIONAL { ?n p:f1 ?n_f1 } BIND ((!((BOUND(?n_f1) && (?n_f1 > \"1\"^^xsd:long)))) AS ?t) FILTER (?t) }" in rdf
+        assert "COALESCE(IF((BOUND(?n_f1) && (?n_f1 > \"1\"^^xsd:long)), 1, 0), 2) = 2" in rdf
+        assert ("SELECT ?id WHERE" in rdf) == (kind == "ids") and ("COUNT(?id)" in rdf) == (kind == "count")
+        doc = select.render(q, schema, sp, rw, "doc")
+        assert doc.startswith("WITH raw_v_n1") and " EXCEPT " in doc
+        assert select.applicable(q, schema, sp, rw, "doc") and select.applicable(q, schema, sp, rw, "graph")
+        assert not select.applicable(q, schema, select.SelectSyntax(form="tlp", position="nest"), rw, "rel")
+    assert not select.applicable(SelectQuery("n1", pred, "field", ("f1",)), schema, select.SelectSyntax(form="tlp"), select.Rewrites(), "rel")
+    # the variants in the cases: on every ids / count question with a filter
+    _schema, _instance, cases = _cases(1)
+    tlp = [c for c in cases if c.generator_name == "ir_select" and any(v.endswith(":tlp") or ":tlp+" in v or "+tlp" in v for v in c.queries)]
+    assert tlp and all(c.params["select"]["kind"] in ("ids", "count") for c in tlp)
+    assert all("rel:tlp" in c.queries and "rdf:tlp" in c.queries for c in tlp)
+
+
+def test_the_graphscript_path_syntax_and_its_workspace():
+    from ganda.hana.dialect import SCHEMA_TOKEN
+    from ganda.hana.mapping import graph as mapping_graph
+
+    schema, instance, cases = _cases(1)
+    steps = [s.text for s in mapping_graph.script_ddl(schema)]
+    assert steps[0].startswith("CREATE VIEW gs_v AS SELECT id, CAST('") and " UNION ALL " in steps[0] and all(nt.name in steps[0] for nt in schema.node_types)
+    assert steps[1].startswith("CREATE VIEW gs_e AS SELECT eid, src_id, dst_id, CAST('") and all(et.name in steps[1] for et in schema.edge_types)
+    assert steps[2] == "CREATE GRAPH WORKSPACE gws VERTEX TABLE gs_v KEY COLUMN id EDGE TABLE gs_e KEY COLUMN eid SOURCE COLUMN src_id TARGET COLUMN dst_id"
+    assert len(steps) == 5 and all(s.startswith("CREATE PROCEDURE p_gs_path") and "LANGUAGE GRAPH READS SQL DATA" in s and SCHEMA_TOKEN in s for s in steps[3:])
+    # every GraphScript variable is sv_*: the texts bind nothing
+    for s in steps[3:]:
+        assert positional(s, {}) == (s, [])
+    assert any(isinstance(s, type(mapping_graph.Sql(""))) and s.text == steps[2] for s in E.mappers["graph"](instance))
+    paths = [c for c in cases if c.generator_name == "ir_path"]
+    assert paths
+    for c in paths:
+        t = c.queries["graph:script"]
+        assert t.startswith("DO (IN sv_a NVARCHAR(256) => :a, IN sv_b NVARCHAR(256) => :b) BEGIN") and t.endswith("END")
+        stmt, params = positional(t, c.bind_vars)
+        assert params == [c.bind_vars["a"], c.bind_vars["b"]] and stmt.count("?") == 2
+        depth = c.params["path"]["depth"] if "path" in c.params else None
+        assert f"HAVING COUNT(*) BETWEEN 1 AND {depth + 1}" in t if depth else "HAVING COUNT(*) BETWEEN 1 AND" in t
+        kind = c.params.get("path", {}).get("edge_type")
+        assert ("p_gs_path_kind(" in t) == (kind is not None) and ("DECLARE sv_na BIGINT" in t) == (kind is not None)
+        assert any(d in t for d in ("'OUTGOING'", "'INCOMING'", "'ANY'"))
+
+
+def test_a_rel_delete_removes_the_rows_before_their_list_children():
+    """A delete's filter may read the LIST child rows (a membership's EXISTS): the
+    table's own DELETE runs first, the child rows go by the victims' ids afterwards
+    (offline seed 9 caught the reverse order: a delete with `OR(CONTAINSANY, CONTAINS)`
+    removed nothing on rel and graph)."""
+    seen = 0
+    for seed in (1, 2, 3, 9):
+        schema, instance, rng = build(seed, CFG, E)
+        wr = rng.for_generator("ir_write")
+        cur = instance
+        for step in range(40):
+            drawn = sample_write(wr, schema, cur, step)
+            if drawn is None:
+                continue
+            q, rw, syntaxes = drawn
+            after = apply(q, cur)
+            if q.op == "delete":
+                st = E.write_syntax.render(q, syntaxes["rel"][0], rw, "rel", cur, after)
+                texts = [s.text for s in st.steps]
+                mains = [i for i, t in enumerate(texts) if re.match(rf"DELETE FROM (\w+)(\s|$)", t) and re.match(r"DELETE FROM (\w+)", t).group(1) in {nt.name for nt in schema.node_types}]
+                children = [i for i, t in enumerate(texts) if "__" in t.split()[2] and "WHERE owner IN :wgone" in t]
+                for c in children:
+                    owner = texts[c].split()[2].split("__")[0]
+                    main = next(i for i in mains if re.match(r"DELETE FROM (\w+)", texts[i]).group(1) == owner)
+                    assert main < c, st.display()
+                    seen += 1
+            cur = after
+    assert seen > 0
+
+
+def test_the_mutant_catalog_corrupts_a_node_value_on_every_data_model():
+    from ganda.hana import mutants
+
+    names = [m.name for m in mutants.MUTANTS]
+    assert len(names) == len(set(names))
+    assert {f"{dm}_offset_node_numeric" for dm in mutants.DATA_MODELS} <= set(names)
+    for m in mutants.MUTANTS:
+        if m.name.endswith("_offset_node_numeric"):
+            assert set(m.instance_for_data_model) == {m.name.split("_", 1)[0]}
+    # the strict-to-inclusive corruption meets the collection filter's cast parameter too
+    assert mutants._strict_to_inclusive('SELECT $."id" AS id FROM n1 WHERE $."f1" > CAST(:p AS BIGINT)') == 'SELECT $."id" AS id FROM n1 WHERE $."f1" >= CAST(:p AS BIGINT)'
+    assert mutants._strict_to_inclusive("SELECT t.id FROM n1 t WHERE t.f1 < :p AND t.f2 > CAST(:q AS DOUBLE)") == "SELECT t.id FROM n1 t WHERE t.f1 <= :p AND t.f2 > CAST(:q AS DOUBLE)"
+
+
+def test_a_decoding_failure_is_an_internal_engine_error_not_a_dead_worker():
+    from ganda.core.provider import EngineError
+    from ganda.hana.connection import _error, decoded_rows, decoded_sparql, document_of
+
+    assert decoded_rows(["v__int", "w"], [("7", 1)]) == [{"v": 7, "w": 1}]
+    for bad in (lambda: decoded_rows(["v__int"], [("seven",)]), lambda: decoded_rows(["v__json"], [("{not json",)]), lambda: decoded_sparql("{not json"), lambda: document_of({"x": "{not json"})):
+        with pytest.raises(EngineError) as e:
+            bad()
+        assert e.value.internal and str(e.value).startswith("[decode]")
+
+    class Err(Exception):
+        def __init__(self, code, text):
+            self.errorcode, self.errortext = code, text
+
+    assert _error(Err(2048, "column store error: search table error")).internal
+    assert _error(Err(257, "sql syntax error: assertion failed in planner")).internal
+    assert not _error(Err(4901, "GraphEngine: compilation failed: exception 73002602: UNKNOWN is not supported")).internal
+    assert not _error(Err(129, "transaction rolled back by an internal error: generic. Error - unknown prefix")).internal
+
+
+def test_the_doc_neg_position_keeps_the_nots_the_store_can_say():
+    from ganda.hana.concrete_syntax.document import doc_filter_ok, doc_pred, has_not
+
+    leaf = Predicate("source", "f1", "=", "p", 1, True, "int")
+    tree = Compound("source", "NOT", (Compound("source", "OR", (leaf, Predicate("source", "f2", "IS NULL", "", None, True, "string"))),))
+    assert has_not(tree) and not has_not(leaf) and not has_not(None)
+    assert doc_pred(tree) == '($."f1" <> CAST(:p AS BIGINT) AND $."f2" IS NOT NULL)'
+    assert doc_pred(tree, keep_not=True) == 'NOT (($."f1" = CAST(:p AS BIGINT) OR $."f2" IS NULL))'
+    member = Compound("source", "NOT", (Predicate("source", "f3", "CONTAINS", "p", 5, True, "list"),))
+    assert not doc_filter_ok(member) and doc_filter_ok(member, keep_not=True)
+    assert doc_pred(member, keep_not=True) == 'NOT (FOR ANY "e" IN $."f3" SATISFIES "e" = CAST(:p AS BIGINT) END)'
+    like = Compound("source", "NOT", (Predicate("source", "f2", "LIKE", "p", "a%", True, "string"),))
+    assert doc_pred(like) == "$.\"f2\" NOT LIKE 'a%'" and doc_pred(like, keep_not=True) == "NOT ($.\"f2\" LIKE 'a%')"
+    # the position in the cases: a collection query with a NOT kept, only where the tree has one
+    negs = [(c, v, t) for seed in (1, 2, 3) for c in _cases(seed)[2] for v, t in c.queries.items() if v.startswith("doc:") and "neg" in v.split(":", 1)[1].split("+")]
+    assert negs
+    for c, v, t in negs:
+        assert "NOT (" in t and not t.startswith("WITH ") and ('$."' in t or '"l"."' in t), v
+
+
+def test_the_custom_key_pool_orders_alike_in_sql_and_sparql():
+    """The axis is on because SQL's UTF-16 code-unit order and SPARQL's code-point order
+    part only for an astral key against one in U+E000..U+FFFF, which no key style
+    draws (`data_generator._custom_key`); the probe's CUSTOM_KEYS cover every style."""
+    from ganda.core.data_generator import _KEY_PUNCT_BASES, _KEY_UNICODE_BASES
+    from ganda.hana.dialect import is_valid_key
+    from ganda.hana.scripts.probe import CUSTOM_KEYS
+
+    keys = [b + "7" for b in _KEY_PUNCT_BASES + _KEY_UNICODE_BASES] + CUSTOM_KEYS
+    assert not any(0xE000 <= ord(ch) <= 0xFFFF for k in keys for ch in k)
+    assert any(ord(ch) > 0xFFFF for k in keys for ch in k)
+    assert sorted(keys, key=lambda k: k.encode("utf-16-be", "surrogatepass")) == sorted(keys, key=lambda k: [ord(c) for c in k])
+    assert all(is_valid_key(k) for k in keys)
+    assert "custom_key_probability" not in UNSUPPORTED_AXES and "inheritance_probability" not in UNSUPPORTED_AXES
+
+
+def _poly(seed: int):
+    cfg = CFG.with_(inheritance_probability=1.0, custom_key_probability=0.5)
+    schema, instance, rng = build(seed, cfg, E)
+    return cfg, schema, instance, rng
+
+
+@pytest.mark.parametrize("seed", range(1, 4))
+def test_the_base_class_is_a_union_view_a_second_class_triple_and_an_unlabelled_match(seed):
+    from ganda.hana.mapping.common import Sparql, Sql
+
+    cfg, schema, instance, rng = _poly(seed)
+    assert schema.base is not None and schema.base.name == "N0"
+    rel = E.mappers["rel"](instance)
+    texts = [s.text for s in rel if isinstance(s, Sql)]
+    views = [t for t in texts if t.startswith("CREATE VIEW N0")]
+    assert views[0].startswith("CREATE VIEW N0 AS SELECT id, b1") and views[0].count(" UNION ALL ") == len(schema.node_types) - 1
+    assert len(views) == 1 + sum(1 for f in schema.base.fields if f.type is FieldType.LIST)
+    for ix in schema.indexes:
+        if ix.table == "N0" and ix.applies_to("rel"):
+            assert sum(1 for t in texts if t.startswith(("CREATE INDEX ix_N0_", "CREATE UNIQUE INDEX ix_N0_")) and f"_{ix.field}_" in t) == len(schema.node_types)
+    assert not any(" ON N0 " in t for t in texts if t.startswith("CREATE"))
+    graph = [s.text for s in E.mappers["graph"](instance) if isinstance(s, Sql)]
+    assert any(t.startswith("CREATE VIEW N0 ") for t in graph) and not any("gv_N0" in t for t in graph)
+    doc = [s.text for s in E.mappers["doc"](instance) if isinstance(s, Sql)]
+    assert not any("N0" in t and t.startswith("CREATE COLLECTION") for t in doc) and not any(" ON N0(" in t for t in doc)
+    from ganda.hana.mapping.common import Transaction
+
+    def texts_of(steps):
+        for s in steps:
+            if isinstance(s, Transaction):
+                yield from texts_of(s.steps)
+            elif isinstance(s, Sparql):
+                yield s.text
+
+    rdf = " ".join(texts_of(E.mappers["rdf"](instance)))
+    assert " a c:N0" in rdf and rdf.count(" a c:N0") >= len(schema.node_types)
+    cases = all_cases(rng, schema, instance, cfg=cfg)
+    on_base = [c for c in cases if c.generator_name == "ir_select" and c.params.get("table") == "N0"]
+    assert on_base
+    for c in on_base:
+        assert "N0" in c.queries["rel"] and "?n a c:N0" in c.queries["rdf"]
+        g = c.queries["graph"]
+        assert ("g_N0 AS (SELECT * FROM OPENCYPHER_TABLE(GRAPH WORKSPACE gw QUERY 'MATCH (a) RETURN a.ID AS ID, a.B1 AS B1" in g) or "MATCH (t)" in g, g[:200]
+        assert "(t:N0)" not in g and "(a:N0)" not in g and "(m:N0)" not in g
+        # the doc base is the views' union (none where the views cannot ask the filter:
+        # a whole-list comparison, a membership under OR or NOT)
+        d = c.queries.get("doc")
+        if d is not None:
+            assert d.startswith("WITH ") and "v_N0 AS (SELECT id, b1" in d
+            assert d.index("v_N0 AS (") > max(d.index(f", v_{nt.name} AS (") for nt in schema.node_types)
+        assert "doc:neg" not in c.queries and not any(v.startswith("doc:") and v.endswith("+neg") for v in c.queries)
+
+
+def test_a_write_on_the_base_class_addresses_every_subclass():
+    cfg, schema, instance, rng = _poly(1)
+    wr = rng.for_generator("ir_write")
+    cur = instance
+    seen = set()
+    for step in range(60):
+        drawn = sample_write(wr, schema, cur, step)
+        if drawn is None:
+            continue
+        q, rw, syntaxes = drawn
+        after = apply(q, cur)
+        if not q.edge and q.table == "N0":
+            for dm in E.data_models:
+                st = E.write_syntax.render(q, syntaxes[dm][0], rw, dm, cur, after)
+                writes = [s for s in st.steps if s.text.startswith(("UPDATE ", "DELETE ", "MERGE "))]
+                if dm == "rdf":
+                    # the write names the base class (a read-back by captured ids need not)
+                    assert any("?n a c:N0" in s.text for s in st.steps), st.display()
+                    continue
+                assert not any(re.match(r"(UPDATE|DELETE FROM|MERGE INTO) N0\b", s.text) for s in writes), st.display()
+                tables = {re.match(r"(?:UPDATE|DELETE FROM|MERGE INTO) (\w+)", s.text).group(1) for s in writes}
+                assert tables >= {nt.name for nt in schema.node_types}, (dm, st.display())
+                if q.returning == "count" or q.op == "delete":
+                    counted = [s for s in st.steps if s.role in ("count_part", "each_count")]
+                    assert len(counted) == len(schema.node_types) and st.main is counted[0], st.display()
+                if q.returning == "after":
+                    assert [s for s in st.steps if s.role == "rows_captured"] and any(s.role in ("capture", "capture_more") for s in st.steps)
+            seen.add(q.op)
+        cur = after
+    assert seen
+
+
+def test_translator_unlabelled_vertex_projects_the_shared_attributes():
+    import sqlite3
+
+    from tests.hana.opencypher_sqlite import Workspace, to_sql
+
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE gv_n1 (id TEXT, b1 INTEGER, n1_f1 INTEGER)")
+    db.execute("CREATE TABLE gv_n2 (id TEXT, b1 INTEGER, n2_f1 TEXT)")
+    db.executemany("INSERT INTO gv_n1 VALUES (?, ?, ?)", [("a", 1, 5), ("b", None, 6)])
+    db.executemany("INSERT INTO gv_n2 VALUES (?, ?, ?)", [("x", 2, "s")])
+    vertices = {"n1": {"table": "gv_n1", "label": "n1", "key": "id", "columns": [["id", "ID"], ["b1", "B1"], ["f1", "N1_F1"]]}, "n2": {"table": "gv_n2", "label": "n2", "key": "id", "columns": [["id", "ID"], ["b1", "B1"], ["f1", "N2_F1"]]}}
+    ws = Workspace("gw", vertices, {})
+    rows = db.execute(to_sql("MATCH (a) WHERE NOT (a.B1 IS NULL) RETURN a.ID AS ID, a.B1 AS B1", {}, ws)).fetchall()
+    assert sorted(rows) == [("a", 1), ("x", 2)]
+    joined = db.execute(to_sql("MATCH (t), (m) WHERE (m.B1 > t.B1) RETURN t.ID AS ID, m.ID AS V", {}, ws)).fetchall()
+    assert sorted(joined) == [("a", "x")]
+    assert db.execute(to_sql("MATCH (a) RETURN COUNT(a.ID) AS V", {}, ws)).fetchall() == [(3,)]
+
+
+
+def test_the_mean_is_hana_sql_avg():
+    """AVG over BIGINT is DECIMAL(25,6): the quotient truncated to six places (R20); the
+    B13 guard withholds an rdf average the triple store's double arithmetic cannot
+    answer as SQL does."""
+    from ganda.hana import known_bugs
+
+    assert mean([7] + [0] * 127) == 0.054687 and mean([-7] + [0] * 127) == -0.054687 and mean([2, 2, 0]) == 1.333333
+    assert mean([1, 2]) == 1.5 and mean([2, 4]) == 3 and isinstance(mean([2, 4]), int) and mean([0.5, 1.0]) == 0.75
+    assert known_bugs.select_known is not None

@@ -23,14 +23,18 @@ from tests.hana.offline import OfflineServer
 UNSUPPORTED = ("MEDIAN(",)
 
 
-def _offline(variant: str, text: str) -> bool:
+def _offline(variant: str, text: str, syntax: "str | None" = None) -> bool:
     if variant.startswith("graph"):
         from tests.hana.opencypher_sqlite import translatable
 
-        return translatable(text)
+        # a GraphScript procedure called from a SQLScript block (the path `script`
+        # syntax) has no stand-in
+        return not text.startswith("DO ") and translatable(text)
     if not variant.startswith("rdf"):
         return True
-    tags = variant.split(":", 1)[-1].split("+")
+    # a traversal's BASE variant (`rdf`, and its `rdf:pull_up`) may be the native syntax,
+    # which only the case's `concrete_syntax` names
+    tags = variant.split(":", 1)[-1].split("+") + ([syntax] if syntax else [])
     if "jscan" in tags and "EXISTS {" in text:
         # rdflib: an independent FILTER EXISTS in a group changes its join with a
         # subquery (`tests/hana/test_offline.py::test_rdflib_quirks` shows it)
@@ -43,7 +47,8 @@ def offline_cases(cases: list) -> list:
 
     out = []
     for c in cases:
-        keep = {v: t for v, t in c.queries.items() if _offline(v, t)}
+        syntaxes = c.params.get("concrete_syntax", {})
+        keep = {v: t for v, t in c.queries.items() if _offline(v, t, syntaxes.get(v) if isinstance(syntaxes, dict) else None)}
         if len(keep) != len(c.queries):
             if not any(v in keep for v in E.data_models):
                 continue

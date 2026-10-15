@@ -69,6 +69,7 @@ class CampaignStats(NamedTuple):
     reference: bool = True  # whether the reference leg ran
     scale: str = "default"
     state_sample: int = 0  # 0: the stored state was read whole
+    cases_partial: int = 0  # cases some data model had no concrete syntax for (compared among the others)
 
 
 class _Shared:
@@ -174,6 +175,8 @@ def run_instance(engine, server, seed: int, cfg: GeneratorConfig, args, shared: 
             t = _tpl(shared, r.case.generator_name)
             t["cases"] += 1
             shared.counters["cases"] += 1
+            if r.case.params.get("partial"):
+                shared.counters["cases_partial"] += 1
             shared.shapes.add(r.case.shape)
             if r.case.generator_name == "ir_traversal":
                 shared.traversal_shapes.add(r.case.shape)
@@ -312,6 +315,7 @@ def run_campaign(engine, args) -> "tuple[CampaignStats, object]":
         setup_failures=c["setup_failures"],
         setup_asymmetries=c["setup_asymmetries"],
         cases=c["cases"],
+        cases_partial=c["cases_partial"],
         cases_asserting=c["cases_asserting"],
         symmetric_errors=c["symmetric_errors"],
         internal_errors=c["internal_errors"],

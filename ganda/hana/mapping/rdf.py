@@ -5,7 +5,8 @@ database (the texts name it `dialect.GRAPH_TOKEN`; the session rebinds it).
     <r:e1/e0> a c:e1 ; p:eid "e1/e0" ; p:src <r:n1/r0> ; p:dst <r:n2/r3> ; p:w 3 .
     <r:n1/r0> l:e1 <r:n2/r3> .
 
-A node is an IRI with its class, its logical id and a literal per present field (a
+A node is an IRI with its class (and, under the inheritance axis, the base class too:
+`a c:n1, c:N0`, `class_triples`), its logical id and a literal per present field (a
 null field has no triple); a LIST is its canonical JSON text plus one `i:` triple per
 distinct element (membership is all the elements are asked for). RDF holds a SET of
 triples, so a relationship is a resource of its own -- two parallel edges are two
@@ -55,9 +56,18 @@ def value_triples(subject: str, fields, values: dict) -> list:
     return out
 
 
+def class_triples(subject: str, type_name: str, schema) -> list:
+    """`<s> a c:n1`, and under the inheritance axis `<s> a c:N0` as well: a node is a
+    member of its class and of the base class, so a query on either names its class."""
+    out = [f"{subject} a c:{type_name}"]
+    if schema.base is not None and not schema.is_base(type_name) and any(nt.name == type_name for nt in schema.node_types):
+        out.append(f"{subject} a c:{schema.base.name}")
+    return out
+
+
 def node_triples(instance: Instance, node, values: dict) -> list:
     s = record_iri(node.record_id)
-    head = [f"{s} a c:{node.type_name}", f"{s} p:id {sparql_string(node.record_id)}"]
+    head = class_triples(s, node.type_name, instance.schema) + [f"{s} p:id {sparql_string(node.record_id)}"]
     return head + value_triples(s, instance.schema.query_fields(node.type_name), values)
 
 

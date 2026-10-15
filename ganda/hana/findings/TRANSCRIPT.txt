@@ -285,3 +285,428 @@ w7 two vertex tables, LABELs
      not), a MATCH naming the vertex label fails with `invalid column name: ...CYPHER$TABLE$LABEL`
      (an internal column of the rewrite); the edge label, LABEL(a) and the unlabelled pattern
      answer, and so does every pattern over a second vertex table (w7) or edge table (w6).
+
+
+=== 2026-10-12: A8 and A9 (the 12-hour campaign's graph findings), run through the Mac's tunnel ===
+(the A8 script's closing lines were reworded afterwards: the parameter rows show exact comparisons)
+
+### A8-opencypher-double-compares-one-ulp-tolerant/repro.py
+HANA version: 4.00.000.00.1788859455 
+
+stored d = -985.195; one ulp below = -985.1950000000002; two ulps below = -985.1950000000003
+
+  SQL      d = one ulp below                          : []
+  SQL      d <= one ulp below                         : []
+  cypher   d = $p, one ulp below                      : []
+  cypher   d <= $p, one ulp below                     : []
+  cypher   d <> $p, one ulp below                     : ['b', 'h']
+  cypher   d = $p, two ulps below                     : []
+  cypher   d = $p, exactly                            : ['b']
+  cypher   d = TOFLOAT(''-985.1950000000002'')        : []
+  cypher   d = -985.1950000000002 (constant)          : ['b']
+  cypher   d = -985.1950000000003 (constant)          : ['b']
+  cypher   d <= two ulps below as TOFLOAT             : []
+  cypher   0.5 = 0.5000000000000001 (constant, 1 ulp) : ['h']
+  cypher   0.5 = 0.5000000000000002 (constant, 2 ulps): ['h']
+  cypher   0.5 = $p, 0.5000000000000002 (2 ulps)      : []
+  cypher   TOFLOAT(''-985.1950000000002'') projected  : [-985.1950000000002]
+
+  => SQL compares the DOUBLE exactly (no row for a neighbour one ulp away); openCypher calls a
+     parameter or a TOFLOAT constant one ulp away EQUAL (and `<=` holds, `<>` fails for it), two ulps
+     away not; a DOUBLE constant written in the query text matches even two ulps away (parsed to ~15
+     significant digits), while TOFLOAT of the same digits is exact.
+
+### A9-opencypher-two-calls-parameter-types/repro.py
+HANA version: 4.00.000.00.1788859455 
+
+  the paths call alone (p0a, p0b strings; p1 an integer)    : OK [('b', 1)]
+  the starts call alone                                     : OK [('a',), ('b',)]
+  starts LEFT JOIN paths (the fuzzer's traversal text)      : [-10427] Conversion of parameter/column (3) from data type UCS2 (LE) to BIGINT failed (invalid number: not a valid numb
+  the same, p1 declared first in the second call            : [339] invalid number: not a valid number string 'o' (at pos 62)
+  the same with the string pivots as constants              : OK [('a', None), ('b', 1)]
+  two calls, both calls' parameters strings only            : OK [('a', 1), ('b', 2)]
+
+  => each call alone types its parameters by the attributes they are compared with; once a second
+     call joins the statement, the second call's string parameter is typed as the integer's type
+     (the client reports the conversion failure for that `?`). Constants, or parameters of one
+     type per call, are the workaround the fuzzer now uses.
+
+# Combined transcript of all findings repros
+# Captured 2026-10-09T06:24:51Z against HANA Cloud 4.00.000.00
+
+========================================================================
+## A1-sparql-double-precision
+HANA version: 4.00.000.00.1788859455
+
+  inserted         : 3.141592653589793  (xsd:double)
+  read as ?d       : {"head":{"vars":["d"]},"results":{"bindings":[{"d":{"datatype":"http://www.w3.org/2001/XMLSchema#double","type":"literal","value":"3.14159"}}]}}
+
+  read as STR(?d)  : {"head":{"vars":["d"]},"results":{"bindings":[{"d":{"type":"literal","value":"3.1415926535897931"}}]}}
+
+  arithmetic ?d*1e9: {"head":{"vars":["r"]},"results":{"bindings":[{"r":{"datatype":"http://www.w3.org/2001/XMLSchema#double","type":"literal","value":"3.14159e+09"}}]}}
+
+
+  => the ?d term is 3.14159 (6 sig figs); STR(?d) is 3.1415926535897931 (exact).
+
+========================================================================
+## A2-docstore-crash-correlated-unnest
+HANA version: 4.00.000.00.1788859455
+
+  uncorrelated over UNNEST view: OK  [('a', 1)]
+  CORRELATED  over UNNEST view: [3] fatal error: Execution flow must not reach here. See error trace for details
+  correlated, no-UNNEST view  : OK  [('a', 1)]
+
+  => only the CORRELATED scalar subquery over the UNNEST view crashes (code 3).
+
+========================================================================
+## B1-median-no-interpolation
+HANA version: 4.00.000.00.1788859455 
+
+  MEDIAN of INT {1,2}         (want 1.5?): OK  [(2,)]
+  MEDIAN of INT {1,2,3,4}     (want 2.5?): OK  [(3,)]
+  MEDIAN of DOUBLE {1.0,2.0}  (want 1.5): OK  [(Decimal('1.5'),)]
+  PERCENTILE_CONT(0.5) INT    (interpolates): OK  [(1.5,)]
+
+  => MEDIAN(int) returns the upper-middle (2), not 1.5; MEDIAN(double) interpolates.
+
+========================================================================
+## B2-sparql-median-needs-groupby
+HANA version: 4.00.000.00.1788859455 
+
+  MEDIAN no GROUP BY      : [129] transaction rolled back by an internal error: generic. System error. Reference: Unsupporte
+  MEDIAN GROUP BY const   : OK  {"head":{"vars":["v"]},"results":{"bindings":[{"v":{"datatype":"http://www.w3.org/2001/XMLSchema#double","type":"literal","value":"2"}}]}}
+
+  MEDIAN GROUP BY {1,2}   : OK  {"head":{"vars":["v"]},"results":{"bindings":[{"v":{"datatype":"http://www.w3.org/2001/XMLSchema#double","type":"literal","value":"1.5"}}]}}
+
+
+  => MEDIAN without GROUP BY is an internal error (129); with GROUP BY it works and interpolates.
+
+========================================================================
+## B3-boolean-constant-in-collection-query
+HANA version: 4.00.000.00.1788859455 
+
+  CASE..THEN TRUE over collection: [7] feature not supported: invalid constant, please use TO_JSON_BOOLEAN(): line 1 col 46 (at pos 45)
+  same, in a subquery over coll : [7] feature not supported: invalid constant, please use TO_JSON_BOOLEAN(): line 1 col 36 (at pos 35)
+  CASE one CTE removed (two CTEs): OK  [('a', True), ('b', False)]
+
+  => a BOOLEAN constant is refused while the query still reads the collection; a CTE boundary fixes it.
+
+========================================================================
+## B4-like-rhs-constant
+HANA version: 4.00.000.00.1788859455 
+
+  LIKE CAST(? AS NVARCHAR)   : [7] feature not supported: Right-hand side of LIKE must be a constant string literal or TO_NVARCHAR, TO_
+  LIKE TO_NVARCHAR(?)        : [7] feature not supported: please specify the types for parameter: line 1 col 57 (at pos 56)
+  LIKE 'y%' (constant literal): OK  [('b',)]
+
+  => only a constant string literal (or TO_NVARCHAR/UPPER/LOWER of one) is accepted on LIKE's RHS.
+
+========================================================================
+## B5-doc-update-set-unset-and-arith
+HANA version: 4.00.000.00.1788859455 
+
+  combined SET ... UNSET      : [257] sql syntax error: incorrect syntax near "UNSET": line 1 col 26 (at pos 26)
+  SET alone                  : OK  1
+  UNSET alone                : OK  1
+  SET f = f + c (field arith): [7] feature not supported: only constant expressions allowed
+
+  => combined SET/UNSET and field-referencing arithmetic are refused; SET and UNSET each alone work.
+
+========================================================================
+## B6-unnest-view-in-subquery
+HANA version: 4.00.000.00.1788859455 
+
+  EXISTS over single-UNNEST (node): OK  [('a',)]
+  IN (subquery over UNNEST view)  : [7] feature not supported: unsupported form of subquery with UNNEST
+  EXISTS over double-UNNEST (edge): [7] feature not supported: unsupported form of subquery with UNNEST
+
+  => a single-UNNEST view inside EXISTS is fine; IN(subquery) and the double-UNNEST edge EXISTS are refused.
+
+========================================================================
+## B7-groupby-subquery-over-collection
+HANA version: 4.00.000.00.1788859455 
+
+  COUNT(*) over (GROUP BY sub): [7] feature not supported: GROUP BY clause after GROUP BY clause on collection tables (perhaps due to a 
+  COUNT(DISTINCT f1) top-level: OK  [(3,)]
+
+  => a GROUP BY inside a subquery over a collection is refused; the top-level distinct count works.
+
+========================================================================
+## B8-sparql-table-nullable-numeric-nvarchar
+HANA version: 4.00.000.00.1788859455 
+
+  direct SPARQL_EXECUTE binding: [None, {'datatype': 'http://www.w3.org/2001/XMLSchema#long', 'type': 'literal', 'value': '7'}]
+  SPARQL_TABLE column type code 11 (11 = NVARCHAR), rows [(None,), ('7',)]
+
+  => direct: ?a has datatype xsd:long (-> int 7). SPARQL_TABLE: NVARCHAR column -> string '7'.
+
+========================================================================
+## B9-string-field-numeric-inference
+HANA version: 4.00.000.00.1788859455 
+
+  Isolated attempts (these do NOT reproduce the campaign error on this build):
+  uncast f1 string BETWEEN   : OK  []
+  uncast f1 + TO_BIGINT f3   : OK  []
+  TO_NVARCHAR(f1) (the fix)  : OK  []
+
+  See README.md: the error was observed live in a 6-view traversal join; it does not
+  minimise to these forms. Campaign evidence: bugs/<...>-src_hops_3_...distinct_ids.
+
+========================================================================
+## B10-filter-unbound-variable
+HANA version: 4.00.000.00.1788859455 
+
+  FILTER names an undeclared var : [129] transaction rolled back by an internal error: generic. Error - FILTER(s) contains unbound 
+  same, var declared (never bound): OK  {"head":{"vars":["id"]},"results":{"bindings":[]}}
+
+
+  => the undeclared variable is an internal error (129); declaring it (never bound) is a clean result.
+
+========================================================================
+## B11-start-reserved-word
+HANA version: 4.00.000.00.1788859455 
+
+  SELECT 1 AS start FROM DUMMY: [257] sql syntax error: incorrect syntax near "start": line 1 col 13 (at pos 13)
+  SELECT 1 AS strt  FROM DUMMY: OK  [(1,)]
+  SELECT 1 AS "start" (quoted): OK  [(1,)]
+
+  => bare `start` as an alias is a syntax error; `strt` (or a quoted identifier) works.
+
+========================================================================
+## A3-sparql-sum-unbound-mixed-datatypes   (captured 2026-10-10T14:43:26Z)
+HANA version: 4.00.000.00.1788859455
+
+  p:i holds xsd:long only        : [{'sum': '7', 'avg': '3.5', 'max': '4', 'count': '2'}]  want sum 7, avg 3.5
+  p:i also holds a string        : [{'max': '4', 'count': '2'}]  the string's resource is not of class c:n
+  value bound where present      : [{'sum': '7'}]
+  SUM(COALESCE(?w, 0))           : [{'sum': '7'}]
+
+  => one unrelated triple turns SUM / AVG over the same matching triples unbound;
+     MAX and COUNT still skip the unbound value, and so do the two rewrites.
+
+========================================================================
+## A4-docstore-sum-overflow-excluded-rows   (captured 2026-10-10T14:43:26Z)
+HANA version: 4.00.000.00.1788859455
+
+  collections: the join's rows          : OK  []
+  collections: SUM over the join        : [314] numeric overflow: SQL Error
+
+  collections: SUM(TO_DECIMAL(...))     : OK  [(None,)]
+  collections: link view, value only    : OK  [(None,)]
+  column tables: SUM over the join      : OK  [(None,)]
+
+  => the join matches no row (SUM is NULL), yet over the collections the SUM overflows:
+     the only values that can overflow are the two links the join excludes.
+
+========================================================================
+# Re-run of the changed repros, 2026-10-10T15:20:08Z (A5 and A6 were B9 and B10)
+
+## A5-docstore-between-types-parameters-bigint
+HANA version: 4.00.000.00.1788859455
+  collection field: f BETWEEN ? AND ?    : [-10427] Conversion of parameter/column (1) from data type UCS2 (LE) to BIGINT failed (invalid number: not a 
+  collection field: f >= ? AND f <= ?    : OK  [('abc',)]
+  collection field: BETWEEN 'A' AND 'i'  : OK  [('abc',)]
+  collection field: TO_NVARCHAR(f) BETWEEN: OK  [('abc',)]
+  column table:     f BETWEEN ? AND ?    : OK  [('abc',)]
+  => only BETWEEN with bound parameters over the collection field fails (parameter typed BIGINT).
+
+## A6-sparql-filter-unbound-variable-refused
+HANA version: 4.00.000.00.1788859455
+  FILTER(!BOUND(?x))         : [129] transaction rolled back by an internal error: generic. Error - FILTER(s) contains unbound    (standard: a, b)
+  FILTER(?x = 1)             : [129] transaction rolled back by an internal error: generic. Error - FILTER(s) contains unbound    (standard: none)
+  BIND(?x AS ?y)             : [129] transaction rolled back by an internal error: generic. Error - ?x: Named variable not in c   (standard: a, b)
+  FILTER(COALESCE(?x, 1) = 1): OK  ['a', 'b']   (standard: a, b)
+  OPTIONAL names ?x, !BOUND  : OK  ['a', 'b']   (standard: a, b)
+  => a never-bound variable is refused in FILTER / BIND, accepted in COALESCE or once declared.
+
+## B1-median-no-interpolation
+HANA version: 4.00.000.00.1788859455 
+  MEDIAN of BIGINT {1,2}      (mean 1.5): OK  [(2,)]
+  MEDIAN of BIGINT {1,10}     (mean 5.5): OK  [(6,)]
+  MEDIAN of BIGINT {1,2,3,10} (mean 2.5): OK  [(3,)]
+  MEDIAN of BIGINT {-3,-2}    (mean -2.5): OK  [(-3,)]
+  MEDIAN of DOUBLE {1,10}               : OK  [(5.5,)]
+  PERCENTILE_CONT(0.5) BIGINT {1,10}    : OK  [(5.5,)]
+  => MEDIAN answers in the argument's type: over integers the mean of the two middle values
+     ROUNDED half away from zero ({1,10} -> 6, not the upper middle 10); DOUBLE keeps 5.5.
+
+## B2-sparql-median-needs-groupby
+HANA version: 4.00.000.00.1788859455 
+  MEDIAN no GROUP BY      : [129] transaction rolled back by an internal error: generic. System error. Reference: Unsupporte
+  MEDIAN GROUP BY const   : OK  {"head":{"vars":["v"]},"results":{"bindings":[{"v":{"datatype":"http://www.w3.org/2001/XMLSchema#double","type":"literal","value":"2"}}]}}
+  VAR no GROUP BY         : OK  {"head":{"vars":["v"]},"results":{"bindings":[{"v":{"datatype":"http://www.w3.org/2001/XMLSchema#double","type":"literal","value":"1"}}]}}
+  MODE no GROUP BY        : OK  {"head":{"vars":["v"]},"results":{"bindings":[{"v":{"datatype":"http://www.w3.org/2001/XMLSchema#long","type":"literal","value":"2"}}]}}
+  MEDIAN GROUP BY {1,2}   : OK  {"head":{"vars":["v"]},"results":{"bindings":[{"v":{"datatype":"http://www.w3.org/2001/XMLSchema#double","type":"literal","value":"1.5"}}]}}
+  => MEDIAN alone needs a GROUP BY (VAR, MODE, the other SAP extension aggregates, do not);
+     grouped, it interpolates. Every SPARQL refusal is code 129, so the code means nothing more.
+
+## B4-like-rhs-constant
+HANA version: 4.00.000.00.1788859455 
+  LIKE CAST(? AS NVARCHAR)        : OK  [('b',)]
+  LIKE CAST(? AS NVARCHAR(5000))  : [7] feature not supported: Right-hand side of LIKE must be a constant string literal or TO_NVARCHAR, TO_
+  LIKE TO_NVARCHAR(?)        : [7] feature not supported: please specify the types for parameter: line 1 col 57 (at pos 56)
+  LIKE 'y%' (constant literal): OK  [('b',)]
+  => the documented CAST(? AS NVARCHAR) is accepted on LIKE's RHS; the same cast with a length is not.
+
+## B5-doc-update-set-unset-and-arith
+HANA version: 4.00.000.00.1788859455 
+  combined SET ... UNSET      : [257] sql syntax error: incorrect syntax near "UNSET": line 1 col 26 (at pos 26)
+  SET ..., UNSET ... (comma)  : OK  1
+  UNSET ..., SET ... (comma)  : OK  1
+  SET alone                  : OK  1
+  UNSET alone                : OK  1
+  SET f = f + c (field arith): [7] feature not supported: only constant expressions allowed
+  => SET and UNSET combine with a comma (the documented example); without it, a syntax error.
+     A SET takes a value, not an expression over a field.
+
+## B8-sparql-table-nullable-numeric-nvarchar
+HANA version: 4.00.000.00.1788859455 
+  p:i, p:b hold one datatype each       : SPARQL_TABLE types [11, 4, 28] (4 = INTEGER, 28 = BOOLEAN, 11 = NVARCHAR) rows [('a', 7, True), ('b', None, None)]
+  a string on each, in ANOTHER graph    : SPARQL_TABLE types [11, 11, 11] (4 = INTEGER, 28 = BOOLEAN, 11 = NVARCHAR) rows [('a', '7', '1'), ('b', None, None)]
+  after that graph is dropped           : SPARQL_TABLE types [11, 11, 11] (4 = INTEGER, 28 = BOOLEAN, 11 = NVARCHAR) rows [('a', '7', '1'), ('b', None, None)]
+  direct SPARQL_EXECUTE, same query     : ['long', '-']
+  => the column type follows the predicate's datatype history across the store (other graphs,
+     dropped data), not the values the query returns; the direct answer keeps xsd:long.
+
+## A7-opencypher-homogeneous-labelled-workspace (run 2026-10-12)
+HANA version: 4.00.000.00.1788859455 
+
+w1 tables, LABEL clauses       
+     vertex label   : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 8 (at pos 84)
+     edge label     : OK [('m', 'n')]
+     both labels    : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 67 (at pos 220)
+     no label       : OK [('m', 'n')]
+     LABEL(a)       : OK [('m', 'v'), ('n', 'v')]
+w2 tables, no LABEL clauses    
+     vertex label   : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 8 (at pos 84)
+     edge label     : OK [('m', 'n')]
+     both labels    : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 67 (at pos 220)
+     no label       : OK [('m', 'n')]
+     LABEL(a)       : OK [('m', 'V'), ('n', 'V')]
+w3 views, LABEL clauses        
+     vertex label   : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 8 (at pos 87)
+     edge label     : OK [('m', 'n')]
+     both labels    : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 67 (at pos 229)
+     no label       : OK [('m', 'n')]
+     LABEL(a)       : OK [('m', 'v'), ('n', 'v')]
+w4 tables, vertex LABEL only   
+     vertex label   : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 8 (at pos 84)
+     edge label     : OK [('m', 'n')]
+     both labels    : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 67 (at pos 220)
+     no label       : OK [('m', 'n')]
+     LABEL(a)       : OK [('m', 'v'), ('n', 'v')]
+w5 tables, edge LABEL only     
+     vertex label   : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 8 (at pos 84)
+     edge label     : OK [('m', 'n')]
+     both labels    : [260] invalid column name: a.CYPHER$TABLE$LABEL: line 3 col 67 (at pos 220)
+     no label       : OK [('m', 'n')]
+     LABEL(a)       : OK [('m', 'V'), ('n', 'V')]
+w6 two edge tables, LABELs     
+     vertex label   : OK [('m',), ('n',)]
+     edge label     : OK [('m', 'n')]
+     both labels    : OK [('m', 'n')]
+     no label       : OK [('m', 'n'), ('n', 'm')]
+     LABEL(a)       : OK [('m', 'v'), ('n', 'v')]
+w7 two vertex tables, LABELs   
+     vertex label   : OK [('m',), ('n',)]
+     edge label     : OK [('m', 'n')]
+     both labels    : OK [('m', 'n')]
+     no label       : OK [('m', 'n')]
+     LABEL(a)       : OK [('m', 'v'), ('n', 'v'), ('p', 'v2')]
+
+  => over a workspace with ONE vertex table (w1-w5: tables or views, LABEL clauses or
+     not), a MATCH naming the vertex label fails with `invalid column name: ...CYPHER$TABLE$LABEL`
+     (an internal column of the rewrite); the edge label, LABEL(a) and the unlabelled pattern
+     answer, and so does every pattern over a second vertex table (w7) or edge table (w6).
+
+
+=== 2026-10-12: A8 and A9 (the 12-hour campaign's graph findings), run through the Mac's tunnel ===
+(the A8 script's closing lines were reworded afterwards: the parameter rows show exact comparisons)
+
+### A8-opencypher-double-compares-one-ulp-tolerant/repro.py
+HANA version: 4.00.000.00.1788859455 
+
+stored d = -985.195; one ulp below = -985.1950000000002; two ulps below = -985.1950000000003
+
+  SQL      d = one ulp below                          : []
+  SQL      d <= one ulp below                         : []
+  cypher   d = $p, one ulp below                      : []
+  cypher   d <= $p, one ulp below                     : []
+  cypher   d <> $p, one ulp below                     : ['b', 'h']
+  cypher   d = $p, two ulps below                     : []
+  cypher   d = $p, exactly                            : ['b']
+  cypher   d = TOFLOAT(''-985.1950000000002'')        : []
+  cypher   d = -985.1950000000002 (constant)          : ['b']
+  cypher   d = -985.1950000000003 (constant)          : ['b']
+  cypher   d <= two ulps below as TOFLOAT             : []
+  cypher   0.5 = 0.5000000000000001 (constant, 1 ulp) : ['h']
+  cypher   0.5 = 0.5000000000000002 (constant, 2 ulps): ['h']
+  cypher   0.5 = $p, 0.5000000000000002 (2 ulps)      : []
+  cypher   TOFLOAT(''-985.1950000000002'') projected  : [-985.1950000000002]
+
+  => SQL compares the DOUBLE exactly (no row for a neighbour one ulp away); openCypher calls a
+     parameter or a TOFLOAT constant one ulp away EQUAL (and `<=` holds, `<>` fails for it), two ulps
+     away not; a DOUBLE constant written in the query text matches even two ulps away (parsed to ~15
+     significant digits), while TOFLOAT of the same digits is exact.
+
+### A9-opencypher-two-calls-parameter-types/repro.py
+HANA version: 4.00.000.00.1788859455 
+
+  the paths call alone (p0a, p0b strings; p1 an integer)    : OK [('b', 1)]
+  the starts call alone                                     : OK [('a',), ('b',)]
+  starts LEFT JOIN paths (the fuzzer's traversal text)      : [-10427] Conversion of parameter/column (3) from data type UCS2 (LE) to BIGINT failed (invalid number: not a valid numb
+  the same, p1 declared first in the second call            : [339] invalid number: not a valid number string 'o' (at pos 62)
+  the same with the string pivots as constants              : OK [('a', None), ('b', 1)]
+  two calls, both calls' parameters strings only            : OK [('a', 1), ('b', 2)]
+
+  => each call alone types its parameters by the attributes they are compared with; once a second
+     call joins the statement, the second call's string parameter is typed as the integer's type
+     (the client reports the conversion failure for that `?`). Constants, or parameters of one
+     type per call, are the workaround the fuzzer now uses.
+
+
+
+=== 2026-10-12: B13 and B14, run through the Mac's tunnel ===
+
+### B13-sparql-avg-in-double/repro.py
+HANA version: 4.00.000.00.1788859455 
+
+-5479 / 29  
+  SPARQL AVG(?w)               : -188.93103448275863
+  SPARQL SUM(?w) / COUNT(?w)   : -188.93103448275863
+  SPARQL IF(COUNT > 0, AVG, MAX) : -188.93103448275863
+  SQL    AVG(w) DECIMAL(25,6)  : -188.931034
+7 / 128     
+  SPARQL AVG(?w)               : 0.0546875
+  SPARQL SUM(?w) / COUNT(?w)   : 0.0546875
+  SPARQL IF(COUNT > 0, AVG, MAX) : 0.0546875
+  SQL    AVG(w) DECIMAL(25,6)  : 0.054687
+9007199254742209 / 3 (a sum above 2^53)
+  SPARQL AVG(?w)               : 3002399751580736
+  SPARQL SUM(?w) / COUNT(?w)   : 3002399751580736
+  SPARQL IF(COUNT > 0, AVG, MAX) : 3002399751580736
+  SQL    AVG(w) DECIMAL(25,6)  : 3002399751580736.333333
+
+  => the exact means are -188.931034482758620689..., 0.0546875 and 3002399751580736.333...: SQL answers
+     the DECIMAL(25,6) truncation (-188.931034, 0.054687, 3002399751580736.333333); the triple store answers
+     double(SUM) / COUNT (-188.93103448275863, 0.0546875, and 3002399751580736: the sum's low bits lost).
+
+### B14-opencypher-boolean-not-in-count-or-comparison/repro.py
+HANA version: 4.00.000.00.1788859455 
+
+  BOOLEAN projected                 : OK  [('a', True), ('b', False), ('c', None), ('d', True)]
+  BOOLEAN as a group key            : OK  [(True, 2), (False, 1), (None, 1)]
+  DISTINCT over a BOOLEAN           : OK  [(True,), (False,), (None,)]
+  COUNT over a BOOLEAN attribute    : [4906] GraphEngine: OpenCypher compilation error: Expected [integer, bigint, float, string, boolean, dateti
+  COUNT over a BOOLEAN edge attr    : [4906] GraphEngine: OpenCypher compilation error: Expected [integer, bigint, float, string, boolean, dateti
+  COUNT over a BIGINT (control)     : OK  [(4,)]
+  two BOOLEANs compared (<>)        : [4906] GraphEngine: OpenCypher compilation error: Invalid subgraph: Unexpected argument type: line 1 col 57
+  two BOOLEANs compared (=)         : [4906] GraphEngine: OpenCypher compilation error: Invalid subgraph: Unexpected argument type: line 1 col 57
+  two BIGINTs compared (control)    : OK  [('a', 'b'), ('a', 'c'), ('b', 'c'), ('a', 'd'), ('b', 'd'), ('c', 'd')]
+  BOOLEAN against a constant (G10)  : [4905] GraphEngine: OpenCypher syntax error: syntax error, unexpected token near "true": line 1 col 82 (at 
+  BOOLEAN IS NULL                   : OK  [('c',)]
+  SQL COUNT(b) over the table        : OK  [(3,)]
+
+  => a BOOLEAN attribute is projected, grouped by, DISTINCTed and null-tested, but COUNT(bool) and
+     a comparison of two BOOLEAN attributes are compilation errors (4906); SQL counts the column.
+

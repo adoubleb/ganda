@@ -25,6 +25,18 @@ class HanaProvider(Provider):
     semantics = SEMANTICS
     pivots = pivots
     coverage_levels = ("off",)
+    # an error on one variant (a refusal of one engine path) must not hide a wrong answer
+    # among the variants that answered: they are compared, and the finding key names them
+    compare_despite_errors = True
+    # a traversal the doc data model cannot ask (a LIST membership next to the UNNEST edge
+    # views, B6 / H2) is still asked of rel, the graph data model and rdf
+    partial_traversals = True
+
+    def error_signature(self, message: str) -> str:
+        """The `[code]` the session puts in front of every engine error (`connection._error`,
+        `[decode]` for a decoding failure): two refusals with different codes on one shape
+        are two findings."""
+        return message.split("]", 1)[0] + "]" if message.startswith("[") and "]" in message else ""
 
     @property
     def physical_design(self):

@@ -162,6 +162,45 @@ so native `page` / `keys` are not asked; parameters bind bare only; an undirecte
 self-loop matches once; SUM over nothing answered NULL (the docs say 0: every native sum
 carries its COUNT and SQL decides). The switches in `graph.py` are named after the facts.
 
+Added 2026-10-12 (each with a RULES.md section and probe facts): plan steering
+(`concrete_syntax/hints.py`: every SQL text asked once more under one of sixteen `WITH
+HINT (...)` profiles -- HEX off or on, ESX, OLAP, the join engine, row vs column operators, the
+optimizer levels, the rewrites off, HEX's disk operators and join kinds, no indexes,
+single-threaded -- one profile per question, the variants `rel:<profile>` /
+`graph:nest+<profile>` / `rdf:table_fn+<profile>` / `rel:hint_<profile>`; a hinted twin
+that answers differently is an engine defect with no cross-model confound); the Document
+Store's `NOT` kept as written (`doc:neg`); the custom-key axis; and the inheritance axis
+(the base class `N0` as a UNION ALL view on rel and the graph data model, the views'
+union on doc, a second class triple on rdf, the unlabelled `MATCH (a)` in openCypher; a
+write on it one statement per subclass, the counts summed). SQLite has no hints, so plan
+steering is compared live only (the offline session strips the clause).
+
+The 12-hour campaign of 2026-10-12 (its first ninety minutes, 25 bundles) added **A8** (a
+DOUBLE constant in a cypher text is parsed to ~15 significant digits; bound doubles are
+exact) and **A9** (two OPENCYPHER_TABLE calls in one statement type the second call's bare
+parameters in the wrong order when they mix a string and a number): the graph renderings
+now bind DOUBLE pivots only and inline every other pivot as a constant, and the `literal`
+variant is gone. Also found: HANA SQL's `AVG(BIGINT)` is `DECIMAL(25,6)` TRUNCATED to six
+places (the reference follows it) while the triple store's AVG computes in double (B13,
+guarded in `known_bugs`); a BOOLEAN is refused inside COUNT and in a comparison (B14).
+
+The oracle on HANA runs with two provider options the core added 2026-10-12 and the
+other providers keep off (so the OrientDB parity baseline stands): `partial_traversals`
+(a traversal the doc views cannot ask stays a partial case instead of being dropped
+everywhere) and `compare_despite_errors` (the variants that answered are compared when
+another one errored; the finding key names the mismatching pairs and the error's code
+through `error_signature`). Cross-type numeric pivots and `NOT IN` are drawn
+(`hana/pivots.py`), each typed per data model (RULES.md "Values"); no variant repeats
+another's text on its data model; a decoding failure is an internal `EngineError`.
+More engine paths per question (track 2, 2026-10-12): `rel:again` (the base text a second
+time), the profile `plan_cache`, the hinted collection query, `rel:inline` (constants in the
+text), `rel:block` / `rel:block_ni` (a SQLScript anonymous block, inlining on or off), the
+form `tlp` (EXCEPT the false EXCEPT the unknown; MINUS with BIND in SPARQL), the
+transaction door's peer check (a second connection must not see the junk) and the path's
+`graph:script` (GraphScript's `Shortest_Path` over a keys-only workspace `gws`). The
+stand-in skips the GraphScript objects, unwraps blocks and strips hints; those three are
+compared live only.
+
 Verified live against HANA Cloud 4.00.000.00 (2026-10-09): the probe is 57/57, the first
 campaigns run, and six engine defects are written up with repros under
 `ganda/hana/issues-draft/` -- **H1** (an `xsd:double` is serialized to ~6 significant
@@ -186,7 +225,7 @@ a direct address. `connection.connect()` retries a lost connect (`HANA_CONNECT_R
 pytest tests/hana tests/test_layering.py -q        # no server (test_offline needs rdflib)
 python3 -m tests.hana.run_offline --seeds 1 10     # whole campaigns on SQLite + rdflib through the real session code
 python3 -m ganda hana doctor
-python3 -m ganda hana probe                        # 90 facts (R/D/K 2026-10-10, G 2026-10-11); `probe K5 D` for a subset
+python3 -m ganda hana probe                        # 141 facts (R/D/K 2026-10-10, G 2026-10-11, P and the 2026-10-12 facts); `probe K5 D` for a subset
 ```
 
 After any change to a HANA renderer, mapping or semantics: the offline runner first (it
