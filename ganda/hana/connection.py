@@ -363,7 +363,7 @@ def connect(schema: "str | None" = None):
     dbapi = _dbapi()
     host = os.environ.get("HANA_HOST")
     if not host:
-        raise EngineCrash("HANA_HOST is not set: ganda attaches to a running SAP HANA Cloud instance (HANA_HOST, HANA_PORT, HANA_USER, HANA_PASSWORD)")
+        raise EngineCrash("HANA_HOST is not set: ganda attaches to a running SAP HANA Cloud instance (there is no Docker option). Set HANA_HOST, HANA_PORT, HANA_USER and HANA_PASSWORD in the environment or in ganda/hana/.env (copy ganda/hana/.env.example)")
     kw = dict(
         address=host,
         port=int(os.environ.get("HANA_PORT", "443")),

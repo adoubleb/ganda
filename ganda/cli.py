@@ -10,12 +10,18 @@
                                             documents, graphs, strings and binaries)
 
 `run` and `mutate` take one flag per field of the engine's configuration class.
+
+Connection settings come from the environment, or from `ganda/<engine>/.env`
+Example at `ganda/<engine>/.env.example`
+If env variables are left unset, GANDA pulls the latest Docker image from the provider
+
 """
 from __future__ import annotations
 
 import argparse
 import sys
 
+from ganda.core import envfile
 from ganda.core.provider import EngineCrash
 from ganda.registry import PROVIDERS, provider
 
@@ -74,6 +80,8 @@ def main(argv=None) -> int:
             engine = provider(name)
             print(f"{name:10s} {engine.title:10s} data models: {', '.join(engine.data_models)}{'' if engine.has_generators else '  (skeleton: connection layer only)'}")
         return 0
+    if argv[0] in PROVIDERS:
+        envfile.load(argv[0])
     engine = provider(argv[0])
     ap = argparse.ArgumentParser(prog=f"ganda {engine.name}", description=f"{engine.title}: multi-model metamorphic fuzzing")
     sub = ap.add_subparsers(dest="command", required=True)
