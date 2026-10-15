@@ -33,6 +33,7 @@ from ganda.core import scale as _scale
 from ganda.core.limits import StorageLimits
 from ganda.core.rng import QueryRng, stream as _stream
 from dataclasses import dataclass
+from typing import ClassVar
 
 from ganda.core.model import (
     BLOB_TYPES,
@@ -196,6 +197,52 @@ def boundary_value(rng: random.Random, ftype: FieldType, pool: "dict | None" = N
 
 @dataclass
 class GeneratorConfig:
+    # one line per field: the text of its `--flag` in `run --help` (`core/config.py`)
+    HELP: ClassVar[dict] = {
+        "min_node_types": "fewest node classes in a generated schema",
+        "max_node_types": "most node classes in a generated schema",
+        "min_edge_types": "fewest edge types in a generated schema",
+        "max_edge_types": "most edge types in a generated schema",
+        "min_fields_per_type": "fewest fields on a node class",
+        "max_fields_per_type": "most fields on a node class",
+        "min_nodes_per_type": "fewest rows in a node class",
+        "max_nodes_per_type": "most rows in a node class",
+        "min_edges_per_type": "fewest edges of an edge type",
+        "max_edges_per_type": "most edges of an edge type",
+        "null_probability": "chance a field is omitted from a row (absent: IS NULL true, IS DEFINED false)",
+        "explicit_null_probability": "chance a field holds an explicit stored null (IS NULL and IS DEFINED both true)",
+        "empty_table_probability": "chance a node class is generated with no rows",
+        "self_loop_probability": "chance an edge between a class and itself is a self-loop",
+        "parallel_edge_probability": "chance an edge repeats an existing source and target pair",
+        "hub_probability": "chance an edge starts at the edge type's hub node (a high fan-out vertex)",
+        "boundary_value_probability": "chance a stored value is a type's boundary value (min, max, empty, zero, ...)",
+        "value_reuse_probability": "chance a stored value repeats one already in the column (duplicates)",
+        "cardinality_control_probability": "chance a field is limited to 2, 3 or 5 distinct values",
+        "index_probability": "chance a scalar node field is indexed",
+        "composite_index_probability": "chance a class gets an index over two fields",
+        "edge_index_probability": "chance an edge type gets an index on one edge attribute",
+        "demote_colliding_indexes": "give a one-record-per-key index the provider's fallback kind when the values collide",
+        "churn_update_probability": "chance a stored row is updated after setup (churn)",
+        "churn_delete_probability": "chance a stored edge is deleted after setup (churn)",
+        "churn_node_delete_probability": "chance a stored node, and its edges, is deleted after setup (churn)",
+        "custom_key_probability": "chance a class uses custom record keys (strings, some non-ASCII) instead of generated ids",
+        "write_form_probability": "chance setup writes go through the engine's alternative write form",
+        "inheritance_probability": "chance of an abstract base class every node class extends",
+        "narrow_type_probability": "chance an INT or FLOAT field becomes a narrower numeric column (INTEGER, FLOAT, DECIMAL)",
+        "date_map_probability": "chance an INT field becomes a DATETIME or DATE column, or a LIST field a map column",
+        "collate_probability": "chance a STRING field is declared case-insensitive (COLLATE ci)",
+        "list_index_probability": "chance a LIST or MAP field gets an index over its elements, keys or values",
+        "churn_edge_update_probability": "chance an edge is written with initial attributes and then updated",
+        "traversal_cases": "traversal questions asked per generated instance",
+        "select_cases": "single-class (select) questions asked per generated instance",
+        "path_cases": "shortest-path questions asked per generated instance",
+        "write_cases": "predicate-targeted writes issued after the reads, each checked",
+        "scale": "scale profile: default, or large for the storage-engine stress mode",
+        "large_row_probability": "chance a row grows its strings, binaries and lists toward the engine's limits",
+        "binary_probability": "chance a STRING field becomes a BINARY column (a stored blob, never compared)",
+        "statements_per_request": "statements per setup request (0: the engine's own bulk form)",
+    }
+
     min_node_types: int = 2
     max_node_types: int = 10
     min_edge_types: int = 2

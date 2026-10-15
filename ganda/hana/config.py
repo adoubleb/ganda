@@ -4,12 +4,19 @@ wrong)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import ClassVar
 
 from ganda.core.data_generator import GeneratorConfig
 
 
 @dataclass
 class HanaConfig(GeneratorConfig):
+    HELP: ClassVar[dict] = {
+        "id_index_probability": "chance the id index is a non-default kind instead of the PRIMARY KEY (rel) or no index (doc)",
+        "clusters_probability": "chance a column table is hash-partitioned on id into 2 or 3 partitions (rel, graph)",
+        "graph_cache_probability": "chance the graph workspace is created NO CACHE (graph data model)",
+    }
+
     # the index on `id`, per data model: one of `dialect.ID_INDEX_KINDS` instead of the
     # PRIMARY KEY (rel) / no index (doc)
     id_index_probability: float = 0.5
