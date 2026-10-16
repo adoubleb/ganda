@@ -253,12 +253,12 @@ class Provider:
     # the oracle compares the variants that answered even when another one errored: the
     # error asymmetry then carries any mismatch among the rest, and the finding key names
     # it (`oracle.build_result`, `dedup`). Off, an error ends the comparison -- the legacy
-    # fuzzers' behaviour, which the OrientDB parity baseline records
+    # fuzzers' behaviour
     compare_despite_errors = False
     # a traversal question some data model has no concrete syntax for is kept as a
     # PARTIAL case (the others compare among themselves and with the reference, as a
     # select does); off, the question is dropped on every data model -- the legacy
-    # behaviour the OrientDB parity baseline records
+    # behaviour
     partial_traversals = False
 
     def error_signature(self, message: str) -> str:

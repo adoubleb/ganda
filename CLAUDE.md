@@ -14,8 +14,7 @@ that maps the legacy ports' terms to the ones used here. The legacy fuzzers
 ## Commands
 
 ```bash
-pytest tests/ -q                                   # no Docker: core on the fake engine, OrientDB units, parity slice, layering
-python3 scripts/golden_dump.py --check             # full parity with the legacy OrientDB fuzzer (~25 s)
+pytest tests/ -q                                   # no Docker: core on the fake engine, OrientDB units, layering
 python3 -m ganda list
 python3 -m ganda orientdb probe                    # Docker (or ORIENT_URL / ORIENT_PASSWORD)
 python3 -m ganda orientdb run --iterations 20 --seed 1000 --workers 2
@@ -38,16 +37,10 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
   for one engine (what `null + 1` is, where nulls sort, which index kind is unique), it
   belongs behind a slot of `core/provider.py`. Add the member to the contract's
   docstring, to `tests/test_layering.py`'s slot list and to `tests/fake_engine`.
-- **RNG draw order is frozen.** Every consumer draws from its own named stream
-  (`core/rng.py`). A provider hook is called exactly where the code it replaced drew;
-  a new axis draws from a new tail stream behind a probability that defaults to 0.
-  `scripts/golden_dump.py --check` is the gate: run it after any change to the data
-  generator, an AST, a query generator or OrientDB's concrete syntax, known bugs or
-  semantics. If it fails, `--dump <profile> <seed>` on both trees and diff.
-- **The parity baseline is only re-recorded on purpose** (`--legacy ../OrientDB
-  --write`), when a rename needs a new entry in the script's rename map. A behaviour
-  change that breaks parity is a decision to say out loud, not something to re-record
-  away.
+- **Every consumer draws from its own named stream** (`core/rng.py`), so adding a
+  draw in one place never shifts another; a new axis draws from a new tail stream
+  behind a probability that defaults to 0. Ganda no longer tracks parity with the
+  legacy OrientDB fuzzer: old campaigns are reproduced with `../OrientDB` itself.
 - **Query generator ids are random-stream names** (`ir_traversal`, `ir_select`,
   `ir_path`, `ir_write`): renaming one changes every seed.
 - **A provider module that binds the engine** exists so provider code and tests can
@@ -59,8 +52,7 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
   (`large_row_probability`, `binary_probability`, `statements_per_request`) and the
   `large` scale profile (`core/scale.py`) stay inside them; the core never hard-codes
   a size an engine would reject. A new axis of the kind draws from a tail stream and
-  defaults to off; a new dataclass field that the legacy tree lacks goes into
-  `scripts/golden_dump.py`'s `GANDA_ONLY_FIELDS` so parity still hashes the behaviour.
+  defaults to off.
 - **At the large scale the reference leg is off by design** (the profile's
   `reference=False`; `--reference` turns it back on): the oracle is the pairwise
   comparison of the data models, the state check samples (`--state-sample`), a
@@ -85,8 +77,7 @@ Adding a concrete syntax: a choice in the catalog of its module (`SYNTAXES` and
 `_RENDERERS` for a traversal; an axis of `SelectSyntax`), what it admits in
 `applicable`, its text in `render`, and its judgement in `known_bugs`. Then `pytest`,
 the probe if a new fact is relied on, a campaign, and the mutation benchmark A/B over
-the same seeds. A new syntax changes the cases, so parity with the legacy tree ends
-there on purpose: record that in the commit.
+the same seeds.
 
 ## ArangoDB
 
@@ -185,7 +176,7 @@ places (the reference follows it) while the triple store's AVG computes in doubl
 guarded in `known_bugs`); a BOOLEAN is refused inside COUNT and in a comparison (B14).
 
 The oracle on HANA runs with two provider options the core added 2026-10-12 and the
-other providers keep off (so the OrientDB parity baseline stands): `partial_traversals`
+other providers keep off: `partial_traversals`
 (a traversal the doc views cannot ask stays a partial case instead of being dropped
 everywhere) and `compare_despite_errors` (the variants that answered are compared when
 another one errored; the finding key names the mismatching pairs and the error's code

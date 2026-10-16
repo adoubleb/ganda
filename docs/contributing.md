@@ -68,10 +68,8 @@ tests/
   fake_engine/             an in-memory provider; the core's tests run on it
   core/ orientdb/ arangodb/ hana/
   test_layering.py         the import rules and the contract's slot list
-  golden/orientdb.json     the parity baseline
 scripts/
   campaign.py              tests -> probe -> campaign -> triage, in one command
-  golden_dump.py           parity with the legacy OrientDB fuzzer
 bugs/ campaign_reports/ mutation_reports/   outputs (gitignored)
 issues/                    triaged findings, written up ready to file
 ```
@@ -83,7 +81,6 @@ Run the gates that match what you touched. Each one catches a different kind of 
 | Gate | Command | Run it when | Needs |
 |---|---|---|---|
 | Unit and layering tests | `pytest tests/ -q` (~15 min in full; narrow it with a path such as `tests/core` while iterating) | Always | Nothing |
-| Parity | `python3 scripts/golden_dump.py --check` (~25 s) | Any change to the data generator, an AST, a query generator, or OrientDB's concrete syntax, known bugs or semantics | Nothing |
 | Probe | `python3 -m ganda <engine> probe` | You relied on a new engine fact, or upgraded the engine | Server |
 | Campaign | `python3 -m ganda <engine> run --iterations 20 --seed 1000 --workers 2` | Any change that reaches the engine | Server |
 | Mutation A/B | `python3 -m ganda <engine> mutate --trials 8 --seed 1 --tag before` then `--tag after` | A change to the query supply or the oracle | Server |
@@ -91,17 +88,6 @@ Run the gates that match what you touched. Each one catches a different kind of 
 
 `scripts/campaign.py --tag <tag> --iterations N` runs tests, probe, campaign and triage
 in order and exits 1 if the campaign found something.
-
-**If parity fails:** dump one seed on both trees and diff them.
-
-```bash
-python3 scripts/golden_dump.py --dump default 3 > new.json
-python3 scripts/golden_dump.py --legacy ../OrientDB --dump default 3 > old.json
-```
-
-A change that breaks parity on purpose (a new concrete syntax for OrientDB, say) is
-allowed, but say so in the commit message. Re-record the baseline only for a rename
-(`--legacy ../OrientDB --write`), never to make a failure go away.
 
 **Comparing mutation reports:** compare catch rates per mutant over the same mutant set
 and seeds. A headline mean across sets of different sizes means nothing.
@@ -119,8 +105,7 @@ silently corrupted results in the past.
    list, and implement it in `tests/fake_engine` and every full provider.
 3. **Never reorder random draws.** Draw from `rng.stream(seed, "<new name>")` for anything
    new. A new generation axis goes behind a probability that defaults to 0, so every
-   existing seed reproduces exactly. If the legacy tree lacks the new config field, add
-   it to `GANDA_ONLY_FIELDS` in `scripts/golden_dump.py`.
+   existing seed reproduces exactly.
 4. **Don't rename query generator ids** (`ir_traversal`, `ir_select`, `ir_path`,
    `ir_write`). They name random streams.
 5. **Every engine fact is probed.** Before code relies on how the engine behaves, add a
@@ -131,10 +116,11 @@ silently corrupted results in the past.
 7. **Use conventional names.** "Concrete syntax", not "spelling"; "data model", not
    "side". The README glossary maps the legacy terms. New concepts get the textbook term.
 8. **Don't edit the legacy fuzzers** (`../OrientDB`, `../arangoDB`, `../surrealDB`).
-   They are reference material and the parity baseline.
+   They are reference material, and the way to reproduce
+   their old campaigns: Ganda no longer tracks parity with them.
 
 Commit messages start with the area they touch (`HANA: ...`, `ArangoDB: ...`,
-`core: ...`) and say what changed in behaviour, including any parity break.
+`core: ...`) and say what changed in behaviour.
 
 ## How to...
 
@@ -172,9 +158,7 @@ agrees usually means a rule here is wrong.
 1. Add a field to `GeneratorConfig` (or the provider's config subclass) with a default
    that turns it off. It becomes a CLI flag automatically.
 2. Draw it from its own tail stream in `data_generator.py`.
-3. Check parity still passes with the axis off, and add the field to
-   `GANDA_ONLY_FIELDS` if the legacy tree lacks it.
-4. Turn it on in `scripts/campaign.py`'s axis list once it is stable.
+3. Turn it on in `scripts/campaign.py`'s axis list once it is stable.
 
 ### Add a known bug
 

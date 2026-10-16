@@ -38,5 +38,4 @@ README's "Vocabulary" table maps them.
 | **Scale profile** | `default` or `large`: data volume, reference on or off, state sampling, timeouts. | `core/scale.py` |
 | **Storage limits** | What an engine can hold; the large-data axes stay inside it. | `core/limits.py`, `<engine>/limits.py` |
 | **Tail stream** | A random stream keyed by an axis's own name, so the axis off reproduces the generator without it. | `core/rng.py`, `data_generator.py` |
-| **Parity / golden dump** | Hash-for-hash equality of the OrientDB provider's offline output with the legacy fuzzer's. | `scripts/golden_dump.py` |
 | **Provider / slot** | One engine behind the core; a slot is one attribute the core reads from it. | `core/provider.py` |

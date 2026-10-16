@@ -10,12 +10,6 @@ tables, and queried in each form. Ganda turns that promise into a test oracle:
 4. require every pair of answers to agree, and agree with a **reference** answer
    computed in Python from the Instance.
 
-Any disagreement is a **finding**. It belongs to the engine: every answer came from
-one engine, one version and one process, over data that was checked to be equal.
-
-The code is split the way SQLancer is: an engine-agnostic **core** (`ganda/core`) and one
-**provider** per DBMS (`ganda/orientdb`, `ganda/arangodb`, `ganda/hana`, `ganda/surrealdb`).
-
 ## The two layers
 
 ```mermaid
@@ -214,11 +208,7 @@ it is suspect.
    reshuffling the data.
 4. **Query generator ids are stream names.** `ir_traversal`, `ir_select`, `ir_path`,
    `ir_write` name random streams; renaming one changes every seed.
-5. **Parity with the legacy OrientDB fuzzer.** `scripts/golden_dump.py --check` hashes
-   everything the pipeline produces offline for 40 seeds and compares it with
-   `tests/golden/orientdb.json`. A change that breaks parity is a decision to state in
-   the commit, not something to re-record away.
-6. **Known bugs are withheld, not ignored.** A variant whose text has the exact shape of
+5. **Known bugs are withheld, not ignored.** A variant whose text has the exact shape of
    a filed bug is skipped and counted (`known bugs withheld` in the stats), so a known
    defect does not bury new ones. `--no-known-bugs` runs them again.
 

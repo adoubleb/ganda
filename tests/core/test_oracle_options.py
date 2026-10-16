@@ -1,7 +1,7 @@
 """The oracle's provider-set options (`core/provider.py`): comparing the variants that
 answered when another one errored, the error signature in the finding key, and a
 traversal case left partial by a data model with no syntax -- all off or inert on the
-default provider, so the OrientDB parity baseline stands."""
+default provider."""
 from __future__ import annotations
 
 from ganda.core.case import Comparison, QueryCase

@@ -3,7 +3,7 @@
 
 Four phases, each skippable:
 
-  1. tests    `pytest tests/ -q` -- the core, the provider and the parity gate, no Docker.
+  1. tests    `pytest tests/ -q` -- the core and the provider, no Docker.
   2. probe    `ganda <engine> probe` -- every engine fact the oracle rests on.
               A changed fact invalidates the campaign, so this gates it.
   3. campaign `ganda <engine> run` over `--iterations` seeds with every schema axis on.
@@ -128,7 +128,7 @@ def main(argv=None) -> int:
     if not args.skip_tests:
         log.banner("phase 1/4  unit tests")
         if run([py, "-m", "pytest", "tests/", "-q"], log, args.dry_run) != 0:
-            log("tests failed: the reference, a renderer or the parity gate is broken, so a campaign would report itself. Stopping.")
+            log("tests failed: the reference or a renderer is broken, so a campaign would report itself. Stopping.")
             return 2
 
     if not args.skip_probe:

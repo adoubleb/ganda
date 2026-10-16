@@ -295,8 +295,6 @@ tests/hana/
 - Use conventional terms (the README glossary).
 - Every engine fact the provider starts to rely on gets a probe fact and a line in
   `RULES.md`.
-- Do not re-record the OrientDB golden baseline (`scripts/golden_dump.py`); the HANA
-  provider has no parity baseline.
 
 ## 7. Known gaps and ideas, in order of value
 

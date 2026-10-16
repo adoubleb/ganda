@@ -14,7 +14,6 @@
 Connection settings come from the environment, or from `ganda/<engine>/.env`
 Example at `ganda/<engine>/.env.example`
 If env variables are left unset, GANDA pulls the latest Docker image from the provider
-
 """
 from __future__ import annotations
 
