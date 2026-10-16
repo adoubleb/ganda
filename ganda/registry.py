@@ -1,7 +1,5 @@
-"""The engines ganda knows: a name on the command line -> its provider.
-
-A provider is imported only when it is asked for, so one engine's dependencies never
-load for another's campaign. To add an engine, add its `module:attribute` here.
+"""
+To add an engine, add its `module:attribute` here.
 """
 from __future__ import annotations
 
