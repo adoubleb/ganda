@@ -3,7 +3,7 @@ syntax: the `ir_select` query generator.
 
 The grammar: a class with records (a subclass or, on the inheritance axis, the base
 class); a filter with `WHERE_PROBABILITY` -- a predicate tree over the class's fields
-(`predicates.draw_over`), or with `COMPOSITE_PROBABILITY` an AND over a composite
+(`generators.predicates.draw_over`), or with `COMPOSITE_PROBABILITY` an AND over a composite
 index's fields -- else none; a kind drawn uniformly from `select.KINDS`, its fields and
 function drawn among the columns that admit them, judged over the records the filter
 keeps (`sum` only where every partial sum stays exact; `avg` / `median` over a present
@@ -41,6 +41,7 @@ import random
 
 from ganda.core.model import INT_TYPES, NUMERIC_TYPES, ORDERED_TYPES, SCALAR_TYPES, FieldType, Instance, Schema
 from ganda.core.ast import predicates
+from ganda.core.generators import predicates as sampler
 from ganda.core.case import QueryCase
 from ganda.core.ast.select import AGG_FNS, DIRECTIONS, EDGE_KINDS, GROUP_FNS, JOIN_FORMS, JOIN_OPS, KINDS, SelectQuery, coverage_signature, hits, present_values, reference_ok, shape_signature, target_fields
 from ganda.core.generators.support import composite_and as _composite_and, draw_tx, tx_binds
@@ -90,9 +91,9 @@ def _draw_where(rng: random.Random, schema: Schema, instance: Instance, table: s
     if focus is not None:
         # a read-back after a write: the filter over the written field
         fields = [f for f in fields if f.name == focus] or fields
-        return predicates.draw_over(rng, on, fields, _values_of(instance, table, edge), "p", engine)
+        return sampler.draw_over(rng, on, fields, _values_of(instance, table, edge), "p", engine)
     if edge:
-        return predicates.draw_over(rng, on, fields, _values_of(instance, table, edge), "p", engine)
+        return sampler.draw_over(rng, on, fields, _values_of(instance, table, edge), "p", engine)
     composites = [ix for ix in schema.indexes if ix.target == "node" and ix.extra_fields and ix.table == table]
     if composites and rng.random() < COMPOSITE_PROBABILITY:
         ix = rng.choice(composites)
@@ -100,13 +101,13 @@ def _draw_where(rng: random.Random, schema: Schema, instance: Instance, table: s
     if rng.random() < INSUB_PROBABILITY:
         # a semi-join, alone or next to a drawn tree
         if rng.random() < 0.6:
-            return predicates.draw_insub(rng, schema, instance, table, "p")
-        sub = predicates.draw_insub(rng, schema, instance, table, "p_0")
-        other = predicates.draw_over(rng, "source", fields, _values_of(instance, table), "p_1", engine, compound_probability=0.0)
+            return sampler.draw_insub(rng, schema, instance, table, "p")
+        sub = sampler.draw_insub(rng, schema, instance, table, "p_0")
+        other = sampler.draw_over(rng, "source", fields, _values_of(instance, table), "p_1", engine, compound_probability=0.0)
         if sub is None or other is None:
             return sub or other
         return predicates.Compound("source", rng.choice(("AND", "OR")), (sub, other))
-    return predicates.draw_over(rng, "source", _prefer_indexed(rng, schema, table, fields, False), _values_of(instance, table), "p", engine)
+    return sampler.draw_over(rng, "source", _prefer_indexed(rng, schema, table, fields, False), _values_of(instance, table), "p", engine)
 
 
 def _admits(fn: str, f, present: list, sum_is_exact) -> bool:

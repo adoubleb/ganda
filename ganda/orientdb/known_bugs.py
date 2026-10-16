@@ -184,7 +184,7 @@ executor's `OQueryOperatorEquals.equals` decodes the text to a byte[] and then c
 the arrays by identity -- while an index on the column answers it (the key is the
 decoded bytes, compared by content); `IN` and `<>` follow, and `UPDATE` / `DELETE
 ... WHERE b = ...` touch records only when an index exists. No guard: the model never
-compares a BINARY column (`SCALAR_TYPES` excludes it, `predicates.draw` answers only
+compares a BINARY column (`SCALAR_TYPES` excludes it, `generators.predicates.draw` answers only
 the null tests) and never indexes one (`data_generator._without_blob_indexes`); the
 probe records the fact.
 """

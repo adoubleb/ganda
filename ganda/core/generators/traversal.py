@@ -27,7 +27,7 @@ from __future__ import annotations
 import random
 
 from ganda.core.model import INT_TYPES, ORDERED_TYPES, FieldType, Instance, Schema
-from ganda.core.ast import predicates
+from ganda.core.generators import predicates as sampler
 from ganda.core.case import QueryCase
 from ganda.core.ast.traversal import EDGE_PROJECTIONS, MAX_HOPS, PLACEMENTS, PROJECTIONS, REACH_PROJECTIONS, Hop, TraversalQuery, shape_signature, sums_exactly
 
@@ -83,13 +83,13 @@ def _draw_hops(rng: random.Random, schema: Schema, instance: Instance, start: st
             def edge_values(f):
                 return _edge_values(instance, et.name, f.name)
 
-            pred = predicates.draw_over(rng, "edge", et.fields, values_of=edge_values, bind=f"p{k}", engine=schema.engine)
+            pred = sampler.draw_over(rng, "edge", et.fields, values_of=edge_values, bind=f"p{k}", engine=schema.engine)
         elif placement == "t" and schema.query_fields(nxt):
 
             def target_values(f):
                 return _node_values(instance, nxt, f.name)
 
-            pred = predicates.draw_over(rng, "target", schema.query_fields(nxt), values_of=target_values, bind=f"p{k}", engine=schema.engine)
+            pred = sampler.draw_over(rng, "target", schema.query_fields(nxt), values_of=target_values, bind=f"p{k}", engine=schema.engine)
         hops.append(Hop(et.name, direction, pred))
         cur = nxt
         if direction == "both":
@@ -107,7 +107,7 @@ def _draw_source_predicate(rng: random.Random, schema: Schema, instance: Instanc
     def source_values(f):
         return _node_values(instance, table, f.name)
 
-    return predicates.draw_over(rng, "source", fields, values_of=source_values, bind="p0", engine=schema.engine)
+    return sampler.draw_over(rng, "source", fields, values_of=source_values, bind="p0", engine=schema.engine)
 
 
 def _reach_ok(schema: Schema, hops: list) -> bool:

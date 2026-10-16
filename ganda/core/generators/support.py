@@ -6,6 +6,7 @@ from __future__ import annotations
 import dataclasses
 
 from ganda.core.ast import predicates
+from ganda.core.generators import predicates as sampler
 from ganda.core.ast.predicates import Compound
 from ganda.core.model import Instance, NodeRow, Schema
 
@@ -13,7 +14,7 @@ from ganda.core.model import Instance, NodeRow, Schema
 def composite_and(rng, fields, values_of, engine) -> "Compound | None":
     children = []
     for k, f in enumerate(fields):
-        leaf = predicates.draw(rng, "source", f, values_of(f), f"p_{k}", engine)
+        leaf = sampler.draw(rng, "source", f, values_of(f), f"p_{k}", engine)
         if leaf is None:
             return None
         children.append(leaf)

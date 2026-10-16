@@ -5,7 +5,7 @@ The grammar: with `EDGE_PROBABILITY` an edge type with attributes and relationsh
 else a class with records and fields; an op among those the target admits
 (`write.NODE_OPS` / `EDGE_OPS`); the written field among the columns the op admits
 (arithmetic: an integer column; merge: a scalar one); a filter with
-`WHERE_PROBABILITY` (`predicates.draw_over`, as the select generator draws it) else
+`WHERE_PROBABILITY` (`generators.predicates.draw_over`, as the select generator draws it) else
 every record; a value from the column's own values or a fresh one of its type; the
 before / after rows instead of a count for a node update with `RETURNING_PROBABILITY`.
 A write is kept only if it is safe by construction:
@@ -27,7 +27,7 @@ from __future__ import annotations
 import random
 
 from ganda.core.model import COLLECTION_TYPES, INT_TYPES, FieldType, Instance, Schema
-from ganda.core.ast import predicates
+from ganda.core.generators import predicates as sampler
 from ganda.core.ast.write import EDGE_OPS, NODE_OPS, RETURNING_OPS, WriteQuery, apply, edge_hits, node_hits
 
 EDGE_PROBABILITY = 0.3
@@ -122,7 +122,7 @@ def _draw(rng: random.Random, schema: Schema, instance: Instance, step: int) -> 
     values_of = lambda f: [r.get(f.name) for r in rows if f.name in r]  # noqa: E731
     where = None
     if op != "upsert" and rng.random() < WHERE_PROBABILITY:
-        where = predicates.draw_over(rng, on, fields, values_of, "p", schema.engine)
+        where = sampler.draw_over(rng, on, fields, values_of, "p", schema.engine)
     kw: dict = dict(target, op=op, where=where, field=field.name if field else None)
     if op in ("set", "merge", "upsert", "edge_set"):
         kw["value"] = _value(rng, field.type, values_of(field))

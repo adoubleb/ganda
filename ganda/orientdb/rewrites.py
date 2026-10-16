@@ -9,7 +9,9 @@ import dataclasses
 import math
 import random
 
-from ganda.core.ast.predicates import I32_MAX, I32_MIN, I64_MAX, I64_MIN, MAP_OPS, MIRROR, NO_BIND_OPS, Compound, Predicate, _f32
+from ganda.core.ast.predicates import MAP_OPS, MIRROR, NO_BIND_OPS, Compound, Predicate
+from ganda.core.constants import I32_MAX, I32_MIN, I64_MAX, I64_MIN
+from ganda.core.neighbours import _f32
 from ganda.core.model import DATE_TYPES, FieldType
 from ganda.orientdb.pivots import lossy_pivot
 from ganda.orientdb.semantics import apply_arith

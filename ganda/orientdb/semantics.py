@@ -53,14 +53,10 @@ import struct
 from decimal import Decimal
 from typing import Any
 
-from ganda.core.ast.predicates import Compound, shift_date
+from ganda.core.ast.predicates import Compound
+from ganda.core.neighbours import shift_date
 from ganda.core.model import FieldType
 from ganda.core.provider import Semantics
-
-I64_MAX = 2**63 - 1
-I64_MIN = -(2**63)
-I32_MAX = 2**31 - 1
-I32_MIN = -(2**31)
 
 
 def _is_number(v: Any) -> bool:
@@ -172,7 +168,7 @@ def lt(a: Any, b: Any) -> bool:
 
 # what Java's regex `.` does not match: the engine compiles a LIKE pattern into a
 # regex without DOTALL (O42)
-_LINE_TERMINATORS = "\n\r\u0085  "
+_LINE_TERMINATORS = "\n\r\u0085"
 _WILD = f"[^{_LINE_TERMINATORS}]"
 
 
