@@ -32,7 +32,7 @@ Two more dimensions of the question:
   back -- the answer is the Instance's with the write applied (`tx_instance`).
 
 A filter may hold a SEMI-JOIN leaf (`f IN (SELECT g FROM t2 [WHERE q])`,
-`predicates.draw_insub`); `hits` recomputes its answered values over the Instance it
+`generators.predicates.draw_insub`); `hits` recomputes its answered values over the Instance it
 evaluates (the transaction's included).
 
 `evaluate` answers a query over the records the filter keeps (the reference leg); it

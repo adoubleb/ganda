@@ -8,9 +8,8 @@ Plane and the case functions to ASCII (Unicode case mapping is the engine's own)
 """
 from __future__ import annotations
 
+from ganda.core.constants import I64_MAX
 from ganda.core.model import FieldType
-
-I64_MAX = 2**63 - 1
 
 
 def _bmp(s: str) -> bool:

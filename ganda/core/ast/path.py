@@ -1,21 +1,21 @@
-"""The PATH AST: the vertex count of a shortest path between two records.
+"""The PATH IR: the vertex count of a shortest path between two records.
 
-A `PathQuery` asks for the number of vertices on a shortest path from `start` to
-`goal` following `direction` over one edge type (or every type), within `depth` hops;
-nothing when the goal is out of reach or beyond the bound. The reference is the BFS
-distance over the Instance. Each engine renders the question through whatever path
-machinery its data models have (`Provider.path_syntax`).
+A `PathQuery` asks for the number of vertices on a shortest path from `start` to `goal`
+given some edge types, direction, and a max depth count.
+
+Each engine renders the question through (`Provider.path_syntax`).
 """
+# TODO: rename this package from ast to ir. This is not an AST.
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ganda.core.ast.enums import PathDirection, Reach
 from ganda.core.generators.support import bfs_distances
 from ganda.core.model import Instance
 
-DIRECTIONS = ("OUT", "IN", "BOTH")
 DEPTHS = (1, 2, 3)
-REACH = ("same", "yes", "cut", "no")
 
 
 @dataclass(frozen=True)
@@ -24,9 +24,12 @@ class PathQuery:
     start_type: str
     goal: str
     goal_type: str
-    direction: str
+    direction: PathDirection
     edge_type: "str | None"
     depth: int
+
+    def __post_init__(self):
+        object.__setattr__(self, "direction", PathDirection(self.direction))
 
     def to_params(self) -> dict:
         return {"start": self.start, "start_type": self.start_type, "goal": self.goal, "goal_type": self.goal_type, "direction": self.direction, "edge_type": self.edge_type, "depth": self.depth}
@@ -45,9 +48,9 @@ def evaluate(q: PathQuery, instance: Instance) -> list:
     return [{"v": d + 1}] if d is not None and d <= q.depth else []
 
 
-def reach(q: PathQuery, instance: Instance) -> str:
+def reach(q: PathQuery, instance: Instance) -> Reach:
     d = distance(q, instance)
-    return "same" if d == 0 else "no" if d is None else "cut" if d > q.depth else "yes"
+    return Reach.SAME if d == 0 else Reach.NO if d is None else Reach.CUT if d > q.depth else Reach.YES
 
 
 def coverage_signature(q: PathQuery, instance: Instance) -> str:
@@ -55,7 +58,7 @@ def coverage_signature(q: PathQuery, instance: Instance) -> str:
 
 
 def all_coverage_signatures() -> list:
-    return [f"path dir={d} et={e} k={k} reach={r}" for d in DIRECTIONS for e in ("one", "all") for k in DEPTHS for r in REACH]
+    return [f"path dir={d} et={e} k={k} reach={r}" for d in PathDirection for e in ("one", "all") for k in DEPTHS for r in Reach]
 
 
 COVERAGE_DENOMINATOR = len(all_coverage_signatures())

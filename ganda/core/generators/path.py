@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import random
 
-from ganda.core.ast.path import DEPTHS, DIRECTIONS, PathQuery, coverage_signature, distance, reach
+from ganda.core.ast.enums import PathDirection
+from ganda.core.ast.path import DEPTHS, PathQuery, coverage_signature, distance, reach
 from ganda.core.case import Comparison, QueryCase
 from ganda.core.generators.support import bfs_distances
 from ganda.core.model import Instance, Schema
@@ -18,7 +19,7 @@ def sample_path(rng: random.Random, schema: Schema, instance: Instance) -> "Path
     nodes = list(instance.nodes)
     if not nodes or not schema.edge_types:
         return None
-    direction = rng.choice(DIRECTIONS)
+    direction = rng.choice(list(PathDirection))
     et = rng.choice(schema.edge_types).name if rng.random() < 0.6 else None
     edges = [e for e in instance.edges if et is None or e.type_name == et]
     ends = {e.from_record for e in edges} if direction == "OUT" else {e.to_record for e in edges} if direction == "IN" else {e.from_record for e in edges} | {e.to_record for e in edges}

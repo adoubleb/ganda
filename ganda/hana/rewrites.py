@@ -14,7 +14,8 @@ from __future__ import annotations
 import math
 import random
 
-from ganda.core.ast.predicates import I64_MAX, I64_MIN, MIRROR, Compound, Predicate
+from ganda.core.ast.predicates import MIRROR, Compound, Predicate
+from ganda.core.constants import I64_MAX, I64_MIN
 from ganda.core.model import FieldType
 from ganda.hana.semantics import apply_arith
 

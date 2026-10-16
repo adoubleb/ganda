@@ -30,6 +30,7 @@ import math
 import random
 
 from ganda.core import scale as _scale
+from ganda.core.constants import I64_MAX, I64_MIN
 from ganda.core.limits import StorageLimits
 from ganda.core.rng import QueryRng, stream as _stream
 from dataclasses import dataclass
@@ -67,8 +68,6 @@ _FIELD_TYPE_WEIGHTS = {
 }
 _CARDINALITY_CLASSES = (2, 3, 5)
 
-I64_MAX = 2**63 - 1
-I64_MIN = -(2**63)
 F64_INT_EXACT = 2**53
 DBL_MAX = 1.7976931348623157e308
 

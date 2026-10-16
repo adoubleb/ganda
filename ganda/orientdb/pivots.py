@@ -6,7 +6,8 @@ from __future__ import annotations
 import math
 import random
 
-from ganda.core.ast.predicates import I32_MAX, I32_MIN, _f32
+from ganda.core.constants import I32_MAX, I32_MIN
+from ganda.core.neighbours import _f32
 from ganda.core.model import DATE_TYPES, FieldType
 
 ORDERED_OPS = ("=", "<>", ">", ">=", "<", "<=", "IN", "BETWEEN")
