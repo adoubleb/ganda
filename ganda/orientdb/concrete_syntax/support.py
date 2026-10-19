@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import dataclasses
 
+from ganda.core.ast.select import TxWrite
 from ganda.core.model import FieldType, Instance, NodeRow, Schema
 from ganda.orientdb.dialect import HASH_KINDS
 from ganda.orientdb import predicates
@@ -225,15 +226,15 @@ def method_fn(template: str, ftype: FieldType):
 
 # --- the transaction door ---------------------------------------------------------------------
 
-def tx_write(tx: dict, data_model: str) -> str:
+def tx_write(tx: TxWrite, data_model: str) -> str:
     """The write's text on `data_model`: a vertex is created and deleted through `CREATE
     VERTEX` / `DELETE VERTEX` (a `DELETE FROM` a vertex class is refused)."""
-    t, f = tx["table"], tx["field"]
-    if tx["write"] == "delete":
+    t, f = tx.table, tx.field
+    if tx.write == "delete":
         return f"DELETE VERTEX {t} WHERE id = :tid" if data_model == "graph" else f"DELETE FROM {t} WHERE id = :tid"
-    if tx["write"] == "insert":
+    if tx.write == "insert":
         return ("CREATE VERTEX" if data_model == "graph" else "INSERT INTO") + f" {t} SET id = :tid, {f} = :tv"
-    if tx["remove"]:
+    if tx.remove:
         return f"UPDATE {t} REMOVE {f} WHERE id = :tid"
     return f"UPDATE {t} SET {f} = :tv WHERE id = :tid"
 

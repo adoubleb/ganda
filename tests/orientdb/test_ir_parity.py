@@ -1,6 +1,7 @@
 """The select and path IRs' reach: the semi-join leaf, the `join` kind,
 edge-type targets, the transaction door, the stratified deck, the path IR and the
 index-level mutants."""
+import dataclasses
 import random
 from collections import Counter
 
@@ -15,7 +16,8 @@ from ganda.orientdb.concrete_syntax.path import render_all
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render
 from ganda.orientdb.predicates import Compound, Predicate
 from ganda.core.generators.select import KIND_WEIGHTS, build_case, strata
-from ganda.core.ast.select import KINDS, SelectQuery, evaluate, tx_instance
+from ganda.core.ast.enums import SelectKind
+from ganda.core.ast.select import SelectQuery, TxWrite, evaluate, tx_instance
 from ganda.orientdb.concrete_syntax.select import BASE, SelectSyntax, Rewrites, applicable, render as render_select
 from ganda.orientdb.concrete_syntax.support import tx_write
 from ganda.core.generators.registry import all_cases
@@ -143,14 +145,14 @@ def test_edge_target_reference_and_doc_syntax():
 def test_tx_view_render_and_o31():
     ix = IndexSpec("n1", "f1", data_model="graph", kind="NOTUNIQUE")
     schema, inst = _fixture([ix])
-    tx = {"table": "n1", "write": "insert", "field": "f1", "tid": "n1/tx0", "tv": 5, "remove": False}
+    tx = TxWrite("n1", "insert", "f1", "n1/tx0", 5)
     assert [n.record_id for n in tx_instance(inst, tx).nodes_of("n1")][-1] == "n1/tx0"
     where = Predicate("source", "f1", ">", "p", 1, ftype="int")
     q = SelectQuery("n1", where, "count", tx=tx)
     assert evaluate(q, inst) == [{"v": 3}]
     text = render_select(q, schema, BASE, Rewrites(), "graph")
     assert text == "BEGIN; CREATE VERTEX n1 SET id = :tid, f1 = :tv; LET $r = (SELECT count(*) AS v FROM n1 WHERE f1 > :p TIMEOUT 20000 EXCEPTION); ROLLBACK; RETURN $r"
-    assert tx_write(tx, "rel").startswith("INSERT INTO n1") and tx_write(dict(tx, write="delete"), "graph") == "DELETE VERTEX n1 WHERE id = :tid"
+    assert tx_write(tx, "rel").startswith("INSERT INTO n1") and tx_write(dataclasses.replace(tx, write="delete"), "graph") == "DELETE VERTEX n1 WHERE id = :tid"
     # O31 through the graph data model's SB-tree index; a subquery target and the other sides are right
     assert select_known(q, BASE, Rewrites(), "graph", schema, inst) == "O31"
     assert select_known(q, SelectSyntax(position="scan"), Rewrites(), "graph", schema, inst) is None
@@ -164,7 +166,7 @@ def test_deck_weights_and_supply():
     schema, inst = _fixture()
     deck = Counter(strata(schema, inst))
     assert deck[("n1", False, "ids")] == KIND_WEIGHTS["ids"] and deck[("e1", True, "ids")] == 1
-    assert ("e1", True, "join") not in deck and {k for (_t, _e, k) in deck} == set(KINDS)
+    assert ("e1", True, "join") not in deck and {k for (_t, _e, k) in deck} == set(SelectKind)
     kinds, edge, tx, insub = Counter(), 0, 0, 0
     for seed in range(1000, 1008):
         schema, inst, rng = build(seed, CFG)
@@ -174,7 +176,7 @@ def test_deck_weights_and_supply():
             edge += s["edge"]
             tx += bool(s["tx"])
             insub += bool(predicates.subqueries(Predicate.from_dict(s["where"])))
-    assert set(kinds) == set(KINDS) and edge and tx and insub
+    assert set(kinds) == set(SelectKind) and edge and tx and insub
 
 
 def test_walk_tier_orders_every_indexed_class_both_ways():

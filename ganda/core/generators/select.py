@@ -4,7 +4,7 @@ syntax: the `ir_select` query generator.
 The grammar: a class with records (a subclass or, on the inheritance axis, the base
 class); a filter with `WHERE_PROBABILITY` -- a predicate tree over the class's fields
 (`generators.predicates.draw_over`), or with `COMPOSITE_PROBABILITY` an AND over a composite
-index's fields -- else none; a kind drawn uniformly from `select.KINDS`, its fields and
+index's fields -- else none; a kind drawn uniformly from `SelectKind`, its fields and
 function drawn among the columns that admit them, judged over the records the filter
 keeps (`sum` only where every partial sum stays exact; `avg` / `median` over a present
 integer column; `max` / `min` over an ordered column; a distinct count over a present
@@ -43,7 +43,8 @@ from ganda.core.model import INT_TYPES, NUMERIC_TYPES, ORDERED_TYPES, SCALAR_TYP
 from ganda.core.ast import predicates
 from ganda.core.generators import predicates as sampler
 from ganda.core.case import QueryCase
-from ganda.core.ast.select import AGG_FNS, DIRECTIONS, EDGE_KINDS, GROUP_FNS, JOIN_FORMS, JOIN_OPS, KINDS, SelectQuery, coverage_signature, hits, present_values, reference_ok, shape_signature, target_fields
+from ganda.core.ast.enums import AggFn, GroupFn, JoinForm, JoinOp, SelectKind, SortDirection
+from ganda.core.ast.select import EDGE_KINDS, SelectQuery, coverage_signature, hits, present_values, reference_ok, shape_signature, target_fields
 from ganda.core.generators.support import composite_and as _composite_and, draw_tx, tx_binds
 
 CASES_PER_INSTANCE = 30
@@ -162,8 +163,8 @@ def _realize(rng: random.Random, schema: Schema, instance: Instance, table: str,
         if edge or not scalar:
             return None
         f = rng.choice(scalar)
-        op = rng.choice(JOIN_OPS if f.type in ORDERED_TYPES and "<" in schema.engine.pivots.ordered_ops(f.type) else JOIN_OPS[:2])
-        return make(fields=(f.name,), fn=op, arg=rng.choice(JOIN_FORMS))
+        op = rng.choice(list(JoinOp) if f.type in ORDERED_TYPES and "<" in schema.engine.pivots.ordered_ops(f.type) else [JoinOp.EQ, JoinOp.NE])
+        return make(fields=(f.name,), fn=op, arg=rng.choice(list(JoinForm)))
     if kind == "field":
         return make(fields=(rng.choice(fields).name,))
     if kind == "method":
@@ -179,13 +180,13 @@ def _realize(rng: random.Random, schema: Schema, instance: Instance, table: str,
         pool = [f for f in scalar if f.type is not FieldType.BOOL]
         if not pool:
             return None
-        fn, f = _agg_pick(rng, rng.choice(AGG_FNS), pool, present, sum_is_exact)
+        fn, f = _agg_pick(rng, rng.choice(list(AggFn)), pool, present, sum_is_exact)
         return make(fields=(f.name,), fn=fn)
     if kind == "group":
         if not scalar:
             return None
         keys = rng.sample(scalar, 2) if len(scalar) >= 2 and rng.random() < TWO_KEYS_PROBABILITY else [rng.choice(scalar)]
-        fn = rng.choice(GROUP_FNS)
+        fn = rng.choice(list(GroupFn))
         others = [f for f in scalar if f not in keys]
         arg = None
         if fn != "count_star":
@@ -205,7 +206,7 @@ def _realize(rng: random.Random, schema: Schema, instance: Instance, table: str,
         if not ordered:
             return None
         f = rng.choice(_prefer_indexed(rng, schema, table, ordered, edge))
-        direction = rng.choice(DIRECTIONS)
+        direction = rng.choice(list(SortDirection))
         skip = rng.randint(0, max(0, n - 1)) if rng.random() < 0.6 else 0
         limit = rng.randint(1, max(1, n))
         return make(fields=(f.name,), directions=(direction,), skip=skip, limit=limit)
@@ -220,7 +221,7 @@ def _realize(rng: random.Random, schema: Schema, instance: Instance, table: str,
         keys = [lead] + ([rng.choice([f for f in pool if f is not lead])] if len(pool) >= 2 and rng.random() < 0.5 else [])
         # a walk tier ordering keeps ONE direction on every key (mixed directions
         # route through a sort): the shape an index walk serves
-        dirs = tuple(walk for _ in keys) if walk else tuple(rng.choice(DIRECTIONS) for _ in keys)
+        dirs = tuple(walk for _ in keys) if walk else tuple(rng.choice(list(SortDirection)) for _ in keys)
         skip = rng.randint(0, max(0, n - 1)) if rng.random() < 0.3 else 0
         limit = rng.randint(1, max(1, n)) if rng.random() < 0.5 else 0
         return make(fields=tuple(k.name for k in keys), directions=dirs, skip=skip, limit=limit)
@@ -248,7 +249,7 @@ def sample_select(rng: random.Random, schema: Schema, instance: Instance, table:
     elif not target_fields(schema, table, edge) or not (instance.edges_of(table) if edge else instance.nodes_of(table)):
         return None
     where = _draw_where(rng, schema, instance, table, focus, edge) if rng.random() < where_probability else None
-    kind = kind or rng.choice(EDGE_KINDS if edge else KINDS)
+    kind = kind or rng.choice(EDGE_KINDS if edge else list(SelectKind))
     q = _realize(rng, schema, instance, table, where, kind, edge, walk) or SelectQuery(table, where, "ids", edge=edge)
     if tx_probability and not edge and q.kind != "join" and rng.random() < tx_probability:
         tx = draw_tx(rng, schema, instance, table, where)
@@ -331,7 +332,7 @@ def strata(schema: Schema, instance: Instance) -> list:
     kind repeated per its `KIND_WEIGHTS`."""
     out = []
     for table, edge in _targets(schema, instance):
-        for kind in EDGE_KINDS if edge else KINDS:
+        for kind in EDGE_KINDS if edge else SelectKind:
             out += [(table, edge, kind)] * (EDGE_WEIGHT if edge else KIND_WEIGHTS.get(kind, NODE_WEIGHT))
     return out
 
@@ -347,7 +348,7 @@ def generate_select_cases(rng: random.Random, schema: Schema, instance: Instance
             tier += [(table, True, "ids", None, 0.0), (table, True, "ids", None, 1.0)]
         else:
             tier.append((table, False, "ids", None, WHERE_PROBABILITY))
-    tier += [(table, False, "keys", d, 0.0) for table, edge in _targets(schema, instance) if not edge and _walk_pool(schema, table) for d in DIRECTIONS]
+    tier += [(table, False, "keys", d, 0.0) for table, edge in _targets(schema, instance) if not edge and _walk_pool(schema, table) for d in SortDirection]
     rng.shuffle(tier)
     hand: list = []
     for _ in range(per_instance * 4):

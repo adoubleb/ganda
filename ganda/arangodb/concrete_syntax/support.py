@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 from ganda.core.generators.support import bfs_distances, composite_and as _composite_and, draw_tx, tx_binds, tx_rows  # noqa: F401
+from ganda.core.ast.select import TxWrite
 from ganda.core.model import FieldType, Schema
 from ganda.arangodb import tx as _tx
 from ganda.arangodb.dialect import document_key
@@ -105,29 +106,29 @@ def method_fn(template: str, ftype: FieldType):
 # --- the transaction door ---------------------------------------------------------------------
 
 
-def tx_statements(tx: dict, schema: Schema, data_model: str) -> list:
+def tx_statements(tx: TxWrite, schema: Schema, data_model: str) -> list:
     """The door's write on `data_model` (the same AQL on every one: a node document is
     the same document everywhere): a record removed, inserted with one field, or
     updated (a field set, set to null, or unset)."""
-    t, f = tx["table"], tx["field"]
-    if tx["write"] == "delete":
+    t, f = tx.table, tx.field
+    if tx.write == "delete":
         return [f"FOR x IN {t} FILTER x.id == @tid REMOVE x IN {t}"]
-    if tx["write"] == "insert":
+    if tx.write == "insert":
         return [f"INSERT {{_key: @txkey, id: @tid, {f}: @tv}} INTO {t}"]
-    if tx["remove"]:
+    if tx.remove:
         return [f"FOR x IN {t} FILTER x.id == @tid UPDATE x WITH {{{f}: null}} IN {t} OPTIONS {{keepNull: false, mergeObjects: false}}"]
     return [f"FOR x IN {t} FILTER x.id == @tid UPDATE x WITH {{{f}: @tv}} IN {t} OPTIONS {{mergeObjects: false}}"]
 
 
-def tx_extra_binds(tx: dict) -> dict:
-    return {"txkey": document_key(tx["tid"].split("/", 1)[1])} if tx["write"] == "insert" else {}
+def tx_extra_binds(tx: TxWrite) -> dict:
+    return {"txkey": document_key(tx.tid.split("/", 1)[1])} if tx.write == "insert" else {}
 
 
-def tx_script(tx: dict, schema: Schema, data_model: str, question: str) -> str:
+def tx_script(tx: TxWrite, schema: Schema, data_model: str, question: str) -> str:
     """The door text: the transaction over the written class (read on every
     collection the question may touch), the write, the question."""
     read = [nt.name for nt in schema.node_types] + ([et.name for et in schema.edge_types] if data_model != "doc" else [])
-    return _tx.script({"write": [tx["table"]], "read": read}, tx_statements(tx, schema, data_model), question)
+    return _tx.script({"write": [tx.table], "read": read}, tx_statements(tx, schema, data_model), question)
 
 
 def composite_and(rng, fields, values_of):

@@ -3,8 +3,10 @@ and guards (O41 DISTINCT, O42 LIKE, O43 list IN, O44 depth-first TRAVERSE), the 
 O31 / O16 guard faces, and the two fuzzer bugs -- each against the probed engine
 answer."""
 
+import dataclasses
 import random
 
+from ganda.core.ast.select import TxWrite
 from ganda.orientdb.known_bugs import (
     map_value_index_known,
     o5_poly_sibling_index,
@@ -112,10 +114,10 @@ def test_o5_sibling_faces():
 
 def test_o31_desc_walk():
     schema = Schema((NodeTypeSpec("n1", (FieldSpec("f", FieldType.INT),)),), (), (IndexSpec("n1", "f", ignore_nulls=False),))
-    update = {"table": "n1", "write": "update", "field": "f", "tid": "n1/r1", "tv": 500, "remove": False}
+    update = TxWrite("n1", "update", "f", "n1/r1", 500)
     assert o31_desc_walk(schema, "n1", ["f"], ["DESC"], update, "doc")
     assert not o31_desc_walk(schema, "n1", ["f"], ["ASC"], update, "doc")
-    assert not o31_desc_walk(schema, "n1", ["f"], ["DESC"], dict(update, tv=None), "doc")
+    assert not o31_desc_walk(schema, "n1", ["f"], ["DESC"], dataclasses.replace(update, tv=None), "doc")
     assert not o31_desc_walk(schema, "n1", ["f"], ["DESC"], None, "doc")
     hashed = Schema((NodeTypeSpec("n1", (FieldSpec("f", FieldType.INT),)),), (), (IndexSpec("n1", "f", kind="UNIQUE_HASH_INDEX"),))
     assert not o31_desc_walk(hashed, "n1", ["f"], ["DESC"], update, "doc")

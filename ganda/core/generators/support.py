@@ -8,6 +8,7 @@ import dataclasses
 from ganda.core.ast import predicates
 from ganda.core.generators import predicates as sampler
 from ganda.core.ast.predicates import Compound
+from ganda.core.ast.select import TX_WRITES, TxWrite
 from ganda.core.model import Instance, NodeRow, Schema
 
 
@@ -23,24 +24,24 @@ def composite_and(rng, fields, values_of, engine) -> "Compound | None":
 
 
 
-def tx_rows(instance: Instance, p: dict) -> list:
+def tx_rows(instance: Instance, tx: TxWrite) -> list:
     """The class's rows with the transaction's write applied."""
-    rows = list(instance.nodes_of(p["table"]))
-    write, tid = p["write"], p["tid"]
+    rows = list(instance.nodes_of(tx.table))
+    write, tid = tx.write, tx.tid
     if write == "delete":
         return [n for n in rows if n.record_id != tid]
     if write == "insert":
-        return rows + [NodeRow(p["table"], -1, {p["field"]: p["tv"]}, custom_key="tx0")]
+        return rows + [NodeRow(tx.table, -1, {tx.field: tx.tv}, custom_key="tx0")]
     out = []
     for n in rows:
         if n.record_id != tid:
             out.append(n)
             continue
         values = dict(n.values)
-        if p["remove"]:
-            values.pop(p["field"], None)
+        if tx.remove:
+            values.pop(tx.field, None)
         else:
-            values[p["field"]] = p["tv"]
+            values[tx.field] = tx.tv
         out.append(dataclasses.replace(n, values=values))
     return out
 
@@ -69,15 +70,12 @@ def bfs_distances(instance: Instance, start: str, direction: str, edge_type: "st
     return dist
 
 
-TX_WRITES = ("update", "update", "insert", "delete")
-
-
 def _unique_on_any_data_model(schema: Schema, table: str, field_name: str) -> bool:
     engine = schema.engine
     return any(engine.physical_design.is_unique(ix) for data_model in engine.data_models for ix in schema.node_indexes(table, field_name, data_model))
 
 
-def draw_tx(rng, schema: Schema, instance: Instance, table: str, where) -> "dict | None":
+def draw_tx(rng, schema: Schema, instance: Instance, table: str, where) -> "TxWrite | None":
     """One write for the transaction door (`SelectQuery.tx`): a record of `table` updated
     (a field set -- most often one the filter reads -- set to null, or removed),
     inserted with one field, or deleted. A value reused from another record is never
@@ -96,18 +94,18 @@ def draw_tx(rng, schema: Schema, instance: Instance, table: str, where) -> "dict
     target = rng.choice(rows)
     mentioned = [f for f in fields if f.name in predicates.fields_of(where)]
     f = rng.choice(mentioned) if mentioned and rng.random() < 0.75 else rng.choice(fields)
-    tx = {"table": table, "write": write, "field": f.name, "tid": target.record_id, "tv": None, "remove": False}
+    tid, tv, remove = target.record_id, None, False
     if write == "delete":
-        return tx
+        return TxWrite(table, write, f.name, tid)
     roll = rng.random()
     present = [n.values.get(f.name) for n in rows if n.values.get(f.name) is not None]
     unique = _unique_on_any_data_model(schema, table, f.name)
     if write == "update" and roll < 0.15:
-        tx["remove"] = True
+        remove = True
     elif write == "update" and roll < 0.25:
         pass
     elif present and roll < 0.55 and not unique:
-        tx["tv"] = rng.choice(present)
+        tv = rng.choice(present)
     else:
         v = random_value(rng, f.type)
         if unique:
@@ -116,13 +114,12 @@ def draw_tx(rng, schema: Schema, instance: Instance, table: str, where) -> "dict
                     break
                 v = random_value(rng, f.type)
             else:
-                v, tx["remove"] = None, True
-        tx["tv"] = v
+                v, remove = None, True
+        tv = v
     if write == "insert":
-        tx["tid"] = f"{table}/tx0"
-        tx["remove"] = False
-    return tx
+        tid, remove = f"{table}/tx0", False
+    return TxWrite(table, write, f.name, tid, tv, remove)
 
 
-def tx_binds(tx: dict) -> dict:
-    return {"tid": tx["tid"]} if tx["write"] == "delete" else {"tid": tx["tid"], "tv": tx["tv"]}
+def tx_binds(tx: TxWrite) -> dict:
+    return {"tid": tx.tid} if tx.write == "delete" else {"tid": tx.tid, "tv": tx.tv}

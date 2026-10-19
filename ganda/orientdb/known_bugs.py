@@ -195,6 +195,7 @@ import dataclasses
 import math
 
 from ganda.orientdb.java_hash import distinct_collides
+from ganda.core.ast.select import TxWrite
 from ganda.core.model import FieldType, Instance, Schema
 from ganda.orientdb.dialect import HASH_KINDS, RANGE_KINDS
 from ganda.orientdb import predicates
@@ -1063,7 +1064,7 @@ def o5_poly_sibling_index(schema: Schema, table: str, p, data_model: str) -> boo
     return False
 
 
-def o31_desc_walk(schema: Schema, table: str, keys: list, directions: list, tx: "dict | None", data_model: str, edge: bool = False) -> bool:
+def o31_desc_walk(schema: Schema, table: str, keys: list, directions: list, tx: "TxWrite | None", data_model: str, edge: bool = False) -> bool:
     """O31's walk face (cov400 seeds 5192 / 5287 / 5338 / 5355, 5229's `max` read
     as `ORDER BY f DESC LIMIT 1`): inside a transaction that wrote a non-null value
     to the ordered field (or inserted a record), a single-key DESC walk of an SB-tree
@@ -1071,9 +1072,9 @@ def o31_desc_walk(schema: Schema, table: str, keys: list, directions: list, tx: 
     Probed: the ASC walk, an id-tiebroken ordering (it sorts), a hash index, no
     index, and a write of null are right; an index ignoring nulls answers no rows on
     a DESC walk anyway (O18)."""
-    if not tx or tx.get("write") not in ("update", "insert") or not keys or not directions or directions[0] != "DESC":
+    if not tx or tx.write not in ("update", "insert") or not keys or not directions or directions[0] != "DESC":
         return False
-    if tx["write"] == "update" and (tx.get("remove") or tx.get("tv") is None or tx.get("field") not in keys):
+    if tx.write == "update" and (tx.remove or tx.tv is None or tx.field not in keys):
         return False
     return any(ix.kind in RANGE_KINDS for ix in _field_indexes(schema, table, keys[0], data_model, edge))
 
@@ -1425,8 +1426,8 @@ def _tx_known(q, sp, data_model: str, schema: Schema, eff) -> "str | None":
     of `f IN (SELECT f FROM t WHERE f >= :p)` missed the inserted record)."""
     if sp.position == "index" or eff is None:
         return None
-    write = q.tx["write"]
-    written = set() if write == "delete" else {q.tx["field"]}
+    write = q.tx.write
+    written = set() if write == "delete" else {q.tx.field}
     if sp.position != "scan":
         fid = o31_known(schema, q.table, eff, data_model, write, written)
         if fid:

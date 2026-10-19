@@ -10,7 +10,7 @@ A `SelectQuery` is a class (`table`, the base class included), a predicate tree
     count     how many match (0 over none)                        one value
     field     each match's field                                  by id
     method    each match's method expression over a present field by id
-    agg       one aggregate over the matches (`AGG_FNS`)          one value (a bag for set/list)
+    agg       one aggregate over the matches (`AggFn`)            one value (a bag for set/list)
     group     an aggregate per value of one or two keys           a set of rows
     distinct  the distinct values of one or two fields            a set of rows
     page      a page of an ordering made total by the id tiebreak the ordered list
@@ -48,36 +48,56 @@ from dataclasses import dataclass
 
 from ganda.core.model import FieldType, Instance, Schema
 from ganda.core.ast import predicates
+from ganda.core.ast.enums import AggFn, GroupFn, JoinForm, JoinOp, SelectKind, SortDirection, WriteOp
 from ganda.core.case import Comparison
 from ganda.core.ast.predicates import Compound, Predicate
 
-KINDS = ("ids", "count", "field", "method", "agg", "group", "distinct", "page", "keys", "join")
-# the kinds over an edge type (a join correlates a class with itself: nodes only)
-EDGE_KINDS = ("ids", "count", "field", "method", "agg", "group", "distinct", "page", "keys")
-# the kinds the doc data model renders over its embedded link documents
-DOC_EDGE_KINDS = ("ids", "count")
-JOIN_OPS = ("=", "<>", "<", "<=", ">", ">=")
-JOIN_FORMS = ("count", "ids")
-TX_WRITES = ("update", "update", "insert", "delete")
-AGG_FNS = ("max", "min", "sum", "count", "avg", "median", "set", "list", "distinct_count")
-# a group's aggregate: `count(*)`, or a function of `arg`
-GROUP_FNS = ("count_star", "count", "max", "min", "sum")
-DIRECTIONS = ("ASC", "DESC")
+EDGE_KINDS = tuple(k for k in SelectKind if k is not SelectKind.JOIN)
+
+DOC_EDGE_KINDS = (SelectKind.IDS, SelectKind.COUNT)
+
+TX_WRITES = (WriteOp.UPDATE, WriteOp.UPDATE, WriteOp.INSERT, WriteOp.DELETE)
+
+
+@dataclass(frozen=True)
+class TxWrite:
+    table: str
+    write: WriteOp
+    field: str
+    tid: str
+    tv: object = None
+    remove: bool = False
+
+    def __post_init__(self):
+        object.__setattr__(self, "write", WriteOp(self.write))
 
 
 @dataclass(frozen=True)
 class SelectQuery:
     table: str
     where: "Predicate | Compound | None"
-    kind: str
-    fields: tuple = ()
-    fn: "str | None" = None
-    arg: "str | None" = None
-    directions: tuple = ()
+    kind: SelectKind
+    fields: "tuple[str, ...]" = ()
+    fn: "AggFn | GroupFn | JoinOp | str | None" = None
+    arg: "JoinForm | str | None" = None
+    directions: "tuple[SortDirection, ...]" = ()
     skip: int = 0
     limit: int = 0
     edge: bool = False  # `table` names an edge type
-    tx: "dict | None" = None  # the transaction door's write (`tx_instance`)
+    tx: "TxWrite | None" = None  # the transaction door's write (`tx_instance`)
+
+    def __post_init__(self):
+        # coerce the plain strings `from_params` and the generators pass
+        kind = SelectKind(self.kind)
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "fields", tuple(self.fields))
+        object.__setattr__(self, "directions", tuple(SortDirection(d) for d in self.directions))
+        if self.fn is not None and kind in _FN_TYPES:
+            object.__setattr__(self, "fn", _FN_TYPES[kind](self.fn))
+        if self.arg is not None and kind is SelectKind.JOIN:
+            object.__setattr__(self, "arg", JoinForm(self.arg))
+        if isinstance(self.tx, dict):
+            object.__setattr__(self, "tx", TxWrite(**self.tx))
 
     @property
     def field(self) -> "str | None":
@@ -111,8 +131,12 @@ class SelectQuery:
             "skip": self.skip,
             "limit": self.limit,
             "edge": self.edge,
-            "tx": self.tx,
+            "tx": dataclasses.asdict(self.tx) if self.tx else None,
         }
+
+
+# the enum a kind's `fn` holds (a method's is a free template)
+_FN_TYPES = {SelectKind.AGG: AggFn, SelectKind.GROUP: GroupFn, SelectKind.JOIN: JoinOp}
 
 
 def from_params(d: dict) -> SelectQuery:
@@ -145,12 +169,12 @@ def records(q: SelectQuery, instance: Instance) -> list:
     return instance.edges_of(q.table) if q.edge else instance.nodes_of(q.table)
 
 
-def tx_instance(instance: Instance, tx: dict) -> Instance:
+def tx_instance(instance: Instance, tx: TxWrite) -> Instance:
     """The Instance as the transaction sees it after its write (`support.tx_rows`
     on the written class; every other record unchanged)."""
     from ganda.core.generators.support import tx_rows
 
-    table = tx["table"]
+    table = tx.table
     rows = tx_rows(instance, tx)
     others = [n for n in instance.nodes if n.type_name != table]
     return dataclasses.replace(instance, nodes=others + rows)
@@ -227,15 +251,15 @@ def coverage_signature(q: SelectQuery) -> str:
 
 def all_coverage_signatures() -> list:
     details = {
-        "agg": list(AGG_FNS),
-        "group": [f"{fn}/{n}" for fn in GROUP_FNS for n in (1, 2)],
+        "agg": list(AggFn),
+        "group": [f"{fn}/{n}" for fn in GroupFn for n in (1, 2)],
         "distinct": ["1", "2"],
         "keys": ["1", "2"],
-        "page": list(DIRECTIONS),
-        "join": [f"{op}/{form}" for op in JOIN_OPS for form in JOIN_FORMS],
+        "page": list(SortDirection),
+        "join": [f"{op}/{form}" for op in JoinOp for form in JoinForm],
     }
     out = []
-    for kind in KINDS:
+    for kind in SelectKind:
         for d, w in itertools.product(details.get(kind, [""]), ("-", "f")):
             base = f"{kind}{':' + d if d else ''} where={w}"
             out.append(base)
@@ -258,7 +282,7 @@ def shape_signature(q: SelectQuery, schema: Schema) -> str:
     where = q.where.signature if q.where is not None else "-"
     wtypes = "+".join(sorted({column(schema, q, f).type.value for f in predicates.fields_of(q.where)})) or "-"
     target = " on=edge" if q.edge else ""
-    tx = f" tx={q.tx['write']}" if q.tx else ""
+    tx = f" tx={q.tx.write}" if q.tx else ""
     return f"select {q.kind}{':' + d if d else ''}{target}{tx} type={types} where={where} wtype={wtypes}"
 
 

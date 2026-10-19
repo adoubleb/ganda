@@ -3,6 +3,7 @@ door, the BFS distances and their guards."""
 import dataclasses
 import random
 
+from ganda.core.ast.select import TxWrite
 from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.known_bugs import _leaf_served, list_ops_known, o31_known, o32_predicate
 from ganda.core.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
@@ -138,13 +139,13 @@ def test_tx_rows_apply_the_write():
     sch = _schema()
     rows = [NodeRow("n1", 0, {"f1": 1}), NodeRow("n1", 1, {"f1": 2, "f2": "x"})]
     inst = Instance(sch, rows, [])
-    base = {"table": "n1", "tid": "n1/r1", "field": "f1", "remove": False}
-    assert [n.record_id for n in _tx_rows(inst, dict(base, write="delete"))] == ["n1/r0"]
-    ins = _tx_rows(inst, dict(base, write="insert", tv=7))
+    base = TxWrite("n1", "update", "f1", "n1/r1")
+    assert [n.record_id for n in _tx_rows(inst, dataclasses.replace(base, write="delete"))] == ["n1/r0"]
+    ins = _tx_rows(inst, dataclasses.replace(base, write="insert", tv=7))
     assert ins[-1].record_id == "n1/tx0" and ins[-1].values == {"f1": 7}
-    upd = _tx_rows(inst, dict(base, write="update", tv=9))
+    upd = _tx_rows(inst, dataclasses.replace(base, write="update", tv=9))
     assert upd[1].values == {"f1": 9, "f2": "x"} and rows[1].values == {"f1": 2, "f2": "x"}
-    rem = _tx_rows(inst, dict(base, write="update", tv=None, remove=True))
+    rem = _tx_rows(inst, dataclasses.replace(base, write="update", tv=None, remove=True))
     assert rem[1].values == {"f2": "x"}
     assert is_script("BEGIN; UPDATE n1 SET f1 = 1; LET $r = (SELECT id FROM n1); ROLLBACK; RETURN $r") and not is_script("SELECT FROM n1")
     assert unwrap_script([{"value": [{"id": "a", "@rid": "#1:0"}]}]) == [{"id": "a"}]
