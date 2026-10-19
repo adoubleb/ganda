@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import random
 
-from ganda.core.ast.predicates import COMPOUND_OPS, NO_BIND_OPS, Compound, Predicate, sub_values
+from ganda.core.ast.predicates import COMPOUND_OPS, NO_BIND_OPS, Compound, Predicate, SubQuery, sub_values
 from ganda.core.model import MAP_KEYS, NUMERIC_TYPES, SCALAR_TYPES, FieldSpec, FieldType
 from ganda.core.constants import I64_MAX
 from ganda.core.neighbours import offset
@@ -150,7 +150,7 @@ def draw_insub(rng: random.Random, schema, instance, table: str, bind: str) -> "
 
         q = draw_over(rng, "source", schema.query_fields(t2), values_of=inner_values, bind=f"{bind}s", engine=schema.engine)
     reference = q is None or q.reference
-    return Predicate("source", f.name, "INSUB", "", sub_values(instance, t2, g.name, q), reference, f.type.value, f.ci, sub=(t2, g.name, q, False))
+    return Predicate("source", f.name, "INSUB", "", sub_values(instance, t2, g.name, q), reference, f.type.value, f.ci, sub=SubQuery(t2, g.name, q, False))
 
 
 def draw_over(rng: random.Random, on: str, fields, values_of, bind: str, engine, compound_probability: float = COMPOUND_PROBABILITY, depth: int = 0):

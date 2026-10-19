@@ -97,8 +97,7 @@ def rewrite(p, rng: random.Random, bind: str):
         return Predicate(on, f, o, b, v, p.reference, p.ftype, p.ci, p.key, p.key_bind)
 
     if p.sub is not None:
-        t2, g, q, scan = p.sub
-        return None if scan else dataclasses.replace(p, sub=(t2, g, q, True))
+        return None if p.sub.scan else dataclasses.replace(p, sub=p.sub._replace(scan=True))
     if p.key is not None and not p.key_bind and rng.random() < 0.5:
         # the parameter-keyed bracket form of the same entry: `m[@kb] op @p`
         return Predicate(on, f, op, bind if op not in NO_BIND_OPS else "", pv, p.reference, p.ftype, p.ci, p.key, f"{bind}k")

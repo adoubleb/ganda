@@ -18,6 +18,13 @@ class Arith(NamedTuple):
     value: Any
 
 
+class SubQuery(NamedTuple):
+    table: str
+    field: str
+    pred: "Predicate | None"
+    scan: bool
+
+
 @dataclass(frozen=True)
 class Predicate:
     on: On
@@ -32,15 +39,14 @@ class Predicate:
     key_bind: str = "" 
     rev: bool = False # reverse operand positions
     arith: "Arith | None" = None
-    # a SEMI-JOIN (`op == "INSUB"`): `f IN (SELECT g FROM t2 [WHERE q])` as `(t2, g,
-    # q, scan)`, `scan` reading the subquery over `(SELECT FROM t2)` (never
-    # index-served); the pivot is the answered `g` list, nulls included
-    sub: "tuple | None" = None
+    sub: "SubQuery | None" = None  # a semi-join (`INSUB`): the pivot is the answered `field` list, nulls included
 
     def __post_init__(self):
         object.__setattr__(self, "on", On(self.on))
         if self.arith is not None and not isinstance(self.arith, Arith):
             object.__setattr__(self, "arith", Arith(*self.arith))
+        if self.sub is not None and not isinstance(self.sub, SubQuery):
+            object.__setattr__(self, "sub", SubQuery(*self.sub))
 
     def to_dict(self) -> dict:
         d = {"on": self.on, "field": self.field, "op": self.op, "bind": self.bind, "pivot": self.pivot, "reference": self.reference, "ftype": self.ftype, "ci": self.ci, "key": self.key, "key_bind": self.key_bind}
@@ -49,8 +55,8 @@ class Predicate:
         if self.arith is not None:
             d["arith"] = list(self.arith)
         if self.sub is not None:
-            t2, g, q, scan = self.sub
-            d["sub"] = {"table": t2, "field": g, "pred": q.to_dict() if q is not None else None, "scan": scan}
+            s = self.sub
+            d["sub"] = {"table": s.table, "field": s.field, "pred": s.pred.to_dict() if s.pred is not None else None, "scan": s.scan}
         return d
 
     @staticmethod
@@ -63,13 +69,13 @@ class Predicate:
         sub = None
         if d.get("sub"):
             x = d["sub"]
-            sub = (x["table"], x["field"], Predicate.from_dict(x["pred"]), x["scan"])
+            sub = SubQuery(x["table"], x["field"], Predicate.from_dict(x["pred"]), x["scan"])
         return Predicate(d["on"], d["field"], d["op"], d["bind"], d["pivot"], d.get("reference", True), d.get("ftype"), d.get("ci", False), d.get("key"), d.get("key_bind", ""), d.get("rev", False), arith, sub)
 
     @property
     def bind_vars(self) -> dict:
         if self.sub is not None:
-            return dict(self.sub[2].bind_vars) if self.sub[2] is not None else {}
+            return dict(self.sub.pred.bind_vars) if self.sub.pred is not None else {}
         out = {self.key_bind: self.key} if self.key_bind else {}
         if self.arith is not None:
             out[self.arith.bind] = self.arith.value
@@ -87,7 +93,7 @@ class Predicate:
     @property
     def signature(self) -> str:
         if self.sub is not None:
-            return f"INSUB({self.sub[2].signature if self.sub[2] is not None else '-'}{'@scan' if self.sub[3] else ''})"
+            return f"INSUB({self.sub.pred.signature if self.sub.pred is not None else '-'}{'@scan' if self.sub.scan else ''})"
         return f"{self.op}@key" if self.key is not None else self.op
 
     @property
@@ -152,7 +158,7 @@ def subqueries(p) -> list:
 
 def has_op_deep(p, ops) -> bool:
     """`has_op` looking into the semi-joins' own predicates too."""
-    return has_op(p, ops) or any(leaf.sub[2] is not None and has_op_deep(leaf.sub[2], ops) for leaf in subqueries(p))
+    return has_op(p, ops) or any(leaf.sub.pred is not None and has_op_deep(leaf.sub.pred, ops) for leaf in subqueries(p))
 
 
 def sub_values(instance, table: str, field_name: str, q) -> list:
@@ -172,8 +178,8 @@ def resolve_subs(p, instance):
         return Compound(p.on, p.op, tuple(resolve_subs(c, instance) for c in p.children))
     if p.sub is None:
         return p
-    t2, g, q, _scan = p.sub
-    return dataclasses.replace(p, pivot=sub_values(instance, t2, g, resolve_subs(q, instance)))
+    s = p.sub
+    return dataclasses.replace(p, pivot=sub_values(instance, s.table, s.field, resolve_subs(s.pred, instance)))
 
 
 def evaluate(values: dict, p, semantics) -> bool:

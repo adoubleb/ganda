@@ -92,8 +92,7 @@ def rewrite(p, rng: random.Random, bind: str):
 
     if p.sub is not None:
         # the subquery over a derived table of its class: the same values
-        t2, g, q, scan = p.sub
-        return None if scan else Predicate(on, f, op, p.bind, pv, p.reference, p.ftype, sub=(t2, g, q, True))
+        return None if p.sub.scan else Predicate(on, f, op, p.bind, pv, p.reference, p.ftype, sub=p.sub._replace(scan=True))
     if not p.plain:
         return None
     if op == "CONTAINS":
