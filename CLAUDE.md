@@ -14,7 +14,7 @@ that maps the legacy ports' terms to the ones used here. The legacy fuzzers
 ## Commands
 
 ```bash
-pytest tests/ -q                                   # no Docker: core on the fake engine, OrientDB units, layering
+pytest tests/ -q -n auto                           # no Docker (~20 s); whole offline HANA campaigns: tests.hana.run_offline
 python3 -m ganda list
 python3 -m ganda orientdb probe                    # Docker (or ORIENT_URL / ORIENT_PASSWORD)
 python3 -m ganda orientdb run --iterations 20 --seed 1000 --workers 2

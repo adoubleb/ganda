@@ -390,6 +390,11 @@ class OfflineSession(HanaSession):
         super().__init__(None, database, data_model, timeout_ms=0)
         self.collections: set = set()
         self.cypher_ws = None  # the graph data model's workspace, for the translator
+        # the answers of the reads since the store last changed, by (text, table): rdflib
+        # is deterministic, and the hinted twins (the hint stripped) and the repeated
+        # reads ask the same text of the same graph many times; cleared by every update
+        # and rollback
+        self._answers: dict = {}
         if data_model == "rdf":
             import rdflib
             from rdflib.plugins import sparql as _sparql
@@ -495,15 +500,20 @@ class OfflineSession(HanaSession):
                 # the default graph (it does not in a query): the marked records are
                 # selected by a query, then marked
                 prefixes, graph, where = m.groups()
+                self._answers.clear()
                 rows = self.ds.query(f"{prefixes} SELECT DISTINCT ?n WHERE {where}")
                 for (n,) in rows:
                     self.ds.update(f"INSERT DATA {{ GRAPH {graph} {{ <{n}> <urn:ganda:w> true }} }}")
                 return []
             if update:
+                self._answers.clear()
                 self.ds.update(text)
                 return []
-            result = self.ds.query(text)
-            return sparql_rows(_as_hana(result.serialize(format="json").decode("utf-8"), table))
+            response = self._answers.get((text, table))
+            if response is None:
+                response = _as_hana(self.ds.query(text).serialize(format="json").decode("utf-8"), table)
+                self._answers[(text, table)] = response
+            return sparql_rows(response)
         except Exception as e:  # noqa: BLE001 -- rdflib raises many kinds
             raise EngineError(f"rdflib: {type(e).__name__}: {e}\n{text[:3000]}") from e
 
@@ -528,6 +538,7 @@ class OfflineSession(HanaSession):
         return out
 
     def _restore(self, quads: list) -> None:
+        self._answers.clear()
         for g in list(self.ds.graphs()):
             self.ds.remove_graph(g)
         for s, p, o, g in quads:

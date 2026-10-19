@@ -23,7 +23,7 @@ variables in /<engine>/.env
 pip install -e ".[dev]"          # or run from this directory with python3 -m ganda
 
 ganda list                                             # list the engines GANDA supports
-pytest tests/ -q                                       # test that GANDA is running correctly
+pytest tests/ -q -n auto                               # test that GANDA is running correctly
 
 ## Before fuzzing OrientDB with GANDA
 ganda orientdb --help # to see list of all commands
