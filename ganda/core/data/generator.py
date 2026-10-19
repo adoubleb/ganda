@@ -374,24 +374,7 @@ def _base_class(seed: "int | None", cfg: GeneratorConfig, node_names: list, engi
     return base, indexes
 
 
-def generate_schema(rng: random.Random, cfg: GeneratorConfig, seed: "int | None" = None, engine=None) -> Schema:
-    n_node_types = rng.randint(cfg.min_node_types, cfg.max_node_types)
-    node_types = tuple(
-        NodeTypeSpec(name=f"n{i + 1}", fields=_random_field_specs(rng, rng.randint(cfg.min_fields_per_type, cfg.max_fields_per_type), cfg))
-        for i in range(n_node_types)
-    )
-    names = [nt.name for nt in node_types]
-    n_edge_types = rng.randint(cfg.min_edge_types, cfg.max_edge_types)
-    edge_types = tuple(
-        EdgeTypeSpec(
-            name=f"e{i + 1}",
-            from_type=rng.choice(names),
-            to_type=rng.choice(names),
-            fields=_random_field_specs(rng, rng.randint(0, cfg.max_fields_per_type), cfg),
-        )
-        for i in range(n_edge_types)
-    )
-
+def _draw_indexes(rng: random.Random, cfg: GeneratorConfig, node_types: tuple, edge_types: tuple, engine) -> list:
     pd = engine.physical_design
     data_models = engine.data_models + ("both",)
     indexes = []
@@ -407,14 +390,53 @@ def generate_schema(rng: random.Random, cfg: GeneratorConfig, seed: "int | None"
         scalar = [f for f in et.fields if f.type is not FieldType.LIST]
         if scalar and rng.random() < cfg.edge_index_probability:
             indexes.append(IndexSpec(table=et.name, field=rng.choice(scalar).name, data_model=rng.choice(pd.EDGE_INDEX_DATA_MODELS), kind=rng.choice(pd.NON_UNIQUE_KINDS), target="edge"))
+    return indexes
+
+
+def _draw_node_types(rng: random.Random, cfg: GeneratorConfig) -> tuple:
+    count = rng.randint(cfg.min_node_types, cfg.max_node_types)
+    return tuple(
+        NodeTypeSpec(name=f"n{i + 1}", fields=_random_field_specs(rng, rng.randint(cfg.min_fields_per_type, cfg.max_fields_per_type), cfg))
+        for i in range(count)
+    )
+
+
+def _draw_edge_types(rng: random.Random, cfg: GeneratorConfig, node_names: list) -> tuple:
+    count = rng.randint(cfg.min_edge_types, cfg.max_edge_types)
+    return tuple(
+        EdgeTypeSpec(
+            name=f"e{i + 1}",
+            from_type=rng.choice(node_names),
+            to_type=rng.choice(node_names),
+            fields=_random_field_specs(rng, rng.randint(0, cfg.max_fields_per_type), cfg),
+        )
+        for i in range(count)
+    )
+
+
+def generate_schema(rng: random.Random, cfg: GeneratorConfig, seed: "int | None" = None, *, engine) -> Schema:
+    pd = engine.physical_design
+
+    node_types = _draw_node_types(rng, cfg)
+    node_names = [nt.name for nt in node_types]
+    edge_types = _draw_edge_types(rng, cfg, node_names)
+    indexes = _draw_indexes(rng, cfg, node_types, edge_types, engine)
 
     id_index = pd.draw_id_indexes(seed, cfg)
-    base, base_indexes = _base_class(seed, cfg, names, engine)
+    base, base_indexes = _base_class(seed, cfg, node_names, engine)
     node_types, base = _tail_field_axes(seed, cfg, node_types, base, limits_of(engine))
     node_types = pd.draw_storage_options(seed, cfg, node_types)
-    list_indexes = _list_indexes(seed, cfg, node_types, base, engine)
+
     indexes = _without_blob_indexes(indexes + base_indexes, node_types, base)
-    return Schema(engine=engine, node_types=node_types, edge_types=tuple(edge_types), indexes=tuple(_dedupe_indexes(indexes + list_indexes, engine.data_models)), id_index=id_index, base=base)
+    indexes += _list_indexes(seed, cfg, node_types, base, engine)
+    return Schema(
+        engine=engine,
+        node_types=node_types,
+        edge_types=edge_types,
+        indexes=tuple(_dedupe_indexes(indexes, engine.data_models)),
+        id_index=id_index,
+        base=base,
+    )
 
 
 def _retype(seed: "int | None", cfg: GeneratorConfig, table: str, f: FieldSpec, limits: StorageLimits) -> FieldSpec:
@@ -948,12 +970,7 @@ def _demote_colliding_indexes(instance: Instance) -> Schema:
 
 
 def build(seed: int, cfg: GeneratorConfig, engine) -> "tuple[Schema, Instance, QueryRng]":
-    """The single entry point: (schema, instance, query rng) for a (seed, config) on
-    one engine. The configuration's scale profile is applied first
-    (`ganda.core.data.scale.resolve`), so a `scale="large"` configuration means the same
-    instance wherever it is built."""
     cfg = _scale.resolve(cfg, limits_of(engine))
     schema = generate_schema(_stream(seed, "schema"), cfg, seed=seed, engine=engine)
-
     instance = generate_instance(seed, schema, cfg)
     return instance.schema, instance, QueryRng(seed)

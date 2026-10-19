@@ -40,6 +40,7 @@ steering itself is compared live only.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import statistics
@@ -374,6 +375,58 @@ def _with_views(text: str) -> str:
     return out + text[i:]
 
 
+# --- rdf: Oxigraph ---------------------------------------------------------------------------
+
+# Oxigraph follows SPARQL 1.1 18.5.1 to the letter: an unbound (error) argument makes
+# MIN / MAX of its whole group an error, so unbound; HANA skips it (RULES.md, H3: "MAX and
+# COUNT still skip it"), as rdflib does. The stand-in skips it too: the argument is
+# COALESCEd to a term the ordering puts below every literal for MAX (a blank node) or
+# above it for MIN (a triple term), and an answer holding that term is unbound
+_NONE = {"MAX": "BNODE()", "MIN": "<<( <urn:ganda:none> <urn:ganda:none> <urn:ganda:none> )>>"}
+
+
+def _skip_unbound(text: str) -> str:
+    out, stack, i, n = [], [], 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch in "\"'":  # a string literal, its escapes skipped
+            j = i + 1
+            while text[j] != ch:
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1])
+            i = j + 1
+            continue
+        if text.startswith(("MAX(", "MIN("), i) and not (i and (text[i - 1].isalnum() or text[i - 1] in "_?$:")):
+            stack.append((text[i:i + 3], 0))
+            out.append(text[i:i + 4])
+            i += 4
+            if text.startswith("DISTINCT ", i):
+                out.append("DISTINCT ")
+                i += len("DISTINCT ")
+            out.append("COALESCE(")
+            continue
+        if ch == "(" and stack:
+            stack[-1] = (stack[-1][0], stack[-1][1] + 1)
+        elif ch == ")" and stack:
+            fn, depth = stack[-1]
+            if depth == 0:
+                stack.pop()
+                out.append(f", {_NONE[fn]})")
+            else:
+                stack[-1] = (fn, depth - 1)
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _unbind_none(response: str) -> str:
+    doc = json.loads(response)
+    for b in doc.get("results", {}).get("bindings", []):
+        for var in [v for v, t in b.items() if t.get("type") in ("bnode", "triple")]:
+            del b[var]
+    return json.dumps(doc)
+
+
 # --- the session ------------------------------------------------------------------------------
 
 
@@ -396,11 +449,22 @@ class OfflineSession(HanaSession):
         # and rollback
         self._answers: dict = {}
         if data_model == "rdf":
-            import rdflib
-            from rdflib.plugins import sparql as _sparql
+            # the SPARQL engine: rdflib (pure Python, the default) or Oxigraph
+            # (`GANDA_OFFLINE_RDF=oxigraph`, `pip install pyoxigraph`), fed the same
+            # updates the provider sends
+            self.rdf = os.environ.get("GANDA_OFFLINE_RDF", "rdflib")
+            if self.rdf == "oxigraph":
+                import pyoxigraph
 
-            _sparql.SPARQL_LOAD_GRAPHS = False
-            self.ds = rdflib.Dataset()
+                self.ds = pyoxigraph.Store()
+            elif self.rdf == "rdflib":
+                import rdflib
+                from rdflib.plugins import sparql as _sparql
+
+                _sparql.SPARQL_LOAD_GRAPHS = False
+                self.ds = rdflib.Dataset()
+            else:
+                raise ValueError(f"GANDA_OFFLINE_RDF: rdflib or oxigraph, not {self.rdf!r}")
             self.db = None
         else:
             self.db = _sqlite()
@@ -494,6 +558,8 @@ class OfflineSession(HanaSession):
     def sparql(self, text: str, update: bool = False, table: bool = False):
         text = self._bind_graph(text)
         try:
+            if self.rdf == "oxigraph":
+                return self._oxigraph(text, update, table)
             m = _MARK_STEP.match(text) if update else None
             if m:
                 # rdflib evaluates an EXISTS inside GRAPH in an update's WHERE against
@@ -515,11 +581,25 @@ class OfflineSession(HanaSession):
                 self._answers[(text, table)] = response
             return sparql_rows(response)
         except Exception as e:  # noqa: BLE001 -- rdflib raises many kinds
-            raise EngineError(f"rdflib: {type(e).__name__}: {e}\n{text[:3000]}") from e
+            raise EngineError(f"{self.rdf}: {type(e).__name__}: {e}\n{text[:3000]}") from e
+
+    def _oxigraph(self, text: str, update: bool, table: bool):
+        from pyoxigraph import QueryResultsFormat
+
+        if update:
+            self._answers.clear()
+            self.ds.update(text)
+            return []
+        response = self._answers.get((text, table))
+        if response is None:
+            answer = self.ds.query(_skip_unbound(text)).serialize(format=QueryResultsFormat.JSON).decode("utf-8")
+            response = _as_hana(_unbind_none(answer), table)
+            self._answers[(text, table)] = response
+        return sparql_rows(response)
 
     def _transaction(self, fn, commit: bool):
         if self.data_model == "rdf":
-            snapshot = list(self.ds.quads((None, None, None, None)))
+            snapshot = list(self.ds) if self.rdf == "oxigraph" else list(self.ds.quads((None, None, None, None)))
             try:
                 out = fn()
             except BaseException:
@@ -539,6 +619,10 @@ class OfflineSession(HanaSession):
 
     def _restore(self, quads: list) -> None:
         self._answers.clear()
+        if self.rdf == "oxigraph":
+            self.ds.clear()
+            self.ds.extend(quads)
+            return
         for g in list(self.ds.graphs()):
             self.ds.remove_graph(g)
         for s, p, o, g in quads:

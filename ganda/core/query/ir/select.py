@@ -1,44 +1,6 @@
 """The select IR: the single-class questions -- one class, an optional filter, a
 result shape -- as data, so every shape is asked with and without a filter and through
 every concrete syntax that applies (a provider's `select_syntax`).
-
-A `SelectQuery` is a class (`table`, the base class included), a predicate tree
-(`where`, None for the whole class) and a `kind`:
-
-    kind      the question                                        comparison
-    ids       the matching records' ids                           a set of rows
-    count     how many match (0 over none)                        one value
-    field     each match's field                                  by id
-    method    each match's method expression over a present field by id
-    agg       one aggregate over the matches (`AggFn`)            one value (a bag for set/list)
-    group     an aggregate per value of one or two keys           a set of rows
-    distinct  the distinct values of one or two fields            a set of rows
-    page      a page of an ordering made total by the id tiebreak the ordered list
-    keys      the key rows in the order of one or two keys, no    the ordered list
-              tiebreak (ties carry identical rows)
-    join      per match, the records of the class whose `f`       by id
-              compares to its own: their count or their ids
-
-`fields` are the projected / aggregated / grouped / ordered / joined fields, `arg` a
-group's aggregated field (a join's form, `count` or `ids`), `fn` the aggregate (the
-method template, a join's operator), `directions` / `skip` / `limit` an ordering's.
-
-Two more dimensions of the question:
-
-- the TARGET: a node class, or with `edge` an EDGE TYPE -- the relationship records
-  as each data model stores them (`eid` is their id);
-- the TRANSACTION door (`tx`): the question read inside a transaction that first
-  writes one record of the class (updated, inserted or deleted) and is then rolled
-  back -- the answer is the Instance's with the write applied (`tx_instance`).
-
-A filter may hold a SEMI-JOIN leaf (`f IN (SELECT g FROM t2 [WHERE q])`,
-`generators.predicates.draw_insub`); `hits` recomputes its answered values over the Instance it
-evaluates (the transaction's included).
-
-`evaluate` answers a query over the records the filter keeps (the reference leg); it
-is the same answer for every concrete syntax. What an engine decides -- an aggregate
-over no rows, where nulls sort, what counts as the same group key, a method's result --
-comes from its `Semantics` and its method catalog.
 """
 from __future__ import annotations
 

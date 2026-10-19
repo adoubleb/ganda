@@ -1,15 +1,7 @@
-"""Shared types for the query layer.
-
+"""
 A `QueryCase` is one concrete instantiation of a metamorphic relation: one query text
 per data model that a correct engine must answer identically once results are
-normalized per `comparison`. The keys of `queries` are VARIANTS: a data model of the
-engine (`doc`, `graph`, `rel`) or `<data model>:<tag>` -- a second concrete syntax of
-the same question run in that data model's database (`graph:match`, `rel:flat`), so
-the oracle's every-pair loop gives both the same-database pair (`graph/graph:match`:
-two engine paths over one storage layout) and the cross-model pair.
-
-Values travel in `bind_vars`, shared by every variant; how they reach the engine (bind
-parameters, literals) is the provider session's business.
+normalized per `comparison`. 
 """
 from __future__ import annotations
 
@@ -19,21 +11,14 @@ from enum import Enum
 
 
 class Comparison(Enum):
-    # {id: value} maps must match exactly; a data model returning one id twice is a finding
     SCALAR_BY_ID = "scalar_by_id"
-    # {id: [values...]} as sorted bags, nested lists flattened, nulls dropped; a data model
-    # may answer with several rows per id (MATCH, a junction scan) -- they are folded
     MULTISET_BY_ID = "multiset_by_id"
-    # like MULTISET_BY_ID but deduplicated
     SET_BY_ID = "set_by_id"
-    # the whole result is one bare value (a count, an ordered id list)
     SINGLE_VALUE = "single_value"
-    # one bare value compared modulo list order at every depth (a set of ids)
     NESTED_VALUE = "nested_value"
 
 
 from ganda.core.data.model import DATA_MODELS
-
 
 @dataclass(frozen=True)
 class QueryCase:

@@ -6,6 +6,8 @@ measured, and how (a JVM agent, an instrumented build), is the provider's busine
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 # `--coverage` levels: off; seed = one window per seed (the growth curve); case /
 # variant = also a window per case / per variant (which generator hit what)
 LEVELS = ("off", "seed", "case", "variant")
@@ -42,3 +44,16 @@ class Collector:
 
     def print_summary(self, summary: dict) -> None:
         pass
+
+
+@contextmanager
+def measured_server(engine, args):
+    """`engine.server(args)` with its collector attached: yields (server, collector or
+    None) and persists the coverage once the server is down."""
+    if args.coverage in ("case", "variant") and args.workers > 1:
+        raise SystemExit(f"--coverage {args.coverage} attributes each window to what ran since the last dump: it needs --workers 1")
+    with engine.server(args) as server:
+        collector = engine.coverage(server, args)
+        yield server, collector
+    if collector:
+        collector.write(args.stats_dir, args.run_tag)

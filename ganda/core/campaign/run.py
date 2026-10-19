@@ -1,15 +1,3 @@
-"""The campaign driver: for each seed, generate an instance, materialize it once per
-data model into fresh databases on one server of the engine, verify the state, run
-every case, and write a bundle for every NEW finding key (`dedup.BugDeduplicator`).
-Crashes are autopsied and the server is restarted. `--workers N` runs N seed shards as
-threads against the same server (the work is I/O-bound).
-
-The configuration's scale profile (`ganda.core.data.scale`, `--scale`) decides what a flag
-left unset does: whether the reference leg runs (`--reference` / `--no-reference`),
-whether the stored state is read whole or checked by counts and a sample
-(`--state-sample`), how long a query may run (`--query-timeout-ms`), and whether a
-bundle embeds the data or its shape.
-"""
 from __future__ import annotations
 
 import argparse
@@ -28,6 +16,7 @@ from ganda.core.query.ir.select import COVERAGE_DENOMINATOR as SELECT_COVERAGE_D
 from ganda.core.query.ir.traversal import SHAPE_DENOMINATOR
 from ganda.core.query.ir.write import COVERAGE_DENOMINATOR as WRITE_COVERAGE_DENOMINATOR
 from ganda.core.campaign.config import add_config_arguments, config_from_args
+from ganda.core.engine.coverage import measured_server
 from ganda.core.data.generator import GeneratorConfig, build, limits_of
 from ganda.core.oracle.dedup import BugDeduplicator
 from ganda.core.query.generators.registry import all_cases
@@ -40,16 +29,16 @@ from ganda.core.engine.state_check import verify_state
 
 class CampaignStats(NamedTuple):
     instances: int
-    setup_failures: int  # every data model rejected the setup: consistent rejection, skipped
-    setup_asymmetries: int  # some data models rejected the setup, or one side's state differs
+    setup_failures: int
+    setup_asymmetries: int 
     cases: int
     cases_asserting: int
     symmetric_errors: int
     internal_errors: int
-    findings: int  # new finding keys (bundled)
-    findings_repeated: int  # occurrences of an already-bundled key
+    findings: int 
+    findings_repeated: int 
     crashes: int
-    state_leaks: int  # an instance whose live state differed AFTER the cases ran (a transaction door leaked past its ROLLBACK)
+    state_leaks: int 
     known_bugs_suppressed: dict
     values_compared: int
     values_nonempty: int
@@ -286,17 +275,13 @@ def apply_profile(args, cfg) -> None:
 
 
 def run_campaign(engine, args) -> "tuple[CampaignStats, object]":
-    """(the campaign's statistics, the coverage collector or None)."""
     cfg = _scale.resolve(engine.configure(args, config_from_args(engine.config_class, args)), limits_of(engine))
-    apply_profile(args, cfg)
+    apply_profile(args, cfg) # to switch between small or large data and table size for fuzzing
     shared = _Shared()
     seeds = list(range(args.seed, args.seed + args.iterations))
     start = time.time()
     os.makedirs(args.out_dir, exist_ok=True)
-    if args.coverage in ("case", "variant") and args.workers > 1:
-        raise SystemExit(f"--coverage {args.coverage} attributes each window to what ran since the last dump: it needs --workers 1")
-    with engine.server(args) as server:
-        shared.coverage = engine.coverage(server, args)
+    with measured_server(engine, args) as (server, shared.coverage):
         box = {"server": server}
         if args.workers <= 1:
             _worker(engine, 0, seeds, cfg, args, shared, box)
@@ -307,8 +292,6 @@ def run_campaign(engine, args) -> "tuple[CampaignStats, object]":
                 t.start()
             for t in threads:
                 t.join()
-    if shared.coverage:
-        shared.coverage.write(args.stats_dir, args.run_tag)
     c = shared.counters
     stats = CampaignStats(
         instances=c["instances"],
