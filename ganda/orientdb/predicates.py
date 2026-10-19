@@ -4,11 +4,11 @@ pivots and rewrites bound, so OrientDB-side code calls `evaluate(values, p)` and
 """
 from __future__ import annotations
 
-from ganda.core.generators import predicates as _core
-from ganda.core.generators.predicates import COMPOUND_PROBABILITY, CROSS_TYPE_PROBABILITY  # noqa: F401
+from ganda.core.query.generators import predicates as _core
+from ganda.core.query.generators.predicates import COMPOUND_PROBABILITY, CROSS_TYPE_PROBABILITY  # noqa: F401
 from ganda.core.constants import I32_MAX, I32_MIN, I64_MAX, I64_MIN  # noqa: F401
-from ganda.core.neighbours import offset, shift_date  # noqa: F401
-from ganda.core.ir.predicates import (  # noqa: F401
+from ganda.core.data.neighbours import offset, shift_date  # noqa: F401
+from ganda.core.query.ir.predicates import (  # noqa: F401
     COMPOUND_OPS,
     MAP_OPS,
     MIRROR,

@@ -13,7 +13,7 @@ own document.
 """
 from __future__ import annotations
 
-from ganda.core.model import EdgeDelete, Instance, NodeDelete
+from ganda.core.data.model import EdgeDelete, Instance, NodeDelete
 from ganda.arangodb.dialect import document_key
 from ganda.arangodb.mapping.common import (
     Aql,

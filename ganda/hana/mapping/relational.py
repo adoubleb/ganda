@@ -30,7 +30,7 @@ class's table; a query on `N0` reads the view, a write on it the tables.
 """
 from __future__ import annotations
 
-from ganda.core.model import EdgeDelete, EdgeUpdate, FieldType, Instance, NodeDelete, NodeUpdate
+from ganda.core.data.model import EdgeDelete, EdgeUpdate, FieldType, Instance, NodeDelete, NodeUpdate
 from ganda.hana.dialect import ID_TYPE, SQL_TYPES, child_table, list_text
 from ganda.hana.mapping.common import Declare, Sql, SqlBatch, Transaction, initial_edge_values, initial_edges, initial_node_values, initial_nodes, wrap
 

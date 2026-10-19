@@ -32,9 +32,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from ganda.core.ir.predicates import Compound
-from ganda.core.model import FieldType
-from ganda.core.provider import Semantics
+from ganda.core.query.ir.predicates import Compound
+from ganda.core.data.model import FieldType
+from ganda.core.engine.provider import Semantics
 
 F64_INT_EXACT = 2**53
 

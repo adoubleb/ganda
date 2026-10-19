@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import math
 
-from ganda.core.generators.support import bfs_distances, composite_and as _composite_and, draw_tx, tx_binds, tx_rows  # noqa: F401
-from ganda.core.ir.select import TxWrite
-from ganda.core.model import FieldType, Schema
+from ganda.core.query.generators.support import bfs_distances, composite_and as _composite_and, draw_tx, tx_binds, tx_rows  # noqa: F401
+from ganda.core.query.ir.select import TxWrite
+from ganda.core.data.model import FieldType, Schema
 from ganda.arangodb import tx as _tx
 from ganda.arangodb.dialect import document_key
 

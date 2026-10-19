@@ -3,17 +3,17 @@ door, the BFS distances and their guards."""
 import dataclasses
 import random
 
-from ganda.core.ir.select import TxWrite
+from ganda.core.query.ir.select import TxWrite
 from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.known_bugs import _leaf_served, list_ops_known, o31_known, o32_predicate
-from ganda.core.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
+from ganda.core.data.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.connection import is_script, unwrap_script
 from ganda.orientdb import predicates
 from ganda.orientdb.concrete_syntax.support import bfs_distances
 from ganda.orientdb.concrete_syntax.support import tx_rows as _tx_rows
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render
 from ganda.orientdb.predicates import Compound, Predicate, apply_arith, arithmetic, evaluate, reverse
-from ganda.core.generators.registry import all_cases, reference_for
+from ganda.core.query.generators.registry import all_cases, reference_for
 from ganda.orientdb.semantics import predicate_hit
 
 
@@ -154,7 +154,7 @@ def test_tx_rows_apply_the_write():
 def test_bfs_distances():
     sch = _schema()
     rows = [NodeRow("n1", i, {}) for i in range(4)]
-    from ganda.core.model import EdgeRow
+    from ganda.core.data.model import EdgeRow
 
     edges = [EdgeRow("e1", 0, "n1/r0", "n1/r1", {}), EdgeRow("e1", 1, "n1/r1", "n1/r2", {}), EdgeRow("e1", 2, "n1/r0", "n1/r0", {})]
     inst = Instance(sch, rows, edges)
@@ -166,8 +166,8 @@ def test_bfs_distances():
 
 def test_order_form_withholds_the_asc_walk_of_a_composite_index_with_a_null_component():
     from ganda.orientdb.known_bugs import select_shape_known
-    from ganda.core.model import EdgeTypeSpec
-    from ganda.core.ir.select import SelectQuery
+    from ganda.core.data.model import EdgeTypeSpec
+    from ganda.core.query.ir.select import SelectQuery
     from ganda.orientdb.concrete_syntax.select import SelectSyntax
 
     sch = Schema(

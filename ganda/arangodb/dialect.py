@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from urllib.parse import quote, unquote
 
-from ganda.core.model import FieldType
+from ganda.core.data.model import FieldType
 
 # the JSON type a value of each model type carries (what `TYPENAME()` answers), which
 # AQL's order across types ranks: null < bool < number < string < array < object

@@ -53,10 +53,10 @@ import struct
 from decimal import Decimal
 from typing import Any
 
-from ganda.core.ir.predicates import Compound
-from ganda.core.neighbours import shift_date
-from ganda.core.model import FieldType
-from ganda.core.provider import Semantics
+from ganda.core.query.ir.predicates import Compound
+from ganda.core.data.neighbours import shift_date
+from ganda.core.data.model import FieldType
+from ganda.core.engine.provider import Semantics
 
 
 def _is_number(v: Any) -> bool:

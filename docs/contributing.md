@@ -101,7 +101,7 @@ silently corrupted results in the past.
    fails otherwise.
 2. **Engine behaviour lives in a provider slot.** If you find yourself writing
    `if engine == ...` in the core, or a rule only one engine follows, add a slot instead:
-   document it in `core/provider.py`'s docstring, add it to `tests/test_layering.py`'s slot
+   document it in `core/engine/provider.py`'s docstring, add it to `tests/test_layering.py`'s slot
    list, and implement it in `tests/fake_engine` and every full provider.
 3. **Never reorder random draws.** Draw from `rng.stream(seed, "<new name>")` for anything
    new. A new generation axis goes behind a probability that defaults to 0, so every

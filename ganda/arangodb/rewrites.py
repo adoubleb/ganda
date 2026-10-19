@@ -15,8 +15,8 @@ import dataclasses
 import math
 import random
 
-from ganda.core.ir.predicates import MAP_OPS, MIRROR, NO_BIND_OPS, Arith, Compound, Predicate
-from ganda.core.model import FLOAT_TYPES, INT_TYPES, FieldType
+from ganda.core.query.ir.predicates import MAP_OPS, MIRROR, NO_BIND_OPS, Arith, Compound, Predicate
+from ganda.core.data.model import FLOAT_TYPES, INT_TYPES, FieldType
 from ganda.arangodb.semantics import F64_INT_EXACT, apply_arith
 
 

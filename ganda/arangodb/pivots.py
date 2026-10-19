@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 import random
 
-from ganda.core.model import DATE_TYPES, FLOAT_TYPES, INT_TYPES, FieldType
+from ganda.core.data.model import DATE_TYPES, FLOAT_TYPES, INT_TYPES, FieldType
 
 ORDERED_OPS = ("=", "<>", ">", ">=", "<", "<=", "IN", "BETWEEN")
 EQUALITY_OPS = ("=", "<>", "IN")

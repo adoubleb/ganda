@@ -1,11 +1,11 @@
-"""What ArangoDB can hold (`ganda.core.limits.StorageLimits`), and where each number
+"""What ArangoDB can hold (`ganda.core.data.limits.StorageLimits`), and where each number
 comes from: the documentation, a bound the provider chooses so that all three data
 models stay inside a documented one, or a probe (`ganda arangodb probe`, the `L`
 facts). Every bound here is probed live before a large campaign relies on it.
 """
 from __future__ import annotations
 
-from ganda.core.limits import StorageLimits
+from ganda.core.data.limits import StorageLimits
 
 # the request body the server takes (documented default of `--http.max-request-body-size`
 # is far above this; the provider keeps its requests under this bound and the probe

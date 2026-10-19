@@ -1,7 +1,7 @@
-from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, Instance, NodeRow, NodeTypeSpec, Schema
-from ganda.core.oracle import build_result, fold_rows, normalize_multiset, normalize_set
-from ganda.core.dedup import BugDeduplicator
-from ganda.core.case import Comparison, QueryCase
+from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, Instance, NodeRow, NodeTypeSpec, Schema
+from ganda.core.oracle.oracle import build_result, fold_rows, normalize_multiset, normalize_set
+from ganda.core.oracle.dedup import BugDeduplicator
+from ganda.core.oracle.case import Comparison, QueryCase
 from ganda.orientdb.semantics import agg, eq, orient_key, predicate_hit
 
 

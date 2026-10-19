@@ -3,7 +3,7 @@ from collections import Counter
 
 from ganda.orientdb.generate import GeneratorConfig, build, initial_node_values, write_order_states
 
-from ganda.core.model import FieldType, NodeDelete, NodeUpdate
+from ganda.core.data.model import FieldType, NodeDelete, NodeUpdate
 from ganda.orientdb.dialect import is_valid_key
 
 
@@ -123,7 +123,7 @@ def test_inheritance_axis_is_a_tail_axis():
 
 def test_inheritance_ddl_and_cases():
     from ganda.orientdb.mapping import MAPPERS
-    from ganda.core.generators.registry import all_cases, reference_for
+    from ganda.core.query.generators.registry import all_cases, reference_for
 
     found_poly = False
     for seed in range(1, 12):
@@ -146,7 +146,7 @@ def test_new_axes_are_tail_axes():
     import struct
     from decimal import Decimal
 
-    from ganda.core.model import EdgeUpdate
+    from ganda.core.data.model import EdgeUpdate
 
     base = build(31, GeneratorConfig())[1]
     tail = build(31, GeneratorConfig(narrow_type_probability=1.0, collate_probability=1.0, clusters_probability=1.0, list_index_probability=1.0, churn_edge_update_probability=0.5, write_form_probability=1.0))[1]
@@ -204,7 +204,7 @@ def test_date_and_map_axes():
     import datetime as _dt
 
     from ganda.orientdb.mapping import MAPPERS
-    from ganda.core.generators.registry import all_cases, reference_for
+    from ganda.core.query.generators.registry import all_cases, reference_for
 
     base = build(41, GeneratorConfig())[1]
     tail = build(41, GeneratorConfig(date_map_probability=1.0, list_index_probability=1.0))[1]
@@ -271,7 +271,7 @@ def test_binary_columns_hold_base64_values_and_carry_no_index():
 
 
 def test_the_incremental_collision_check_matches_the_state_walk():
-    from ganda.core.data_generator import _collides, index_key
+    from ganda.core.data.generator import _collides, index_key
 
     def by_states(instance, ix) -> bool:
         fields = ix.all_fields

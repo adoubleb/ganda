@@ -195,12 +195,12 @@ import dataclasses
 import math
 
 from ganda.orientdb.java_hash import distinct_collides
-from ganda.core.ir.select import TxWrite
-from ganda.core.model import FieldType, Instance, Schema
+from ganda.core.query.ir.select import TxWrite
+from ganda.core.data.model import FieldType, Instance, Schema
 from ganda.orientdb.dialect import HASH_KINDS, RANGE_KINDS
 from ganda.orientdb import predicates
-from ganda.core.case import QueryCase
-from ganda.core.ir.traversal import REACH_PROJECTIONS, TraversalQuery
+from ganda.core.oracle.case import QueryCase
+from ganda.core.query.ir.traversal import REACH_PROJECTIONS, TraversalQuery
 from ganda.orientdb.predicates import lossy_pivot, Compound, Predicate
 from ganda.orientdb.concrete_syntax.traversal import BRACKET, CORRELATED
 
@@ -799,7 +799,7 @@ def o19_shape(q: TraversalQuery, schema: Schema, instance: Instance, data_model:
     et = q.hops[-1].edge_type
     if schema.field(et, q.field, edge=True).type not in (FieldType.INT, FieldType.INT32):
         return False
-    from ganda.core.ir.traversal import _projected_values, final_paths
+    from ganda.core.query.ir.traversal import _projected_values, final_paths
 
     for n in instance.nodes_of(q.source_table):
         if q.source_predicate is not None and not predicates.evaluate(n.values, q.source_predicate):
@@ -1311,7 +1311,7 @@ def select_shape_known(q, sp, data_model: str, schema: Schema, instance: Instanc
     (`ordered_keys_known`, `_order_form_o18`; an edge type's own indexes for an
     edge target, the transaction's view of the rows under the door). A subquery
     target always sorts."""
-    from ganda.core.ir.select import column, evaluate, hits, view
+    from ganda.core.query.ir.select import column, evaluate, hits, view
     from ganda.orientdb.concrete_syntax.select import WALK_POSITIONS
 
     walk = sp.position in WALK_POSITIONS
@@ -1401,7 +1401,7 @@ def _join_known(q, sp, data_model: str, schema: Schema, instance: Instance, eff)
     `f op $parent.$current.f` with the enclosing record's value as the pivot, a null
     one included, served by an index on `f` in the `base` form, never under `jscan` /
     `jrev`."""
-    from ganda.core.ir.select import column
+    from ganda.core.query.ir.select import column
 
     if sp.position in ("poly", "polyin") and o5_poly_join(q, sp, schema):
         return "O5"
@@ -1452,7 +1452,7 @@ def select_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Ins
     own O13 / O17); plus O12 for the literal pivots, a join's and the transaction
     door's own findings (O39 first there: the read is a `LET $r = (SELECT ...)`),
     and the shape's own findings."""
-    from ganda.core.ir.select import effective, view
+    from ganda.core.query.ir.select import effective, view
 
     table = q.table
     pred = rewrites.filter_pred(q, sp.filter)

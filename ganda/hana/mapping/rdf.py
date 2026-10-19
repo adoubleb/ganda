@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from ganda.core.model import EdgeDelete, EdgeUpdate, FieldType, Instance, NodeDelete, NodeUpdate
+from ganda.core.data.model import EdgeDelete, EdgeUpdate, FieldType, Instance, NodeDelete, NodeUpdate
 from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT, record_iri, sparql_literal, sparql_string
 from ganda.hana.mapping.common import Declare, Sparql, chunks, initial_edge_values, initial_edges, initial_node_values, initial_nodes, wrap
 

@@ -21,7 +21,7 @@ import calendar
 import struct
 from datetime import datetime
 
-from ganda.core.model import FieldType
+from ganda.core.data.model import FieldType
 
 _M32 = 0xFFFFFFFF
 _M64 = 0xFFFFFFFFFFFFFFFF

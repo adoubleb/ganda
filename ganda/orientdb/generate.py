@@ -2,8 +2,8 @@
 this provider and its configuration filled in."""
 from __future__ import annotations
 
-from ganda.core import data_generator as _core
-from ganda.core.data_generator import (  # noqa: F401
+from ganda.core.data import generator as _core
+from ganda.core.data.generator import (  # noqa: F401
     boundary_value,
     edge_value_states,
     index_key,

@@ -56,8 +56,8 @@ from __future__ import annotations
 
 import re
 
-from ganda.core.ir.predicates import MIRROR, Compound
-from ganda.core.model import FieldType, Schema
+from ganda.core.query.ir.predicates import MIRROR, Compound
+from ganda.core.data.model import FieldType, Schema
 from ganda.hana.concrete_syntax.predicate import Names
 from ganda.hana.dialect import SQL_TYPES, child_table, graph_attr, graph_columns, graph_label, list_text, opencypher_table, param_expr
 

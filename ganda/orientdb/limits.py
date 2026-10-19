@@ -1,11 +1,11 @@
-"""What OrientDB 3.2 can hold (`ganda.core.limits.StorageLimits`), with where each
+"""What OrientDB 3.2 can hold (`ganda.core.data.limits.StorageLimits`), with where each
 number comes from: the engine's documentation (`internals/Limits.md`), a live probe on
 3.2.57 (`scripts/probe_osql.py`, the "large data" section), or the server's own
 configuration, which the connection layer starts the container with.
 """
 from __future__ import annotations
 
-from ganda.core.limits import StorageLimits
+from ganda.core.data.limits import StorageLimits
 
 # `network.http.maxLength`, the largest request body the REST server reads (its default
 # is 1 MB); `connection.OrientServer` starts the container with this value, and a server

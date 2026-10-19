@@ -1,10 +1,10 @@
 from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.known_bugs import o1_shape, o2_shape
-from ganda.core.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeTypeSpec, Schema
+from ganda.core.data.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeTypeSpec, Schema
 from ganda.orientdb.mutants import MUTANTS
-from ganda.core.ir.traversal import Hop, TraversalQuery
+from ganda.core.query.ir.traversal import Hop, TraversalQuery
 from ganda.orientdb.predicates import Predicate
-from ganda.core.generators.registry import all_cases
+from ganda.core.query.generators.registry import all_cases
 
 
 from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
@@ -65,7 +65,7 @@ def test_mutants_change_something():
 
 
 def test_every_read_generator_emits_and_references():
-    from ganda.core.generators.registry import reference_for
+    from ganda.core.query.generators.registry import reference_for
 
     schema, inst, rng = build(4, GeneratorConfig())
     cases = all_cases(rng, schema, inst, select_cases=30, path_cases=3)
@@ -94,7 +94,7 @@ def test_guards_see_leaves_inside_compounds():
 
 def test_pulled_up_variants_are_judged_without_the_source_predicate():
     from ganda.orientdb.known_bugs import mark_known_bugs
-    from ganda.core.case import Comparison, QueryCase
+    from ganda.core.oracle.case import Comparison, QueryCase
 
     schema = _schema([IndexSpec("n1", "f1", data_model="rel")])
     sp = Predicate("source", "f1", ">", "p0", 0)
@@ -126,7 +126,7 @@ def test_cross_type_guards_o16_o17():
 
 def test_o18_withholds_the_desc_order_variant_under_an_index_that_ignores_nulls():
     from ganda.orientdb.known_bugs import select_shape_known
-    from ganda.core.ir.select import SelectQuery
+    from ganda.core.query.ir.select import SelectQuery
     from ganda.orientdb.concrete_syntax.select import SelectSyntax
 
     order = SelectSyntax(form="order")
@@ -180,7 +180,7 @@ def test_new_type_and_collation_guards():
     # O11: `<` on the second field of a composite index next to an equality on its lead
     inst2 = build(3, GeneratorConfig())[1]
     comp = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f2", FieldType.INT))),), edge_types=(), indexes=(IndexSpec("n1", "f1", extra_fields=("f2",), data_model="both"),))
-    from ganda.core.model import NodeRow
+    from ganda.core.data.model import NodeRow
 
     rows = Instance(comp, [NodeRow("n1", 0, {"f1": 1}), NodeRow("n1", 1, {"f1": 1, "f2": 0})], [])
     both = Compound("source", "AND", (Predicate("source", "f1", "=", "p_0", 1), Predicate("source", "f2", "<", "p_1", 1)))

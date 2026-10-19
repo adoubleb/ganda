@@ -1,9 +1,9 @@
 """The OrientDB side of the session contract, without a server: which door a text
 goes through, and that a drawn write's statements run through the right calls."""
-from ganda.core.generators.write import sample_write
-from ganda.core.generators.write_phase import build_write_case
-from ganda.core.ir.write import apply
-from ganda.core.provider import EngineCrash, EngineError, Server, Session
+from ganda.core.query.generators.write import sample_write
+from ganda.core.query.generators.write_phase import build_write_case
+from ganda.core.query.ir.write import apply
+from ganda.core.engine.provider import EngineCrash, EngineError, Server, Session
 from ganda.orientdb import PROVIDER
 from ganda.orientdb.concrete_syntax import write as write_syntax
 from ganda.orientdb.connection import OrientCrash, OrientError, OrientServer, OrientSession

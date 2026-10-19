@@ -29,8 +29,8 @@ from urllib.parse import quote
 
 import requests
 
-from ganda.core.docker import DockerServer, cleanup_orphans  # noqa: F401
-from ganda.core.provider import EngineCrash, EngineError, Session
+from ganda.core.engine.docker import DockerServer, cleanup_orphans  # noqa: F401
+from ganda.core.engine.provider import EngineCrash, EngineError, Session
 from ganda.arangodb import tx
 from ganda.arangodb.dialect import engine_id, logical_id
 from ganda.arangodb.limits import STREAMING_TRANSACTION_MAX_BYTES
@@ -229,7 +229,7 @@ class ArangoSession(Session):
         else:
             raise TypeError(f"unknown setup step {step!r}")
 
-    # --- reading the stored state back (`ganda.core.state_check`) ----------------------
+    # --- reading the stored state back (`ganda.core.engine.state_check`) ----------------------
 
     def _by_ids(self, query: str, ids: list) -> list:
         """`query` (naming `@ids`) over `_IN_CHUNK` ids at a time."""

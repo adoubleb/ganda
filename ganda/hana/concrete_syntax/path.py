@@ -42,8 +42,8 @@ from __future__ import annotations
 
 import json
 
-from ganda.core.ir.path import PathQuery
-from ganda.core.model import Instance, Schema
+from ganda.core.query.ir.path import PathQuery
+from ganda.core.data.model import Instance, Schema
 from ganda.hana.concrete_syntax import document, graph, hints
 from ganda.hana.concrete_syntax.predicate import REL, Names
 from ganda.hana.concrete_syntax.traversal import sparql_table

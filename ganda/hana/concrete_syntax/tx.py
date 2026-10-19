@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import json
 
-from ganda.core.ir.select import TxWrite
-from ganda.core.model import FieldType, Schema
+from ganda.core.query.ir.select import TxWrite
+from ganda.core.data.model import FieldType, Schema
 from ganda.hana.concrete_syntax import document
 from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT, child_table, record_iri, sparql_literal, sparql_string
 

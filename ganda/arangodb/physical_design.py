@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import random
 
-from ganda.core.data_generator import BOUNDARY_VALUES as _CORE_BOUNDARY_VALUES
-from ganda.core.model import FieldType, WriteForm
+from ganda.core.data.generator import BOUNDARY_VALUES as _CORE_BOUNDARY_VALUES
+from ganda.core.data.model import FieldType, WriteForm
 from ganda.core.rng import stream
 from ganda.arangodb.dialect import (
     EDGE_UPDATE_FORMS,

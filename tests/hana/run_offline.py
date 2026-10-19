@@ -8,11 +8,11 @@ import collections
 import random
 import traceback
 
-from ganda.core.data_generator import build
-from ganda.core.generators.registry import all_cases
-from ganda.core.generators.write_phase import run_write_phase
-from ganda.core.oracle import run_cases
-from ganda.core.state_check import verify_state
+from ganda.core.data.generator import build
+from ganda.core.query.generators.registry import all_cases
+from ganda.core.query.generators.write_phase import run_write_phase
+from ganda.core.oracle.oracle import run_cases
+from ganda.core.engine.state_check import verify_state
 from ganda.hana.provider import PROVIDER as E
 from tests.hana.offline import OfflineServer
 
@@ -58,11 +58,11 @@ def offline_cases(cases: list) -> list:
 
 
 def _offline_run_case(case, *args, **kw):
-    from ganda.core.oracle import run_case
+    from ganda.core.oracle.oracle import run_case
 
     cases = offline_cases([case])
     if not cases:
-        from ganda.core.oracle import CaseResult
+        from ganda.core.oracle.oracle import CaseResult
 
         return CaseResult(case=case, ok=True)
     return run_case(cases[0], *args, **kw)
@@ -86,7 +86,7 @@ def run_seed(seed: int, cfg, writes: bool = True) -> dict:
     report["results"] = run_cases(cases, sessions, instance)
     if writes and cfg.write_cases:
         # the write phase's read-backs are filtered as the read cases are
-        from ganda.core.generators import write_phase
+        from ganda.core.query.generators import write_phase
 
         write_phase.run_case = _offline_run_case
         wp = run_write_phase(sessions, instance, rng.for_generator("ir_write"), cfg.write_cases)

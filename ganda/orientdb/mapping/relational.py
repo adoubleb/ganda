@@ -29,7 +29,7 @@ from ganda.orientdb.mapping.common import (
     node_document,
     node_update_steps,
 )
-from ganda.core.model import EdgeDelete, Instance, NodeDelete
+from ganda.core.data.model import EdgeDelete, Instance, NodeDelete
 
 
 def junction_document(edge, values: "dict | None" = None) -> dict:

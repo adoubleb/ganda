@@ -4,7 +4,7 @@ import argparse
 
 import pytest
 
-from ganda.core import campaign
+from ganda.core.campaign import run as campaign
 from ganda.registry import provider
 
 
@@ -21,7 +21,7 @@ def test_every_run_flag_has_help_text(name):
 def test_every_config_field_has_its_own_description(name):
     import dataclasses
 
-    from ganda.core.config import help_of
+    from ganda.core.campaign.config import help_of
 
     cfg = provider(name).config_class
     text = help_of(cfg)

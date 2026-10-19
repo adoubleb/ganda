@@ -10,14 +10,14 @@ import re
 
 import pytest
 
-from ganda.core.ir.predicates import Compound, Predicate
-from ganda.core.ir.write import apply
-from ganda.core.data_generator import build
-from ganda.core.generators.registry import all_cases
-from ganda.core.generators.write import sample_write
-from ganda.core.model import FieldType
-from ganda.core.setup_plan import plan_from_dict, plan_to_dict
-from ganda.core.state_check import verify_state
+from ganda.core.query.ir.predicates import Compound, Predicate
+from ganda.core.query.ir.write import apply
+from ganda.core.data.generator import build
+from ganda.core.query.generators.registry import all_cases
+from ganda.core.query.generators.write import sample_write
+from ganda.core.data.model import FieldType
+from ganda.core.engine.setup_plan import plan_from_dict, plan_to_dict
+from ganda.core.engine.state_check import verify_state
 from ganda.arangodb import rewrites
 from ganda.arangodb.connection import bind_subset
 from ganda.arangodb.dialect import ARANGO_KEY_RE, document_key, engine_id, logical_id
@@ -386,7 +386,7 @@ def test_every_select_variant_form_fits_its_kind(seed):
 
 
 def test_a40_guard_fires_on_a_membership_under_not_over_a_null_list():
-    from ganda.core.model import NodeRow
+    from ganda.core.data.model import NodeRow
     from ganda.arangodb.known_bugs import a40_shape, membership_under_not
 
     contains = Predicate("source", "l", "CONTAINS", "p", 1, True, "list")

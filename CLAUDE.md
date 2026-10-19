@@ -35,7 +35,7 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
   global engine state.
 - **Engine behaviour never lives in the core.** If a line of core code is only true
   for one engine (what `null + 1` is, where nulls sort, which index kind is unique), it
-  belongs behind a slot of `core/provider.py`. Add the member to the contract's
+  belongs behind a slot of `core/engine/provider.py`. Add the member to the contract's
   docstring, to `tests/test_layering.py`'s slot list and to `tests/fake_engine`.
 - **Every consumer draws from its own named stream** (`core/rng.py`), so adding a
   draw in one place never shifts another; a new axis draws from a new tail stream
@@ -47,10 +47,10 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
   call core functions without naming it: `ganda/orientdb/predicates.py`,
   `generate.py`, `ganda.orientdb.Schema`. Core code never uses these.
 - **Use conventional names** (the README glossary). New concepts get the textbook term.
-- **Engine limits are the provider's, in its `limits` slot** (`core/limits.py`,
+- **Engine limits are the provider's, in its `limits` slot** (`core/data/limits.py`,
   `ganda/orientdb/limits.py`: every number documented or probed). The large-data axes
   (`large_row_probability`, `binary_probability`, `statements_per_request`) and the
-  `large` scale profile (`core/scale.py`) stay inside them; the core never hard-codes
+  `large` scale profile (`core/data/scale.py`) stay inside them; the core never hard-codes
   a size an engine would reject. A new axis of the kind draws from a tail stream and
   defaults to off.
 - **At the large scale the reference leg is off by design** (the profile's
@@ -240,7 +240,7 @@ offline, never an error). The provider bugs of campaign-20261009-095838
 `bugs/<tag>-<seed>-<generator>-<shape>/` holds `README.md`, `queries.json` (the
 engine, every variant's text, bind variables, rows, mismatches), one
 `<data model>_setup.json` plan each, `instance.json` and `repro.py` (which calls
-`ganda.core.replay`). Read `failing_pairs` first: a same-database pair
+`ganda.core.campaign.replay`). Read `failing_pairs` first: a same-database pair
 (`graph/graph:match`) is a within-engine inconsistency with no cross-model confound; an
 empty list with `reference_mismatches` means every database agreed and only the
 reference disagreed, so check the provider's semantics before blaming the engine.

@@ -70,7 +70,7 @@ file. Listed so you can see what was NOT a HANA issue.
 
 | id | what the provider did wrong | fixed in |
 |----|------------------------------|----------|
-| **C1** | `ganda hana probe <id>` filtered out all facts: the CLI didn't pass the fact filter, so `probe.main` saw `['hana','probe']`. | `ganda/cli.py`, `ganda/*/provider.py`, `ganda/core/provider.py` |
+| **C1** | `ganda hana probe <id>` filtered out all facts: the CLI didn't pass the fact filter, so `probe.main` saw `['hana','probe']`. | `ganda/cli.py`, `ganda/*/provider.py`, `ganda/core/engine/provider.py` |
 | **C2** | Several probe facts tested SQL forms the provider never emits (combined SET/UNSET, a single-scope CASE, field-referencing arithmetic, bare-quoted paths) — probe bugs, not engine facts. | `ganda/hana/scripts/probe.py` |
 | **C3** | Case-query value projections through `SPARQL_TABLE`/`rdf:table` lacked decode-suffix aliases, so ints came back as strings (B8 is the engine side; this is the provider not adapting). | `ganda/hana/concrete_syntax/select.py`, `traversal.py` |
 | **C4** | The state check re-read an rdf double from `STR(?o)` only when the text "looked float"; `STR` prints `%.17g`, so 2^53 came back `9007199254740992` and the rounded term (`9.0072e+15`) was kept. Every seed holding 2^53 in a float field failed its state check and ran no case (campaign-20261009-095838: 14 of 16 seeds). | `ganda/hana/connection.py` (`_exact`) |

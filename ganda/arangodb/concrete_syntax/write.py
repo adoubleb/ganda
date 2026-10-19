@@ -42,10 +42,10 @@ import random
 import re
 from dataclasses import dataclass, field
 
-from ganda.core.ir.predicates import Predicate, reverse
-from ganda.core.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
-from ganda.core.data_generator import BASE_CLASS
-from ganda.core.model import Instance, Schema
+from ganda.core.query.ir.predicates import Predicate, reverse
+from ganda.core.query.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
+from ganda.core.data.generator import BASE_CLASS
+from ganda.core.data.model import Instance, Schema
 from ganda.arangodb import rewrites as _rewrites
 from ganda.arangodb.concrete_syntax.predicate import render_predicate as render_pred
 from ganda.arangodb.dialect import document_key

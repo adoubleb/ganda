@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import json
 
-from ganda.core.model import EdgeDelete, EdgeUpdate, FieldType, Instance, NodeDelete, NodeUpdate
+from ganda.core.data.model import EdgeDelete, EdgeUpdate, FieldType, Instance, NodeDelete, NodeUpdate
 from ganda.hana.concrete_syntax.document import path
 from ganda.hana.mapping.common import Declare, Sql, SqlBatch, Transaction, initial_edge_values, initial_edges, initial_node_values, initial_nodes, wrap
 from ganda.hana.mapping.relational import declared_types

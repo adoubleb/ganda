@@ -15,7 +15,7 @@ import base64
 import sys
 import time
 
-from ganda.core.provider import EngineError
+from ganda.core.engine.provider import EngineError
 from ganda.arangodb.connection import ArangoServer
 from ganda.arangodb.limits import LIMITS
 from ganda.arangodb.semantics import eq, like_hit, lt

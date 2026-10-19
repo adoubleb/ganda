@@ -17,7 +17,7 @@ document is removed.
 """
 from __future__ import annotations
 
-from ganda.core.model import EdgeUpdate, Instance, NodeDelete
+from ganda.core.data.model import EdgeUpdate, Instance, NodeDelete
 from ganda.arangodb.dialect import document_key, engine_id
 from ganda.arangodb.mapping.common import (
     Aql,

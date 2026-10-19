@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Callable
 
-from ganda.core.provider import EngineError
+from ganda.core.engine.provider import EngineError
 from ganda.hana.concrete_syntax import hints
 from ganda.hana.dialect import opencypher_table, record_iri
 

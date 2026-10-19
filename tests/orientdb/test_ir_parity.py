@@ -7,20 +7,20 @@ from collections import Counter
 
 from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.known_bugs import select_known
-from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
+from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.mutants import MUTANTS_BY_NAME
 from ganda.orientdb import predicates
-from ganda.core.case import Comparison, QueryCase
-from ganda.core.ir.path import PathQuery, evaluate as evaluate_path
+from ganda.core.oracle.case import Comparison, QueryCase
+from ganda.core.query.ir.path import PathQuery, evaluate as evaluate_path
 from ganda.orientdb.concrete_syntax.path import render_all
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render
 from ganda.orientdb.predicates import Compound, Predicate
-from ganda.core.generators.select import KIND_WEIGHTS, build_case, strata
-from ganda.core.ir.enums import SelectKind
-from ganda.core.ir.select import SelectQuery, TxWrite, evaluate, tx_instance
+from ganda.core.query.generators.select import KIND_WEIGHTS, build_case, strata
+from ganda.core.query.ir.enums import SelectKind
+from ganda.core.query.ir.select import SelectQuery, TxWrite, evaluate, tx_instance
 from ganda.orientdb.concrete_syntax.select import BASE, SelectSyntax, Rewrites, applicable, render as render_select
 from ganda.orientdb.concrete_syntax.support import tx_write
-from ganda.core.generators.registry import all_cases
+from ganda.core.query.generators.registry import all_cases
 
 from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
 
@@ -182,7 +182,7 @@ def test_deck_weights_and_supply():
 def test_walk_tier_orders_every_indexed_class_both_ways():
     ix = IndexSpec("n1", "f1", data_model="doc", kind="NOTUNIQUE")
     schema, inst = _fixture([ix])
-    from ganda.core.generators.select import generate_select_cases
+    from ganda.core.query.generators.select import generate_select_cases
 
     cases = generate_select_cases(random.Random(3), schema, inst, per_instance=6)
     walks = [c.params["select"] for c in cases if c.params["select"]["kind"] == "keys" and c.params["select"]["where"] is None]
@@ -193,7 +193,7 @@ def test_tier_lists_every_edge_type_whole_and_filtered():
     # the tier is six questions here: n1, n2, e1 twice, n1's two walks
     ix = IndexSpec("n1", "f1", data_model="doc", kind="NOTUNIQUE")
     schema, inst = _fixture([ix])
-    from ganda.core.generators.select import generate_select_cases
+    from ganda.core.query.generators.select import generate_select_cases
 
     for seed in range(8):
         cases = generate_select_cases(random.Random(seed), schema, inst, per_instance=6)

@@ -30,7 +30,7 @@ from ganda.orientdb.mapping.common import (
     node_update_steps,
     class_steps,
 )
-from ganda.core.model import EdgeDelete, Instance, NodeDelete
+from ganda.core.data.model import EdgeDelete, Instance, NodeDelete
 
 
 def edge_step(edge, form, values: "dict | None" = None) -> Sql:

@@ -36,12 +36,12 @@ wrapped to answer nothing there: an aggregate over no rows answers no row, probe
                        union inside an `IN (subquery)`: O26 / O40 territory)
 
 A question only some models can render is `partial`: the pairs run among the data models
-present, plus the reference (the BFS distance, `ganda.core.generators.support.bfs_distances`).
+present, plus the reference (the BFS distance, `ganda.core.query.generators.support.bfs_distances`).
 """
 from __future__ import annotations
 
-from ganda.core.ir.path import PathQuery, distance
-from ganda.core.model import Instance, Schema
+from ganda.core.query.ir.path import PathQuery, distance
+from ganda.core.data.model import Instance, Schema
 
 _FN = {"OUT": "out", "IN": "in", "BOTH": "both"}
 

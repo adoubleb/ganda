@@ -3,7 +3,7 @@
 ArangoDB has no multi-statement script language: schema lives behind REST endpoints
 (`/_api/collection`, `/_api/index`) and data goes through the document API, AQL or a
 stream transaction. A step is a plain dataclass with a JSON `to_dict()`, so a bug
-bundle records the exact plan that ran (`ganda.core.setup_plan`); its op name is
+bundle records the exact plan that ran (`ganda.core.engine.setup_plan`); its op name is
 prefixed `arango_` (the step registry is shared by every provider):
 
     CreateCollection(name, edge)       `POST /_api/collection`
@@ -34,9 +34,9 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from ganda.core.data_generator import initial_node_values, initial_nodes  # noqa: F401
-from ganda.core.model import EdgeUpdate, FieldType, Instance, NodeUpdate, Schema, WriteForm
-from ganda.core.setup_plan import churned_away_edges, initial_edge_values, initial_edges, step, step_from_dict  # noqa: F401
+from ganda.core.data.generator import initial_node_values, initial_nodes  # noqa: F401
+from ganda.core.data.model import EdgeUpdate, FieldType, Instance, NodeUpdate, Schema, WriteForm
+from ganda.core.engine.setup_plan import churned_away_edges, initial_edge_values, initial_edges, step, step_from_dict  # noqa: F401
 from ganda.arangodb.dialect import UNIQUE_KINDS, document_key, engine_id
 from ganda.arangodb.limits import LIMITS
 

@@ -1,7 +1,7 @@
-"""SAP HANA's vocabulary for the abstract model (`ganda.core.model`): the declared type
+"""SAP HANA's vocabulary for the abstract model (`ganda.core.data.model`): the declared type
 of each `FieldType` in a column table, how a value is stored in a JSON collection and as
 RDF terms, the IRIs of the triple store, the index kinds a schema may name, and the
-write forms a setup may take. `ganda.core.model` imports nothing from this module.
+write forms a setup may take. `ganda.core.data.model` imports nothing from this module.
 
 Four data models of one HANA Cloud database (`RULES.md` holds the facts each rests on):
 
@@ -40,7 +40,7 @@ import math
 from decimal import Decimal
 from urllib.parse import quote
 
-from ganda.core.model import FieldType
+from ganda.core.data.model import FieldType
 
 # --- column tables ---------------------------------------------------------------------------
 

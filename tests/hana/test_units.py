@@ -10,12 +10,12 @@ from decimal import Decimal
 
 import pytest
 
-from ganda.core.ir.predicates import Compound, Predicate
-from ganda.core.ir.write import apply
-from ganda.core.data_generator import build
-from ganda.core.generators.registry import all_cases
-from ganda.core.generators.write import sample_write
-from ganda.core.model import EdgeTypeSpec, FieldSpec, FieldType, NodeTypeSpec
+from ganda.core.query.ir.predicates import Compound, Predicate
+from ganda.core.query.ir.write import apply
+from ganda.core.data.generator import build
+from ganda.core.query.generators.registry import all_cases
+from ganda.core.query.generators.write import sample_write
+from ganda.core.data.model import EdgeTypeSpec, FieldSpec, FieldType, NodeTypeSpec
 from ganda.hana import rewrites
 from ganda.hana.config import UNSUPPORTED_AXES
 from ganda.hana.connection import decode_column, decode_row, positional, sparql_rows
@@ -294,7 +294,7 @@ def test_the_doc_views_ask_containsall_without_a_scalar_subquery():
 
 
 def test_a_doc_traversal_withholds_a_list_membership():
-    from ganda.core.ir.traversal import Hop, TraversalQuery
+    from ganda.core.query.ir.traversal import Hop, TraversalQuery
     from ganda.hana.concrete_syntax import traversal
 
     member = Predicate("target", "l", "CONTAINS", "bl", 1, True, "list")
@@ -382,7 +382,7 @@ def test_a_pulled_up_traversal_correlates_a_membership_on_its_own_alias(dm):
     """`predicate.sql` aliases a LIST column's child table `x`; the pulled-up derived table
     must not, or the membership EXISTS correlates the child table with itself
     (`x.owner = x.id`, a column the child table lacks)."""
-    from ganda.core.ir.traversal import Hop, TraversalQuery
+    from ganda.core.query.ir.traversal import Hop, TraversalQuery
     from ganda.hana.concrete_syntax import traversal
 
     schema = E.schema(
@@ -458,7 +458,7 @@ def test_graph_attribute_names_have_one_type_across_the_workspace(seed):
 
 @pytest.mark.parametrize("seed", range(1, 4))
 def test_the_graph_plan_is_the_rel_plan_plus_views_and_one_workspace(seed):
-    from ganda.core.setup_plan import plan_from_dict, plan_to_dict
+    from ganda.core.engine.setup_plan import plan_from_dict, plan_to_dict
     from ganda.hana.mapping.common import GraphWorkspace, Sql
 
     schema, instance, _rng = build(seed, CFG, E)
@@ -479,7 +479,7 @@ def test_the_graph_plan_is_the_rel_plan_plus_views_and_one_workspace(seed):
 
 @pytest.mark.parametrize("seed", range(1, 4))
 def test_every_traversal_question_has_a_graph_syntax_and_every_select_a_graph_base(seed):
-    from ganda.core.ir.traversal import from_params
+    from ganda.core.query.ir.traversal import from_params
     from ganda.hana.concrete_syntax import select, traversal
 
     schema, _instance, cases = _cases(seed)
@@ -489,14 +489,14 @@ def test_every_traversal_question_has_a_graph_syntax_and_every_select_a_graph_ba
             assert traversal.syntaxes_for(q, schema, "graph"), c.shape
             assert "graph" in c.queries
         if c.generator_name == "ir_select":
-            from ganda.core.ir.select import from_params as select_params
+            from ganda.core.query.ir.select import from_params as select_params
 
             q = select_params(c.params["select"])
             assert "graph" in select.base_data_models(q) or q.tx
 
 
 def test_pattern_only_where_no_edge_can_repeat_and_undirected_only_for_sets():
-    from ganda.core.ir.traversal import Hop, TraversalQuery
+    from ganda.core.query.ir.traversal import Hop, TraversalQuery
     from ganda.hana.concrete_syntax import traversal
 
     schema = E.schema(
@@ -700,8 +700,8 @@ def test_the_graph_model_round_trips_offline_without_rdflib(seed):
     every rel / graph variant of every case against each other and the reference."""
     import dataclasses
 
-    from ganda.core.oracle import run_cases
-    from ganda.core.state_check import verify_state
+    from ganda.core.oracle.oracle import run_cases
+    from ganda.core.engine.state_check import verify_state
     from tests.hana.offline import OfflineServer
 
     schema, instance, cases = _cases(seed)
@@ -912,7 +912,7 @@ def test_the_block_positions_wrap_the_statement_in_a_typed_sqlscript_block():
 
 
 def test_the_set_operation_form_partitions_a_filter_on_every_sql_path_and_in_sparql():
-    from ganda.core.ir.select import SelectQuery
+    from ganda.core.query.ir.select import SelectQuery
     from ganda.hana.concrete_syntax import select
 
     schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT),)),), ())
@@ -1014,7 +1014,7 @@ def test_the_mutant_catalog_corrupts_a_node_value_on_every_data_model():
 
 
 def test_a_decoding_failure_is_an_internal_engine_error_not_a_dead_worker():
-    from ganda.core.provider import EngineError
+    from ganda.core.engine.provider import EngineError
     from ganda.hana.connection import _error, decoded_rows, decoded_sparql, document_of
 
     assert decoded_rows(["v__int", "w"], [("7", 1)]) == [{"v": 7, "w": 1}]
@@ -1057,7 +1057,7 @@ def test_the_custom_key_pool_orders_alike_in_sql_and_sparql():
     """The axis is on because SQL's UTF-16 code-unit order and SPARQL's code-point order
     part only for an astral key against one in U+E000..U+FFFF, which no key style
     draws (`data_generator._custom_key`); the probe's CUSTOM_KEYS cover every style."""
-    from ganda.core.data_generator import _KEY_PUNCT_BASES, _KEY_UNICODE_BASES
+    from ganda.core.data.generator import _KEY_PUNCT_BASES, _KEY_UNICODE_BASES
     from ganda.hana.dialect import is_valid_key
     from ganda.hana.scripts.probe import CUSTOM_KEYS
 

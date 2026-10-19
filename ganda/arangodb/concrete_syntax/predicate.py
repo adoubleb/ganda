@@ -1,4 +1,4 @@
-"""AQL text for the abstract predicate tree (`ganda.core.ir.predicates`): the engine's
+"""AQL text for the abstract predicate tree (`ganda.core.query.ir.predicates`): the engine's
 parameter syntax (`@p1`), its operator forms (`IN_RANGE` for a range, `HAS()` for
 definedness, `@p IN f` for a list membership, `ANY IN` / `ALL IN` for the quantified
 ones, `VALUES()` for a map's values), the semi-join's subquery and the reversed and
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 
-from ganda.core.ir.predicates import MIRROR, NO_BIND_OPS, Compound
+from ganda.core.query.ir.predicates import MIRROR, NO_BIND_OPS, Compound
 
 _OPS = {"=": "==", "<>": "!=", "<": "<", "<=": "<=", ">": ">", ">=": ">="}
 

@@ -27,8 +27,8 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from ganda.core.coverage import LEVELS  # noqa: F401
-from ganda.core.coverage import Collector as _CoreCollector
+from ganda.core.engine.coverage import LEVELS  # noqa: F401
+from ganda.core.engine.coverage import Collector as _CoreCollector
 
 JACOCO_VERSION = "0.8.13"
 AGENT_PORT = 6300

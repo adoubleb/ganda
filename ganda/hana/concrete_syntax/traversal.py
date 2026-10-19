@@ -70,8 +70,8 @@ from __future__ import annotations
 
 import json
 
-from ganda.core.ir.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, TraversalQuery
-from ganda.core.model import FieldType, Schema
+from ganda.core.query.ir.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, TraversalQuery
+from ganda.core.data.model import FieldType, Schema
 from ganda.hana.concrete_syntax import document, graph, hints
 from ganda.hana.concrete_syntax.predicate import REL, Names, fields_used, filter_expr, optionals, sparql_filter, sql, var
 from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT
@@ -159,7 +159,7 @@ def render(q: TraversalQuery, schema: Schema, data_model: str, syntax: str, pull
 
 
 def _source_fields(q: TraversalQuery) -> list:
-    from ganda.core.ir.predicates import fields_of
+    from ganda.core.query.ir.predicates import fields_of
 
     return fields_of(q.source_predicate)
 

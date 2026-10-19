@@ -14,5 +14,5 @@ pytest tests/ -q
 python3 -m ganda orientdb run --iterations 3 --seed 1     # needs Docker
 ```
 
-Then read `ganda/core/campaign.py::run_instance`, `tests/fake_engine/__init__.py` and one
+Then read `ganda/core/campaign/run.py::run_instance`, `tests/fake_engine/__init__.py` and one
 bundle under `bugs/`.

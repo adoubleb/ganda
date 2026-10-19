@@ -18,13 +18,13 @@ import sys
 import time
 from collections import defaultdict
 
-from ganda.core import scale as _scale
-from ganda.core.config import add_config_arguments, config_from_args
-from ganda.core.data_generator import build, limits_of
-from ganda.core.generators.write_phase import run_write_phase
-from ganda.core.provider import EngineCrash, EngineError
-from ganda.core.oracle import run_case
-from ganda.core.generators.registry import all_cases
+from ganda.core.data import scale as _scale
+from ganda.core.campaign.config import add_config_arguments, config_from_args
+from ganda.core.data.generator import build, limits_of
+from ganda.core.query.generators.write_phase import run_write_phase
+from ganda.core.engine.provider import EngineCrash, EngineError
+from ganda.core.oracle.oracle import run_case
+from ganda.core.query.generators.registry import all_cases
 
 
 def _setup(engine, server, ns: str, instance, mutant) -> dict:

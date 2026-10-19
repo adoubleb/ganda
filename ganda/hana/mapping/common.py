@@ -1,7 +1,7 @@
 """The setup steps of SAP HANA's data models and what the three mappings share.
 
 A step is a plain dataclass with a JSON `to_dict()`, so a bug bundle records the exact
-plan that ran (`ganda.core.setup_plan`); its op name is prefixed `hana_` (the step
+plan that ran (`ganda.core.engine.setup_plan`); its op name is prefixed `hana_` (the step
 registry is shared by every provider):
 
     Sql(text, params)          one SQL statement; `:name` parameters (the session binds
@@ -22,8 +22,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ganda.core.data_generator import initial_node_values, initial_nodes  # noqa: F401
-from ganda.core.setup_plan import initial_edge_values, initial_edges, step, step_from_dict  # noqa: F401
+from ganda.core.data.generator import initial_node_values, initial_nodes  # noqa: F401
+from ganda.core.engine.setup_plan import initial_edge_values, initial_edges, step, step_from_dict  # noqa: F401
 
 
 @step("hana_declare")

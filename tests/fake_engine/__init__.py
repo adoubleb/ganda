@@ -15,17 +15,17 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from ganda.core.ir import path as path_ast
-from ganda.core.ir import select as select_ast
-from ganda.core.ir import traversal as traversal_ast
-from ganda.core.ir import write as write_ast
-from ganda.core.ir.predicates import Compound
-from ganda.core.data_generator import BOUNDARY_VALUES, GeneratorConfig
-from ganda.core.limits import StorageLimits
-from ganda.core.model import WriteForm
+from ganda.core.query.ir import path as path_ast
+from ganda.core.query.ir import select as select_ast
+from ganda.core.query.ir import traversal as traversal_ast
+from ganda.core.query.ir import write as write_ast
+from ganda.core.query.ir.predicates import Compound
+from ganda.core.data.generator import BOUNDARY_VALUES, GeneratorConfig
+from ganda.core.data.limits import StorageLimits
+from ganda.core.data.model import WriteForm
 from ganda.core.mutation.mutants import INSTANCE_MUTANTS
-from ganda.core.provider import EngineError, Provider, Semantics, Server, Session
-from ganda.core.setup_plan import step
+from ganda.core.engine.provider import EngineError, Provider, Semantics, Server, Session
+from ganda.core.engine.setup_plan import step
 
 DATA_MODELS = ("doc", "graph", "rel")
 

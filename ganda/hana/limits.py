@@ -1,11 +1,11 @@
-"""What SAP HANA Cloud can hold (`ganda.core.limits.StorageLimits`), and where each number
+"""What SAP HANA Cloud can hold (`ganda.core.data.limits.StorageLimits`), and where each number
 comes from: the SQL reference (documented), or a bound the provider chooses below a
 documented one so that all three data models stay inside it. None is probed yet
 (`ganda hana probe` checks the ones a campaign walks into: the string and list bounds).
 """
 from __future__ import annotations
 
-from ganda.core.limits import StorageLimits
+from ganda.core.data.limits import StorageLimits
 from ganda.hana.dialect import NVARCHAR_MAX
 
 LIMITS = StorageLimits(

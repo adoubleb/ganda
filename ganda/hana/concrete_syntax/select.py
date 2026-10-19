@@ -70,10 +70,10 @@ import itertools
 import random
 from dataclasses import dataclass, field
 
-from ganda.core.ir.predicates import MIRROR, Predicate, fields_of
-from ganda.core.ir.select import SelectQuery, column, notnull_fields
-from ganda.core.data_generator import BASE_CLASS
-from ganda.core.model import FieldType, Instance, Schema
+from ganda.core.query.ir.predicates import MIRROR, Predicate, fields_of
+from ganda.core.query.ir.select import SelectQuery, column, notnull_fields
+from ganda.core.data.generator import BASE_CLASS
+from ganda.core.data.model import FieldType, Instance, Schema
 from ganda.hana import rewrites as _rewrites
 from ganda.hana.concrete_syntax import document, graph, hints, tx as _tx
 from ganda.hana.concrete_syntax.methods import METHODS, method_fn, result_type, sparql_text, sql_text  # noqa: F401
@@ -885,14 +885,14 @@ def _graph_wrap(select: str, body: str, tail: str, position: str) -> str:
 
 
 def build_rewrites(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> Rewrites:
-    from ganda.core.ir.select import present_values, records, view
+    from ganda.core.query.ir.select import present_values, records, view
 
     rewrites = Rewrites(present=present_values(q, instance) if q.kind == "agg" else [], hint=rng.choice(hints.NAMES))
     p = q.where
     if p is None:
         return rewrites
     rewrites.rw = _rewrites.rewrite(p, rng, "q")
-    from ganda.core.ir.predicates import reverse
+    from ganda.core.query.ir.predicates import reverse
 
     rewrites.rev = reverse(p)
     if isinstance(p, Predicate) and p.sub is None:

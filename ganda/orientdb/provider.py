@@ -1,7 +1,7 @@
 """The OrientDB provider: this package's modules behind the core's contract."""
 from __future__ import annotations
 
-from ganda.core.provider import Provider
+from ganda.core.engine.provider import Provider
 from ganda.orientdb import pivots
 from ganda.orientdb.config import OrientConfig
 from ganda.orientdb.limits import LIMITS
@@ -79,7 +79,7 @@ class OrientDBProvider(Provider):
         """A server for the campaign's scale: every server takes request bodies up to
         the declared bound; the large scale gets a bigger heap and the profile's
         query timeout."""
-        from ganda.core import scale as _scale
+        from ganda.core.data import scale as _scale
         from ganda.orientdb.connection import LARGE_SCALE_MEMORY, OrientServer
 
         profile = _scale.profile(getattr(args, "scale", None) or "default")

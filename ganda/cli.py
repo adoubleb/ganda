@@ -20,8 +20,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from ganda.core import envfile
-from ganda.core.provider import EngineCrash
+from ganda.core.engine import envfile
+from ganda.core.engine.provider import EngineCrash
 from ganda.registry import PROVIDERS, provider
 
 
@@ -41,12 +41,12 @@ def _doctor(engine, args) -> int:
 
 
 def _limits(engine) -> int:
-    """The engine's declared limits (`ganda.core.limits`) and what the `large` scale
+    """The engine's declared limits (`ganda.core.data.limits`) and what the `large` scale
     profile makes of them on this engine."""
     import dataclasses
 
-    from ganda.core import scale as _scale
-    from ganda.core.data_generator import limits_of
+    from ganda.core.data import scale as _scale
+    from ganda.core.data.generator import limits_of
 
     limits = limits_of(engine)
     note = "" if engine.limits is not None else "  (the conservative set: this provider declares none yet)"
@@ -85,7 +85,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog=f"ganda {engine.name}", description=f"{engine.title}: multi-model metamorphic fuzzing")
     sub = ap.add_subparsers(dest="command", required=True)
 
-    from ganda.core import campaign
+    from ganda.core.campaign import run as campaign
     from ganda.core.mutation import runner as mutation
 
     run = sub.add_parser("run", help="a campaign: generate, materialize, query, compare")

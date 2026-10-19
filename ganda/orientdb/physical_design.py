@@ -7,8 +7,8 @@ from __future__ import annotations
 import dataclasses
 import random
 
-from ganda.core.data_generator import BOUNDARY_VALUES  # noqa: F401 -- every one probed to round-trip on 3.2.56
-from ganda.core.model import WriteForm
+from ganda.core.data.generator import BOUNDARY_VALUES  # noqa: F401 -- every one probed to round-trip on 3.2.56
+from ganda.core.data.model import WriteForm
 from ganda.core.rng import stream
 from ganda.orientdb.dialect import (
     EDGE_FROM_FORMS,

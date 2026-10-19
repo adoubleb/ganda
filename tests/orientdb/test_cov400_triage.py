@@ -6,7 +6,7 @@ answer."""
 import dataclasses
 import random
 
-from ganda.core.ir.select import TxWrite
+from ganda.core.query.ir.select import TxWrite
 from ganda.orientdb.known_bugs import (
     map_value_index_known,
     o5_poly_sibling_index,
@@ -17,8 +17,8 @@ from ganda.orientdb.known_bugs import (
     o44_dfs_reach,
 )
 from ganda.orientdb.java_hash import distinct_collides, java_hash, string_hash
-from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
-from ganda.core.ir.traversal import Hop, TraversalQuery
+from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
+from ganda.core.query.ir.traversal import Hop, TraversalQuery
 from ganda.orientdb.predicates import Compound, Predicate, arithmetic
 from ganda.orientdb.semantics import like_hit
 

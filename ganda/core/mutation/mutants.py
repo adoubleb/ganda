@@ -18,7 +18,7 @@ import dataclasses
 from dataclasses import dataclass
 from typing import Callable
 
-from ganda.core.model import EdgeDelete, EdgeRow, EdgeUpdate, FieldType, Instance, NodeDelete, NodeUpdate
+from ganda.core.data.model import EdgeDelete, EdgeRow, EdgeUpdate, FieldType, Instance, NodeDelete, NodeUpdate
 
 
 @dataclass(frozen=True)

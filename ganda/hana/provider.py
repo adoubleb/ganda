@@ -9,7 +9,7 @@ through `SPARQL_TABLE`). The comparison order puts `graph` next to `rel`: the sa
 bytes read through two engines."""
 from __future__ import annotations
 
-from ganda.core.provider import Provider
+from ganda.core.engine.provider import Provider
 from ganda.hana import pivots
 from ganda.hana.config import HanaConfig, refuse_unsupported
 from ganda.hana.limits import LIMITS
@@ -95,7 +95,7 @@ class HanaProvider(Provider):
     # --- the server -----------------------------------------------------------------------
 
     def server(self, args=None):
-        from ganda.core import scale as _scale
+        from ganda.core.data import scale as _scale
         from ganda.hana.connection import HanaServer
 
         profile = _scale.profile(getattr(args, "scale", None) or "default")

@@ -45,7 +45,7 @@ import sqlite3
 import statistics
 from decimal import Decimal
 
-from ganda.core.provider import EngineError, Server
+from ganda.core.engine.provider import EngineError, Server
 from ganda.hana.concrete_syntax import tx as _tx
 from ganda.hana.connection import HanaSession, decode_row, positional, sparql_rows
 from ganda.hana.dialect import GRAPH_TOKEN

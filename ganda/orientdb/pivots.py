@@ -7,8 +7,8 @@ import math
 import random
 
 from ganda.core.constants import I32_MAX, I32_MIN
-from ganda.core.neighbours import _f32
-from ganda.core.model import DATE_TYPES, FieldType
+from ganda.core.data.neighbours import _f32
+from ganda.core.data.model import DATE_TYPES, FieldType
 
 ORDERED_OPS = ("=", "<>", ">", ">=", "<", "<=", "IN", "BETWEEN")
 NULL_OPS = ("IS NULL", "IS NOT NULL", "IS DEFINED", "IS NOT DEFINED")

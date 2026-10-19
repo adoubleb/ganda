@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 
-from ganda.core.ir.predicates import Compound, Predicate
+from ganda.core.query.ir.predicates import Compound, Predicate
 
 A40 = "A40"
 _MEMBERSHIP = ("CONTAINS", "CONTAINSANY", "CONTAINSALL")

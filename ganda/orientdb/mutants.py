@@ -27,7 +27,7 @@ from __future__ import annotations
 import dataclasses
 import re
 
-from ganda.core.model import Schema
+from ganda.core.data.model import Schema
 from ganda.core.mutation.mutants import INSTANCE_MUTANTS, Mutant
 from ganda.orientdb.dialect import RANGE_KINDS
 

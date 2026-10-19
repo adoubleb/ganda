@@ -28,8 +28,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from ganda.core.data_generator import initial_node_values, initial_nodes
-from ganda.core.setup_plan import (  # noqa: F401
+from ganda.core.data.generator import initial_node_values, initial_nodes
+from ganda.core.engine.setup_plan import (  # noqa: F401
     Ref,
     churned_away_edges,
     decode_refs,
@@ -42,7 +42,7 @@ from ganda.core.setup_plan import (  # noqa: F401
     step as register_step,
     step_from_dict,
 )
-from ganda.core.model import (
+from ganda.core.data.model import (
     INT_TYPES,
     EdgeDelete,
     EdgeUpdate,

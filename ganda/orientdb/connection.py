@@ -51,7 +51,7 @@ from typing import Any
 import requests
 
 from ganda.orientdb.mapping.common import Batch, Script, Sql, resolve_refs
-from ganda.core.provider import EngineCrash, EngineError, Server, Session
+from ganda.core.engine.provider import EngineCrash, EngineError, Server, Session
 
 
 class OrientError(EngineError):
@@ -275,7 +275,7 @@ class OrientSession(Session):
             text = f"{select} WHERE {column} IN :ids"
             yield self.sql_raw(text, {"ids": chunk}) if raw else self.sql(text, {"ids": chunk}, timeout_ms=0)
 
-    # --- reading the stored state back (`ganda.core.state_check`) ----------------------
+    # --- reading the stored state back (`ganda.core.engine.state_check`) ----------------------
 
     def read_nodes(self, table: str, ids: "list | None" = None) -> dict:
         if ids is None:

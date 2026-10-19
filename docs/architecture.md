@@ -28,7 +28,7 @@ flowchart TB
         mut["mutation/<br/>coverage, scale, limits"]
     end
 
-    contract{{"Provider contract<br/>core/provider.py"}}
+    contract{{"Provider contract<br/>core/engine/provider.py"}}
 
     subgraph providers["providers (never import each other)"]
         direction LR
@@ -55,7 +55,7 @@ unique), it belongs behind a slot of the provider contract.
 
 ## One seed, end to end
 
-`core/campaign.py::run_instance` is the whole pipeline for one seed. Reading it top to
+`core/campaign/run.py::run_instance` is the whole pipeline for one seed. Reading it top to
 bottom is the fastest way to understand Ganda.
 
 ```mermaid
@@ -88,15 +88,15 @@ Step by step:
 
 | Step | Code | What happens |
 |---|---|---|
-| Generate | `core/data_generator.py`, `core/model.py` | `build(seed, cfg, engine)` returns `(schema, instance, rng)`. The Instance is a small labelled property graph: node classes, edge types, rows, plus *churn* (records written then updated or deleted, so write paths get exercised). |
-| Map | `<engine>/mapping/` | Each data model's mapper turns the Instance into a **setup plan**: a list of provider-defined steps (`@step("op")` in `core/setup_plan.py`). Records are named by logical id; an engine-assigned id is a `Ref(id)` placeholder resolved at run time. |
+| Generate | `core/data/generator.py`, `core/data/model.py` | `build(seed, cfg, engine)` returns `(schema, instance, rng)`. The Instance is a small labelled property graph: node classes, edge types, rows, plus *churn* (records written then updated or deleted, so write paths get exercised). |
+| Map | `<engine>/mapping/` | Each data model's mapper turns the Instance into a **setup plan**: a list of provider-defined steps (`@step("op")` in `core/engine/setup_plan.py`). Records are named by logical id; an engine-assigned id is a `Ref(id)` placeholder resolved at run time. |
 | Materialize | `<engine>/connection.py` | `Server.fresh_session(db)` gives an empty database per data model; `Session.apply_setup(plan)` runs the plan. |
-| Verify state | `core/state_check.py` | Read every database back and compare with the Instance. A diff on one data model only is an engine write-path finding; a diff on all of them is a Ganda bug. |
-| Sample questions | `core/generators/` | Each query generator draws IRs from its own random stream. |
+| Verify state | `core/engine/state_check.py` | Read every database back and compare with the Instance. A diff on one data model only is an engine write-path finding; a diff on all of them is a Ganda bug. |
+| Sample questions | `core/query/generators/` | Each query generator draws IRs from its own random stream. |
 | Render | `<engine>/concrete_syntax/` | The provider turns an IR into text for each data model, through every concrete syntax that applies. |
-| Compare | `core/oracle.py` | Every variant runs on its data model's session. Answers are normalized (row folding, multiset order) and compared pair by pair, then against the reference. |
-| Write phase | `core/generators/write_phase.py` | After the reads, predicate-targeted writes run on every data model. Their answers are compared, the write is applied to the Instance, and the stored state is checked again. |
-| Report | `core/dedup.py`, `core/reporter.py` | The first finding per key becomes a self-contained bundle with a `repro.py`. |
+| Compare | `core/oracle/oracle.py` | Every variant runs on its data model's session. Answers are normalized (row folding, multiset order) and compared pair by pair, then against the reference. |
+| Write phase | `core/query/generators/write_phase.py` | After the reads, predicate-targeted writes run on every data model. Their answers are compared, the write is applied to the Instance, and the stored state is checked again. |
+| Report | `core/oracle/dedup.py`, `core/campaign/reporter.py` | The first finding per key becomes a self-contained bundle with a `repro.py`. |
 
 `--workers N` runs N shards of seeds as threads against the same server, each in its own
 database namespace. A crash (`EngineCrash`) is autopsied (`Server.diagnostics`) and the
@@ -106,7 +106,7 @@ server is restarted.
 
 ### Variants and cases
 
-A `QueryCase` (`core/case.py`) is one question. Its `queries` map **variant → text**,
+A `QueryCase` (`core/oracle/case.py`) is one question. Its `queries` map **variant → text**,
 where a variant is either a data model (`doc`, `graph`, `rel`) or
 `<data model>:<tag>`, a second concrete syntax run in that data model's database
 (`graph:match`, `rel:flat`, `rel:pull_up`). Values travel in `bind_vars`, shared by every
@@ -119,7 +119,7 @@ Because the oracle compares *every pair*, one case produces two kinds of evidenc
 - **cross-model pairs** (`doc/rel`): two storage layouts, which tests the multi-model
   promise.
 
-### The four query IRs (`core/ir/`)
+### The four query IRs (`core/query/ir/`)
 
 | IR | Question | Reference |
 |---|---|---|
@@ -133,7 +133,7 @@ or *outside* stored values, because bugs live at boundaries.
 
 ### Comparison modes
 
-`Comparison` in `core/case.py` says how answers are normalized: `SCALAR_BY_ID`,
+`Comparison` in `core/oracle/case.py` says how answers are normalized: `SCALAR_BY_ID`,
 `MULTISET_BY_ID`, `SET_BY_ID`, `SINGLE_VALUE`, `NESTED_VALUE`. Normalization strips only
 representation artifacts (one row per path folded into one entry per id, nested lists
 flattened, nulls dropped from multisets). Numbers are **not** collapsed across types:
@@ -141,7 +141,7 @@ flattened, nulls dropped from multisets). Numbers are **not** collapsed across t
 
 ### Finding classes
 
-From `CaseResult.finding_class` (`core/oracle.py`), most severe first:
+From `CaseResult.finding_class` (`core/oracle/oracle.py`), most severe first:
 
 | Class | Meaning |
 |---|---|
@@ -156,7 +156,7 @@ Setup problems are reported separately: `setup-asymmetry`, `state-diff`, `state-
 
 ## The provider contract
 
-`core/provider.py` documents every member. A provider is a `Provider` subclass whose
+`core/engine/provider.py` documents every member. A provider is a `Provider` subclass whose
 attributes are **slots** the core reads; a slot may be an object or a module.
 
 | Slot | What the core asks it | Typical file |
@@ -218,13 +218,13 @@ it is suspect.
   on purpose (one data model's Instance, one variant's text, an index path) and measure
   how often the oracle catches it. Real bugs are rare, so this is how a change to the
   query supply is judged. Compare catch rates over the *same* mutants and seeds.
-- **Scale** (`core/scale.py`, `core/limits.py`, `--scale large`): thousands of records,
+- **Scale** (`core/data/scale.py`, `core/data/limits.py`, `--scale large`): thousands of records,
   hubs of thousands of edges, values grown to the engine's limits, bulk writes. The
   reference leg is off (data models are compared pairwise only), state is checked by
   counts plus a sample, and a query timeout is "no answer" rather than an error.
-- **Coverage** (`core/coverage.py`, `--coverage seed|case|variant`): a hook protocol;
+- **Coverage** (`core/engine/coverage.py`, `--coverage seed|case|variant`): a hook protocol;
   OrientDB implements it with JaCoCo.
-- **Replay and reduction** (`core/replay.py`, `core/reducer.py`): a bundle's `repro.py`
+- **Replay and reduction** (`core/campaign/replay.py`, `core/campaign/reducer.py`): a bundle's `repro.py`
   regenerates the Instance from the seed and re-runs the case; the reducer lowers
   configuration bounds while the same finding key still reproduces.
 
@@ -232,5 +232,5 @@ it is suspect.
 
 - [contributing.md](contributing.md): setup, the gates every change passes, and how-tos.
 - [glossary.md](glossary.md): every term used here.
-- `ganda/core/provider.py`: the contract, member by member.
-- `ganda/core/campaign.py::run_instance`: the pipeline in about 120 lines.
+- `ganda/core/engine/provider.py`: the contract, member by member.
+- `ganda/core/campaign/run.py::run_instance`: the pipeline in about 120 lines.

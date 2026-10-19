@@ -5,7 +5,7 @@ collections (`graph`) and junction collections (`rel`) -- each asked every quest
 AQL through its own storage path. `RULES.md` lists the engine facts the oracle rests on."""
 from __future__ import annotations
 
-from ganda.core.provider import Provider
+from ganda.core.engine.provider import Provider
 from ganda.arangodb import pivots
 from ganda.arangodb.config import ArangoConfig
 from ganda.arangodb.limits import LIMITS
@@ -83,7 +83,7 @@ class ArangoDBProvider(Provider):
     def server(self, args=None):
         """A server for the campaign's scale: the profile's query timeout as every
         session's `maxRuntime`."""
-        from ganda.core import scale as _scale
+        from ganda.core.data import scale as _scale
         from ganda.arangodb.connection import ArangoServer
 
         profile = _scale.profile(getattr(args, "scale", None) or "default")

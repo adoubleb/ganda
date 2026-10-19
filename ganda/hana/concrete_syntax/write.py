@@ -48,10 +48,10 @@ import json
 import random
 from dataclasses import dataclass, field
 
-from ganda.core.ir.predicates import reverse
-from ganda.core.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
-from ganda.core.data_generator import BASE_CLASS
-from ganda.core.model import FieldType, Instance, Schema
+from ganda.core.query.ir.predicates import reverse
+from ganda.core.query.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
+from ganda.core.data.generator import BASE_CLASS
+from ganda.core.data.model import FieldType, Instance, Schema
 from ganda.hana import rewrites as _rewrites
 from ganda.hana.concrete_syntax import document
 from ganda.hana.concrete_syntax.predicate import sparql_filter, sql

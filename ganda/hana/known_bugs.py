@@ -44,7 +44,7 @@ def _h4(q, schema, instance) -> bool:
 def _b13(q, instance) -> bool:
     if q.kind != "agg" or q.fn != "avg":
         return False
-    from ganda.core.ir.select import present_values
+    from ganda.core.query.ir.select import present_values
 
     values = present_values(q, instance)
     if not values or not all(isinstance(v, int) and not isinstance(v, bool) for v in values):

@@ -3,9 +3,9 @@ identity, no query supply yet. `ganda surrealdb doctor` exercises what is here;
 `PORTING.md` says what each remaining slot takes from the legacy port."""
 from __future__ import annotations
 
-from ganda.core.data_generator import GeneratorConfig
-from ganda.core.limits import StorageLimits
-from ganda.core.provider import Provider
+from ganda.core.data.generator import GeneratorConfig
+from ganda.core.data.limits import StorageLimits
+from ganda.core.engine.provider import Provider
 
 
 class SurrealDBProvider(Provider):

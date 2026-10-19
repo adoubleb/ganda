@@ -89,7 +89,7 @@ a SQLScript block (compared live only: the offline stand-in skips the workspace 
 procedures and drops the variant). `connection.positional` leaves `:sv_*` alone (the
 SQLScript variables); `dialect.SCHEMA_TOKEN` is the session's schema in a text.
 
-The provider fills every slot of the core's contract (`ganda/core/provider.py`):
+The provider fills every slot of the core's contract (`ganda/core/engine/provider.py`):
 traversal, select, path and write IRs, mappings, semantics, rewrites, a probe, mutants.
 `known_bugs.py` guards H4 and B13; A8 and A9 are worked around in the graph renderings.
 

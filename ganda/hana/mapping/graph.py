@@ -26,7 +26,7 @@ created with the DDL, before the data.
 """
 from __future__ import annotations
 
-from ganda.core.model import Instance, Schema
+from ganda.core.data.model import Instance, Schema
 from ganda.hana import physical_design
 from ganda.hana.dialect import GRAPH_WORKSPACE, SCHEMA_TOKEN, graph_columns, graph_label, graph_view
 from ganda.hana.mapping.common import GraphWorkspace, Sql

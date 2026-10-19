@@ -37,7 +37,7 @@ import re
 import threading
 from decimal import Decimal
 
-from ganda.core.provider import EngineCrash, EngineError, Server, Session
+from ganda.core.engine.provider import EngineCrash, EngineError, Server, Session
 from ganda.hana.concrete_syntax import tx as _tx
 from ganda.hana.dialect import GRAPH_TOKEN, SCHEMA_TOKEN, child_table, from_rdf_term, graph_iri, list_text, number, opencypher_table, record_iri
 

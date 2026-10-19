@@ -24,8 +24,8 @@ what the junction holds); the session passes each text the names it uses.
 """
 from __future__ import annotations
 
-from ganda.core.ir.path import PathQuery
-from ganda.core.model import Instance, Schema
+from ganda.core.query.ir.path import PathQuery
+from ganda.core.data.model import Instance, Schema
 from ganda.arangodb.dialect import engine_id
 
 _DIR = {"OUT": "OUTBOUND", "IN": "INBOUND", "BOTH": "ANY"}
