@@ -168,7 +168,7 @@ def lt(a: Any, b: Any) -> bool:
 
 # what Java's regex `.` does not match: the engine compiles a LIKE pattern into a
 # regex without DOTALL (O42)
-_LINE_TERMINATORS = "\n\r\u0085"
+_LINE_TERMINATORS = "\n\r\u0085\u2028\u2029"
 _WILD = f"[^{_LINE_TERMINATORS}]"
 
 
