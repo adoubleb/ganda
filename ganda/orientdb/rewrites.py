@@ -9,7 +9,7 @@ import dataclasses
 import math
 import random
 
-from ganda.core.ast.predicates import MAP_OPS, MIRROR, NO_BIND_OPS, Compound, Predicate
+from ganda.core.ast.predicates import MAP_OPS, MIRROR, NO_BIND_OPS, Arith, Compound, Predicate
 from ganda.core.constants import I32_MAX, I32_MIN, I64_MAX, I64_MIN
 from ganda.core.neighbours import _f32
 from ganda.core.model import DATE_TYPES, FieldType
@@ -93,7 +93,7 @@ def arithmetic(p, rng: random.Random, bind: str, ftype: FieldType, values: list)
             return None
     op = p.op if (c > 0 or sym != "*") else MIRROR[p.op]
     cbind = f"{bind}c"
-    leaf = Predicate(p.on, p.field, op, bind, apply_arith(pv, sym, c, ftype.value), p.reference, p.ftype, p.ci, None, "", False, (sym, cbind, c))
+    leaf = Predicate(p.on, p.field, op, bind, apply_arith(pv, sym, c, ftype.value), p.reference, p.ftype, p.ci, None, "", False, Arith(sym, cbind, c))
     if op == "<>":
         # `f <> p` holds for a null f: the null rows are added back explicitly
         return Compound(p.on, "OR", (leaf, Predicate(p.on, p.field, "IS NULL", "", None, p.reference, p.ftype, p.ci)))

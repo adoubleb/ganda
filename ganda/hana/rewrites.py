@@ -14,7 +14,7 @@ from __future__ import annotations
 import math
 import random
 
-from ganda.core.ast.predicates import MIRROR, Compound, Predicate
+from ganda.core.ast.predicates import MIRROR, Arith, Compound, Predicate
 from ganda.core.constants import I64_MAX, I64_MIN
 from ganda.core.model import FieldType
 from ganda.hana.semantics import apply_arith
@@ -64,7 +64,7 @@ def arithmetic(p, rng: random.Random, bind: str, ftype: FieldType, values: list)
     if not all(arith_exact(v, sym, c, ftype) for v in values) or not arith_exact(pv, sym, c, ftype):
         return None
     op = p.op if (c > 0 or sym != "*") else MIRROR[p.op]
-    return Predicate(p.on, p.field, op, bind, apply_arith(pv, sym, c, ftype.value), p.reference, p.ftype, p.ci, None, "", False, (sym, f"{bind}c", c))
+    return Predicate(p.on, p.field, op, bind, apply_arith(pv, sym, c, ftype.value), p.reference, p.ftype, p.ci, None, "", False, Arith(sym, f"{bind}c", c))
 
 
 def rewrite(p, rng: random.Random, bind: str):

@@ -50,7 +50,7 @@ def test_arithmetic_rewrite_is_exact_or_absent():
     ap = arithmetic(p, rng, "ar", FieldType.INT, [1, 5, 9, None])
     assert isinstance(ap, Compound) and ap.op == "AND" and ap.children[1].op == "IS NOT NULL"
     leaf = ap.children[0]
-    assert leaf.arith is not None and not leaf.plain and leaf.arith[1] == "arc"
+    assert leaf.arith is not None and not leaf.plain and leaf.arith.bind == "arc"
     text = render(ap)
     assert text.startswith("((f1 ") and ":arc" in text
     rows = [{"f1": v} for v in (1, 4, 5, 6, 9)] + [{}, {"f1": None}]

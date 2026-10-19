@@ -99,7 +99,7 @@ def sql(p, alias: str = "", table: str = "", key: str = "id", names: Names = REL
         return f"(SELECT COUNT(DISTINCT x.v) FROM {child} x WHERE {member} AND x.v IN :{p.bind}) = {len(set(p.pivot))}"
     expr = col
     if p.arith is not None:
-        expr = f"({col} {p.arith[0]} :{p.arith[1]})"
+        expr = f"({col} {p.arith.sym} :{p.arith.bind})"
     if p.op in ("IS NULL", "IS NOT NULL"):
         return f"{expr} {p.op}"
     cross = crosses(p)
@@ -191,8 +191,8 @@ def _leaf(p, record: str, regex: bool, native: bool) -> "tuple[str, str | None]"
     expr = v
     if p.arith is not None:
         # the constant in the column's own datatype: a double scaled by a double
-        c = float(p.arith[2]) if p.ftype == "float" else p.arith[2]
-        expr = f"({v} {p.arith[0]} {sparql_literal(c)})"
+        c = float(p.arith.value) if p.ftype == "float" else p.arith.value
+        expr = f"({v} {p.arith.sym} {sparql_literal(c)})"
     if p.op == "LIKE":
         return _like(expr, p.pivot, regex), v
     if p.op == "BETWEEN":

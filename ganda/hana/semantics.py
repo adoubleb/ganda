@@ -181,7 +181,7 @@ def tri(values: dict, p):
             return UNKNOWN
         return any(x is not None and eq(v, x) for x in p.pivot)
     if p.arith is not None and v is not None:
-        v = apply_arith(v, p.arith[0], p.arith[2], p.ftype)
+        v = apply_arith(v, p.arith.sym, p.arith.value, p.ftype)
     return truth(present, v, p.op, p.pivot)
 
 

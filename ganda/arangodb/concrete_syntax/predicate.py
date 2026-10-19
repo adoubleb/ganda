@@ -48,7 +48,7 @@ def render_predicate(p, var: str = "n", noopt: bool = False, schema=None) -> str
         expr = f"{expr}[@{p.key_bind}]" if p.key_bind else f"{expr}.{p.key}"
     expr = _wrap(expr, noopt)
     if p.arith is not None:
-        expr = f"({expr} {p.arith[0]} @{p.arith[1]})"
+        expr = f"({expr} {p.arith.sym} @{p.arith.bind})"
     if p.rev:
         if p.op == "CONTAINS":
             return f"{expr} ANY == @{p.bind}"

@@ -2,13 +2,20 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 
 from ganda.core.ast.enums import CompoundOp, MapOp, NullOp, On
 
 NO_BIND_OPS = tuple(NullOp)
 MAP_OPS = tuple(MapOp)
 COMPOUND_OPS = tuple(CompoundOp)
+
+
+class Arith(NamedTuple):
+    """Arithmetic on the field before the comparison: `(field <sym> :bind) op :pivot`."""
+    sym: str  # `+`, `-`, `*`
+    bind: str  # the bind-variable name carrying the constant
+    value: Any
 
 
 @dataclass(frozen=True)
@@ -24,7 +31,7 @@ class Predicate:
     key: "str | None" = None  # a map entry: the leaf compares `field.key` (or `field[:kb]` when `key_bind`)
     key_bind: str = "" 
     rev: bool = False # reverse operand positions
-    arith: "tuple | None" = None
+    arith: "Arith | None" = None
     # a SEMI-JOIN (`op == "INSUB"`): `f IN (SELECT g FROM t2 [WHERE q])` as `(t2, g,
     # q, scan)`, `scan` reading the subquery over `(SELECT FROM t2)` (never
     # index-served); the pivot is the answered `g` list, nulls included
@@ -32,6 +39,8 @@ class Predicate:
 
     def __post_init__(self):
         object.__setattr__(self, "on", On(self.on))
+        if self.arith is not None and not isinstance(self.arith, Arith):
+            object.__setattr__(self, "arith", Arith(*self.arith))
 
     def to_dict(self) -> dict:
         d = {"on": self.on, "field": self.field, "op": self.op, "bind": self.bind, "pivot": self.pivot, "reference": self.reference, "ftype": self.ftype, "ci": self.ci, "key": self.key, "key_bind": self.key_bind}
@@ -50,7 +59,7 @@ class Predicate:
             return None
         if d.get("kind") == "compound":
             return Compound(d["on"], d["op"], tuple(Predicate.from_dict(c) for c in d["children"]))
-        arith = tuple(d["arith"]) if d.get("arith") else None
+        arith = Arith(*d["arith"]) if d.get("arith") else None
         sub = None
         if d.get("sub"):
             x = d["sub"]
@@ -63,7 +72,7 @@ class Predicate:
             return dict(self.sub[2].bind_vars) if self.sub[2] is not None else {}
         out = {self.key_bind: self.key} if self.key_bind else {}
         if self.arith is not None:
-            out[self.arith[1]] = self.arith[2]
+            out[self.arith.bind] = self.arith.value
         if self.op in NO_BIND_OPS:
             return out
         if self.op == "BETWEEN":

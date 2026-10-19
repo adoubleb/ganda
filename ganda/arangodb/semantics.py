@@ -258,7 +258,7 @@ def evaluate(values: dict, p) -> bool:
         # for a record lacking `g` matches a record lacking `f`)
         return predicate_hit(present, v, "IN", p.pivot)
     if p.arith is not None and v is not None and p.key is None:
-        v = apply_arith(v, p.arith[0], p.arith[2], p.ftype)
+        v = apply_arith(v, p.arith.sym, p.arith.value, p.ftype)
     return predicate_hit(present, v, p.op, p.pivot, p.ftype, p.ci, p.key)
 
 

@@ -15,7 +15,7 @@ import dataclasses
 import math
 import random
 
-from ganda.core.ast.predicates import MAP_OPS, MIRROR, NO_BIND_OPS, Compound, Predicate
+from ganda.core.ast.predicates import MAP_OPS, MIRROR, NO_BIND_OPS, Arith, Compound, Predicate
 from ganda.core.model import FLOAT_TYPES, INT_TYPES, FieldType
 from ganda.arangodb.semantics import F64_INT_EXACT, apply_arith
 
@@ -66,7 +66,7 @@ def arithmetic(p, rng: random.Random, bind: str, ftype: FieldType, values: list)
         return None
     op = p.op if (c > 0 or sym != "*") else MIRROR[p.op]
     cbind = f"{bind}c"
-    leaf = Predicate(p.on, p.field, op, bind, apply_arith(pv, sym, c, ftype.value), p.reference, p.ftype, p.ci, None, "", False, (sym, cbind, c))
+    leaf = Predicate(p.on, p.field, op, bind, apply_arith(pv, sym, c, ftype.value), p.reference, p.ftype, p.ci, None, "", False, Arith(sym, cbind, c))
     # the null rows answer as the PLAIN comparison does under the total order: `<`,
     # `<=` and `<>` hold for a null, `=`, `>` and `>=` do not (the arithmetic over a
     # null would read it as 0)
