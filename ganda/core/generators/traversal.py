@@ -29,7 +29,7 @@ import random
 from ganda.core.model import INT_TYPES, ORDERED_TYPES, FieldType, Instance, Schema
 from ganda.core.generators import predicates as sampler
 from ganda.core.case import QueryCase
-from ganda.core.ast.traversal import EDGE_PROJECTIONS, MAX_HOPS, PLACEMENTS, PROJECTIONS, REACH_PROJECTIONS, Hop, TraversalQuery, shape_signature, sums_exactly
+from ganda.core.ir.traversal import EDGE_PROJECTIONS, MAX_HOPS, PLACEMENTS, PROJECTIONS, REACH_PROJECTIONS, Hop, TraversalQuery, shape_signature, sums_exactly
 
 CASES_PER_INSTANCE = 10
 SOURCE_PREDICATE_PROBABILITY = 0.3
@@ -164,7 +164,7 @@ def _aggregates_exactly(q: TraversalQuery, schema: Schema, instance: Instance) -
     field's type (`Semantics.aggregates_exactly`)."""
     if q.projection not in ("max", "min", "emax", "emin"):
         return True
-    from ganda.core.ast.traversal import projected_type
+    from ganda.core.ir.traversal import projected_type
 
     return schema.engine.semantics.aggregates_exactly(q.projection.lstrip("e"), FieldType(projected_type(q, instance)))
 

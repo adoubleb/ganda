@@ -1,14 +1,14 @@
 """Engine-neutral building blocks of the query generators: the AND over a composite
 index's fields, the transaction door's write and the rows it leaves, and the BFS
-distances of the path AST."""
+distances of the path IR."""
 from __future__ import annotations
 
 import dataclasses
 
-from ganda.core.ast import predicates
+from ganda.core.ir import predicates
 from ganda.core.generators import predicates as sampler
-from ganda.core.ast.predicates import Compound
-from ganda.core.ast.select import TX_WRITES, TxWrite
+from ganda.core.ir.predicates import Compound
+from ganda.core.ir.select import TX_WRITES, TxWrite
 from ganda.core.model import Instance, NodeRow, Schema
 
 

@@ -1,4 +1,4 @@
-"""The concrete syntax catalog of the select AST: HOW a `SelectQuery` is asked in AQL. A
+"""The concrete syntax catalog of the select IR: HOW a `SelectQuery` is asked in AQL. A
 syntax is three independent choices, and every applicable combination is an equivalent
 text:
 
@@ -53,8 +53,8 @@ import itertools
 import random
 from dataclasses import dataclass, field
 
-from ganda.core.ast.predicates import MIRROR, Predicate, reverse
-from ganda.core.ast.select import SelectQuery
+from ganda.core.ir.predicates import MIRROR, Predicate, reverse
+from ganda.core.ir.select import SelectQuery
 from ganda.core.model import FieldType, Instance, Schema
 from ganda.arangodb import rewrites as _rewrites
 from ganda.arangodb.concrete_syntax.predicate import render_predicate as render_pred
@@ -338,7 +338,7 @@ def _door(p, q: SelectQuery, schema: Schema, data_model: str) -> "str | None":
 
 
 def build_rewrites(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> Rewrites:
-    from ganda.core.ast.select import present_values, records, view
+    from ganda.core.ir.select import present_values, records, view
 
     rewrites = Rewrites(present=present_values(q, instance) if q.kind == "agg" else [])
     p = q.where

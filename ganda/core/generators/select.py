@@ -40,11 +40,11 @@ import dataclasses
 import random
 
 from ganda.core.model import INT_TYPES, NUMERIC_TYPES, ORDERED_TYPES, SCALAR_TYPES, FieldType, Instance, Schema
-from ganda.core.ast import predicates
+from ganda.core.ir import predicates
 from ganda.core.generators import predicates as sampler
 from ganda.core.case import QueryCase
-from ganda.core.ast.enums import AggFn, GroupFn, JoinForm, JoinOp, SelectKind, SortDirection
-from ganda.core.ast.select import EDGE_KINDS, SelectQuery, coverage_signature, hits, present_values, reference_ok, shape_signature, target_fields
+from ganda.core.ir.enums import AggFn, GroupFn, JoinForm, JoinOp, SelectKind, SortDirection
+from ganda.core.ir.select import EDGE_KINDS, SelectQuery, coverage_signature, hits, present_values, reference_ok, shape_signature, target_fields
 from ganda.core.generators.support import composite_and as _composite_and, draw_tx, tx_binds
 
 CASES_PER_INSTANCE = 30
@@ -262,7 +262,7 @@ def _tx_admits(q: SelectQuery, schema: Schema, instance: Instance) -> bool:
     """Whether the question's exactness conditions -- judged when it was realized,
     over the records before the write -- still hold over the transaction's view: an
     aggregate's (`_admits`), a method's mirror guard."""
-    from ganda.core.ast.select import column
+    from ganda.core.ir.select import column
 
     METHODS = schema.engine.select_syntax.METHODS
     sum_is_exact = schema.engine.semantics.sum_is_exact

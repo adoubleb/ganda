@@ -1,4 +1,4 @@
-"""The select AST: the single-class questions -- one class, an optional filter, a
+"""The select IR: the single-class questions -- one class, an optional filter, a
 result shape -- as data, so every shape is asked with and without a filter and through
 every concrete syntax that applies (a provider's `select_syntax`).
 
@@ -47,10 +47,10 @@ import itertools
 from dataclasses import dataclass
 
 from ganda.core.model import FieldType, Instance, Schema
-from ganda.core.ast import predicates
-from ganda.core.ast.enums import AggFn, GroupFn, JoinForm, JoinOp, SelectKind, SortDirection, WriteOp
+from ganda.core.ir import predicates
+from ganda.core.ir.enums import AggFn, GroupFn, JoinForm, JoinOp, SelectKind, SortDirection, WriteOp
 from ganda.core.case import Comparison
-from ganda.core.ast.predicates import Compound, Predicate
+from ganda.core.ir.predicates import Compound, Predicate
 
 EDGE_KINDS = tuple(k for k in SelectKind if k is not SelectKind.JOIN)
 

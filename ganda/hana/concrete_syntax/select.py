@@ -1,4 +1,4 @@
-"""The concrete syntax catalog of the select AST: HOW each SAP HANA data model asks a
+"""The concrete syntax catalog of the select IR: HOW each SAP HANA data model asks a
 `SelectQuery`. A concrete syntax is three independent choices; every applicable
 combination is an equivalent text.
 
@@ -70,8 +70,8 @@ import itertools
 import random
 from dataclasses import dataclass, field
 
-from ganda.core.ast.predicates import MIRROR, Predicate, fields_of
-from ganda.core.ast.select import SelectQuery, column, notnull_fields
+from ganda.core.ir.predicates import MIRROR, Predicate, fields_of
+from ganda.core.ir.select import SelectQuery, column, notnull_fields
 from ganda.core.data_generator import BASE_CLASS
 from ganda.core.model import FieldType, Instance, Schema
 from ganda.hana import rewrites as _rewrites
@@ -885,14 +885,14 @@ def _graph_wrap(select: str, body: str, tail: str, position: str) -> str:
 
 
 def build_rewrites(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> Rewrites:
-    from ganda.core.ast.select import present_values, records, view
+    from ganda.core.ir.select import present_values, records, view
 
     rewrites = Rewrites(present=present_values(q, instance) if q.kind == "agg" else [], hint=rng.choice(hints.NAMES))
     p = q.where
     if p is None:
         return rewrites
     rewrites.rw = _rewrites.rewrite(p, rng, "q")
-    from ganda.core.ast.predicates import reverse
+    from ganda.core.ir.predicates import reverse
 
     rewrites.rev = reverse(p)
     if isinstance(p, Predicate) and p.sub is None:

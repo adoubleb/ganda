@@ -1,4 +1,4 @@
-"""The write AST: data changes that pick their records through the planner -- an
+"""The write IR: data changes that pick their records through the planner -- an
 update, a delete or an upsert by predicate, and the relationship-attribute writes --
 where every write a setup issues addresses one record by its id.
 
@@ -33,9 +33,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from ganda.core.model import Instance, NodeRow, Schema
-from ganda.core.ast import predicates
+from ganda.core.ir import predicates
 from ganda.core.case import Comparison
-from ganda.core.ast.predicates import Predicate
+from ganda.core.ir.predicates import Predicate
 
 NODE_OPS = ("set", "arith", "null", "remove", "merge", "delete", "upsert")
 EDGE_OPS = ("edge_set", "edge_arith", "edge_remove", "edge_delete")

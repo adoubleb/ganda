@@ -1,4 +1,4 @@
-"""The concrete syntax catalog of the write AST: HOW each SAP HANA data model issues a
+"""The concrete syntax catalog of the write IR: HOW each SAP HANA data model issues a
 `WriteQuery`. A write runs once per database, so each data model draws its own
 syntax; the answers and the resulting states are compared with each other and with the
 Instance after the write.
@@ -48,8 +48,8 @@ import json
 import random
 from dataclasses import dataclass, field
 
-from ganda.core.ast.predicates import reverse
-from ganda.core.ast.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
+from ganda.core.ir.predicates import reverse
+from ganda.core.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
 from ganda.core.data_generator import BASE_CLASS
 from ganda.core.model import FieldType, Instance, Schema
 from ganda.hana import rewrites as _rewrites

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import dataclasses
 
-from ganda.core.ast.select import TxWrite
+from ganda.core.ir.select import TxWrite
 from ganda.core.model import FieldType, Instance, NodeRow, Schema
 from ganda.orientdb.dialect import HASH_KINDS
 from ganda.orientdb import predicates

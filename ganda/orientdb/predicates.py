@@ -8,7 +8,7 @@ from ganda.core.generators import predicates as _core
 from ganda.core.generators.predicates import COMPOUND_PROBABILITY, CROSS_TYPE_PROBABILITY  # noqa: F401
 from ganda.core.constants import I32_MAX, I32_MIN, I64_MAX, I64_MIN  # noqa: F401
 from ganda.core.neighbours import offset, shift_date  # noqa: F401
-from ganda.core.ast.predicates import (  # noqa: F401
+from ganda.core.ir.predicates import (  # noqa: F401
     COMPOUND_OPS,
     MAP_OPS,
     MIRROR,

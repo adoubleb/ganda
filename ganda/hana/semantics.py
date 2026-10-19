@@ -35,7 +35,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from ganda.core.ast.predicates import Compound
+from ganda.core.ir.predicates import Compound
 from ganda.core.model import FieldType
 from ganda.core.provider import Semantics
 

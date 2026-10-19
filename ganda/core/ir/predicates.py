@@ -4,7 +4,7 @@ import dataclasses
 from dataclasses import dataclass
 from typing import Any, NamedTuple
 
-from ganda.core.ast.enums import CompoundOp, MapOp, NullOp, On
+from ganda.core.ir.enums import CompoundOp, MapOp, NullOp, On
 
 NO_BIND_OPS = tuple(NullOp)
 MAP_OPS = tuple(MapOp)

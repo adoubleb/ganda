@@ -8,7 +8,7 @@ The legacy port is `../../../surrealDB/fuzzer`, the original Ganda fuzzer. It is
 furthest from the core's design: 74 hand-written two-data-model template families, one
 traversal IR, an LLM template pipeline and a rewrite algebra, with values interpolated
 as literals. Porting it means re-expressing its supply as concrete syntaxes of the
-core's ASTs and keeping what does not fit as extra generators.
+core's IRs and keeping what does not fit as extra generators.
 
 ## Slot by slot
 
@@ -20,7 +20,7 @@ core's ASTs and keeping what does not fit as extra generators.
 | `mappers` | `materialize/{common,document,graph,relational}.py` | a setup is one SurrealQL script per data model: one `@step` class holding text is enough; `relational` is opt-in in the legacy port and a full data model here (`rel`) |
 | `Session.read_nodes` / `read_edges` | new | `SELECT * FROM <table>`; record ids are `table:key`, the logical id is `table/key` |
 | `semantics` | `reference.py` (`predicate_hit`: NONE sorts below every value and an absent field satisfies `<`, `<=`, `!=`; decimals in an 80-digit context; `_decimal_sum_text`) | durations have no reference |
-| `pivots` | `queries/templates.py`, `queries/catalogs.py` | operators are SurrealQL's (`CONTAINS`, `INSIDE`, `?=`, ...): map the AST's operator names in the renderer |
+| `pivots` | `queries/templates.py`, `queries/catalogs.py` | operators are SurrealQL's (`CONTAINS`, `INSIDE`, `?=`, ...): map the IR's operator names in the renderer |
 | literals | `materialize/common.surql_literal` | SurrealQL takes literals: the concrete syntax interpolates `bind_vars` through `surql_literal` rather than binding (`SurrealSession.execute` sends leftover binds as `LET`) |
 | `traversal_syntax` | `ir.py` (`render_doc`, `render_graph`, `render_relational`) | one syntax per data model today; the graph arrow path, the link-array path and the `$parent` subquery |
 | `select_syntax` | the node families of `queries/templates.py` | there is no select IR in the legacy port: the families that ask a filter + ids / count / aggregate / group / order become syntaxes of `SelectQuery`'s kinds |

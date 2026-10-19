@@ -69,12 +69,12 @@ flowchart LR
     sc -- "no, on some" --> setup_bundle["setup-asymmetry bundle"]
 
     inst --> qgen["query generators<br/>ir_traversal · ir_select · ir_path<br/>(+ provider extras)"]
-    qgen -- "AST" --> render["provider concrete_syntax<br/>renders each AST per data model,<br/>several syntaxes each"]
+    qgen -- "IR" --> render["provider concrete_syntax<br/>renders each IR per data model,<br/>several syntaxes each"]
     render --> case["QueryCase<br/>variant → text, shared bind vars"]
     case -- "known_bugs withholds<br/>filed shapes" --> oracle
 
     sc -- "yes" --> oracle{"oracle.run_case<br/>every pair of variants<br/>+ reference leg"}
-    inst -- "AST.evaluate with<br/>provider semantics" --> oracle
+    inst -- "IR.evaluate with<br/>provider semantics" --> oracle
 
     oracle -- "ok" --> stats["campaign stats"]
     oracle -- "finding" --> dedup["dedup<br/>(generator, shape, pairs, class)"]
@@ -92,8 +92,8 @@ Step by step:
 | Map | `<engine>/mapping/` | Each data model's mapper turns the Instance into a **setup plan**: a list of provider-defined steps (`@step("op")` in `core/setup_plan.py`). Records are named by logical id; an engine-assigned id is a `Ref(id)` placeholder resolved at run time. |
 | Materialize | `<engine>/connection.py` | `Server.fresh_session(db)` gives an empty database per data model; `Session.apply_setup(plan)` runs the plan. |
 | Verify state | `core/state_check.py` | Read every database back and compare with the Instance. A diff on one data model only is an engine write-path finding; a diff on all of them is a Ganda bug. |
-| Sample questions | `core/generators/` | Each query generator draws ASTs from its own random stream. |
-| Render | `<engine>/concrete_syntax/` | The provider turns an AST into text for each data model, through every concrete syntax that applies. |
+| Sample questions | `core/generators/` | Each query generator draws IRs from its own random stream. |
+| Render | `<engine>/concrete_syntax/` | The provider turns an IR into text for each data model, through every concrete syntax that applies. |
 | Compare | `core/oracle.py` | Every variant runs on its data model's session. Answers are normalized (row folding, multiset order) and compared pair by pair, then against the reference. |
 | Write phase | `core/generators/write_phase.py` | After the reads, predicate-targeted writes run on every data model. Their answers are compared, the write is applied to the Instance, and the stored state is checked again. |
 | Report | `core/dedup.py`, `core/reporter.py` | The first finding per key becomes a self-contained bundle with a `repro.py`. |
@@ -119,9 +119,9 @@ Because the oracle compares *every pair*, one case produces two kinds of evidenc
 - **cross-model pairs** (`doc/rel`): two storage layouts, which tests the multi-model
   promise.
 
-### The four query ASTs (`core/ast/`)
+### The four query IRs (`core/ir/`)
 
-| AST | Question | Reference |
+| IR | Question | Reference |
 |---|---|---|
 | `traversal.py` | Start class, 1 to `MAX_HOPS` hops (`out` / `in` / `both`), predicates on edges or targets, a projection | Walks the Instance |
 | `select.py` | One class or edge type, an optional filter, a result kind (`ids`, `count`, `agg`, `group`, `page`, `join`, ...), optionally inside a rolled-back transaction | Filters the Instance's records |
@@ -168,7 +168,7 @@ attributes are **slots** the core reads; a slot may be an object or a module.
 | `physical_design` | Index kinds, write forms, key rules, boundary values | `physical_design.py` |
 | `semantics` | Value order and equality, predicate truth, null logic, aggregates, null placement | `semantics.py` |
 | `pivots` | Which operators a predicate draws; cross-type pivots | `pivots.py` |
-| `traversal_syntax`, `select_syntax`, `path_syntax`, `write_syntax` | Which concrete syntaxes apply to an AST, and their text | `concrete_syntax/` |
+| `traversal_syntax`, `select_syntax`, `path_syntax`, `write_syntax` | Which concrete syntaxes apply to an IR, and their text | `concrete_syntax/` |
 | `rewrites` | Equivalent rewrites of a predicate; exactness of arithmetic | `rewrites.py` |
 | `known_bugs` | Filed bugs, withheld at their exact shape per variant | `known_bugs.py` |
 | `mutants` | The engine's own corruptions for the mutation benchmark | `mutants.py` |
@@ -178,7 +178,7 @@ attributes are **slots** the core reads; a slot may be an object or a module.
 
 Every provider has the same layout, so once you know one you can find your way in
 the others. `tests/fake_engine/` is a complete provider in a few hundred lines: an
-in-memory engine whose sessions answer from the AST evaluators. Read it to see the
+in-memory engine whose sessions answer from the IR evaluators. Read it to see the
 contract with nothing engine-specific in the way.
 
 ### Engines today

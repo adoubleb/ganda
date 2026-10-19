@@ -6,13 +6,13 @@ engine's `pivots.cross_type`. A compound (`AND` / `OR` / `NOT`) is built over le
 most two levels deep. The engine arrives as an explicit argument (`engine.pivots`,
 `engine.semantics`) or on the schema.
 
-The tree itself, its evaluation and its rewrites are `ganda.core.ast.predicates`.
+The tree itself, its evaluation and its rewrites are `ganda.core.ir.predicates`.
 """
 from __future__ import annotations
 
 import random
 
-from ganda.core.ast.predicates import COMPOUND_OPS, NO_BIND_OPS, Compound, Predicate, SubQuery, sub_values
+from ganda.core.ir.predicates import COMPOUND_OPS, NO_BIND_OPS, Compound, Predicate, SubQuery, sub_values
 from ganda.core.model import MAP_KEYS, NUMERIC_TYPES, SCALAR_TYPES, FieldSpec, FieldType
 from ganda.core.constants import I64_MAX
 from ganda.core.neighbours import offset

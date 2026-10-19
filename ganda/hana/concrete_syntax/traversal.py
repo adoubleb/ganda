@@ -1,4 +1,4 @@
-"""The concrete syntax catalog of the traversal AST: HOW each SAP HANA data model asks a
+"""The concrete syntax catalog of the traversal IR: HOW each SAP HANA data model asks a
 `TraversalQuery`. Every rendering is a variant the oracle compares with every other.
 
     data model   syntax    the engine path
@@ -70,7 +70,7 @@ from __future__ import annotations
 
 import json
 
-from ganda.core.ast.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, TraversalQuery
+from ganda.core.ir.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, TraversalQuery
 from ganda.core.model import FieldType, Schema
 from ganda.hana.concrete_syntax import document, graph, hints
 from ganda.hana.concrete_syntax.predicate import REL, Names, fields_used, filter_expr, optionals, sparql_filter, sql, var
@@ -159,7 +159,7 @@ def render(q: TraversalQuery, schema: Schema, data_model: str, syntax: str, pull
 
 
 def _source_fields(q: TraversalQuery) -> list:
-    from ganda.core.ast.predicates import fields_of
+    from ganda.core.ir.predicates import fields_of
 
     return fields_of(q.source_predicate)
 

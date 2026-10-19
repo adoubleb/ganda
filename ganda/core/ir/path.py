@@ -5,13 +5,11 @@ given some edge types, direction, and a max depth count.
 
 Each engine renders the question through (`Provider.path_syntax`).
 """
-# TODO: rename this package from ast to ir. This is not an AST.
-
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ganda.core.ast.enums import PathDirection, Reach
+from ganda.core.ir.enums import PathDirection, Reach
 from ganda.core.generators.support import bfs_distances
 from ganda.core.model import Instance
 

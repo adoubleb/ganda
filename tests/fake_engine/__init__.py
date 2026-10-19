@@ -2,7 +2,7 @@
 run on.
 
 Every data model's "database" is that data model's own copy of the `Instance`; a query
-text is the JSON of the AST and a session answers it with the core's evaluators over
+text is the JSON of the IR and a session answers it with the core's evaluators over
 its copy. So a healthy campaign agrees with itself by construction, and a corruption
 of one data model's copy (a mutant, a faulty session in a test) is a real disagreement
 the oracle has to catch. No engine-specific package is imported here: if the core
@@ -15,11 +15,11 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from ganda.core.ast import path as path_ast
-from ganda.core.ast import select as select_ast
-from ganda.core.ast import traversal as traversal_ast
-from ganda.core.ast import write as write_ast
-from ganda.core.ast.predicates import Compound
+from ganda.core.ir import path as path_ast
+from ganda.core.ir import select as select_ast
+from ganda.core.ir import traversal as traversal_ast
+from ganda.core.ir import write as write_ast
+from ganda.core.ir.predicates import Compound
 from ganda.core.data_generator import BOUNDARY_VALUES, GeneratorConfig
 from ganda.core.limits import StorageLimits
 from ganda.core.model import WriteForm
@@ -218,7 +218,7 @@ class FakeServer(Server):
         self.databases.pop(database, None)
 
 
-# --- concrete syntax: the AST as JSON ------------------------------------------------------
+# --- concrete syntax: the IR as JSON ------------------------------------------------------
 
 
 def _text(kind: str, params: dict) -> str:

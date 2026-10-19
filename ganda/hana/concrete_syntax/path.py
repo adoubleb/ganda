@@ -1,4 +1,4 @@
-"""The path AST (`ir_path`): the vertex count of a shortest path between two records
+"""The path IR (`ir_path`): the vertex count of a shortest path between two records
 within a depth bound, through every engine path each SAP HANA data model has.
 
 The answer is one row `{v: d + 1}` for the distance `d`, or no row when the goal is out
@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import json
 
-from ganda.core.ast.path import PathQuery
+from ganda.core.ir.path import PathQuery
 from ganda.core.model import Instance, Schema
 from ganda.hana.concrete_syntax import document, graph, hints
 from ganda.hana.concrete_syntax.predicate import REL, Names

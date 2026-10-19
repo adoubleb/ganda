@@ -11,13 +11,13 @@ from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexS
 from ganda.orientdb.mutants import MUTANTS_BY_NAME
 from ganda.orientdb import predicates
 from ganda.core.case import Comparison, QueryCase
-from ganda.core.ast.path import PathQuery, evaluate as evaluate_path
+from ganda.core.ir.path import PathQuery, evaluate as evaluate_path
 from ganda.orientdb.concrete_syntax.path import render_all
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render
 from ganda.orientdb.predicates import Compound, Predicate
 from ganda.core.generators.select import KIND_WEIGHTS, build_case, strata
-from ganda.core.ast.enums import SelectKind
-from ganda.core.ast.select import SelectQuery, TxWrite, evaluate, tx_instance
+from ganda.core.ir.enums import SelectKind
+from ganda.core.ir.select import SelectQuery, TxWrite, evaluate, tx_instance
 from ganda.orientdb.concrete_syntax.select import BASE, SelectSyntax, Rewrites, applicable, render as render_select
 from ganda.orientdb.concrete_syntax.support import tx_write
 from ganda.core.generators.registry import all_cases

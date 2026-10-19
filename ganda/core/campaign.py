@@ -23,10 +23,10 @@ from typing import NamedTuple
 
 from ganda.core import scale as _scale
 
-from ganda.core.ast.path import COVERAGE_DENOMINATOR as PATH_COVERAGE_DENOMINATOR
-from ganda.core.ast.select import COVERAGE_DENOMINATOR as SELECT_COVERAGE_DENOMINATOR
-from ganda.core.ast.traversal import SHAPE_DENOMINATOR
-from ganda.core.ast.write import COVERAGE_DENOMINATOR as WRITE_COVERAGE_DENOMINATOR
+from ganda.core.ir.path import COVERAGE_DENOMINATOR as PATH_COVERAGE_DENOMINATOR
+from ganda.core.ir.select import COVERAGE_DENOMINATOR as SELECT_COVERAGE_DENOMINATOR
+from ganda.core.ir.traversal import SHAPE_DENOMINATOR
+from ganda.core.ir.write import COVERAGE_DENOMINATOR as WRITE_COVERAGE_DENOMINATOR
 from ganda.core.config import add_config_arguments, config_from_args
 from ganda.core.data_generator import GeneratorConfig, build, limits_of
 from ganda.core.dedup import BugDeduplicator

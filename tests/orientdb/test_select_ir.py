@@ -8,7 +8,7 @@ from ganda.orientdb import predicates
 from ganda.core.case import Comparison, QueryCase
 from ganda.orientdb.predicates import Predicate
 from ganda.orientdb.concrete_syntax.select import build_rewrites
-from ganda.core.ast.select import COVERAGE_DENOMINATOR, SelectQuery, all_coverage_signatures, coverage_signature, evaluate, from_params, records
+from ganda.core.ir.select import COVERAGE_DENOMINATOR, SelectQuery, all_coverage_signatures, coverage_signature, evaluate, from_params, records
 from ganda.orientdb.concrete_syntax.select import BASE, SelectSyntax, Rewrites, applicable, render
 from ganda.core.generators.registry import all_cases, reference_for
 

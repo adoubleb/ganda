@@ -2,7 +2,7 @@ import itertools
 
 from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, Instance, NodeRow, NodeTypeSpec, Schema
-from ganda.core.ast.traversal import PROJECTIONS, SHAPE_DENOMINATOR, Hop, TraversalQuery, all_signatures, evaluate, from_params, shape_signature
+from ganda.core.ir.traversal import PROJECTIONS, SHAPE_DENOMINATOR, Hop, TraversalQuery, all_signatures, evaluate, from_params, shape_signature
 from ganda.core.generators.traversal import generate_traversal_cases, sample_query
 from ganda.orientdb.predicates import Compound, Predicate
 from ganda.orientdb.concrete_syntax.traversal import SYNTAXES, applicable, can_pull_up, render, syntaxes_for
@@ -198,7 +198,7 @@ def test_narrow_types_in_the_reference():
 
 
 def test_reach_projections():
-    from ganda.core.ast.traversal import REACH_PROJECTIONS
+    from ganda.core.ir.traversal import REACH_PROJECTIONS
 
     schema, inst = _fixture()
     q = TraversalQuery("n1", (Hop("e1", "out"),), "reach2")

@@ -1,4 +1,4 @@
-"""The concrete syntax catalog of the write AST: HOW each data model issues a
+"""The concrete syntax catalog of the write IR: HOW each data model issues a
 `WriteQuery` in AQL. A write runs ONCE per database, so a case carries no variants:
 each data model draws its own syntax, and the three answers and the three resulting
 states are compared against each other and against the Instance with the write
@@ -42,8 +42,8 @@ import random
 import re
 from dataclasses import dataclass, field
 
-from ganda.core.ast.predicates import Predicate, reverse
-from ganda.core.ast.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
+from ganda.core.ir.predicates import Predicate, reverse
+from ganda.core.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
 from ganda.core.data_generator import BASE_CLASS
 from ganda.core.model import Instance, Schema
 from ganda.arangodb import rewrites as _rewrites

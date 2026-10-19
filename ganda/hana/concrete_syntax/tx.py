@@ -1,4 +1,4 @@
-"""The transaction door of the select AST (`SelectQuery.tx`): one record of the class
+"""The transaction door of the select IR (`SelectQuery.tx`): one record of the class
 written (updated, inserted or deleted) inside a transaction, the question asked inside
 it, the transaction rolled back -- so the answer is the Instance's with the write
 applied, and the stored state afterwards must still be the Instance.
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 
-from ganda.core.ast.select import TxWrite
+from ganda.core.ir.select import TxWrite
 from ganda.core.model import FieldType, Schema
 from ganda.hana.concrete_syntax import document
 from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT, child_table, record_iri, sparql_literal, sparql_string

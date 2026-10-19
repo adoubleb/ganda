@@ -10,8 +10,8 @@ import re
 
 import pytest
 
-from ganda.core.ast.predicates import Compound, Predicate
-from ganda.core.ast.write import apply
+from ganda.core.ir.predicates import Compound, Predicate
+from ganda.core.ir.write import apply
 from ganda.core.data_generator import build
 from ganda.core.generators.registry import all_cases
 from ganda.core.generators.write import sample_write

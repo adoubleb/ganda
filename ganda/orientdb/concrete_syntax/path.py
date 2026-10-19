@@ -40,7 +40,7 @@ present, plus the reference (the BFS distance, `ganda.core.generators.support.bf
 """
 from __future__ import annotations
 
-from ganda.core.ast.path import PathQuery, distance
+from ganda.core.ir.path import PathQuery, distance
 from ganda.core.model import Instance, Schema
 
 _FN = {"OUT": "out", "IN": "in", "BOTH": "both"}

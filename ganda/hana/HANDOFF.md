@@ -90,7 +90,7 @@ procedures and drops the variant). `connection.positional` leaves `:sv_*` alone 
 SQLScript variables); `dialect.SCHEMA_TOKEN` is the session's schema in a text.
 
 The provider fills every slot of the core's contract (`ganda/core/provider.py`):
-traversal, select, path and write ASTs, mappings, semantics, rewrites, a probe, mutants.
+traversal, select, path and write IRs, mappings, semantics, rewrites, a probe, mutants.
 `known_bugs.py` guards H4 and B13; A8 and A9 are worked around in the graph renderings.
 
 What was verified, offline only:
@@ -233,7 +233,7 @@ it into one of three kinds:
    is it documented behaviour? If it is a real defect, write it up under `issues/` (see
    the existing `issues/O46-...md` for the format) with an id `H1`, `H2`, ..., and add
    a guard in `known_bugs.py` that withholds exactly that shape (the OrientDB provider's
-   `known_bugs.py` is the pattern: a function of the AST and the concrete syntax).
+   `known_bugs.py` is the pattern: a function of the IR and the concrete syntax).
 
 Grow the campaign only when a seed runs clean: `--iterations 5`, then the defaults, then
 `--workers 2` (each worker has its own schemas and graphs).
@@ -264,11 +264,11 @@ ganda/hana/
     document.py        the doc data model: collection filter (NOT pushed down or kept), views, typed reads
     graph.py           the graph data model: the `g_` views family and the native openCypher family
     hints.py           plan steering: the `WITH HINT (...)` profiles every SQL text is asked under once more
-    traversal.py       the traversal AST: rel join / scalar, doc over views, graph match / paths / undirected, rdf graph / from / link / minus / table / native, every data model's hint_<profile>
-    select.py          the select AST: filter x position x form x hint
-    path.py            the path AST: levels of walks
-    write.py           the write AST and its execution steps (a base-class write per subclass)
-    tx.py              the transaction door of the select AST
+    traversal.py       the traversal IR: rel join / scalar, doc over views, graph match / paths / undirected, rdf graph / from / link / minus / table / native, every data model's hint_<profile>
+    select.py          the select IR: filter x position x form x hint
+    path.py            the path IR: levels of walks
+    write.py           the write IR and its execution steps (a base-class write per subclass)
+    tx.py              the transaction door of the select IR
     methods.py         the method catalog (SQL / SPARQL / Python mirror)
   known_bugs.py        the guards: H4 (a doc traversal sum the views overflow), B13 (an rdf avg where double arithmetic parts from DECIMAL(25,6))
   mutants.py           the mutation benchmark's catalog

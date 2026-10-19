@@ -77,7 +77,7 @@ from ganda.orientdb import predicates
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
 from ganda.orientdb.predicates import MIRROR, Predicate
 from ganda.orientdb.concrete_syntax.support import METHODS, method_fn  # noqa: F401 -- the method catalog
-from ganda.core.ast.select import DOC_EDGE_KINDS, SelectQuery, notnull_fields
+from ganda.core.ir.select import DOC_EDGE_KINDS, SelectQuery, notnull_fields
 
 FILTERS = ("plain", "rw", "rev", "arith", "literal")
 POSITIONS = ("table", "scan", "nest", "poly", "polyin", "index")
@@ -315,7 +315,7 @@ def _door(p, table: str, schema: Schema, instance: Instance, data_model: str) ->
 
 
 def build_rewrites(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> Rewrites:
-    from ganda.core.ast.select import present_values, records, view
+    from ganda.core.ir.select import present_values, records, view
     from ganda.orientdb.concrete_syntax.support import literal_pred as _literal_pred
 
     rewrites = Rewrites(present=present_values(q, instance) if q.kind == "agg" else [])

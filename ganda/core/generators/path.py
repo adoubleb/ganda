@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import random
 
-from ganda.core.ast.enums import PathDirection
-from ganda.core.ast.path import DEPTHS, PathQuery, coverage_signature, distance, reach
+from ganda.core.ir.enums import PathDirection
+from ganda.core.ir.path import DEPTHS, PathQuery, coverage_signature, distance, reach
 from ganda.core.case import Comparison, QueryCase
 from ganda.core.generators.support import bfs_distances
 from ganda.core.model import Instance, Schema

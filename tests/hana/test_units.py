@@ -10,8 +10,8 @@ from decimal import Decimal
 
 import pytest
 
-from ganda.core.ast.predicates import Compound, Predicate
-from ganda.core.ast.write import apply
+from ganda.core.ir.predicates import Compound, Predicate
+from ganda.core.ir.write import apply
 from ganda.core.data_generator import build
 from ganda.core.generators.registry import all_cases
 from ganda.core.generators.write import sample_write
@@ -294,7 +294,7 @@ def test_the_doc_views_ask_containsall_without_a_scalar_subquery():
 
 
 def test_a_doc_traversal_withholds_a_list_membership():
-    from ganda.core.ast.traversal import Hop, TraversalQuery
+    from ganda.core.ir.traversal import Hop, TraversalQuery
     from ganda.hana.concrete_syntax import traversal
 
     member = Predicate("target", "l", "CONTAINS", "bl", 1, True, "list")
@@ -382,7 +382,7 @@ def test_a_pulled_up_traversal_correlates_a_membership_on_its_own_alias(dm):
     """`predicate.sql` aliases a LIST column's child table `x`; the pulled-up derived table
     must not, or the membership EXISTS correlates the child table with itself
     (`x.owner = x.id`, a column the child table lacks)."""
-    from ganda.core.ast.traversal import Hop, TraversalQuery
+    from ganda.core.ir.traversal import Hop, TraversalQuery
     from ganda.hana.concrete_syntax import traversal
 
     schema = E.schema(
@@ -479,7 +479,7 @@ def test_the_graph_plan_is_the_rel_plan_plus_views_and_one_workspace(seed):
 
 @pytest.mark.parametrize("seed", range(1, 4))
 def test_every_traversal_question_has_a_graph_syntax_and_every_select_a_graph_base(seed):
-    from ganda.core.ast.traversal import from_params
+    from ganda.core.ir.traversal import from_params
     from ganda.hana.concrete_syntax import select, traversal
 
     schema, _instance, cases = _cases(seed)
@@ -489,14 +489,14 @@ def test_every_traversal_question_has_a_graph_syntax_and_every_select_a_graph_ba
             assert traversal.syntaxes_for(q, schema, "graph"), c.shape
             assert "graph" in c.queries
         if c.generator_name == "ir_select":
-            from ganda.core.ast.select import from_params as select_params
+            from ganda.core.ir.select import from_params as select_params
 
             q = select_params(c.params["select"])
             assert "graph" in select.base_data_models(q) or q.tx
 
 
 def test_pattern_only_where_no_edge_can_repeat_and_undirected_only_for_sets():
-    from ganda.core.ast.traversal import Hop, TraversalQuery
+    from ganda.core.ir.traversal import Hop, TraversalQuery
     from ganda.hana.concrete_syntax import traversal
 
     schema = E.schema(
@@ -912,7 +912,7 @@ def test_the_block_positions_wrap_the_statement_in_a_typed_sqlscript_block():
 
 
 def test_the_set_operation_form_partitions_a_filter_on_every_sql_path_and_in_sparql():
-    from ganda.core.ast.select import SelectQuery
+    from ganda.core.ir.select import SelectQuery
     from ganda.hana.concrete_syntax import select
 
     schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT),)),), ())

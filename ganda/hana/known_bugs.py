@@ -1,7 +1,7 @@
 """The SAP HANA findings already filed, each withheld at its exact shape per variant so a
 campaign does not report it again: a triaged finding gets an id (`H1`, `H2`, ..., or the
 `findings/` catalogue's `A8`, `B13`), a write-up under `issues-draft/` or `findings/`, and
-a guard here -- a function of the case's AST and the variant's concrete syntax that
+a guard here -- a function of the case's IR and the variant's concrete syntax that
 answers its id where the variant's text is the bug's shape
 (`ganda/orientdb/known_bugs.py` is the pattern).
 
@@ -44,7 +44,7 @@ def _h4(q, schema, instance) -> bool:
 def _b13(q, instance) -> bool:
     if q.kind != "agg" or q.fn != "avg":
         return False
-    from ganda.core.ast.select import present_values
+    from ganda.core.ir.select import present_values
 
     values = present_values(q, instance)
     if not values or not all(isinstance(v, int) and not isinstance(v, bool) for v in values):

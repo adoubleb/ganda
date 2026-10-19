@@ -1,4 +1,4 @@
-"""A predicate tree (`ganda.core.ast.predicates`) as SQL text for the column tables and as
+"""A predicate tree (`ganda.core.ir.predicates`) as SQL text for the column tables and as
 a SPARQL filter for the triple store -- the same three-valued question on both
 (`semantics`).
 
@@ -27,7 +27,7 @@ solution's bindings.
 """
 from __future__ import annotations
 
-from ganda.core.ast.predicates import MIRROR, Compound
+from ganda.core.ir.predicates import MIRROR, Compound
 from ganda.hana.dialect import child_table, sparql_literal
 
 UNKNOWN_VAR = "?ganda_unknown"

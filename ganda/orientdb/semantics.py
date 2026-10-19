@@ -53,7 +53,7 @@ import struct
 from decimal import Decimal
 from typing import Any
 
-from ganda.core.ast.predicates import Compound
+from ganda.core.ir.predicates import Compound
 from ganda.core.neighbours import shift_date
 from ganda.core.model import FieldType
 from ganda.core.provider import Semantics

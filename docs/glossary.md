@@ -13,18 +13,18 @@ README's "Vocabulary" table maps them.
 | **Setup plan / step** | The ordered steps that materialize the Instance. Steps are provider types, serialized into the bundle. | `core/setup_plan.py` |
 | **`Ref`** | A placeholder for an engine-assigned record id, resolved when the plan runs. | `core/setup_plan.py` |
 | **State check** | Reading every database back and comparing it with the Instance. | `core/state_check.py` |
-| **AST** | The abstract form of a question: traversal, select, path or write. Has an `evaluate` (or `apply`) that computes the reference. | `core/ast/` |
-| **Query generator** | Samples ASTs from its own random stream: `ir_traversal`, `ir_select`, `ir_path`, `ir_write`. The ids are stream names. | `core/generators/` |
-| **Concrete syntax** | One way to write an AST as text in an engine's language (`match`, `flat`, `edgescan`, ...). | `<engine>/concrete_syntax/` |
+| **IR** | The abstract form of a question: traversal, select, path or write. Has an `evaluate` (or `apply`) that computes the reference. | `core/ir/` |
+| **Query generator** | Samples IRs from its own random stream: `ir_traversal`, `ir_select`, `ir_path`, `ir_write`. The ids are stream names. | `core/generators/` |
+| **Concrete syntax** | One way to write an IR as text in an engine's language (`match`, `flat`, `edgescan`, ...). | `<engine>/concrete_syntax/` |
 | **Variant** | A key of `QueryCase.queries`: a data model (`rel`) or a data model plus a concrete syntax tag (`rel:flat`). | `core/case.py` |
 | **QueryCase** | One question: variant → text, shared bind variables, comparison mode, shape. | `core/case.py` |
 | **Pull-up** | A variant with the source predicate moved into an enclosing query (`<dm>:pull_up`). | traversal generator |
 | **Equivalent rewrite** | A predicate rewritten into a form that must answer the same (operands reversed, arithmetic moved). | `<engine>/rewrites.py` |
-| **Shape** | The structural signature of a question; the deduplication and coverage key. | `shape_signature` in each AST |
+| **Shape** | The structural signature of a question; the deduplication and coverage key. | `shape_signature` in each IR |
 | **Oracle** | Runs every variant and compares every pair, plus the reference. | `core/oracle.py` |
-| **Reference leg** | The answer computed in Python from the Instance under the provider's semantics. Off at the large scale. | `reference_for`, `AST.evaluate` |
+| **Reference leg** | The answer computed in Python from the Instance under the provider's semantics. Off at the large scale. | `reference_for`, `IR.evaluate` |
 | **Semantics** | The engine's value rules the reference reproduces: order, equality, null logic, aggregates. | `<engine>/semantics.py` |
-| **Pivot** | The constant a predicate compares against, drawn on, next to or outside stored values. | `core/ast/predicates.py`, `<engine>/pivots.py` |
+| **Pivot** | The constant a predicate compares against, drawn on, next to or outside stored values. | `core/ir/predicates.py`, `<engine>/pivots.py` |
 | **Finding** | A case that is not ok: `internal_error`, `error_asymmetry`, `duplicate_id_rows`, `mismatch`, `reference_mismatch`. | `CaseResult.finding_class` |
 | **Failing pairs** | Which variant pairs disagreed, e.g. `graph/graph:match`. | `CaseResult.failing_pairs` |
 | **Symmetric error** | Every variant rejected the question. Not a finding. | `CaseResult.symmetric_error` |

@@ -51,7 +51,7 @@ from ganda.core.model import Instance, Schema
 from ganda.orientdb import predicates
 from ganda.orientdb.predicates import Predicate
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
-from ganda.core.ast.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
+from ganda.core.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
 
 FILTERS = ("plain", "rw", "rev", "ar")
 TARGETS = ("table", "nest", "sub")

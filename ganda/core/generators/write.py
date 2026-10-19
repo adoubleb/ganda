@@ -28,7 +28,7 @@ import random
 
 from ganda.core.model import COLLECTION_TYPES, INT_TYPES, FieldType, Instance, Schema
 from ganda.core.generators import predicates as sampler
-from ganda.core.ast.write import EDGE_OPS, NODE_OPS, RETURNING_OPS, WriteQuery, apply, edge_hits, node_hits
+from ganda.core.ir.write import EDGE_OPS, NODE_OPS, RETURNING_OPS, WriteQuery, apply, edge_hits, node_hits
 
 EDGE_PROBABILITY = 0.3
 WHERE_PROBABILITY = 0.85

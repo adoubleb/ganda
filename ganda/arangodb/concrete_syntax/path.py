@@ -1,4 +1,4 @@
-"""The path AST in AQL: the vertex count of a shortest path between two records, through
+"""The path IR in AQL: the vertex count of a shortest path between two records, through
 every path machinery each storage model has.
 
     data model  variant   the text
@@ -24,7 +24,7 @@ what the junction holds); the session passes each text the names it uses.
 """
 from __future__ import annotations
 
-from ganda.core.ast.path import PathQuery
+from ganda.core.ir.path import PathQuery
 from ganda.core.model import Instance, Schema
 from ganda.arangodb.dialect import engine_id
 

@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import re
 
-from ganda.core.ast.predicates import MIRROR, Compound
+from ganda.core.ir.predicates import MIRROR, Compound
 from ganda.core.model import FieldType, Schema
 from ganda.hana.concrete_syntax.predicate import Names
 
@@ -192,7 +192,7 @@ def asks_membership(p) -> bool:
 def _membership_conjunct(p) -> bool:
     """Whether every LIST membership of a tree is a positive conjunct of it: under AND
     only, never under OR or NOT, and never inside a semi-join's subquery."""
-    from ganda.core.ast.predicates import Compound
+    from ganda.core.ir.predicates import Compound
 
     if isinstance(p, Compound):
         if p.op == "AND":

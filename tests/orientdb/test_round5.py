@@ -3,7 +3,7 @@ door, the BFS distances and their guards."""
 import dataclasses
 import random
 
-from ganda.core.ast.select import TxWrite
+from ganda.core.ir.select import TxWrite
 from ganda.orientdb.generate import GeneratorConfig, build
 from ganda.orientdb.known_bugs import _leaf_served, list_ops_known, o31_known, o32_predicate
 from ganda.core.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
@@ -167,7 +167,7 @@ def test_bfs_distances():
 def test_order_form_withholds_the_asc_walk_of_a_composite_index_with_a_null_component():
     from ganda.orientdb.known_bugs import select_shape_known
     from ganda.core.model import EdgeTypeSpec
-    from ganda.core.ast.select import SelectQuery
+    from ganda.core.ir.select import SelectQuery
     from ganda.orientdb.concrete_syntax.select import SelectSyntax
 
     sch = Schema(

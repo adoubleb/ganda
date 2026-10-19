@@ -28,7 +28,7 @@ from ganda.core.model import Instance
 from ganda.core.oracle import build_result, run_case
 from ganda.core.provider import EngineCrash, EngineError
 from ganda.core.case import QueryCase
-from ganda.core.ast.write import apply, comparison, coverage_signature, shape_signature, touched
+from ganda.core.ir.write import apply, comparison, coverage_signature, shape_signature, touched
 from ganda.core.generators.select import build_case, sample_select
 from ganda.core.generators.write import sample_write
 from ganda.core.state_check import StateDiff, verify_state

@@ -20,14 +20,14 @@ from __future__ import annotations
 
 from ganda.core.model import Instance, Schema
 from ganda.core.case import QueryCase
-from ganda.core.ast.traversal import SET_PROJECTIONS, evaluate, from_params
+from ganda.core.ir.traversal import SET_PROJECTIONS, evaluate, from_params
 from ganda.core.generators.traversal import CASES_PER_INSTANCE, generate_traversal_cases
-from ganda.core.ast.path import evaluate as evaluate_path
-from ganda.core.ast.path import from_params as path_from_params
+from ganda.core.ir.path import evaluate as evaluate_path
+from ganda.core.ir.path import from_params as path_from_params
 from ganda.core.generators.path import generate_path_cases
 from ganda.core.generators.select import generate_select_cases
-from ganda.core.ast.select import evaluate as evaluate_select
-from ganda.core.ast.select import from_params as select_from_params
+from ganda.core.ir.select import evaluate as evaluate_select
+from ganda.core.ir.select import from_params as select_from_params
 
 
 def all_cases(rng, schema: Schema, instance: Instance, traversal_cases: int = CASES_PER_INSTANCE, select_cases: int = 0, path_cases: int = 0, cfg=None) -> list:
@@ -67,8 +67,8 @@ def reference_for(case: QueryCase, instance: Instance):
             return True, [{"id": i} for i in value]
         return True, value
     if case.generator_name == "ir_write":
-        from ganda.core.ast.write import answer
-        from ganda.core.ast.write import from_params as write_from_params
+        from ganda.core.ir.write import answer
+        from ganda.core.ir.write import from_params as write_from_params
 
         # the rows the statement returns over the Instance BEFORE it (the phase
         # passes that one to the oracle)

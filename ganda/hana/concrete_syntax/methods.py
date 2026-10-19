@@ -1,4 +1,4 @@
-"""The method catalog of the select AST's `method` kind: an expression over one present
+"""The method catalog of the select IR's `method` kind: an expression over one present
 field, as SQL (column tables and the doc views) and as SPARQL, with the Python mirror
 the reference computes and the guard on the values where the mirror is exact.
 

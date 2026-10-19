@@ -3,7 +3,7 @@ from ganda.orientdb.known_bugs import o37_write, write_known
 from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.predicates import Predicate
 from ganda.core.generators.write import sample_write, unique_safe
-from ganda.core.ast.write import COVERAGE_DENOMINATOR, WriteQuery, all_coverage_signatures, answer, apply, coverage_signature, from_params
+from ganda.core.ir.write import COVERAGE_DENOMINATOR, WriteQuery, all_coverage_signatures, answer, apply, coverage_signature, from_params
 from ganda.orientdb.concrete_syntax.write import WriteSyntax, WriteRewrites, applicable, render
 from ganda.core.generators.write_phase import build_write_case
 

@@ -1,4 +1,4 @@
-"""The traversal AST: WHAT a question asks, separate from HOW each data model -- and
+"""The traversal IR: WHAT a question asks, separate from HOW each data model -- and
 each of that data model's several concrete syntaxes -- renders it.
 
 A `TraversalQuery` is one question: a start class, an optional predicate on the start
@@ -25,9 +25,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from ganda.core.model import Instance
-from ganda.core.ast import predicates
+from ganda.core.ir import predicates
 from ganda.core.case import Comparison
-from ganda.core.ast.predicates import Predicate
+from ganda.core.ir.predicates import Predicate
 
 DIRECTIONS = ("out", "in", "both")
 PLACEMENTS = ("-", "e", "t")

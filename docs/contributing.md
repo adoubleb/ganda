@@ -47,7 +47,7 @@ ganda/
     model.py               Schema, Instance, rows, churn
     data_generator.py      seeded generation; GeneratorConfig
     rng.py                 named random streams
-    ast/                   predicates + traversal, select, path, write ASTs and their reference
+    ir/                    predicates + traversal, select, path, write IRs and their reference
     generators/            query generators (ir_traversal, ir_select, ir_path, ir_write), write phase
     case.py, oracle.py     QueryCase, pairwise comparison, reference leg, finding classes
     state_check.py         stored state == Instance?
@@ -181,7 +181,7 @@ Follow the order below; each step has a check you can run before moving on.
 | 1. Connection | `connection.py` (`Server`, usually a `core.docker.DockerServer` subclass, and `Session` with a `ping()` for `doctor`), `provider.py`, `limits.py` (`StorageLimits.conservative()` until probed), register in `ganda/registry.py` with `has_generators = False` | `ganda <engine> doctor`, `pytest tests/test_layering.py` |
 | 2. Mapping | `dialect.py`, `physical_design.py`, `mapping/` (one mapper per data model) | `state_check.verify_state` agrees on every data model |
 | 3. Semantics | `semantics.py`, `pivots.py`, probe script, `RULES.md` | Probe passes; most of the work is here |
-| 4. Concrete syntax | `concrete_syntax/` for all four ASTs, at least one syntax per data model | Offline unit tests, then a small campaign |
+| 4. Concrete syntax | `concrete_syntax/` for all four IRs, at least one syntax per data model | Offline unit tests, then a small campaign |
 | 5. Finish | `known_bugs.py`, `mutants.py`, `rewrites.py`, then `has_generators = True` | `pytest` (the full slot check), campaign, mutation benchmark |
 
 ### Triage a finding
