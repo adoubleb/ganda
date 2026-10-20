@@ -19,6 +19,7 @@ instance) and is the same on every data model.
 from __future__ import annotations
 
 import random
+from collections import Counter
 from dataclasses import dataclass, field
 
 from ganda.core.data.model import Instance
@@ -55,80 +56,86 @@ def verify_state(session, data_model: str, instance: Instance, tables: "set | No
     """The whole state, or with `tables` / `edge_types` only those node classes and
     relationship types (the write phase's check after one write); with `sample` the
     counts and a sample (see the module)."""
-    diff = StateDiff(data_model)
     schema = instance.schema
     eq = schema.engine.semantics.eq
     rng = rng or random.Random(0)
+    diff = StateDiff(data_model)
     for nt in schema.node_types:
-        if tables is not None and nt.name not in tables:
-            continue
-        expected = {n.record_id: n for n in instance.nodes_of(nt.name)}
-        if sample > 0:
-            count = session.count_nodes(nt.name)
-            if count != len(expected):
-                diff.problems.append(f"{nt.name}: {count} records stored, {len(expected)} expected")
-            ids = sample_ids([(rid, _weight(n.values)) for rid, n in expected.items()], sample, rng)
-            rows = session.read_nodes(nt.name, ids=ids)
-            wanted = set(ids)
-            rows = {rid: r for rid, r in rows.items() if rid in wanted}
-            expected = {rid: expected[rid] for rid in ids}
-        else:
-            rows = session.read_nodes(nt.name)
-        for rid in sorted(set(rows) | set(expected)):
-            if rid not in rows:
-                diff.problems.append(f"{nt.name}: missing node {rid}")
-                continue
-            if rid not in expected:
-                diff.problems.append(f"{nt.name}: unexpected node {rid}")
-                continue
-            for f in schema.query_fields(nt.name):
-                want = expected[rid].values.get(f.name)
-                got = rows[rid].get(f.name)
-                if want is None and got is None:
-                    continue
-                if not eq(want, got):
-                    diff.problems.append(f"{rid}.{f.name}: expected {_short(want)}, stored {_short(got)}")
+        if tables is None or nt.name in tables:
+            diff.problems += _node_problems(session, instance, nt, sample, rng, eq)
     for et in schema.edge_types:
-        if edge_types is not None and et.name not in edge_types:
-            continue
-        want = {e.record_id: e for e in instance.edges_of(et.name)}
-        if sample > 0:
-            count = session.count_edges(data_model, instance, et)
-            if count != len(want):
-                diff.problems.append(f"{et.name}: {count} relationships stored, {len(want)} expected")
-            fan_out: dict = {}
-            for e in want.values():
-                fan_out[e.from_record] = fan_out.get(e.from_record, 0) + 1
-            sources = sample_ids(sorted(fan_out.items()), sample, rng)
-            chosen = set(sources)
-            stored = [x for x in session.read_edges(data_model, instance, et, sources=sources) if x[1] in chosen]
-            want = {eid: e for eid, e in want.items() if e.from_record in chosen}
-        else:
-            stored = session.read_edges(data_model, instance, et)
-        got = {}
-        for eid, s, t, attrs in stored:
-            if eid in got:
-                diff.problems.append(f"{et.name}: relationship {eid} stored twice")
-            got[eid] = (s, t, attrs)
-        for eid in sorted(set(got) | set(want)):
-            if eid not in got:
-                diff.problems.append(f"{et.name}: missing relationship {eid}")
-                continue
-            if eid not in want:
-                diff.problems.append(f"{et.name}: unexpected relationship {eid} {got[eid][:2]}")
-                continue
-            s, t, attrs = got[eid]
-            e = want[eid]
-            if s != e.from_record or t != e.to_record:
-                diff.problems.append(f"{eid}: endpoints {s}->{t}, expected {e.from_record}->{e.to_record}")
-            for f in et.fields:
-                w = e.values.get(f.name)
-                g = attrs.get(f.name)
-                if w is None and g is None:
-                    continue
-                if not eq(w, g):
-                    diff.problems.append(f"{eid}.{f.name}: expected {_short(w)}, stored {_short(g)}")
+        if edge_types is None or et.name in edge_types:
+            diff.problems += _edge_problems(session, data_model, instance, et, sample, rng, eq)
     return diff
+
+
+def _node_problems(session, instance: Instance, nt, sample: int, rng: random.Random, eq) -> list:
+    problems = []
+    expected = {n.record_id: n for n in instance.nodes_of(nt.name)}
+    if sample > 0:
+        problems += _count_problems(nt.name, session.count_nodes(nt.name), len(expected), "records")
+        ids = sample_ids([(rid, _weight(n.values)) for rid, n in expected.items()], sample, rng)
+        expected = {rid: expected[rid] for rid in ids}
+        stored = {rid: r for rid, r in session.read_nodes(nt.name, ids=ids).items() if rid in expected}
+    else:
+        stored = session.read_nodes(nt.name)
+
+    fields = instance.schema.query_fields(nt.name)
+    for rid in sorted(set(stored) | set(expected)):
+        if rid not in stored:
+            problems.append(f"{nt.name}: missing node {rid}")
+        elif rid not in expected:
+            problems.append(f"{nt.name}: unexpected node {rid}")
+        else:
+            problems += _value_problems(rid, fields, expected[rid].values, stored[rid], eq)
+    return problems
+
+
+def _edge_problems(session, data_model: str, instance: Instance, et, sample: int, rng: random.Random, eq) -> list:
+    problems = []
+    expected = {e.record_id: e for e in instance.edges_of(et.name)}
+    if sample > 0:
+        problems += _count_problems(et.name, session.count_edges(data_model, instance, et), len(expected), "relationships")
+        fan_out = Counter(e.from_record for e in expected.values())
+        sources = sample_ids(sorted(fan_out.items()), sample, rng)
+        chosen = set(sources)
+        expected = {eid: e for eid, e in expected.items() if e.from_record in chosen}
+        rows = [row for row in session.read_edges(data_model, instance, et, sources=sources) if row[1] in chosen]
+    else:
+        rows = session.read_edges(data_model, instance, et)
+
+    stored = {}
+    for eid, src, dst, attrs in rows:
+        if eid in stored:
+            problems.append(f"{et.name}: relationship {eid} stored twice")
+        stored[eid] = (src, dst, attrs)
+
+    for eid in sorted(set(stored) | set(expected)):
+        if eid not in stored:
+            problems.append(f"{et.name}: missing relationship {eid}")
+            continue
+        src, dst, attrs = stored[eid]
+        if eid not in expected:
+            problems.append(f"{et.name}: unexpected relationship {eid} {(src, dst)}")
+            continue
+        e = expected[eid]
+        if (src, dst) != (e.from_record, e.to_record):
+            problems.append(f"{eid}: endpoints {src}->{dst}, expected {e.from_record}->{e.to_record}")
+        problems += _value_problems(eid, et.fields, e.values, attrs, eq)
+    return problems
+
+
+def _count_problems(name: str, stored: int, expected: int, noun: str) -> list:
+    return [] if stored == expected else [f"{name}: {stored} {noun} stored, {expected} expected"]
+
+
+def _value_problems(record_id: str, fields, expected: dict, stored: dict, eq) -> list:
+    problems = []
+    for f in fields:
+        want, got = expected.get(f.name), stored.get(f.name)
+        if (want is not None or got is not None) and not eq(want, got):
+            problems.append(f"{record_id}.{f.name}: expected {_short(want)}, stored {_short(got)}")
+    return problems
 
 
 def _short(v, n: int = 200) -> str:
