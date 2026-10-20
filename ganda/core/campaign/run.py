@@ -7,6 +7,7 @@ import random
 import threading
 import time
 from collections import Counter
+from dataclasses import dataclass
 from typing import NamedTuple
 
 from ganda.core.data import scale as _scale
@@ -89,109 +90,168 @@ def _sample_rng(seed: int) -> random.Random:
     return random.Random(f"{seed}:statesample")
 
 
+@dataclass
+class _SeedRun:
+    engine: object
+    server: object
+    seed: int
+    cfg: GeneratorConfig
+    args: argparse.Namespace
+    shared: _Shared
+    ns: str
+    instance: object
+    plans: dict
+
+    def check_state(self, session, data_model: str):
+        return verify_state(session, data_model, self.instance, sample=self.args.state_sample, rng=_sample_rng(self.seed))
+
+    def count(self, counter: str) -> None:
+        with self.shared.lock:
+            self.shared.counters[counter] += 1
+
+    def report_state_problem(self, errors: dict, diffs: dict, kind: str, instance=None, **kw) -> str:
+        instance = self.instance if instance is None else instance
+        return report_setup_problem(self.engine, self.args.out_dir, self.args.run_tag, self.seed, self.cfg, instance, self.plans, errors, diffs, kind, embed_data=self.args.embed_data, **kw)
+
+
 def run_instance(engine, server, seed: int, cfg: GeneratorConfig, args, shared: _Shared, ns: str) -> None:
     schema, instance, rng = build(seed, cfg, engine)
-    reference = instance if args.reference else None
-    data_models = engine.data_models
-    plans = {data_model: engine.mappers[data_model](instance) for data_model in data_models}
+    plans = {data_model: engine.mappers[data_model](instance) for data_model in engine.data_models}
+    run = _SeedRun(engine, server, seed, cfg, args, shared, ns, instance, plans)
+    sessions = _set_up(run)
+    if sessions is not None:
+        results = _read_phase(run, sessions, schema, rng)
+        if cfg.write_cases:
+            results += _write_phase(run, sessions, rng)
+        _tally(shared, results)
+        _report_findings(run, results)
+    _drop(engine, server, ns)
+
+
+def _set_up(run: _SeedRun) -> "dict | None":
     sessions: dict = {}
-    setup_errors: dict = {}
+    errors: dict = {}
     diffs: dict = {}
-    for data_model, plan in plans.items():
-        s = server.fresh_session(engine.database_name(ns, data_model))
+    for data_model, plan in run.plans.items():
+        s = run.server.fresh_session(run.engine.database_name(run.ns, data_model))
         try:
             s.apply_setup(plan)
-            setup_errors[data_model] = ""
+            errors[data_model] = ""
             sessions[data_model] = s
-            if args.verify_state:
-                diffs[data_model] = verify_state(s, data_model, instance, sample=args.state_sample, rng=_sample_rng(seed))
+            if run.args.verify_state:
+                diffs[data_model] = run.check_state(s, data_model)
         except EngineError as e:
-            setup_errors[data_model] = str(e)
-    cov = shared.coverage
-    if cov:
-        cov.after_setup()
-    with shared.lock:
-        shared.counters["instances"] += 1
-    failed = [s for s, e in setup_errors.items() if e]
-    bad_state = [s for s, d in diffs.items() if not d.ok]
+            errors[data_model] = str(e)
+    if run.shared.coverage:
+        run.shared.coverage.after_setup()
+    run.count("instances")
+
+    failed = [data_model for data_model, e in errors.items() if e]
+    bad_state = [data_model for data_model, d in diffs.items() if not d.ok]
     if failed or bad_state:
-        with shared.lock:
-            if len(failed) == len(data_models):
-                shared.counters["setup_failures"] += 1
-                kind = "setup-failure"
-            else:
-                shared.counters["setup_asymmetries"] += 1
-                kind = "setup-asymmetry" if failed else "state-diff"
-        if len(failed) < len(data_models) or args.bundle_setup_failures:
-            report_setup_problem(engine, args.out_dir, args.run_tag, seed, cfg, instance, plans, setup_errors, diffs, kind, embed_data=args.embed_data)
-            print(f"[seed {seed}] {kind}: {failed or bad_state}", flush=True)
-        _drop(engine, server, ns)
-        return
+        _report_setup(run, errors, diffs, failed, bad_state)
+        return None
+    return sessions
 
-    cases = all_cases(rng, schema, instance, cfg=cfg)
+
+def _report_setup(run: _SeedRun, errors: dict, diffs: dict, failed: list, bad_state: list) -> None:
+    every_data_model_failed = len(failed) == len(run.engine.data_models)
+    with run.shared.lock:
+        if every_data_model_failed:
+            run.shared.counters["setup_failures"] += 1
+            kind = "setup-failure"
+        else:
+            run.shared.counters["setup_asymmetries"] += 1
+            kind = "setup-asymmetry" if failed else "state-diff"
+    if not every_data_model_failed or run.args.bundle_setup_failures:
+        run.report_state_problem(errors, diffs, kind)
+        print(f"[seed {run.seed}] {kind}: {failed or bad_state}", flush=True)
+
+
+def _read_phase(run: _SeedRun, sessions: dict, schema, rng) -> list:
+    args = run.args
+    cov = run.shared.coverage
     hooks = {"after_case": cov.after_case, "after_variant": cov.after_variant} if cov else {}
+    reference = run.instance if args.reference else None
+    cases = all_cases(rng, schema, run.instance, cfg=run.cfg)
     results = run_cases(cases, sessions, reference, explain=args.explain, keep_known_bugs=args.no_known_bugs, timeouts_are_errors=args.timeouts_are_errors, **hooks)
-    if args.verify_state and any(engine.may_write(r.case) for r in results):
-        # a read case that writes inside a transaction rolled it back: the live state
-        # must still be the Instance on every data model
-        after = {data_model: verify_state(s, data_model, instance, sample=args.state_sample, rng=_sample_rng(seed)) for data_model, s in sessions.items()}
-        leaked = [data_model for data_model, d in after.items() if not d.ok]
-        if leaked:
-            with shared.lock:
-                shared.counters["state_leaks"] += 1
-            d = report_setup_problem(engine, args.out_dir, args.run_tag, seed, cfg, instance, plans, {data_model: "" for data_model in sessions}, after, "state-leak", embed_data=args.embed_data)
-            print(f"[seed {seed}] state-leak after the cases: {leaked} -> {d}", flush=True)
-    if cfg.write_cases:
-        # the write phase: predicate-targeted writes after every read, each checked
-        # and applied to the Instance (`ganda.core.query.generators.write_phase`)
-        wp = run_write_phase(sessions, instance, rng.for_generator("ir_write"), cfg.write_cases, verify=args.verify_state, keep_known_bugs=args.no_known_bugs, reference=args.reference, state_sample=args.state_sample, state_rng=lambda: _sample_rng(seed), timeouts_are_errors=args.timeouts_are_errors)
+    if args.verify_state and any(run.engine.may_write(r.case) for r in results):
+        _check_state_leaks(run, sessions)
+    return results
 
-        results += wp.results
-        with shared.lock:
-            shared.counters["writes"] += sum(1 for r in wp.results if r.case.generator_name == "ir_write")
-            for r in wp.results:
-                if r.case.generator_name == "ir_write":
-                    shared.write_shapes.add(r.case.params["coverage"])
-        if any(not d.ok for d in wp.diffs.values()):
-            with shared.lock:
-                shared.counters["write_state_diffs"] += 1
-            last = next((r.case for r in reversed(wp.results) if r.case.generator_name == "ir_write"), None)
-            wrote = {data_model: f"[{last.params['concrete_syntax'][data_model]}] {last.params['statements'][data_model]}" for data_model in sessions} if last else {data_model: "" for data_model in sessions}
-            d = report_setup_problem(engine, args.out_dir, args.run_tag, seed, cfg, wp.instance, plans, wrote, wp.diffs, f"write-state-{wp.failed_step}", write_step=wp.failed_step, embed_data=args.embed_data)
-            print(f"[seed {seed}] write-state after {wp.stopped} -> {d}", flush=True)
+
+def _check_state_leaks(run: _SeedRun, sessions: dict) -> None:
+    # a read case that writes inside a transaction rolled it back: the live state
+    # must still be the Instance on every data model
+    after = {data_model: run.check_state(s, data_model) for data_model, s in sessions.items()}
+    leaked = [data_model for data_model, d in after.items() if not d.ok]
+    if leaked:
+        run.count("state_leaks")
+        d = run.report_state_problem({data_model: "" for data_model in sessions}, after, "state-leak")
+        print(f"[seed {run.seed}] state-leak after the cases: {leaked} -> {d}", flush=True)
+
+
+def _write_phase(run: _SeedRun, sessions: dict, rng) -> list:
+    # predicate-targeted writes after every read, each checked and applied to the
+    # Instance (`ganda.core.query.generators.write_phase`)
+    args = run.args
+    wp = run_write_phase(sessions, run.instance, rng.for_generator("ir_write"), run.cfg.write_cases, verify=args.verify_state, keep_known_bugs=args.no_known_bugs, reference=args.reference, state_sample=args.state_sample, state_rng=lambda: _sample_rng(run.seed), timeouts_are_errors=args.timeouts_are_errors)
+    writes = [r.case for r in wp.results if r.case.generator_name == "ir_write"]
+    with run.shared.lock:
+        run.shared.counters["writes"] += len(writes)
+        run.shared.write_shapes.update(case.params["coverage"] for case in writes)
+    if any(not d.ok for d in wp.diffs.values()):
+        run.count("write_state_diffs")
+        last = writes[-1] if writes else None
+        wrote = {data_model: f"[{last.params['concrete_syntax'][data_model]}] {last.params['statements'][data_model]}" if last else "" for data_model in sessions}
+        d = run.report_state_problem(wrote, wp.diffs, f"write-state-{wp.failed_step}", instance=wp.instance, write_step=wp.failed_step)
+        print(f"[seed {run.seed}] write-state after {wp.stopped} -> {d}", flush=True)
+    return wp.results
+
+
+def _tally(shared: _Shared, results: list) -> None:
     with shared.lock:
         for r in results:
-            t = _tpl(shared, r.case.generator_name)
-            t["cases"] += 1
-            shared.counters["cases"] += 1
-            if r.case.params.get("partial"):
-                shared.counters["cases_partial"] += 1
-            shared.shapes.add(r.case.shape)
-            if r.case.generator_name == "ir_traversal":
-                shared.traversal_shapes.add(r.case.shape)
-            elif r.case.generator_name == "ir_select":
-                shared.select_shapes.add(r.case.params["coverage"])
-            elif r.case.generator_name == "ir_path":
-                shared.path_shapes.add(r.case.params["coverage"])
-            for data_model, fid in r.suppressed.items():
-                shared.known_bugs[fid] += 1
-                t["suppressed"] += 1
-            shared.counters["timeouts"] += len(r.timeouts)
-            if r.plans:
-                shared.plan_pairs.add((r.case.shape, tuple(sorted((s, tuple(p)) for s, p in r.plans.items()))))
-            for v in r.compared_values():
-                shared.counters["values_compared"] += 1
-                if not is_empty_value(v):
-                    shared.counters["values_nonempty"] += 1
-            if r.asserts_anything:
-                t["asserting"] += 1
-                shared.counters["cases_asserting"] += 1
-            if r.symmetric_error and not r.internal_error:
-                t["symmetric_errors"] += 1
-                shared.counters["symmetric_errors"] += 1
-            if r.internal_error:
-                t["internal_errors"] += 1
-                shared.counters["internal_errors"] += 1
+            _tally_case(shared, r)
+
+
+def _tally_case(shared: _Shared, r) -> None:
+    case, counters = r.case, shared.counters
+    t = _tpl(shared, case.generator_name)
+    t["cases"] += 1
+    counters["cases"] += 1
+    if case.params.get("partial"):
+        counters["cases_partial"] += 1
+    shared.shapes.add(case.shape)
+    if case.generator_name == "ir_traversal":
+        shared.traversal_shapes.add(case.shape)
+    elif case.generator_name == "ir_select":
+        shared.select_shapes.add(case.params["coverage"])
+    elif case.generator_name == "ir_path":
+        shared.path_shapes.add(case.params["coverage"])
+    for fid in r.suppressed.values():
+        shared.known_bugs[fid] += 1
+        t["suppressed"] += 1
+    counters["timeouts"] += len(r.timeouts)
+    if r.plans:
+        shared.plan_pairs.add((case.shape, tuple(sorted((s, tuple(p)) for s, p in r.plans.items()))))
+    for v in r.compared_values():
+        counters["values_compared"] += 1
+        if not is_empty_value(v):
+            counters["values_nonempty"] += 1
+    if r.asserts_anything:
+        t["asserting"] += 1
+        counters["cases_asserting"] += 1
+    if r.symmetric_error and not r.internal_error:
+        t["symmetric_errors"] += 1
+        counters["symmetric_errors"] += 1
+    if r.internal_error:
+        t["internal_errors"] += 1
+        counters["internal_errors"] += 1
+
+
+def _report_findings(run: _SeedRun, results: list) -> None:
+    shared, args = run.shared, run.args
     for r in results:
         if r.ok:
             continue
@@ -199,16 +259,12 @@ def run_instance(engine, server, seed: int, cfg: GeneratorConfig, args, shared: 
         with shared.lock:
             shared.per_class[r.finding_class] += 1
             _tpl(shared, r.case.generator_name)["findings"] += 1
-            if first:
-                shared.counters["findings"] += 1
-            else:
-                shared.counters["findings_repeated"] += 1
+            shared.counters["findings" if first else "findings_repeated"] += 1
             if args.max_findings and shared.counters["findings"] >= args.max_findings:
                 shared.stop = True
         if first or args.bundle_all:
-            d = report_bug(engine, args.out_dir, args.run_tag, seed, cfg, instance, plans, r, times_seen=n, embed_data=args.embed_data, max_value_chars=args.max_value_chars)
-            print(f"[seed {seed}] {r.finding_class} {r.case.generator_name} {r.case.shape} pairs={r.failing_pairs} -> {d}", flush=True)
-    _drop(engine, server, ns)
+            d = report_bug(run.engine, args.out_dir, args.run_tag, run.seed, run.cfg, run.instance, run.plans, r, times_seen=n, embed_data=args.embed_data, max_value_chars=args.max_value_chars)
+            print(f"[seed {run.seed}] {r.finding_class} {r.case.generator_name} {r.case.shape} pairs={r.failing_pairs} -> {d}", flush=True)
 
 
 def _drop(engine, server, ns: str) -> None:
