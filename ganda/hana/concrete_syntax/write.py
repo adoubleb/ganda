@@ -52,10 +52,10 @@ from ganda.core.query.ir.predicates import reverse
 from ganda.core.query.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
 from ganda.core.data.generator import BASE_CLASS
 from ganda.core.data.model import FieldType, Instance, Schema
-from ganda.hana import rewrites as _rewrites
+from ganda.hana.oracle import rewrites as _rewrites
 from ganda.hana.concrete_syntax import document
 from ganda.hana.concrete_syntax.predicate import sparql_filter, sql
-from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT, child_table, list_text, record_iri, sparql_literal, sparql_string
+from ganda.hana.storage.dialect import GRAPH_TOKEN, PREFIX_TEXT, child_table, list_text, record_iri, sparql_literal, sparql_string
 
 FILTERS = ("plain", "rw", "rev", "ar")
 TARGETS = ("table", "nest", "merge")
@@ -439,7 +439,7 @@ def _rdf(q: WriteQuery, sp: WriteSyntax, pred, schema: Schema) -> Statements:
         cls, idp = f"c:{q.table}", "p:id"
     f = q.field
     if q.op == "upsert":
-        from ganda.hana.mapping.rdf import class_triples
+        from ganda.hana.storage.mapping.rdf import class_triples
 
         st.steps.append(Step(f"{PREFIX_TEXT} SELECT (1 AS ?v) WHERE {{ BIND (1 AS ?one) }}", role="count_rows"))
         n = record_iri(q.target_id)

@@ -48,8 +48,8 @@ from decimal import Decimal
 
 from ganda.core.engine.provider import EngineError, Server
 from ganda.hana.concrete_syntax import tx as _tx
-from ganda.hana.connection import HanaSession, decode_row, positional, sparql_rows
-from ganda.hana.dialect import GRAPH_TOKEN
+from ganda.hana.engine.connection import HanaSession, decode_row, positional, sparql_rows
+from ganda.hana.storage.dialect import GRAPH_TOKEN
 
 
 # SQLite has no boolean: a boolean is stored and bound as one of two strings no
@@ -98,7 +98,7 @@ class _Avg:
             self.values.append(v)
 
     def finalize(self):
-        from ganda.hana.semantics import mean
+        from ganda.hana.oracle.semantics import mean
 
         return mean(self.values) if self.values else None
 
@@ -470,7 +470,7 @@ class OfflineSession(HanaSession):
             self.db = _sqlite()
 
     def apply_step(self, step) -> None:
-        from ganda.hana.mapping.common import GraphWorkspace
+        from ganda.hana.storage.mapping.common import GraphWorkspace
         from tests.hana import opencypher_sqlite
 
         if isinstance(step, GraphWorkspace):
@@ -485,7 +485,7 @@ class OfflineSession(HanaSession):
 
     def sql(self, text: str, binds=None, rows: bool = True):
         from ganda.hana.concrete_syntax import hints
-        from ganda.hana.connection import unwrap_block
+        from ganda.hana.engine.connection import unwrap_block
 
         # no plan steering and no SQLScript offline: the hinted twin runs as its plain
         # statement, the anonymous block as the statement it wraps

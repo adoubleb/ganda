@@ -56,7 +56,7 @@ from dataclasses import dataclass, field
 from ganda.core.query.ir.predicates import MIRROR, Predicate, reverse
 from ganda.core.query.ir.select import SelectQuery
 from ganda.core.data.model import FieldType, Instance, Schema
-from ganda.arangodb import rewrites as _rewrites
+from ganda.arangodb.oracle import rewrites as _rewrites
 from ganda.arangodb.concrete_syntax.predicate import render_predicate as render_pred
 from ganda.arangodb.concrete_syntax.support import METHODS, method_fn, tx_extra_binds, tx_script  # noqa: F401
 

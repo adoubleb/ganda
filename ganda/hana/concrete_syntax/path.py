@@ -47,7 +47,7 @@ from ganda.core.data.model import Instance, Schema
 from ganda.hana.concrete_syntax import document, graph, hints
 from ganda.hana.concrete_syntax.predicate import REL, Names
 from ganda.hana.concrete_syntax.traversal import sparql_table
-from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT, record_iri
+from ganda.hana.storage.dialect import GRAPH_TOKEN, PREFIX_TEXT, record_iri
 
 ID = "NVARCHAR(256)"
 

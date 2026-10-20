@@ -43,12 +43,16 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
   legacy OrientDB fuzzer: old campaigns are reproduced with `../OrientDB` itself.
 - **Query generator ids are random-stream names** (`ir_traversal`, `ir_select`,
   `ir_path`, `ir_write`): renaming one changes every seed.
-- **A provider module that binds the engine** exists so provider code and tests can
-  call core functions without naming it: `ganda/orientdb/predicates.py`,
-  `generate.py`, `ganda.orientdb.Schema`. Core code never uses these.
+- **A provider facade binds the engine** so provider code and tests can call core
+  functions without naming it: `ganda/orientdb/facade/` (`predicates.py`,
+  `generate.py`) and `ganda.orientdb.Schema`. Core code never uses these.
+- **Provider layout** (OrientDB, ArangoDB, HANA alike): `provider.py` and `config.py`
+  at the top; `engine/` (connection, limits), `storage/` (dialect, physical design,
+  `mapping/`), `oracle/` (semantics, pivots, rewrites), `concrete_syntax/`,
+  `known_bugs/` (`guards.py`), `mutation/` (`mutants.py`), `scripts/`.
 - **Use conventional names** (the README glossary). New concepts get the textbook term.
 - **Engine limits are the provider's, in its `limits` slot** (`core/data/limits.py`,
-  `ganda/orientdb/limits.py`: every number documented or probed). The large-data axes
+  `ganda/orientdb/engine/limits.py`: every number documented or probed). The large-data axes
   (`large_row_probability`, `binary_probability`, `statements_per_request`) and the
   `large` scale profile (`core/data/scale.py`) stay inside them; the core never hard-codes
   a size an engine would reject. A new axis of the kind draws from a tail stream and
@@ -66,10 +70,10 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
 ## OrientDB
 
 `ganda/orientdb/RULES.md` holds the engine rules that keep the oracle sound (each one
-probed live). Layout: `dialect.py` (vocabulary), `physical_design.py`, `config.py`,
-`limits.py` (what the engine can hold), `connection.py`, `mapping/`, `semantics.py`, `pivots.py`, `rewrites.py`,
+probed live). Layout: `storage/dialect.py` (vocabulary), `storage/physical_design.py`, `config.py`,
+`engine/limits.py` (what the engine can hold), `engine/connection.py`, `storage/mapping/`, `oracle/semantics.py`, `oracle/pivots.py`, `oracle/rewrites.py`,
 `concrete_syntax/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),
-`known_bugs.py` (O1..O45 guarded; O46 documented, no guard) with `java_hash.py`, `mutants.py`, `coverage.py` (JaCoCo),
+`known_bugs/guards.py` (O1..O45 guarded; O46 documented, no guard) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `engine/coverage.py` (JaCoCo),
 
 `scripts/` (`probe_osql.py`, `coverage_report.py`).
 
@@ -84,17 +88,17 @@ the same seeds.
 `ganda/arangodb/RULES.md` holds the engine rules the oracle rests on, each marked
 documented / legacy-probed / probed (`ganda arangodb probe`, fact ids `V` values, `S`
 statement forms, `W` write doors, `L` limits, `T` timeout, `A` findings pinned). Layout
-mirrors OrientDB's: `dialect.py` (the logical `id` attribute, the percent-encoded
-`_key`, `engine_id` / `logical_id`), `physical_design.py` (persistent indexes, unique
+mirrors OrientDB's: `storage/dialect.py` (the logical `id` attribute, the percent-encoded
+`_key`, `engine_id` / `logical_id`), `storage/physical_design.py` (persistent indexes, unique
 or sparse; the expanded `f[*]` array index for a LIST field; no signed zero in the
-pools), `config.py`, `limits.py`, `connection.py` (the cursor API, `bind_subset`, stream
-transactions, `maxRuntime` as the timeout), `tx.py` (the transaction door's script
-text), `mapping/` (bulk inserts chunked under half the request bound, `mergeObjects:
-false` on every update door), `semantics.py` (the total type order, exact numbers, code
-point string equality, `LIKE` as an ICU regex), `pivots.py` (`ordered_ops`: a string
-column takes the equality family only -- ICU collation has no reference), `rewrites.py`,
+pools), `config.py`, `engine/limits.py`, `engine/connection.py` (the cursor API, `bind_subset`, stream
+transactions, `maxRuntime` as the timeout), `engine/tx.py` (the transaction door's script
+text), `storage/mapping/` (bulk inserts chunked under half the request bound, `mergeObjects:
+false` on every update door), `oracle/semantics.py` (the total type order, exact numbers, code
+point string equality, `LIKE` as an ICU regex), `oracle/pivots.py` (`ordered_ops`: a string
+column takes the equality family only -- ICU collation has no reference), `oracle/rewrites.py`,
 `concrete_syntax/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),
-`known_bugs.py` (A40 guarded), `mutants.py`, `scripts/probe.py`.
+`known_bugs/guards.py` (A40 guarded), `mutation/mutants.py`, `scripts/probe.py`.
 
 Campaigns run on mousedeer (`ssh mousedeer`, a ControlMaster socket the user opens with
 `ssh -fN mousedeer`; the tree is rsynced to `/home/hakam/ganda/ganda`, the image there is
@@ -105,7 +109,7 @@ are in `../arangoDB/issue-drafts/`); this port's findings go under `issues/` (A4
 ## Live verification of ArangoDB (2026-10-09, ArangoDB 3.12.11 on mousedeer)
 
 - `ganda arangodb probe`: 25 facts hold (`RULES.md` lists them with their status); the
-  value facts V2, V3 and V5 are MIRROR checks of `semantics.py` against the engine over
+  value facts V2, V3 and V5 are MIRROR checks of `oracle/semantics.py` against the engine over
   boundary pools, which is how three assumptions fell (numbers compare exactly, `LIKE`
   crosses a newline, two nulls are not ordered).
 - `run --iterations 3 --seed 1` at the default scale with every axis on: 707 cases, 0
@@ -181,7 +185,7 @@ other providers keep off: `partial_traversals`
 everywhere) and `compare_despite_errors` (the variants that answered are compared when
 another one errored; the finding key names the mismatching pairs and the error's code
 through `error_signature`). Cross-type numeric pivots and `NOT IN` are drawn
-(`hana/pivots.py`), each typed per data model (RULES.md "Values"); no variant repeats
+(`hana/oracle/pivots.py`), each typed per data model (RULES.md "Values"); no variant repeats
 another's text on its data model; a decoding failure is an internal `EngineError`.
 More engine paths per question (track 2, 2026-10-12): `rel:again` (the base text a second
 time), the profile `plan_cache`, the hinted collection query, `rel:inline` (constants in the
@@ -201,7 +205,7 @@ over a group with an unbound value once the predicate has held a second datatype
 in the store), **H4** (a SUM over collection views overflows on rows a JOIN excludes),
 **H5** (`BETWEEN ? AND ?` over a collection field types its parameters BIGINT) and **H6**
 (a legal SPARQL FILTER / BIND over a variable bound nowhere is refused); the provider works
-around them and withholds H4's shape (`known_bugs.py`). `ganda/hana/findings/README.md`
+around them and withholds H4's shape (`known_bugs/guards.py`). `ganda/hana/findings/README.md`
 sorts every live observation into A (engine bug), B (quirk or documented) and C (provider
 bug), each B with a verdict checked against SAP's docs. HANA reports EVERY SPARQL refusal
 (a syntax error too) as code 129, so a 129 carrying an ordinary refusal is a rejection, not
@@ -295,7 +299,7 @@ image. Everything else below held.
   minutes, 64 cases (95 % asserting), 4 writes, 0 findings, 3 timeouts, 935 s in all.
   Offline the same seed builds in 3.7 s and renders each plan in under a second; the
   10k-row seed 2 draws its 52 cases in 1.9 s (45 s before the `IN` index in
-  `semantics.py`, and minutes before `sums_exactly` learned to count paths).
+  `oracle/semantics.py`, and minutes before `sums_exactly` learned to count paths).
 
 
 

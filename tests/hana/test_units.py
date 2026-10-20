@@ -16,13 +16,13 @@ from ganda.core.data.generator import build
 from ganda.core.query.generators.registry import all_cases
 from ganda.core.query.generators.write import sample_write
 from ganda.core.data.model import EdgeTypeSpec, FieldSpec, FieldType, NodeTypeSpec
-from ganda.hana import rewrites
+from ganda.hana.oracle import rewrites
 from ganda.hana.config import UNSUPPORTED_AXES
-from ganda.hana.connection import decode_column, decode_row, positional, sparql_rows
-from ganda.hana.dialect import list_text, record_iri, sparql_literal, sparql_string
-from ganda.hana.physical_design import BOUNDARY_VALUES
+from ganda.hana.engine.connection import decode_column, decode_row, positional, sparql_rows
+from ganda.hana.storage.dialect import list_text, record_iri, sparql_literal, sparql_string
+from ganda.hana.storage.physical_design import BOUNDARY_VALUES
 from ganda.hana.provider import PROVIDER as E
-from ganda.hana.semantics import UNKNOWN, evaluate, mean, tri
+from ganda.hana.oracle.semantics import UNKNOWN, evaluate, mean, tri
 
 CFG = E.config_class(write_form_probability=0.8, churn_edge_update_probability=0.3, clusters_probability=0.3)
 
@@ -157,7 +157,7 @@ def test_the_arithmetic_rewrite_keeps_every_answer():
 
 
 def test_cross_type_pivots_stay_inside_the_bound_and_render_typed_on_every_data_model():
-    from ganda.hana import pivots
+    from ganda.hana.oracle import pivots
     from ganda.hana.concrete_syntax import document, graph, predicate
 
     rng = random.Random(5)
@@ -253,7 +253,7 @@ def test_every_plan_case_and_write_renders(seed):
 
 
 def test_the_state_check_reads_a_double_from_its_exact_text():
-    from ganda.hana.connection import HanaSession
+    from ganda.hana.engine.connection import HanaSession
 
     s = HanaSession(None, "db", "rdf")
     s.types = {"e6": {"f1": "float", "l": "list"}, "n1": {"f2": "int"}}
@@ -345,7 +345,7 @@ def test_the_doc_views_ask_a_membership_only_as_a_conjunct():
 def test_h4_withholds_a_doc_sum_over_a_column_that_may_overflow():
     from types import SimpleNamespace as NS
 
-    from ganda.hana.known_bugs import _h4
+    from ganda.hana.known_bugs.guards import _h4
 
     def instance(*values):
         return NS(edges=[NS(type_name="e1", values={"w": v}) for v in values])
@@ -360,7 +360,7 @@ def test_h4_withholds_a_doc_sum_over_a_column_that_may_overflow():
 def test_a_129_that_wraps_an_ordinary_refusal_is_a_rejection():
     from types import SimpleNamespace as NS
 
-    from ganda.hana.connection import _error
+    from ganda.hana.engine.connection import _error
 
     def err(code, text):
         return _error(NS(errorcode=code, errortext=text))
@@ -431,7 +431,7 @@ def test_positional_leaves_the_cypher_literal_alone():
 
 def test_opencypher_table_doubles_quotes_and_declares_the_parameters_a_query_uses():
     from ganda.hana.concrete_syntax import graph
-    from ganda.hana.dialect import opencypher_table
+    from ganda.hana.storage.dialect import opencypher_table
 
     assert opencypher_table("MATCH (a:n1) WHERE a.S = 'x' RETURN a.ID AS ID") == "OPENCYPHER_TABLE(GRAPH WORKSPACE gw QUERY 'MATCH (a:n1) WHERE a.S = ''x'' RETURN a.ID AS ID')"
     params = graph.Params()
@@ -444,7 +444,7 @@ def test_opencypher_table_doubles_quotes_and_declares_the_parameters_a_query_use
 def test_graph_attribute_names_have_one_type_across_the_workspace(seed):
     """The constraint the views exist for: an attribute name has one SQL type across the
     vertex tables and across the edge tables."""
-    from ganda.hana.dialect import SQL_TYPES, graph_columns
+    from ganda.hana.storage.dialect import SQL_TYPES, graph_columns
 
     schema, _instance, _rng = build(seed, CFG, E)
     for tables, edge in ((schema.node_types, False), (schema.edge_types, True)):
@@ -459,7 +459,7 @@ def test_graph_attribute_names_have_one_type_across_the_workspace(seed):
 @pytest.mark.parametrize("seed", range(1, 4))
 def test_the_graph_plan_is_the_rel_plan_plus_views_and_one_workspace(seed):
     from ganda.core.engine.setup_plan import plan_from_dict, plan_to_dict
-    from ganda.hana.mapping.common import GraphWorkspace, Sql
+    from ganda.hana.storage.mapping.common import GraphWorkspace, Sql
 
     schema, instance, _rng = build(seed, CFG, E)
     plan = E.mappers["graph"](instance)
@@ -612,7 +612,7 @@ def _translator_db():
     """A SQLite database with the views of a small schema, and its workspace."""
     import sqlite3
 
-    from ganda.hana.mapping import graph as mapping_graph
+    from ganda.hana.storage.mapping import graph as mapping_graph
     from tests.hana.opencypher_sqlite import Workspace
 
     schema = E.schema(
@@ -747,7 +747,7 @@ def test_every_case_carries_one_hint_profile_per_sql_data_model(seed):
     """A hinted twin: one profile per question, named in the tag, on a SQL statement
     only (never a SPARQL text, never the collection query), the clause closing it."""
     from ganda.hana.concrete_syntax import hints, tx as _tx
-    from ganda.hana.connection import unwrap_block
+    from ganda.hana.engine.connection import unwrap_block
 
     _schema, _instance, cases = _cases(seed)
     seen = 0
@@ -850,7 +850,7 @@ def test_the_repeat_twin_and_the_hinted_collection_query(seed):
 
 
 def test_the_inline_position_writes_every_bound_value_as_a_constant():
-    from ganda.hana.connection import inline_binds, sql_literal
+    from ganda.hana.engine.connection import inline_binds, sql_literal
 
     assert sql_literal(5) == "5" and sql_literal(-(2**63)) == "-9223372036854775808" and sql_literal(True) == "TRUE" and sql_literal(None) == "NULL"
     assert sql_literal(0.1) == "0.1E0" and sql_literal(1e-300) == "1e-300" and sql_literal(1.7976931348623157e308) == "1.7976931348623157e+308"
@@ -875,7 +875,7 @@ def test_the_inline_position_writes_every_bound_value_as_a_constant():
 
 def test_the_block_positions_wrap_the_statement_in_a_typed_sqlscript_block():
     from ganda.hana.concrete_syntax import hints
-    from ganda.hana.connection import sqlscript_block, unwrap_block
+    from ganda.hana.engine.connection import sqlscript_block, unwrap_block
 
     text = "SELECT t.id AS id FROM n1 t WHERE t.f1 > :p AND t.f2 IN :q AND t.f3 = :l__json AND t.f4 = :b AND t.f6 IN :e"
     binds = {"p": 1.5, "q": [1, 2], "l": [3], "b": False, "e": []}
@@ -942,8 +942,8 @@ def test_the_set_operation_form_partitions_a_filter_on_every_sql_path_and_in_spa
 
 
 def test_the_graphscript_path_syntax_and_its_workspace():
-    from ganda.hana.dialect import SCHEMA_TOKEN
-    from ganda.hana.mapping import graph as mapping_graph
+    from ganda.hana.storage.dialect import SCHEMA_TOKEN
+    from ganda.hana.storage.mapping import graph as mapping_graph
 
     schema, instance, cases = _cases(1)
     steps = [s.text for s in mapping_graph.script_ddl(schema)]
@@ -1000,7 +1000,7 @@ def test_a_rel_delete_removes_the_rows_before_their_list_children():
 
 
 def test_the_mutant_catalog_corrupts_a_node_value_on_every_data_model():
-    from ganda.hana import mutants
+    from ganda.hana.mutation import mutants
 
     names = [m.name for m in mutants.MUTANTS]
     assert len(names) == len(set(names))
@@ -1015,7 +1015,7 @@ def test_the_mutant_catalog_corrupts_a_node_value_on_every_data_model():
 
 def test_a_decoding_failure_is_an_internal_engine_error_not_a_dead_worker():
     from ganda.core.engine.provider import EngineError
-    from ganda.hana.connection import _error, decoded_rows, decoded_sparql, document_of
+    from ganda.hana.engine.connection import _error, decoded_rows, decoded_sparql, document_of
 
     assert decoded_rows(["v__int", "w"], [("7", 1)]) == [{"v": 7, "w": 1}]
     for bad in (lambda: decoded_rows(["v__int"], [("seven",)]), lambda: decoded_rows(["v__json"], [("{not json",)]), lambda: decoded_sparql("{not json"), lambda: document_of({"x": "{not json"})):
@@ -1058,7 +1058,7 @@ def test_the_custom_key_pool_orders_alike_in_sql_and_sparql():
     part only for an astral key against one in U+E000..U+FFFF, which no key style
     draws (`data_generator._custom_key`); the probe's CUSTOM_KEYS cover every style."""
     from ganda.core.data.generator import _KEY_PUNCT_BASES, _KEY_UNICODE_BASES
-    from ganda.hana.dialect import is_valid_key
+    from ganda.hana.storage.dialect import is_valid_key
     from ganda.hana.scripts.probe import CUSTOM_KEYS
 
     keys = [b + "7" for b in _KEY_PUNCT_BASES + _KEY_UNICODE_BASES] + CUSTOM_KEYS
@@ -1077,7 +1077,7 @@ def _poly(seed: int):
 
 @pytest.mark.parametrize("seed", range(1, 4))
 def test_the_base_class_is_a_union_view_a_second_class_triple_and_an_unlabelled_match(seed):
-    from ganda.hana.mapping.common import Sparql, Sql
+    from ganda.hana.storage.mapping.common import Sparql, Sql
 
     cfg, schema, instance, rng = _poly(seed)
     assert schema.base is not None and schema.base.name == "N0"
@@ -1094,7 +1094,7 @@ def test_the_base_class_is_a_union_view_a_second_class_triple_and_an_unlabelled_
     assert any(t.startswith("CREATE VIEW N0 ") for t in graph) and not any("gv_N0" in t for t in graph)
     doc = [s.text for s in E.mappers["doc"](instance) if isinstance(s, Sql)]
     assert not any("N0" in t and t.startswith("CREATE COLLECTION") for t in doc) and not any(" ON N0(" in t for t in doc)
-    from ganda.hana.mapping.common import Transaction
+    from ganda.hana.storage.mapping.common import Transaction
 
     def texts_of(steps):
         for s in steps:
@@ -1178,7 +1178,7 @@ def test_the_mean_is_hana_sql_avg():
     """AVG over BIGINT is DECIMAL(25,6): the quotient truncated to six places (R20); the
     B13 guard withholds an rdf average the triple store's double arithmetic cannot
     answer as SQL does."""
-    from ganda.hana import known_bugs
+    from ganda.hana.known_bugs import guards as known_bugs
 
     assert mean([7] + [0] * 127) == 0.054687 and mean([-7] + [0] * 127) == -0.054687 and mean([2, 2, 0]) == 1.333333
     assert mean([1, 2]) == 1.5 and mean([2, 4]) == 3 and isinstance(mean([2, 4]), int) and mean([0.5, 1.0]) == 0.75

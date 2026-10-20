@@ -1,10 +1,10 @@
 import itertools
 
-from ganda.orientdb.generate import GeneratorConfig, build
+from ganda.orientdb.facade.generate import GeneratorConfig, build
 from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.core.query.ir.traversal import PROJECTIONS, SHAPE_DENOMINATOR, Hop, TraversalQuery, all_signatures, evaluate, from_params, shape_signature
 from ganda.core.query.generators.traversal import generate_traversal_cases, sample_query
-from ganda.orientdb.predicates import Compound, Predicate
+from ganda.orientdb.facade.predicates import Compound, Predicate
 from ganda.orientdb.concrete_syntax.traversal import SYNTAXES, applicable, can_pull_up, render, syntaxes_for
 
 
@@ -170,7 +170,7 @@ def test_both_direction_nexists_and_optional_match():
 
 
 def test_narrow_types_in_the_reference():
-    from ganda.orientdb.semantics import agg, predicate_hit, sum_is_exact
+    from ganda.orientdb.oracle.semantics import agg, predicate_hit, sum_is_exact
 
     # an INTEGER column: a Long pivot compares exactly on a scan; the wrap is the index's (O16)
     assert not predicate_hit(True, 5, "=", 2**32 + 5, "int32")
@@ -217,7 +217,7 @@ def test_reach_projections():
 
 
 def test_dates_and_maps_in_the_reference():
-    from ganda.orientdb.semantics import canonical_date, predicate_hit
+    from ganda.orientdb.oracle.semantics import canonical_date, predicate_hit
 
     assert canonical_date("2024-01-01") == "2024-01-01 00:00:00"
     assert canonical_date(1704112496000) == "2024-01-01 12:34:56"

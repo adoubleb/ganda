@@ -59,7 +59,7 @@ import re
 from ganda.core.query.ir.predicates import MIRROR, Compound
 from ganda.core.data.model import FieldType, Schema
 from ganda.hana.concrete_syntax.predicate import Names
-from ganda.hana.dialect import SQL_TYPES, child_table, graph_attr, graph_columns, graph_label, list_text, opencypher_table, param_expr
+from ganda.hana.storage.dialect import SQL_TYPES, child_table, graph_attr, graph_columns, graph_label, list_text, opencypher_table, param_expr
 
 # --- probe-selected switches (the fact in RULES.md; the default is the documented answer) -----
 

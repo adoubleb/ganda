@@ -1,12 +1,12 @@
 import dataclasses
 import re
 
-from ganda.orientdb.generate import GeneratorConfig, build
-from ganda.orientdb.known_bugs import select_known
+from ganda.orientdb.facade.generate import GeneratorConfig, build
+from ganda.orientdb.known_bugs.guards import select_known
 from ganda.core.data.model import FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
-from ganda.orientdb import predicates
+from ganda.orientdb.facade import predicates
 from ganda.core.oracle.case import Comparison, QueryCase
-from ganda.orientdb.predicates import Predicate
+from ganda.orientdb.facade.predicates import Predicate
 from ganda.orientdb.concrete_syntax.select import build_rewrites
 from ganda.core.query.ir.select import COVERAGE_DENOMINATOR, SelectQuery, all_coverage_signatures, coverage_signature, evaluate, from_params, records
 from ganda.orientdb.concrete_syntax.select import BASE, SelectSyntax, Rewrites, applicable, render

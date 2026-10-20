@@ -2,7 +2,7 @@ from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, I
 from ganda.core.oracle.oracle import build_result, fold_rows, normalize_multiset, normalize_set
 from ganda.core.oracle.dedup import BugDeduplicator
 from ganda.core.oracle.case import Comparison, QueryCase
-from ganda.orientdb.semantics import agg, eq, orient_key, predicate_hit
+from ganda.orientdb.oracle.semantics import agg, eq, orient_key, predicate_hit
 
 
 from ganda.orientdb import PROVIDER, Schema  # noqa: E402,F811 -- bound to the OrientDB provider

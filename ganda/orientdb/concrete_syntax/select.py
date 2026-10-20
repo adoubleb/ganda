@@ -73,9 +73,9 @@ import random
 from dataclasses import dataclass, field
 
 from ganda.core.data.model import Instance, Schema
-from ganda.orientdb import predicates
+from ganda.orientdb.facade import predicates
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
-from ganda.orientdb.predicates import MIRROR, Predicate
+from ganda.orientdb.facade.predicates import MIRROR, Predicate
 from ganda.orientdb.concrete_syntax.support import METHODS, method_fn  # noqa: F401 -- the method catalog
 from ganda.core.query.ir.select import DOC_EDGE_KINDS, SelectQuery, notnull_fields
 

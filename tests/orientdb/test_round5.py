@@ -4,17 +4,17 @@ import dataclasses
 import random
 
 from ganda.core.query.ir.select import TxWrite
-from ganda.orientdb.generate import GeneratorConfig, build
-from ganda.orientdb.known_bugs import _leaf_served, list_ops_known, o31_known, o32_predicate
+from ganda.orientdb.facade.generate import GeneratorConfig, build
+from ganda.orientdb.known_bugs.guards import _leaf_served, list_ops_known, o31_known, o32_predicate
 from ganda.core.data.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
-from ganda.orientdb.connection import is_script, unwrap_script
-from ganda.orientdb import predicates
+from ganda.orientdb.engine.connection import is_script, unwrap_script
+from ganda.orientdb.facade import predicates
 from ganda.orientdb.concrete_syntax.support import bfs_distances
 from ganda.orientdb.concrete_syntax.support import tx_rows as _tx_rows
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render
-from ganda.orientdb.predicates import Compound, Predicate, apply_arith, arithmetic, evaluate, reverse
+from ganda.orientdb.facade.predicates import Compound, Predicate, apply_arith, arithmetic, evaluate, reverse
 from ganda.core.query.generators.registry import all_cases, reference_for
-from ganda.orientdb.semantics import predicate_hit
+from ganda.orientdb.oracle.semantics import predicate_hit
 
 
 from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
@@ -165,7 +165,7 @@ def test_bfs_distances():
 
 
 def test_order_form_withholds_the_asc_walk_of_a_composite_index_with_a_null_component():
-    from ganda.orientdb.known_bugs import select_shape_known
+    from ganda.orientdb.known_bugs.guards import select_shape_known
     from ganda.core.data.model import EdgeTypeSpec
     from ganda.core.query.ir.select import SelectQuery
     from ganda.orientdb.concrete_syntax.select import SelectSyntax

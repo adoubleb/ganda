@@ -74,12 +74,12 @@ from ganda.core.query.ir.predicates import MIRROR, Predicate, fields_of
 from ganda.core.query.ir.select import SelectQuery, column, notnull_fields
 from ganda.core.data.generator import BASE_CLASS
 from ganda.core.data.model import FieldType, Instance, Schema
-from ganda.hana import rewrites as _rewrites
+from ganda.hana.oracle import rewrites as _rewrites
 from ganda.hana.concrete_syntax import document, graph, hints, tx as _tx
 from ganda.hana.concrete_syntax.methods import METHODS, method_fn, result_type, sparql_text, sql_text  # noqa: F401
 from ganda.hana.concrete_syntax.predicate import REL, Names, filter_expr, optionals, sparql_filter, sql
 from ganda.hana.concrete_syntax.traversal import agg_proj, guarded, sparql_table
-from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT
+from ganda.hana.storage.dialect import GRAPH_TOKEN, PREFIX_TEXT
 
 FILTERS = ("plain", "rw", "rev", "arith")
 POSITIONS = ("table", "scan", "nest", "view", "from", "table_fn", "native", "match", "neg", "again", "inline", "block", "block_ni")
@@ -348,11 +348,11 @@ def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites,
     if data_model == "rel":
         text = _sql(q, schema, sp, pred, REL)
         if inline:
-            from ganda.hana.connection import inline_binds
+            from ganda.hana.engine.connection import inline_binds
 
             text = inline_binds(text, pred.bind_vars)
         if block:
-            from ganda.hana.connection import sqlscript_block
+            from ganda.hana.engine.connection import sqlscript_block
 
             # the question's profile hints the inner SELECT; NO_INLINE sits on the assignment
             if sp.hint:

@@ -46,9 +46,9 @@ from ganda.core.query.ir.predicates import Predicate, reverse
 from ganda.core.query.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
 from ganda.core.data.generator import BASE_CLASS
 from ganda.core.data.model import Instance, Schema
-from ganda.arangodb import rewrites as _rewrites
+from ganda.arangodb.oracle import rewrites as _rewrites
 from ganda.arangodb.concrete_syntax.predicate import render_predicate as render_pred
-from ganda.arangodb.dialect import document_key
+from ganda.arangodb.storage.dialect import document_key
 
 FILTERS = ("plain", "rw", "rev", "ar")
 TARGETS = ("table", "nest", "sub")
@@ -242,7 +242,7 @@ def _node_delete(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_m
 def _doc_rewrites(q: WriteQuery, before: Instance, after: Instance) -> list:
     """Each source holding a matched relationship re-sets its whole array to the one
     the Instance after the write holds."""
-    from ganda.arangodb.mapping.document import link_object
+    from ganda.arangodb.storage.mapping.document import link_object
 
     et = before.schema.edge_type(q.edge_type)
     sources = sorted({e.from_record for e in edge_hits(q, before)})

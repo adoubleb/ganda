@@ -1,10 +1,10 @@
 import dataclasses
 from collections import Counter
 
-from ganda.orientdb.generate import GeneratorConfig, build, initial_node_values, write_order_states
+from ganda.orientdb.facade.generate import GeneratorConfig, build, initial_node_values, write_order_states
 
 from ganda.core.data.model import FieldType, NodeDelete, NodeUpdate
-from ganda.orientdb.dialect import is_valid_key
+from ganda.orientdb.storage.dialect import is_valid_key
 
 
 def test_build_is_deterministic():
@@ -122,7 +122,7 @@ def test_inheritance_axis_is_a_tail_axis():
 
 
 def test_inheritance_ddl_and_cases():
-    from ganda.orientdb.mapping import MAPPERS
+    from ganda.orientdb.storage.mapping import MAPPERS
     from ganda.core.query.generators.registry import all_cases, reference_for
 
     found_poly = False
@@ -186,7 +186,7 @@ def test_new_axes_are_tail_axes():
 
 
 def test_new_axes_ddl_and_churn():
-    from ganda.orientdb.mapping import MAPPERS
+    from ganda.orientdb.storage.mapping import MAPPERS
 
     schema, inst, _ = build(32, GeneratorConfig(narrow_type_probability=1.0, collate_probability=1.0, clusters_probability=1.0, churn_edge_update_probability=0.5, write_form_probability=0.0))
     for data_model, mapper in MAPPERS.items():
@@ -203,7 +203,7 @@ def test_new_axes_ddl_and_churn():
 def test_date_and_map_axes():
     import datetime as _dt
 
-    from ganda.orientdb.mapping import MAPPERS
+    from ganda.orientdb.storage.mapping import MAPPERS
     from ganda.core.query.generators.registry import all_cases, reference_for
 
     base = build(41, GeneratorConfig())[1]

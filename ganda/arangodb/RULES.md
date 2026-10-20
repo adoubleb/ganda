@@ -20,7 +20,7 @@ A fact that fails changes the provider, never the probe.
 - The doc data model's link object holds `target` = the engine id (so `DOCUMENT()` and
   a join on `_id` read it); the junction holds the LOGICAL ids `src_id` / `dst_id`.
 
-## Value semantics (`semantics.py`)
+## Value semantics (`oracle/semantics.py`)
 
 - The order across types is TOTAL: null < bool < number < string < array < object, so
   `null < 5`, `null <= 5`, `null != 5`, `null == null` hold and `null > 5`, `null == 5`
@@ -101,7 +101,7 @@ A fact that fails changes the provider, never the probe.
   levels of the doc and rel data models) agree on the vertex count, answer one vertex
   for the start itself and nothing for an unreachable or too-distant goal (**probed** S7).
 
-## Write doors (`mapping/`, `concrete_syntax/write.py`)
+## Write doors (`storage/mapping/`, `concrete_syntax/write.py`)
 
 - A data-modification subquery counts its rows (`LET r = (... RETURN 1) RETURN
   LENGTH(r)`); `RETURN OLD` / `NEW` after the modification; `OPTIONS {keepNull: false}`
@@ -123,7 +123,7 @@ A fact that fails changes the provider, never the probe.
 - A bulk insert answers 202 with per-document errors inside the array; the connection
   layer raises the first (**legacy**).
 
-## Limits (`limits.py`)
+## Limits (`engine/limits.py`)
 
 - A request body of half the declared bound (`HTTP_MAX_LENGTH`) is accepted; 2000
   documents travel in one bulk insert (**probed** L1). A document of the record bound
@@ -167,7 +167,7 @@ join sits inside the per-record subquery).
 - **A40** (`issues/A40-not-in-over-a-non-array-disagrees-with-not-of-in.md`, this
   port's first smoke): `NOT (x IN n.list)` is false over a null, absent or scalar
   attribute (the optimizer's `NOT IN` rewrite) while the constant form is true, so a
-  filter and its De Morgan rewrite disagree. Guarded in `known_bugs.py` at the shape
+  filter and its De Morgan rewrite disagree. Guarded in `known_bugs/guards.py` at the shape
   (a list membership under a NOT over a column holding a null), pinned by the probe
   (**probed** A40).
 
@@ -179,4 +179,4 @@ join sits inside the per-record subquery).
   `IS_OBJECT` ternary answer. The provider renders the map operators through the
   ternary, so no guard is needed; the probe pins the behaviour.
 
-A new finding gets an id, a write-up under `issues/` and a guard in `known_bugs.py`.
+A new finding gets an id, a write-up under `issues/` and a guard in `known_bugs/guards.py`.

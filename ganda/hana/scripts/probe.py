@@ -20,7 +20,7 @@ from typing import Callable
 
 from ganda.core.engine.provider import EngineError
 from ganda.hana.concrete_syntax import hints
-from ganda.hana.dialect import opencypher_table, record_iri
+from ganda.hana.storage.dialect import opencypher_table, record_iri
 
 # the custom-key styles the generator draws (`data_generator._custom_key`): the unicode
 # bases (an accented letter, an astral emoji, a CJK ideograph, a dotted capital I, a
@@ -82,7 +82,7 @@ def _eq(got, want):
 def _peer(p: Probe) -> Probe:
     """A second connection on the probe's database: another session's view of it (the
     transaction door's peer check, `connection.HanaSession.execute`)."""
-    from ganda.hana.connection import HanaSession, connect
+    from ganda.hana.engine.connection import HanaSession, connect
 
     return Probe(HanaSession(connect(p.s.database), p.s.database, p.s.data_model, p.s.timeout_ms))
 
@@ -573,7 +573,7 @@ def k20(p: Probe):
 
 
 def k21(p: Probe):
-    from ganda.hana.dialect import sparql_string
+    from ganda.hana.storage.dialect import sparql_string
 
     triples = " . ".join(f"{record_iri(k)} a c:pk ; p:id {sparql_string(k)}" for k in CUSTOM_KEYS)
     p.update(f"INSERT DATA {{ GRAPH {G} {{ {triples} }} }}")
@@ -1293,7 +1293,7 @@ FACTS = R + D + K + GF + P
 
 
 def main(argv=None) -> int:
-    from ganda.hana.connection import HanaServer
+    from ganda.hana.engine.connection import HanaServer
 
     wanted = list(argv if argv is not None else sys.argv[1:])
     facts = [f for f in FACTS if not wanted or any(f.id == w or f.id.startswith(w) and w.isalpha() for w in wanted)]

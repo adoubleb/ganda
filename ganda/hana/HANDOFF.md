@@ -14,7 +14,7 @@ other and against a Python reference:
 |---|---|---|
 | `doc` | JSON Document Store: one COLLECTION per node class; relationships embedded in the source document as link arrays | collection queries (`SELECT $."f" FROM c ...`), and SQL over WITH views of the collections |
 | `rel` | column tables: one per node class, one junction table per edge type, a child table per LIST column | SQL |
-| `graph` | the Property Graph Engine: the rel tables again (an independent copy), one view per table under the workspace's attribute names, one GRAPH WORKSPACE `gw` over the views (`mapping/graph.py`; the state read back through the engine) | openCypher inside SQL through `OPENCYPHER_TABLE` -- native texts, and rel's SQL over `g_` CTEs that read every table through the engine (`concrete_syntax/graph.py`) |
+| `graph` | the Property Graph Engine: the rel tables again (an independent copy), one view per table under the workspace's attribute names, one GRAPH WORKSPACE `gw` over the views (`storage/mapping/graph.py`; the state read back through the engine) | openCypher inside SQL through `OPENCYPHER_TABLE` -- native texts, and rel's SQL over `g_` CTEs that read every table through the engine (`concrete_syntax/graph.py`) |
 | `rdf` | Knowledge Graph Engine: one named graph; a node is an IRI, a relationship a resource of its own plus a direct link triple | SPARQL through `SYS.SPARQL_EXECUTE`, and SPARQL inside SQL through `SPARQL_TABLE` |
 
 The graph data model was added 2026-10-11; its 32 probe facts (`G*`, `scripts/probe.py`)
@@ -91,7 +91,7 @@ SQLScript variables); `dialect.SCHEMA_TOKEN` is the session's schema in a text.
 
 The provider fills every slot of the core's contract (`ganda/core/engine/provider.py`):
 traversal, select, path and write IRs, mappings, semantics, rewrites, a probe, mutants.
-`known_bugs.py` guards H4 and B13; A8 and A9 are worked around in the graph renderings.
+`known_bugs/guards.py` guards H4 and B13; A8 and A9 are worked around in the graph renderings.
 
 What was verified, offline only:
 
@@ -157,7 +157,7 @@ python3 -m ganda hana doctor
 
 It creates a schema per data model, answers one query each (`SELECT 1 FROM DUMMY`, and a
 SPARQL `SELECT (1 AS ?ok)`), and drops them. Problems you may meet and where to fix them
-(all in `ganda/hana/connection.py`):
+(all in `ganda/hana/engine/connection.py`):
 
 | symptom | fix |
 |---|---|
@@ -183,28 +183,28 @@ says where each fact lives:
 
 | facts | what they test | where to change |
 |---|---|---|
-| R0-R2, R15-R17 | column table DDL, types, DML row counts, error codes | `mapping/relational.py`, `connection.py` (`decode_row`, `_error`, `INTERNAL_CODES`) |
-| R3, R4, R10 | string order, empty string, LIKE | `semantics.py` (`hana_key`, `like_hit`); the value pools in `physical_design.py` |
+| R0-R2, R15-R17 | column table DDL, types, DML row counts, error codes | `storage/mapping/relational.py`, `engine/connection.py` (`decode_row`, `_error`, `INTERNAL_CODES`) |
+| R3, R4, R10 | string order, empty string, LIKE | `oracle/semantics.py` (`hana_key`, `like_hit`); the value pools in `storage/physical_design.py` |
 | R5, R6 | NULL ordering, LIMIT / OFFSET | `semantics.nulls_first` / `order_key`; `concrete_syntax/select.py` (`_sql` page / keys) |
 | R7-R9 | AVG, SUM, MEDIAN | `semantics.mean`, `sum_is_exact`; `connection.number` decoding |
-| R11-R14 | UPSERT, MERGE INTO, MERGE DELTA, INVERTED HASH, partitions | `mapping/relational.py` (and drop a write form in `dialect.py` if HANA lacks it) |
-| D0-D3 | collection DDL, INSERT forms, what a projection returns | `mapping/document.py`; `concrete_syntax/document.py` (`typed`, `sql_cast`, `boolean_of`); `connection.decode_column` |
+| R11-R14 | UPSERT, MERGE INTO, MERGE DELTA, INVERTED HASH, partitions | `storage/mapping/relational.py` (and drop a write form in `storage/dialect.py` if HANA lacks it) |
+| D0-D3 | collection DDL, INSERT forms, what a projection returns | `storage/mapping/document.py`; `concrete_syntax/document.py` (`typed`, `sql_cast`, `boolean_of`); `connection.decode_column` |
 | D4-D7, D11, D18 | the collection filter: casts, booleans, nulls, arrays, LIKE | `concrete_syntax/document.py` (`_param`, `doc_pred`) |
 | D8 | FOR ANY over an absent array | `semantics.truth` (CONTAINS on a null list) only if every data model can follow; otherwise make `doc_pred` refuse the shape (raise `Unsupported`) |
 | D9, D10, D16 | UNNEST, views | `concrete_syntax/document.py` (`view_definition`) |
 | D12 | collection ORDER BY | `concrete_syntax/select.py` (`_collection` page / keys) |
-| D13-D15, D17 | UPDATE / DELETE forms, transactions | `concrete_syntax/write.py` (`_doc`), `concrete_syntax/tx.py` (`_doc`), `mapping/document.py` |
-| K0-K4, K12-K13 | SPARQL_EXECUTE, datatypes, FROM vs GRAPH, SPARQL_TABLE | `dialect.py` (`sparql_literal`, `from_rdf_term`), `connection.py`; if `FROM <g>` or `SPARQL_TABLE` is unusable, drop the `from` / `table` / `table_fn` variants in `concrete_syntax/traversal.py` and `select.py` |
+| D13-D15, D17 | UPDATE / DELETE forms, transactions | `concrete_syntax/write.py` (`_doc`), `concrete_syntax/tx.py` (`_doc`), `storage/mapping/document.py` |
+| K0-K4, K12-K13 | SPARQL_EXECUTE, datatypes, FROM vs GRAPH, SPARQL_TABLE | `storage/dialect.py` (`sparql_literal`, `from_rdf_term`), `engine/connection.py`; if `FROM <g>` or `SPARQL_TABLE` is unusable, drop the `from` / `table` / `table_fn` variants in `concrete_syntax/traversal.py` and `select.py` |
 | K5, K6 | SPARQL error propagation | if they fail, remove the `native` variants (`traversal.SYNTAXES["rdf"]`, `select._POSITIONS_OF["rdf"]`), or file it as a finding: it is HANA departing from SPARQL 1.1 |
 | K7-K9, K16 | aggregates | `concrete_syntax/traversal.py` and `select.py` (`_sparql`): the `IF(COUNT(?w) > 0, ...)` guards, `HAVING` |
-| K10, K11, K14, K15, K19 | paths, MINUS, updates, transactions, EXISTS in updates | `concrete_syntax/path.py`, `traversal.py`, `write.py` (`_rdf`), `mapping/rdf.py` |
-| K17, K18 | ordering, string functions | `semantics.py`, `concrete_syntax/methods.py` |
+| K10, K11, K14, K15, K19 | paths, MINUS, updates, transactions, EXISTS in updates | `concrete_syntax/path.py`, `traversal.py`, `write.py` (`_rdf`), `storage/mapping/rdf.py` |
+| K17, K18 | ordering, string functions | `oracle/semantics.py`, `concrete_syntax/methods.py` |
 | P0-P17 | the hint clause; every plan-steering profile over every statement shape | `concrete_syntax/hints.py` (`PROFILES`: drop a profile a shape refuses; never a workaround in a renderer) |
 | D19, D20 | NOT kept as written in a collection filter, NOT over FOR ANY | `concrete_syntax/document.py` (`doc_pred`'s `keep_not`); if one fails, drop `neg` from `select._POSITIONS_OF["doc"]` |
 | R20, K23 | AVG over BIGINT as DECIMAL(25,6) (truncated to six places); the triple store's AVG in double | `semantics.mean`; `known_bugs._b13` |
 | G30-G34 | integer and string constants exact, a double constant lossy (A8), two calls' parameter typing (A9), BOOLEAN in COUNT / compared refused | `concrete_syntax/graph.py` (`literal`, `cypher_filter`), `select._cypher_asks` |
 | R18, D22, K21, G28 | custom keys on the four data models, their order | `dialect.is_valid_key`, `record_iri`; `semantics.hana_key`; put the axis back into `config.UNSUPPORTED_AXES` if a style fails everywhere |
-| R19, D23, K22, G29 | the base class: the UNION ALL view, the views' union, the second class triple, the unlabelled MATCH | `mapping/relational.py` (`base_view_ddl`), `concrete_syntax/document.py` (`view_definition`, `with_views`), `mapping/rdf.py` (`class_triples`), `concrete_syntax/graph.py` (`vertex`), `concrete_syntax/write.py` (`_targets`) |
+| R19, D23, K22, G29 | the base class: the UNION ALL view, the views' union, the second class triple, the unlabelled MATCH | `storage/mapping/relational.py` (`base_view_ddl`), `concrete_syntax/document.py` (`view_definition`, `with_views`), `storage/mapping/rdf.py` (`class_triples`), `concrete_syntax/graph.py` (`vertex`), `concrete_syntax/write.py` (`_targets`) |
 
 After a change: step 0 again (offline), then the probe again.
 
@@ -232,8 +232,8 @@ it into one of three kinds:
    with the bundle's data. Reduce it to the smallest statement. Check the documentation:
    is it documented behaviour? If it is a real defect, write it up under `issues/` (see
    the existing `issues/O46-...md` for the format) with an id `H1`, `H2`, ..., and add
-   a guard in `known_bugs.py` that withholds exactly that shape (the OrientDB provider's
-   `known_bugs.py` is the pattern: a function of the IR and the concrete syntax).
+   a guard in `known_bugs/guards.py` that withholds exactly that shape (the OrientDB provider's
+   `known_bugs/guards.py` is the pattern: a function of the IR and the concrete syntax).
 
 Grow the campaign only when a seed runs clean: `--iterations 5`, then the defaults, then
 `--workers 2` (each worker has its own schemas and graphs).
@@ -251,14 +251,17 @@ module you changed. Keep `CLAUDE.md`'s HANA section current.
 ganda/hana/
   provider.py          the slots; `configure` refuses the core axes not modelled yet
   config.py            HanaConfig (id index axis, partition axis), UNSUPPORTED_AXES
-  limits.py            what HANA can hold (documented or chosen; nothing probed)
-  dialect.py           SQL types, LIST storage, the triple store's IRIs and literals, write forms
-  physical_design.py   index kinds, id index and partition draws, write forms, value pools
-  semantics.py         the reference: three-valued logic, order, aggregates
-  pivots.py            operators a predicate draws (null tests: IS NULL / IS NOT NULL only)
-  rewrites.py          equivalent predicate trees (three-valued), arithmetic rewrite
-  connection.py        HanaServer / HanaSession (hdbcli), parameter binding (`positional`, `inline_binds`, `sqlscript_block`), decoding (a failure is a `[decode]` finding), the transaction door's peer check
-  mapping/             one setup plan per data model (document.py, relational.py, rdf.py)
+  engine/
+    connection.py      HanaServer / HanaSession (hdbcli), parameter binding (`positional`, `inline_binds`, `sqlscript_block`), decoding (a failure is a `[decode]` finding), the transaction door's peer check
+    limits.py          what HANA can hold (documented or chosen; nothing probed)
+  storage/
+    dialect.py         SQL types, LIST storage, the triple store's IRIs and literals, write forms
+    physical_design.py index kinds, id index and partition draws, write forms, value pools
+    mapping/           one setup plan per data model (document.py, relational.py, rdf.py)
+  oracle/
+    semantics.py       the reference: three-valued logic, order, aggregates
+    pivots.py          operators a predicate draws (null tests: IS NULL / IS NOT NULL only)
+    rewrites.py        equivalent predicate trees (three-valued), arithmetic rewrite
   concrete_syntax/
     predicate.py       a predicate as SQL (rel, doc views) and as a SPARQL filter
     document.py        the doc data model: collection filter (NOT pushed down or kept), views, typed reads
@@ -270,8 +273,8 @@ ganda/hana/
     write.py           the write IR and its execution steps (a base-class write per subclass)
     tx.py              the transaction door of the select IR
     methods.py         the method catalog (SQL / SPARQL / Python mirror)
-  known_bugs.py        the guards: H4 (a doc traversal sum the views overflow), B13 (an rdf avg where double arithmetic parts from DECIMAL(25,6))
-  mutants.py           the mutation benchmark's catalog
+  known_bugs/guards.py the guards: H4 (a doc traversal sum the views overflow), B13 (an rdf avg where double arithmetic parts from DECIMAL(25,6))
+  mutation/mutants.py  the mutation benchmark's catalog
   scripts/probe.py     `ganda hana probe`
 tests/hana/
   test_units.py        no server, no rdflib
@@ -287,7 +290,7 @@ tests/hana/
   express, add a provider hook the way `CLAUDE.md` describes, not an `if engine == ...`.
 - `ganda/hana` imports no other provider (`tests/test_layering.py`).
 - Setup steps are registered in a registry every provider shares: HANA's op names are
-  prefixed `hana_` (`mapping/common.py`); the core refuses an op name another class
+  prefixed `hana_` (`storage/mapping/common.py`); the core refuses an op name another class
   already holds.
 - Variant names are `<data model>:<tag>` (`rel:scan`, `rdf:jscan+table_fn`); the tags
   are the syntax module's choices. A new syntax is a new choice in its catalog, what it

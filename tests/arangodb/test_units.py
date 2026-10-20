@@ -18,13 +18,13 @@ from ganda.core.query.generators.write import sample_write
 from ganda.core.data.model import FieldType
 from ganda.core.engine.setup_plan import plan_from_dict, plan_to_dict
 from ganda.core.engine.state_check import verify_state
-from ganda.arangodb import rewrites
-from ganda.arangodb.connection import bind_subset
-from ganda.arangodb.dialect import ARANGO_KEY_RE, document_key, engine_id, logical_id
-from ganda.arangodb.mapping.common import Aql, CreateCollection, CreateIndex, DocumentApi, Insert, Transaction, chunks
+from ganda.arangodb.oracle import rewrites
+from ganda.arangodb.engine.connection import bind_subset
+from ganda.arangodb.storage.dialect import ARANGO_KEY_RE, document_key, engine_id, logical_id
+from ganda.arangodb.storage.mapping.common import Aql, CreateCollection, CreateIndex, DocumentApi, Insert, Transaction, chunks
 from ganda.arangodb.provider import PROVIDER as E
-from ganda.arangodb.semantics import aql_key, eq, evaluate, like_hit, lt, predicate_hit
-from ganda.arangodb import tx
+from ganda.arangodb.oracle.semantics import aql_key, eq, evaluate, like_hit, lt, predicate_hit
+from ganda.arangodb.engine import tx
 
 CFG = E.config_class(custom_key_probability=0.3, inheritance_probability=0.5, narrow_type_probability=0.3, date_map_probability=0.5, collate_probability=0.4, list_index_probability=0.5, churn_edge_update_probability=0.2, write_form_probability=0.8, traversal_cases=6, select_cases=16, path_cases=2, write_cases=3)
 SEEDS = (1, 2, 3, 4)
@@ -303,7 +303,7 @@ def _flat(plan) -> list:
 
 
 def test_folding_keeps_each_documents_statement_order_and_bounds_a_transaction():
-    from ganda.arangodb.mapping.common import fold_steps, transaction_groups
+    from ganda.arangodb.storage.mapping.common import fold_steps, transaction_groups
 
     steps = [Aql("UPDATE @key WITH @doc IN n1 OPTIONS {keepNull: false, mergeObjects: false}", {"key": "r1", "doc": {"a": None}}), Aql("UPDATE @key WITH @doc IN n1 OPTIONS {mergeObjects: false}", {"key": "r1", "doc": {"b": 1}}), Aql("UPDATE @key WITH @doc IN n1 OPTIONS {keepNull: false, mergeObjects: false}", {"key": "r2", "doc": {"a": None}}), Aql("UPDATE @key WITH @doc IN n1 OPTIONS {mergeObjects: false}", {"key": "r2", "doc": {"b": 2}}), Aql("UPDATE @key WITH @doc IN n1 OPTIONS {mergeObjects: false}", {"key": "r2", "doc": {"e1": []}}), Aql("REMOVE @key IN n1", {"key": "r3"}), Aql("REMOVE @key IN n1", {"key": "r4"})]
     folded = fold_steps(steps, 10)
@@ -387,7 +387,7 @@ def test_every_select_variant_form_fits_its_kind(seed):
 
 def test_a40_guard_fires_on_a_membership_under_not_over_a_null_list():
     from ganda.core.data.model import NodeRow
-    from ganda.arangodb.known_bugs import a40_shape, membership_under_not
+    from ganda.arangodb.known_bugs.guards import a40_shape, membership_under_not
 
     contains = Predicate("source", "l", "CONTAINS", "p", 1, True, "list")
     other = Predicate("source", "a", "=", "q", 1, True, "int")

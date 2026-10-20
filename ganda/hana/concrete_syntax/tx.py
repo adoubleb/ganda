@@ -16,7 +16,7 @@ import json
 from ganda.core.query.ir.select import TxWrite
 from ganda.core.data.model import FieldType, Schema
 from ganda.hana.concrete_syntax import document
-from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT, child_table, record_iri, sparql_literal, sparql_string
+from ganda.hana.storage.dialect import GRAPH_TOKEN, PREFIX_TEXT, child_table, record_iri, sparql_literal, sparql_string
 
 TX_MARK = "/* ganda:tx */"
 SEPARATOR = "\n;;\n"
@@ -91,7 +91,7 @@ def _rdf(tx: TxWrite, schema: Schema) -> list:
         if isinstance(value, list):
             values += [f"{n} i:{f} {sparql_literal(x)}" for x in sorted(set(value))]
     if tx.write == "insert":
-        from ganda.hana.mapping.rdf import class_triples
+        from ganda.hana.storage.mapping.rdf import class_triples
 
         triples = class_triples(n, t, schema) + [f"{n} p:id {sparql_string(tx.tid)}"] + values
         return [f"{PREFIX_TEXT} INSERT DATA {{ GRAPH {g} {{ {' . '.join(triples)} }} }}"]

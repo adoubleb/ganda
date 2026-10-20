@@ -16,9 +16,9 @@ import sys
 import time
 
 from ganda.core.engine.provider import EngineError
-from ganda.arangodb.connection import ArangoServer
-from ganda.arangodb.limits import LIMITS
-from ganda.arangodb.semantics import eq, like_hit, lt
+from ganda.arangodb.engine.connection import ArangoServer
+from ganda.arangodb.engine.limits import LIMITS
+from ganda.arangodb.oracle.semantics import eq, like_hit, lt
 
 CHECKS: list = []
 

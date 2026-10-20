@@ -7,8 +7,8 @@ import math
 from ganda.core.query.generators.support import bfs_distances, composite_and as _composite_and, draw_tx, tx_binds, tx_rows  # noqa: F401
 from ganda.core.query.ir.select import TxWrite
 from ganda.core.data.model import FieldType, Schema
-from ganda.arangodb import tx as _tx
-from ganda.arangodb.dialect import document_key
+from ganda.arangodb.engine import tx as _tx
+from ganda.arangodb.storage.dialect import document_key
 
 F64_INT_EXACT = 2**53
 

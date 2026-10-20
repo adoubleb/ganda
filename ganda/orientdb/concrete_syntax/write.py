@@ -48,8 +48,8 @@ import re
 from dataclasses import dataclass, field
 
 from ganda.core.data.model import Instance, Schema
-from ganda.orientdb import predicates
-from ganda.orientdb.predicates import Predicate
+from ganda.orientdb.facade import predicates
+from ganda.orientdb.facade.predicates import Predicate
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
 from ganda.core.query.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
 
@@ -249,7 +249,7 @@ def _doc_rewrites(q: WriteQuery, before: Instance, after: Instance) -> list:
     """Each source holding a matched relationship re-sets its whole list, by id, to
     the list the Instance after the write holds (targets as `Ref`s the connection layer
     resolves to this database's RIDs)."""
-    from ganda.orientdb.mapping.document import link_entry
+    from ganda.orientdb.storage.mapping.document import link_entry
 
     et = before.schema.edge_type(q.edge_type)
     sources = sorted({e.from_record for e in edge_hits(q, before)})
@@ -322,8 +322,8 @@ def build_rewrites(q: WriteQuery, rng: random.Random, schema: Schema, instance: 
 
 def execute(session, st) -> list:
     """Run one data model's statements; the compared statement's answer."""
-    from ganda.orientdb.connection import unwrap_script
-    from ganda.orientdb.mapping.common import resolve_refs
+    from ganda.orientdb.engine.connection import unwrap_script
+    from ganda.orientdb.storage.mapping.common import resolve_refs
 
     if st.door == "tx":
         if not st.prelude and not st.main:

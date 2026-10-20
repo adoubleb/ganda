@@ -74,7 +74,7 @@ from ganda.core.query.ir.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS,
 from ganda.core.data.model import FieldType, Schema
 from ganda.hana.concrete_syntax import document, graph, hints
 from ganda.hana.concrete_syntax.predicate import REL, Names, fields_used, filter_expr, optionals, sparql_filter, sql, var
-from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT
+from ganda.hana.storage.dialect import GRAPH_TOKEN, PREFIX_TEXT
 
 SYNTAXES = {
     "doc": ("join", "scalar"),

@@ -133,7 +133,7 @@ already gets asked, so the oracle gains one more engine path to compare.
    `SYNTAXES` and `_RENDERERS`; for a select, an axis of `SelectSyntax`).
 2. Say which queries it can express in `applicable` / `syntaxes_for`, and write its text
    in `render`.
-3. If it hits a filed bug at a known shape, withhold it in `known_bugs.py`.
+3. If it hits a filed bug at a known shape, withhold it in `known_bugs/guards.py`.
 4. If its correctness relies on an engine fact nobody probed yet, add the probe and the
    `RULES.md` line.
 5. Run `pytest`, the probe, a campaign, and a mutation A/B over the same seeds.
@@ -143,12 +143,12 @@ other variant automatically. You don't touch the oracle.
 
 ### Add a rule to a provider's semantics
 
-`semantics.py` is how the reference predicts the engine's answer: value order, equality,
+`oracle/semantics.py` is how the reference predicts the engine's answer: value order, equality,
 null logic, aggregates, where nulls sort. A `reference_mismatch` where every database
 agrees usually means a rule here is wrong.
 
 1. Write a probe fact showing the engine's behaviour over boundary values.
-2. Make `semantics.py` match it, and add the fact to `RULES.md`.
+2. Make `oracle/semantics.py` match it, and add the fact to `RULES.md`.
 3. If the reference cannot model the behaviour exactly (a collation, say), make the
    relevant `orders_exactly` / `aggregates_exactly` / `ordered_ops` answer `False` so
    those questions are not asked, rather than approximating.
@@ -178,11 +178,11 @@ Follow the order below; each step has a check you can run before moving on.
 
 | Step | Files | Check |
 |---|---|---|
-| 1. Connection | `connection.py` (`Server`, usually a `core.docker.DockerServer` subclass, and `Session` with a `ping()` for `doctor`), `provider.py`, `limits.py` (`StorageLimits.conservative()` until probed), register in `ganda/registry.py` with `has_generators = False` | `ganda <engine> doctor`, `pytest tests/test_layering.py` |
-| 2. Mapping | `dialect.py`, `physical_design.py`, `mapping/` (one mapper per data model) | `state_check.verify_state` agrees on every data model |
-| 3. Semantics | `semantics.py`, `pivots.py`, probe script, `RULES.md` | Probe passes; most of the work is here |
+| 1. Connection | `engine/connection.py` (`Server`, usually a `core.docker.DockerServer` subclass, and `Session` with a `ping()` for `doctor`), `provider.py`, `engine/limits.py` (`StorageLimits.conservative()` until probed), register in `ganda/registry.py` with `has_generators = False` | `ganda <engine> doctor`, `pytest tests/test_layering.py` |
+| 2. Mapping | `storage/dialect.py`, `storage/physical_design.py`, `storage/mapping/` (one mapper per data model) | `state_check.verify_state` agrees on every data model |
+| 3. Semantics | `oracle/semantics.py`, `oracle/pivots.py`, probe script, `RULES.md` | Probe passes; most of the work is here |
 | 4. Concrete syntax | `concrete_syntax/` for all four IRs, at least one syntax per data model | Offline unit tests, then a small campaign |
-| 5. Finish | `known_bugs.py`, `mutants.py`, `rewrites.py`, then `has_generators = True` | `pytest` (the full slot check), campaign, mutation benchmark |
+| 5. Finish | `known_bugs/guards.py`, `mutation/mutants.py`, `oracle/rewrites.py`, then `has_generators = True` | `pytest` (the full slot check), campaign, mutation benchmark |
 
 ### Triage a finding
 
@@ -203,7 +203,7 @@ Work through it in this order:
    inside one storage layout, which makes the strongest report. A cross-model pair needs
    the setup plans checked too.
 3. **An empty pair list with `reference_mismatches`** means every database agreed and only
-   the reference didn't. Suspect the provider's `semantics.py` before the engine.
+   the reference didn't. Suspect the provider's `oracle/semantics.py` before the engine.
 4. **`internal_error`** is a raw engine exception and is a finding by itself.
 5. **Reduce it by hand** to a few statements against a fresh database, then write it up
    under `issues/<id>-<slug>.md`: engine version, minimal reproduction, expected vs actual,

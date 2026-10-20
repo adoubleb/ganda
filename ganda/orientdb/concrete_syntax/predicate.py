@@ -5,7 +5,7 @@ arithmetic forms. Identical on every data model, the field expression being the 
 own (`f1`, `in.f1`, `$n.f1`) via `prefix`."""
 from __future__ import annotations
 
-from ganda.orientdb.predicates import MIRROR, NO_BIND_OPS, Compound
+from ganda.orientdb.facade.predicates import MIRROR, NO_BIND_OPS, Compound
 
 
 def render_predicate(p, prefix: str = "") -> str:

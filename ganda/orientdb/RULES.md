@@ -71,7 +71,7 @@ Before relying on a new engine fact, add it to `scripts/probe_osql.py`
 - **`SELECT DISTINCT` may answer a row twice** (O41): its dedup `HashSet` treeifies a
   full bin and `OResultInternal.compareTo` (1 for any two non-record rows) misses an
   equal row of equal hash. Structured hashes collide (`null` / `0` / `-1` hash 0;
-  `2^31` / `2^63-1` / `Long.MIN` hash `MIN_VALUE`; `v` and `-v-1`); `ganda/orientdb/java_hash.py`
+  `2^31` / `2^63-1` / `Long.MIN` hash `MIN_VALUE`; `v` and `-v-1`); `ganda/orientdb/known_bugs/java_hash.py`
   models the JDK hashes and `known_bugs.o41_values` withholds a DISTINCT whose rows could
   fill such a bin. GROUP BY and `set()` are right.
 - **Index metadata is always explicit.** The engine's default is `ignoreNullValues:
@@ -192,7 +192,7 @@ Before relying on a new engine fact, add it to `scripts/probe_osql.py`
   a scan's `IN (subquery)` / a string pivot (O34, filed by the probe: the fuzzer's
   decimals are written from doubles, one canonical scale).
 - **Known findings are withheld at their exact shape, per SIDE** (`case.known_bugs`,
-  `known_bugs.py`): O1 (correlated subquery under an index-served outer, including
+  `known_bugs/guards.py`): O1 (correlated subquery under an index-served outer, including
   `rel:flat`'s `IN (SELECT id ...)` on the always-indexed FK columns next to a LET),
   O2 (correlated equality + predicate on an indexed field: NPE. The whole rule, probed for the cards (`cards/known_bugs._o2_tree`): inside ONE subquery of the outermost query, a `$parent.$current` read anywhere -- a WHERE, a projection, a nested or expression LET -- plus a condition an index serves at ANY of its levels -- its own WHERE, a FROM target, a TRAVERSE root, an `IN (subquery)`, a sibling nested LET -- throws; a subquery inside a bracket filter throws with no correlation at all; `<>`, `IS NOT NULL`, reversed / arithmetic operands and a comparison with a variable are not served; the outermost query's FROM chain is O1 instead; the SCRIPT door answers every shape), O4 (DICTIONARY index
   serving equality), O6, O7 (list equality on a declared list), O8 (`link.f IS
@@ -288,14 +288,14 @@ Before relying on a new engine fact, add it to `scripts/probe_osql.py`
   `RETURN $r`; O31 hits any of them through a one-sided range.
 - **One HTTP session per database**: a session cookie outlives a dropped database and
   answers 401 for everything after.
-- **Coverage** (`ganda/orientdb/coverage.py`, README "Code coverage"): the JaCoCo agent rides
+- **Coverage** (`ganda/orientdb/engine/coverage.py`, README "Code coverage"): the JaCoCo agent rides
   in on `JAVA_OPTS`, `output=tcpserver,address=*` (loopback is unreachable through the
   port forward); every window is a DUMP with reset. The agent writes unbuffered behind
   Nagle, so a dump stalled on the 40 ms delayed ACK until the client learned to answer
   each chunk with a no-op header block (~5 ms now; keep `_AckingReader`). The JavaCC
   lexer `OrientSqlTokenManager` is excluded (a method too large once probed). A unique
   count carries one-time initialization onto whichever template runs first.
-- **Large data (`run --scale large`; the bounds in `limits.py`, each documented or
+- **Large data (`run --scale large`; the bounds in `engine/limits.py`, each documented or
   probed on 3.2.57).** A BINARY column takes base64 text -- a bind parameter, a CONTENT
   document, a MERGE literal -- and answers the same standard base64 text; an EMPTY byte
   string is stored as NULL, so the model's pool holds none; `b = :p` with a base64

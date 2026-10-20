@@ -28,7 +28,7 @@ solution's bindings.
 from __future__ import annotations
 
 from ganda.core.query.ir.predicates import MIRROR, Compound
-from ganda.hana.dialect import child_table, sparql_literal
+from ganda.hana.storage.dialect import child_table, sparql_literal
 
 UNKNOWN_VAR = "?ganda_unknown"
 

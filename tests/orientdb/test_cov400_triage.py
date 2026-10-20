@@ -7,7 +7,7 @@ import dataclasses
 import random
 
 from ganda.core.query.ir.select import TxWrite
-from ganda.orientdb.known_bugs import (
+from ganda.orientdb.known_bugs.guards import (
     map_value_index_known,
     o5_poly_sibling_index,
     o5_sibling_filter,
@@ -16,11 +16,11 @@ from ganda.orientdb.known_bugs import (
     o43_predicate,
     o44_dfs_reach,
 )
-from ganda.orientdb.java_hash import distinct_collides, java_hash, string_hash
+from ganda.orientdb.known_bugs.java_hash import distinct_collides, java_hash, string_hash
 from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.core.query.ir.traversal import Hop, TraversalQuery
-from ganda.orientdb.predicates import Compound, Predicate, arithmetic
-from ganda.orientdb.semantics import like_hit
+from ganda.orientdb.facade.predicates import Compound, Predicate, arithmetic
+from ganda.orientdb.oracle.semantics import like_hit
 
 # the 66 LONG values the live reducer kept: DISTINCT over them answers a duplicate,
 # over any 65 of them it does not
@@ -141,7 +141,7 @@ def test_o44_depth_first_reach():
 
 
 def test_the_fuzzer_bugs():
-    from ganda.orientdb import predicates
+    from ganda.orientdb.facade import predicates
 
     # `VALUES CONTAINS` one past a stored Long.MAX stays a long
     assert predicates.offset(FieldType.INT, 2**63 - 1, 1) == 2**63 - 1

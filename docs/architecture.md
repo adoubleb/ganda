@@ -162,17 +162,17 @@ attributes are **slots** the core reads; a slot may be an object or a module.
 | Slot | What the core asks it | Typical file |
 |---|---|---|
 | `name`, `title`, `data_models`, `config_class` | Identity, storage models in comparison order, configuration (each field becomes a CLI flag) | `provider.py`, `config.py` |
-| `limits` | `StorageLimits`: longest string, record size, request size, ... | `limits.py` |
-| `server()` → `Server` / `Session` | Start or attach; run a setup plan; execute a text; read stored state back | `connection.py` |
-| `mappers[data model]` | Instance → setup plan | `mapping/` |
-| `physical_design` | Index kinds, write forms, key rules, boundary values | `physical_design.py` |
-| `semantics` | Value order and equality, predicate truth, null logic, aggregates, null placement | `semantics.py` |
-| `pivots` | Which operators a predicate draws; cross-type pivots | `pivots.py` |
+| `limits` | `StorageLimits`: longest string, record size, request size, ... | `engine/limits.py` |
+| `server()` → `Server` / `Session` | Start or attach; run a setup plan; execute a text; read stored state back | `engine/connection.py` |
+| `mappers[data model]` | Instance → setup plan | `storage/mapping/` |
+| `physical_design` | Index kinds, write forms, key rules, boundary values | `storage/physical_design.py` |
+| `semantics` | Value order and equality, predicate truth, null logic, aggregates, null placement | `oracle/semantics.py` |
+| `pivots` | Which operators a predicate draws; cross-type pivots | `oracle/pivots.py` |
 | `traversal_syntax`, `select_syntax`, `path_syntax`, `write_syntax` | Which concrete syntaxes apply to an IR, and their text | `concrete_syntax/` |
-| `rewrites` | Equivalent rewrites of a predicate; exactness of arithmetic | `rewrites.py` |
-| `known_bugs` | Filed bugs, withheld at their exact shape per variant | `known_bugs.py` |
-| `mutants` | The engine's own corruptions for the mutation benchmark | `mutants.py` |
-| `coverage()` | A code-coverage collector, or `None` | `coverage.py` |
+| `rewrites` | Equivalent rewrites of a predicate; exactness of arithmetic | `oracle/rewrites.py` |
+| `known_bugs` | Filed bugs, withheld at their exact shape per variant | `known_bugs/guards.py` |
+| `mutants` | The engine's own corruptions for the mutation benchmark | `mutation/mutants.py` |
+| `coverage()` | A code-coverage collector, or `None` | `engine/coverage.py` |
 | `extra_generators` | Engine-only query generators | |
 | `compare_despite_errors`, `partial_traversals`, `error_signature` | Oracle options (off by default; HANA turns them on) | `provider.py` |
 
@@ -197,7 +197,7 @@ it is suspect.
 
 1. **The stored state *is* the Instance.** `state_check` proves it live before any
    question is asked, and again after every write.
-2. **Every engine fact is probed.** Each rule in a provider's `semantics.py` or
+2. **Every engine fact is probed.** Each rule in a provider's `oracle/semantics.py` or
    concrete syntax should come from a live probe (`ganda <engine> probe`) and be listed
    in that provider's `RULES.md`. When a probe fact fails, the provider changes, never
    the probe.

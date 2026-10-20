@@ -12,8 +12,8 @@ from __future__ import annotations
 import base64
 import sys
 
-from ganda.orientdb.connection import OrientError, OrientServer  # noqa: E402
-from ganda.orientdb.limits import HTTP_MAX_LENGTH  # noqa: E402
+from ganda.orientdb.engine.connection import OrientError, OrientServer  # noqa: E402
+from ganda.orientdb.engine.limits import HTTP_MAX_LENGTH  # noqa: E402
 
 DB = "fz_probe_osql"
 failures: list = []
@@ -810,7 +810,7 @@ def main() -> int:
                walk("UPDATE q31 SET f = 500 WHERE id = 'r1'", "f ASC"), walk("UPDATE q31 SET f = 500 WHERE id = 'r1'", "f DESC, id ASC"), walk("UPDATE q31 SET f = null WHERE id = 'r1'", "f DESC")),
               ([None, 500, 2**63 - 1, 894, 428, -374], [None, 500], [-374, 428, 500, 894, 2**63 - 1, None], [None, 2**63 - 1, 894, 500, 428, -374], [None, None, 2**63 - 1, 894, 428, -374]))
 
-        print("--- large data (ganda/orientdb/limits.py): BINARY, the index key bound, the bulk doors, the request body bound, timeouts")
+        print("--- large data (ganda/orientdb/engine/limits.py): BINARY, the index key bound, the bulk doors, the request body bound, timeouts")
         for q in ["CREATE CLASS lg", "CREATE PROPERTY lg.id STRING", "CREATE PROPERTY lg.b BINARY", "CREATE PROPERTY lg.s STRING", "CREATE PROPERTY lg.l EMBEDDEDLIST LONG",
                   "CREATE INDEX lg_id ON lg (id) UNIQUE", "CREATE INDEX lg_s ON lg (s) NOTUNIQUE METADATA {ignoreNullValues: true}"]:
             s.sql(q)

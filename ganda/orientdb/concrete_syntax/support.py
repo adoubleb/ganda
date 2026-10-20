@@ -8,11 +8,11 @@ import dataclasses
 
 from ganda.core.query.ir.select import TxWrite
 from ganda.core.data.model import FieldType, Instance, NodeRow, Schema
-from ganda.orientdb.dialect import HASH_KINDS
-from ganda.orientdb import predicates
-from ganda.orientdb.predicates import Compound, Predicate
+from ganda.orientdb.storage.dialect import HASH_KINDS
+from ganda.orientdb.facade import predicates
+from ganda.orientdb.facade.predicates import Compound, Predicate
 from ganda.core.query.generators.support import bfs_distances, composite_and as _composite_and, draw_tx, tx_binds, tx_rows  # noqa: F401
-from ganda.orientdb.semantics import decimal_of, negate_key, order_key, orient_key  # noqa: F401
+from ganda.orientdb.oracle.semantics import decimal_of, negate_key, order_key, orient_key  # noqa: F401
 
 
 def _hits(instance: Instance, table: str, p) -> list:

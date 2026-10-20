@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from ganda.core.query.ir.path import PathQuery
 from ganda.core.data.model import Instance, Schema
-from ganda.arangodb.dialect import engine_id
+from ganda.arangodb.storage.dialect import engine_id
 
 _DIR = {"OUT": "OUTBOUND", "IN": "INBOUND", "BOTH": "ANY"}
 
