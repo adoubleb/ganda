@@ -93,7 +93,7 @@ class FakeSemantics(Semantics):
             return (all if p.op == "AND" else any)(self.evaluate(values, c) for c in p.children)
         if p.sub is not None:
             return self.predicate_hit(p.field in values, values.get(p.field), "IN", p.pivot)
-        return self.predicate_hit(p.field in values, values.get(p.field), p.op, p.pivot, p.ftype, p.ci, p.key)
+        return self.predicate_hit(p.field in values, values.get(p.field), p.op, p.pivot, p.ftype, p.case_insensitive, p.key)
 
     def apply_arith(self, v, sym, c, ftype):
         return {"+": v + c, "-": v - c, "*": v * c}[sym]

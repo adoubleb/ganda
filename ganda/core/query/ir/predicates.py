@@ -34,7 +34,7 @@ class Predicate:
     pivot: Any
     reference: bool = True
     ftype: "str | None" = None  # the column's `FieldType.value`; None for an untyped embedded value
-    ci: bool = False  # the column is `COLLATE ci`
+    case_insensitive: bool = False  # the column is `COLLATE ci`
     key: "str | None" = None  # a map entry: the leaf compares `field.key` (or `field[:kb]` when `key_bind`)
     key_bind: str = "" 
     rev: bool = False # reverse operand positions
@@ -49,7 +49,7 @@ class Predicate:
             object.__setattr__(self, "sub", SubQuery(*self.sub))
 
     def to_dict(self) -> dict:
-        d = {"on": self.on, "field": self.field, "op": self.op, "bind": self.bind, "pivot": self.pivot, "reference": self.reference, "ftype": self.ftype, "ci": self.ci, "key": self.key, "key_bind": self.key_bind}
+        d = {"on": self.on, "field": self.field, "op": self.op, "bind": self.bind, "pivot": self.pivot, "reference": self.reference, "ftype": self.ftype, "case_insensitive": self.case_insensitive, "key": self.key, "key_bind": self.key_bind}
         if self.rev:
             d["rev"] = True
         if self.arith is not None:
@@ -70,7 +70,7 @@ class Predicate:
         if d.get("sub"):
             x = d["sub"]
             sub = SubQuery(x["table"], x["field"], Predicate.from_dict(x["pred"]), x["scan"])
-        return Predicate(d["on"], d["field"], d["op"], d["bind"], d["pivot"], d.get("reference", True), d.get("ftype"), d.get("ci", False), d.get("key"), d.get("key_bind", ""), d.get("rev", False), arith, sub)
+        return Predicate(d["on"], d["field"], d["op"], d["bind"], d["pivot"], d.get("reference", True), d.get("ftype"), d.get("case_insensitive", d.get("ci", False)), d.get("key"), d.get("key_bind", ""), d.get("rev", False), arith, sub)
 
     @property
     def bind_vars(self) -> dict:

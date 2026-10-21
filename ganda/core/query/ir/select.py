@@ -333,7 +333,7 @@ def _join(q: SelectQuery, instance: Instance, rows: list) -> dict:
     the collation does (a ci value join is case-insensitive, probed)."""
     predicate_hit = instance.schema.engine.semantics.predicate_hit
     f, op = q.field, q.fn
-    ci = column(instance.schema, q, f).ci
+    ci = column(instance.schema, q, f).case_insensitive
     inner = records(q, view(q, instance))
     out = {}
     for n in rows:

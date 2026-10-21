@@ -82,7 +82,7 @@ ORIENT_TYPES = {
 # Double as doubles; a DECIMAL against an integer exactly and against a double through
 # `new BigDecimal(double)` (O20).
 #
-# `FieldSpec.collate == "ci"` is `ALTER PROPERTY t.f COLLATE ci` (the
+# `FieldSpec.case_insensitive` is `ALTER PROPERTY t.f COLLATE ci` (the
 # `collate_probability` axis, STRING fields): `=`, `<>`, `<`..`>=` and a value join
 # compare case-insensitively on a scan and through an index; `IN` and `BETWEEN` do not
 # on a scan (O21); a bracket filter and a dotted link field ignore it (O25); GROUP BY /

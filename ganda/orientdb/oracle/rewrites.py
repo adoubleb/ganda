@@ -67,7 +67,7 @@ def arithmetic(p, rng: random.Random, bind: str, ftype: FieldType, values: list)
     and `null <> p` holds). None unless the
     arithmetic is exact on every stored value and on the pivot, the pivot is of the
     column's own kind, and the column is not `COLLATE ci`."""
-    if not isinstance(p, Predicate) or p.op not in MIRROR or p.key is not None or p.ci or not p.plain or ftype not in _ARITH_CHOICES:
+    if not isinstance(p, Predicate) or p.op not in MIRROR or p.key is not None or p.case_insensitive or not p.plain or ftype not in _ARITH_CHOICES:
         return None
     pv = p.pivot
     if isinstance(pv, bool) or pv is None:
@@ -93,11 +93,11 @@ def arithmetic(p, rng: random.Random, bind: str, ftype: FieldType, values: list)
             return None
     op = p.op if (c > 0 or sym != "*") else MIRROR[p.op]
     cbind = f"{bind}c"
-    leaf = Predicate(p.on, p.field, op, bind, apply_arith(pv, sym, c, ftype.value), p.reference, p.ftype, p.ci, None, "", False, Arith(sym, cbind, c))
+    leaf = Predicate(p.on, p.field, op, bind, apply_arith(pv, sym, c, ftype.value), p.reference, p.ftype, p.case_insensitive, None, "", False, Arith(sym, cbind, c))
     if op == "<>":
         # `f <> p` holds for a null f: the null rows are added back explicitly
-        return Compound(p.on, "OR", (leaf, Predicate(p.on, p.field, "IS NULL", "", None, p.reference, p.ftype, p.ci)))
-    return Compound(p.on, "AND", (leaf, Predicate(p.on, p.field, "IS NOT NULL", "", None, p.reference, p.ftype, p.ci)))
+        return Compound(p.on, "OR", (leaf, Predicate(p.on, p.field, "IS NULL", "", None, p.reference, p.ftype, p.case_insensitive)))
+    return Compound(p.on, "AND", (leaf, Predicate(p.on, p.field, "IS NOT NULL", "", None, p.reference, p.ftype, p.case_insensitive)))
 
 
 def rewrite(p, rng: random.Random, bind: str):
@@ -120,7 +120,7 @@ def rewrite(p, rng: random.Random, bind: str):
     on = p.on
 
     def leaf(o, b, v):
-        return Predicate(on, f, o, b, v, p.reference, p.ftype, p.ci, p.key, p.key_bind)
+        return Predicate(on, f, o, b, v, p.reference, p.ftype, p.case_insensitive, p.key, p.key_bind)
 
     if p.sub is not None:
         # the inner subquery over `(SELECT FROM t2)`: the same values, never
@@ -128,7 +128,7 @@ def rewrite(p, rng: random.Random, bind: str):
         return None if p.sub.scan else dataclasses.replace(p, sub=p.sub._replace(scan=True))
     if p.key is not None and not p.key_bind and rng.random() < 0.5:
         # the parameter-keyed bracket form of the same entry: `m[:kb] op :p`
-        return Predicate(on, f, op, bind if op not in NO_BIND_OPS else "", pv, p.reference, p.ftype, p.ci, p.key, f"{bind}k")
+        return Predicate(on, f, op, bind if op not in NO_BIND_OPS else "", pv, p.reference, p.ftype, p.case_insensitive, p.key, f"{bind}k")
     if op in MAP_OPS or not p.plain:
         return None
     if op in ("CONTAINSANY", "CONTAINSALL"):
@@ -138,25 +138,25 @@ def rewrite(p, rng: random.Random, bind: str):
         return Compound(on, "OR" if op == "CONTAINSANY" else "AND", tuple(leaf("CONTAINS", f"{bind}_{k}", v) for k, v in enumerate(pv)))
 
     if op == "=":
-        if p.ci and isinstance(pv, str) and pv.isascii() and rng.random() < 0.5:
+        if p.case_insensitive and isinstance(pv, str) and pv.isascii() and rng.random() < 0.5:
             # a ci equality as a function over the lower-cased value: never index-served
             return leaf("LOWER=", bind, pv.lower())
-        if p.ci and isinstance(pv, str):
+        if p.case_insensitive and isinstance(pv, str):
             # `IN` ignores the collation on a scan (O21): not an equivalent concrete syntax
             return Compound(on, "NOT", (leaf("<>", bind, pv),))
         return leaf("IN", bind, [pv])
     if op == "<>":
-        if p.ci and isinstance(pv, str) and pv.isascii():
+        if p.case_insensitive and isinstance(pv, str) and pv.isascii():
             return Compound(on, "NOT", (leaf("LOWER=", bind, pv.lower()),))
         return Compound(on, "NOT", (leaf("=", bind, pv),))
     if op == "IN":
-        if p.ci:
+        if p.case_insensitive:
             return None  # `IN` is case-sensitive on a scan, `=` is not: no equivalent
         if len(pv) == 1:
             return leaf("=", bind, pv[0])
         return Compound(on, "OR", tuple(leaf("=", f"{bind}_{k}", v) for k, v in enumerate(pv)))
     if op == "BETWEEN":
-        if p.ci or (p.ftype == "decimal" and any(lossy_pivot(FieldType.DECIMAL, b) for b in pv)):
+        if p.case_insensitive or (p.ftype == "decimal" and any(lossy_pivot(FieldType.DECIMAL, b) for b in pv)):
             # a ci BETWEEN is case-sensitive where `>=` is not; a DECIMAL BETWEEN
             # converts a non-dyadic bound through its decimal string where `>=`
             # compares the binary expansion (O20): neither has an equivalent

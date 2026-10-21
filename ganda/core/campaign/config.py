@@ -1,6 +1,5 @@
 """The campaign configuration as command-line flags: every field of a provider's
-configuration class is a flag (`--max-node-types`, `--collate-probability`, ...), so a
-bundle's `repro.py` and a mutation report carry the exact configuration that ran."""
+configuration class is a flag (`--max-node-types`, `--collate-probability`, ...)"""
 from __future__ import annotations
 
 import argparse

@@ -193,7 +193,7 @@ def can_pull_up(q: TraversalQuery) -> bool:
     p = q.source_predicate
     if p is None or has_op(p, ("IS DEFINED", "IS NOT DEFINED")):
         return False
-    return not any(leaf.ci and leaf.op in _CI_OPS for leaf in p.leaves())
+    return not any(leaf.case_insensitive and leaf.op in _CI_OPS for leaf in p.leaves())
 
 
 def syntaxes_for(q: TraversalQuery, schema: Schema, data_model: str) -> list:

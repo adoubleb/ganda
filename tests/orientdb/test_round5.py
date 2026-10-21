@@ -64,7 +64,7 @@ def test_arithmetic_rewrite_is_exact_or_absent():
     assert arithmetic(Predicate("source", "f1", ">", "p", 5, ftype="int32"), rng, "ar", FieldType.INT32, [2**31 - 1, -(2**31)]) is None
     # a cross-typed pivot, a ci column, a map entry, IN: none
     assert arithmetic(Predicate("source", "f1", ">", "p", 5.5, ftype="int"), rng, "ar", FieldType.INT, [1]) is None
-    assert arithmetic(Predicate("source", "f2", "=", "p", "a", ftype="string", ci=True), rng, "ar", FieldType.STRING, ["a"]) is None
+    assert arithmetic(Predicate("source", "f2", "=", "p", "a", ftype="string", case_insensitive=True), rng, "ar", FieldType.STRING, ["a"]) is None
     assert arithmetic(Predicate("source", "f1", "IN", "p", [5], ftype="int"), rng, "ar", FieldType.INT, [1]) is None
     # dates shift by milliseconds, decimals stay exact
     assert apply_arith("2024-01-01 00:00:00", "+", 86400000, "datetime") == "2024-01-02 00:00:00"

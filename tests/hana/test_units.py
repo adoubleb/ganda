@@ -600,7 +600,7 @@ def test_cypher_filter_mirrors_the_sql_binds_and_refuses_what_has_no_form():
     assert texts["fcmp"] == "(t.N1_F5 <= $p)" and texts["fin"] == "(t.N1_F5 = $p__0 OR t.N1_F5 = $p__1)" and texts["farith"] == "((t.N1_F5 * $arc) > $p)"
     # a string the grammar cannot spell has no native form
     assert not graph.expressible(Predicate("source", "f2", "=", "p", "a\nb", True, "string"), schema, "n1")
-    for leaf in (Predicate("source", "f3", "CONTAINS", "p", 1, True, "list"), Predicate("source", "f4", "=", "p", True, True, "bool"), Predicate("source", "f2", "=", "p", "x", True, "string", ci=True)):
+    for leaf in (Predicate("source", "f3", "CONTAINS", "p", 1, True, "list"), Predicate("source", "f4", "=", "p", True, True, "bool"), Predicate("source", "f2", "=", "p", "x", True, "string", case_insensitive=True)):
         assert not graph.expressible(leaf, schema, "n1")
     assert not graph.expressible(Predicate("source", "f1", "IN", "p", [], True, "int", sub=("n1", "f1", None, False)), schema, "n1")
 

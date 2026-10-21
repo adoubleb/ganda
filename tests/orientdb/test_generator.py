@@ -159,7 +159,7 @@ def test_new_axes_are_tail_axes():
         assert nt.clusters in (2, 3)
         for f in nt.fields:
             if f.type is FieldType.STRING:
-                assert f.ci
+                assert f.case_insensitive
             if f.type is FieldType.LIST:
                 assert schema.node_indexes(nt.name, f.name, "doc") or schema.node_indexes(nt.name, f.name, "graph") or schema.node_indexes(nt.name, f.name, "rel")
     for n in tail.nodes:

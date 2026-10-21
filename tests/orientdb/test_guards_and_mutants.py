@@ -157,7 +157,7 @@ def test_new_type_and_collation_guards():
 
     inst = build(3, GeneratorConfig())[1]
     schema = Schema(
-        node_types=(NodeTypeSpec("n1", (FieldSpec("i", FieldType.INT32), FieldSpec("f", FieldType.FLOAT32), FieldSpec("d", FieldType.DECIMAL), FieldSpec("s", FieldType.STRING, collate="ci"), FieldSpec("g", FieldType.INT))),),
+        node_types=(NodeTypeSpec("n1", (FieldSpec("i", FieldType.INT32), FieldSpec("f", FieldType.FLOAT32), FieldSpec("d", FieldType.DECIMAL), FieldSpec("s", FieldType.STRING, case_insensitive=True), FieldSpec("g", FieldType.INT))),),
         edge_types=(EdgeTypeSpec("e1", "n1", "n1", ()),),
         indexes=(IndexSpec("n1", "i", data_model="rel"), IndexSpec("n1", "f", data_model="doc", kind="NOTUNIQUE_HASH_INDEX"), IndexSpec("n1", "d", data_model="graph"), IndexSpec("n1", "s", data_model="rel"), IndexSpec("n1", "s", data_model="doc", kind="NOTUNIQUE_HASH_INDEX")),
     )
@@ -201,7 +201,7 @@ def test_o25_withholds_bracket_syntaxes_on_ci_targets():
     from ganda.orientdb.known_bugs.guards import o25_shape
 
     schema = Schema(
-        node_types=(NodeTypeSpec("n1", (FieldSpec("s", FieldType.STRING, collate="ci"),)),),
+        node_types=(NodeTypeSpec("n1", (FieldSpec("s", FieldType.STRING, case_insensitive=True),)),),
         edge_types=(EdgeTypeSpec("e1", "n1", "n1", ()),),
     )
     tp = Predicate("target", "s", "=", "p1", "a", True, "string", True)

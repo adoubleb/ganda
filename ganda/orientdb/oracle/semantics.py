@@ -431,7 +431,7 @@ def evaluate(values: dict, p) -> bool:
         return predicate_hit(present, v, "IN", p.pivot)
     if p.arith is not None and v is not None and p.key is None:
         v = apply_arith(v, p.arith.sym, p.arith.value, p.ftype)
-    return predicate_hit(present, v, p.op, p.pivot, p.ftype, p.ci, p.key)
+    return predicate_hit(present, v, p.op, p.pivot, p.ftype, p.case_insensitive, p.key)
 
 
 def order_key(v, desc: bool):

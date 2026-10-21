@@ -1,9 +1,7 @@
-"""Abstract, storage-agnostic data model -- the pivot every other layer hangs off.
+"""Abstract, storage-agnostic data model
 
 An `Instance` is a small labelled property graph: typed node classes and typed edge
-(relationship) classes connecting them, plus concrete row/edge data. A provider
-materializes it once per data model of its engine (by default `DATA_MODELS`: document,
-graph, relational), and the final stored state of every one IS the Instance.
+(relationship) classes connecting them, plus concrete row/edge data.
 
 Nothing here is engine vocabulary except the VALUES of a few physical-design knobs --
 `IndexSpec.kind` / `ignore_nulls` / `by`, `Schema.id_index`, `NodeTypeSpec.clusters`,
@@ -29,26 +27,16 @@ class FieldType(Enum):
     STRING = "string"
     BOOL = "bool"
     LIST = "list"  # a list of INT values
-    # the narrow numeric types (the `narrow_type_probability` axis), each value exact
-    # in JSON: a 32-bit signed integer; a float32 whose shortest decimal is its exact
-    # value (a multiple of 1/8 below 2^10, or 2^24); an exact decimal with at most
-    # three decimal places
+    # the narrow numeric types
     INT32 = "int32"
     FLOAT32 = "float32"
     DECIMAL = "decimal"
-    # a second-precision UTC timestamp / a calendar date, valued as its canonical
-    # `yyyy-MM-dd HH:mm:ss` string (a DATE at midnight): lexicographic order on that
-    # form IS chronological order
+    # ISO 9075
     DATETIME = "datetime"
+    # ISO 9075
     DATE = "date"
-    # string keys from `MAP_KEYS` to INT values
+    # STRING keys from `MAP_KEYS` to INT values
     MAP = "map"
-    # a byte string (the `binary_probability` axis retypes a STRING node field), valued
-    # as its standard base64 text with padding: how it travels on the JSON wire, and
-    # the form a provider stores and reads back. Equality-only in the model, and a
-    # BLOB rather than a scalar: never a predicate's field (how an engine compares a
-    # byte string with its text form is its own business), never a key or an
-    # aggregate's argument; it is written, stored, projected and read back
     BINARY = "binary"
 
 INT_TYPES = (FieldType.INT, FieldType.INT32)
@@ -72,16 +60,11 @@ MAP_KEYS = ("k1", "k2", "k3", "k4")
 class FieldSpec:
     name: str  # e.g. "f1"
     type: FieldType
-    # When set, values come from a fixed pool of exactly this many distinct values --
-    # what makes GROUP BY keys and predicate collisions happen on purpose.
+    # When set, values come from a fixed pool of exactly this many distinct values 
+    # (to encourage key and group by collisions)
     cardinality: "int | None" = None
-    # "ci": a case-insensitive collation (the `collate_probability` axis, STRING
-    # fields); which operators honour it is the engine's
-    collate: "str | None" = None
-
-    @property
-    def ci(self) -> bool:
-        return self.collate == "ci"
+    # case-insensitive collation
+    case_insensitive: bool = False
 
 
 @dataclass(frozen=True)

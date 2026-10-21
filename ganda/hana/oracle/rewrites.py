@@ -64,7 +64,7 @@ def arithmetic(p, rng: random.Random, bind: str, ftype: FieldType, values: list)
     if not all(arith_exact(v, sym, c, ftype) for v in values) or not arith_exact(pv, sym, c, ftype):
         return None
     op = p.op if (c > 0 or sym != "*") else MIRROR[p.op]
-    return Predicate(p.on, p.field, op, bind, apply_arith(pv, sym, c, ftype.value), p.reference, p.ftype, p.ci, None, "", False, Arith(sym, f"{bind}c", c))
+    return Predicate(p.on, p.field, op, bind, apply_arith(pv, sym, c, ftype.value), p.reference, p.ftype, p.case_insensitive, None, "", False, Arith(sym, f"{bind}c", c))
 
 
 def rewrite(p, rng: random.Random, bind: str):

@@ -1,21 +1,10 @@
 """Random, seeded generation of schemas and data instances.
 
-Identifiers are synthetic (`n1`, `e1`, `f1`, `r0`) and every generation axis (schema
-shape, topology, values, churn, indexes, keys, write forms, the id index) draws from
-its own named RNG sub-stream (`_stream`) derived from the instance seed -- never one
-shared `random.Random(seed)` consumed in call order. Two consequences the rest of the
-pipeline relies on:
+Identifiers are synthetic (`n1`, `e1`, `f1`, `r0`) 
 
-- adding a draw to one axis cannot reshuffle another axis's output, so a before/after
-  mutation-benchmark comparison A/Bs exactly the axis that changed;
-- row `i`'s value for field `f` depends only on `(seed, type, i, f)`, so shrinking a
-  bound removes rows instead of regenerating a different instance.
-
-Axes that can be switched off (custom keys, write forms, node deletion, the id index
-axis, inheritance, the narrow numeric types, `ci` collation, list indexes, clusters,
-edge-attribute churn, binary columns, large rows) draw from *tail* streams keyed by
-their own name, so at probability 0 they reproduce exactly what the generator produced
-without them.
+Customizations that can be switched off, e.g. node deletion, `ci` collation, list indexes, clusters
+draw from *tail* streams keyed by their own name, so at probability 0 they reproduce exactly what 
+the generator produced without them.
 
 The engine's limits (`Provider.limits`, `ganda.core.data.limits`) bound what the large-data
 axes produce: a grown value stays under the type's bound and the record budget, an
@@ -460,7 +449,7 @@ def _retype(seed: "int | None", cfg: GeneratorConfig, table: str, f: FieldSpec, 
     if cfg.collate_probability > 0 and f.type is FieldType.STRING:
         r = _stream(seed, "collate", table, f.name)
         if r.random() < cfg.collate_probability:
-            f = dataclasses.replace(f, collate="ci")
+            f = dataclasses.replace(f, case_insensitive=True)
     return f
 
 
@@ -564,7 +553,7 @@ def _row_values(seed: int, table: str, fields: tuple, row: int, cfg: GeneratorCo
             v = rng.choice(controlled[(table, f.name)])
         else:
             v = _draw_value(rng, f, cfg, pools)
-        if f.ci and isinstance(v, str) and _stream(seed, "case", table, row, f.name).random() < 0.5:
+        if f.case_insensitive and isinstance(v, str) and _stream(seed, "case", table, row, f.name).random() < 0.5:
             # a ci field holds case variants of its values on purpose
             v = v.upper() if any(c.islower() for c in v) else v.lower()
         values[f.name] = list(v) if isinstance(v, list) else (dict(v) if isinstance(v, dict) else v)
@@ -873,7 +862,7 @@ def index_key(schema: Schema, ix: IndexSpec, values: dict, edge: bool = False) -
     out = []
     for f in ix.all_fields:
         try:
-            ci = schema.field(ix.table, f, edge=edge).ci
+            ci = schema.field(ix.table, f, edge=edge).case_insensitive
         except KeyError:
             ci = False
         out.append(_hashable(values.get(f), ci))

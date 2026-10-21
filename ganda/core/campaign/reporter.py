@@ -6,11 +6,6 @@
         instance.json      the abstract instance
         <data model>_setup.json  the setup plan per data model (engine-id placeholders as {"$ref": id})
         repro.py           regenerates the case from (seed, config) and replays it
-
-At scale (`embed_data=False`, the `large` profile) a bundle carries the SHAPE of the
-instance and the plans -- the schema, the counts, the first steps -- rather than their
-megabytes of rows, and every recorded value is cut to `max_value_chars`; `repro.py`
-regenerates all of it from the seed.
 """
 from __future__ import annotations
 

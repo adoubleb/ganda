@@ -264,7 +264,7 @@ def cypher_filter(p, var: str, table: str, schema: Schema, params: "Params | Non
         if p.op == "NOT":
             return f"NOT ({cypher_filter(p.children[0], var, table, schema, params)})"
         return "(" + f" {p.op} ".join(cypher_filter(c, var, table, schema, params) for c in p.children) + ")"
-    if p.sub is not None or p.ci or p.key is not None:
+    if p.sub is not None or p.case_insensitive or p.key is not None:
         raise Unsupported(f"no cypher form of {p.signature}")
     if p.op in ("CONTAINS", "CONTAINSANY", "CONTAINSALL"):
         raise Unsupported("a LIST membership has no cypher form")

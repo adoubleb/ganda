@@ -126,8 +126,8 @@ def class_steps(name: str, fields: tuple, superclass: "str | None" = None, extra
         steps.append(Sql(f"CREATE PROPERTY {name}.id STRING"))
     for f in fields:
         steps.append(Sql(f"CREATE PROPERTY {name}.{f.name} {ORIENT_TYPES[f.type]}"))
-        if f.collate:
-            steps.append(Sql(f"ALTER PROPERTY {name}.{f.name} COLLATE {f.collate}"))
+        if f.case_insensitive:
+            steps.append(Sql(f"ALTER PROPERTY {name}.{f.name} COLLATE ci"))
     for pname, ptype in extra_properties or []:
         steps.append(Sql(f"CREATE PROPERTY {name}.{pname} {ptype}"))
     return steps

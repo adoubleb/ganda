@@ -27,7 +27,7 @@ def draw(rng: random.Random, on: str, f: FieldSpec, values: list, bind: str, eng
     """A LEAF predicate on `f` whose stored (non-null) values are `values`. None when
     the column holds nothing to aim at."""
     present = [v for v in values if v is not None]
-    ft, ci = f.type.value, f.ci
+    ft, ci = f.type.value, f.case_insensitive
     pivots_of, _sort_key = engine.pivots, engine.semantics.key
 
     def leaf(op, pivot):
@@ -150,7 +150,7 @@ def draw_insub(rng: random.Random, schema, instance, table: str, bind: str) -> "
 
         q = draw_over(rng, "source", schema.query_fields(t2), values_of=inner_values, bind=f"{bind}s", engine=schema.engine)
     reference = q is None or q.reference
-    return Predicate("source", f.name, "INSUB", "", sub_values(instance, t2, g.name, q), reference, f.type.value, f.ci, sub=SubQuery(t2, g.name, q, False))
+    return Predicate("source", f.name, "INSUB", "", sub_values(instance, t2, g.name, q), reference, f.type.value, f.case_insensitive, sub=SubQuery(t2, g.name, q, False))
 
 
 def draw_over(rng: random.Random, on: str, fields, values_of, bind: str, engine, compound_probability: float = COMPOUND_PROBABILITY, depth: int = 0):

@@ -569,7 +569,7 @@ _CI_OPS = ("=", "<>", "<", "<=", ">", ">=")
 
 def _ci_column(schema: Schema, table: str, field_name: str, edge: bool = False) -> bool:
     try:
-        return schema.field(table, field_name, edge=edge).ci
+        return schema.field(table, field_name, edge=edge).case_insensitive
     except KeyError:
         return False
 
@@ -1410,7 +1410,7 @@ def _join_known(q, sp, data_model: str, schema: Schema, instance: Instance, eff)
             return "O1"
     if sp.form == "base":
         col = column(schema, q, q.field)
-        leaf = Predicate("source", q.field, q.fn, "", None, True, col.type.value, col.ci)
+        leaf = Predicate("source", q.field, q.fn, "", None, True, col.type.value, col.case_insensitive)
         return node_case_known(q.table, leaf, schema, instance).get(data_model)
     return None
 
@@ -1558,7 +1558,7 @@ def write_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Inst
         elif data_model != "doc":
             fid = edge_case_known(q.edge_type, eff, schema, instance).get(data_model)
         elif sp.form == "bracket":
-            fid = edge_case_known(q.edge_type, eff, schema, instance).get("doc") or ("O25" if any(leaf.ci for leaf in _leaves(eff)) else None)
+            fid = edge_case_known(q.edge_type, eff, schema, instance).get("doc") or ("O25" if any(leaf.case_insensitive for leaf in _leaves(eff)) else None)
     if fid is None and o37_write(q, sp, data_model, eff, schema):
         fid = "O37"
     if fid is None and eff is not None and o39_predicate(eff) and (sp.target == "nest" or (q.op == "delete" and data_model == "rel")):
