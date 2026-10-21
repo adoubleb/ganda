@@ -121,12 +121,6 @@ SetupPlan = list
 # --- DDL ----------------------------------------------------------------------------------
 
 def class_steps(name: str, fields: tuple, superclass: "str | None" = None, extra_properties: "list | None" = None, declare_id: bool = True, abstract: bool = False, clusters: int = 1) -> list:
-    """A class with every field declared (schemaful). `extra_properties` are
-    `(name, orient type)` pairs the data model adds (the doc data model's link lists, the
-    junction's foreign keys). A subclass of the generated base class inherits `id`
-    (`declare_id=False`). A ci field gets its `ALTER PROPERTY ... COLLATE ci` right
-    after its declaration, before any data; `clusters > 1` spreads the records over
-    that many clusters."""
     steps = [Sql(f"CREATE CLASS {name}" + (f" EXTENDS {superclass}" if superclass else "") + (f" CLUSTERS {clusters}" if clusters > 1 else "") + (" ABSTRACT" if abstract else ""))]
     if declare_id:
         steps.append(Sql(f"CREATE PROPERTY {name}.id STRING"))
@@ -158,9 +152,6 @@ def index_step(ix: IndexSpec) -> Sql:
 
 
 def node_ddl(schema: Schema, data_model: str, superclass: "str | None" = None, extra: "callable | None" = None) -> list:
-    """Every node class; with the inheritance axis, the abstract base class first
-    (`CREATE CLASS N0 [EXTENDS V] ABSTRACT`, declaring `id` and the base fields) and
-    every node class `EXTENDS N0`."""
     steps = []
     if schema.base is not None:
         steps += class_steps(schema.base.name, schema.base.fields, superclass, abstract=True)

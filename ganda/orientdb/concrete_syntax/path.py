@@ -1,43 +1,3 @@
-"""The PATH IR (`ir_path`): the hop count of a shortest path between two records, as
-data, rendered through every engine path each storage model offers.
-
-A `PathQuery` is a start record, a goal record, a direction (`OUT`, `IN`, `BOTH`), an
-edge type (None: every type) and a depth bound `k` of 1..3. The answer is the path's
-VERTEX count (the hop count plus one, what `shortestPath(...).size()` answers), one
-row, or NO row when the goal is unreachable or farther than `k` (every form is
-wrapped to answer nothing there: an aggregate over no rows answers no row, probed).
-
-    data model   concrete syntax    the text
-    graph  (base)      `shortestPath(start, goal, :dir, 'e' | null, {maxDepth: k})
-                       .size()` (O35: finds paths of at most k - 1 hops, withheld
-                       where the distance is exactly k)
-           traverse    `min($depth) + 1` over `TRAVERSE out('e') ... MAXDEPTH k
-                       STRATEGY BREADTH_FIRST WHERE id = :b` (the default DEPTH_FIRST
-                       records the depth of first discovery, c100e seeds 1009 / 1087)
-           match       a MATCH with `maxDepth: k` and `depthAlias` (a MATCH
-                       enumerates PATHS: its bound stays small)
-           while       the same MATCH with `while: ($depth < k)`
-           unbounded   `shortestPath()` with no bound, `deep` TRAVERSE to the record
-                       count -- only where the bound does not cut the answer
-    doc    (base)      TRAVERSE over the source records' link lists: `TRAVERSE e,
-                       target FROM (...) MAXDEPTH k STRATEGY BREADTH_FIRST` (an
-                       embedded link document adds no depth, probed); `OUT` only --
-                       the doc data model keeps no reverse links; `deep` as the graph's
-           (every type) the traversed fields are every edge type's list
-    rel    (base)      the junction LEVELS unioned: level d holds the rows whose
-                       source is among level d - 1's targets (nested `IN (SELECT
-                       dst_id ...)`), `min(d) + 1` over the levels that reach the
-                       goal; LET-bound (`LET $l0 = (...), ..., $c = unionall(...)`)
-           inline      the same union inline, the deepest level first
-           asc         inline, the levels in ascending order -- a part after the
-                       first whose `IN (subquery)` nests another subquery loses its
-                       rows (O40), so it is withheld where the distance is 3
-                       (rel: one edge type, `OUT` / `IN`; a `BOTH` level would be a
-                       union inside an `IN (subquery)`: O26 / O40 territory)
-
-A question only some models can render is `partial`: the pairs run among the data models
-present, plus the reference (the BFS distance, `ganda.core.query.generators.support.bfs_distances`).
-"""
 from __future__ import annotations
 
 from ganda.core.query.ir.path import PathQuery, distance
@@ -54,7 +14,7 @@ def _start(q: PathQuery) -> str:
     return f"(SELECT FROM {q.start_type} WHERE id = :a)"
 
 
-def _graph(q: PathQuery, bounded: bool) -> dict:
+def _graph(q: PathQuery) -> dict:
     fn = _FN[q.direction]
     et_arg = f"'{q.edge_type}'" if q.edge_type else "null"
     et_fn = f"'{q.edge_type}'" if q.edge_type else ""
@@ -127,7 +87,7 @@ def o40_asc(q: PathQuery, d: "int | None") -> bool:
 def render_all(q: PathQuery, schema: Schema, instance: Instance) -> "tuple[dict, dict]":
     """(queries, known) for every data model that renders the question."""
     d = distance(q, instance)
-    queries = _graph(q, True)
+    queries = _graph(q)
     unbounded = d is None or d <= q.depth
     n = len(instance.nodes)
     if unbounded:
