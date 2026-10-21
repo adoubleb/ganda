@@ -52,7 +52,7 @@ ganda/
     case.py, oracle.py     QueryCase, pairwise comparison, reference leg, finding classes
     state_check.py         stored state == Instance?
     campaign.py            the campaign loop (start with run_instance)
-    dedup.py, reporter.py, replay.py, reducer.py
+    dedup.py, reporter.py, replay.py
     mutation/, coverage.py, scale.py, limits.py, docker.py, setup_plan.py
     provider.py            THE CONTRACT
   orientdb/ arangodb/ hana/ surrealdb/     one provider each (same layout)

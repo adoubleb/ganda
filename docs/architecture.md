@@ -24,7 +24,7 @@ flowchart TB
         ast["ast/<br/>predicates, traversal,<br/>select, path, write"]
         qg["generators/<br/>query generators,<br/>write phase"]
         orc["oracle<br/>state_check"]
-        out["dedup, reporter,<br/>replay, reducer"]
+        out["dedup, reporter,<br/>replay"]
         mut["mutation/<br/>coverage, scale, limits"]
     end
 
@@ -204,8 +204,8 @@ it is suspect.
 3. **Randomness is in named streams** (`core/rng.py`). Every consumer draws from
    `stream(seed, name)`, so adding a draw in one place never shifts another. A new axis
    draws from a new *tail* stream behind a probability that defaults to 0. That is what
-   makes a seed reproduce forever and what lets the reducer shrink a bound without
-   reshuffling the data.
+   makes a seed reproduce forever and what lets a smaller bound shrink the data without
+   reshuffling it.
 4. **Query generator ids are stream names.** `ir_traversal`, `ir_select`, `ir_path`,
    `ir_write` name random streams; renaming one changes every seed.
 5. **Known bugs are withheld, not ignored.** A variant whose text has the exact shape of
@@ -224,9 +224,8 @@ it is suspect.
   counts plus a sample, and a query timeout is "no answer" rather than an error.
 - **Coverage** (`core/engine/coverage.py`, `--coverage seed|case|variant`): a hook protocol;
   OrientDB implements it with JaCoCo.
-- **Replay and reduction** (`core/campaign/replay.py`, `core/campaign/reducer.py`): a bundle's `repro.py`
-  regenerates the Instance from the seed and re-runs the case; the reducer lowers
-  configuration bounds while the same finding key still reproduces.
+- **Replay** (`core/campaign/replay.py`): a bundle's `repro.py` regenerates the Instance
+  from the seed and re-runs the case.
 
 ## Where to read next
 

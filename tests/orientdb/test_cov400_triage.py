@@ -22,7 +22,7 @@ from ganda.core.query.ir.traversal import Hop, TraversalQuery
 from ganda.orientdb.facade.predicates import Compound, Predicate, arithmetic
 from ganda.orientdb.oracle.semantics import like_hit
 
-# the 66 LONG values the live reducer kept: DISTINCT over them answers a duplicate,
+# the 66 LONG values a live reduction kept: DISTINCT over them answers a duplicate,
 # over any 65 of them it does not
 from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
 

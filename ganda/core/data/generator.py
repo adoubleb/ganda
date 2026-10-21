@@ -9,7 +9,7 @@ pipeline relies on:
 - adding a draw to one axis cannot reshuffle another axis's output, so a before/after
   mutation-benchmark comparison A/Bs exactly the axis that changed;
 - row `i`'s value for field `f` depends only on `(seed, type, i, f)`, so shrinking a
-  bound in the reducer removes rows instead of regenerating a different instance.
+  bound removes rows instead of regenerating a different instance.
 
 Axes that can be switched off (custom keys, write forms, node deletion, the id index
 axis, inheritance, the narrow numeric types, `ci` collation, list indexes, clusters,
