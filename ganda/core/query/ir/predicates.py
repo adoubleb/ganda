@@ -191,7 +191,7 @@ def evaluate(values: dict, p, semantics) -> bool:
 # --- reversed operands --------------------------------------------------------
 
 MIRROR = {"=": "=", "<>": "<>", "<": ">", ">": "<", "<=": ">=", ">=": "<="}
-_REVERSIBLE = tuple(MIRROR) + ("CONTAINS",)
+_REVERSIBLE = tuple(MIRROR) + ("HAS",)
 
 
 def reverse(p):

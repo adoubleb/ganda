@@ -42,8 +42,8 @@ def draw(rng: random.Random, on: str, f: FieldSpec, values: list, bind: str, eng
         # a blob answers the null tests only (above): no comparison names it
         return None
     if f.type is FieldType.LIST:
-        # CONTAINS carries most of the weight; a whole-list equality and CONTAINSANY /
-        # CONTAINSALL over one or two elements take the rest
+        # HAS carries most of the weight; a whole-list equality and HAS ANY / HAS ALL
+        # over one or two elements take the rest
         roll = rng.random()
         if roll < 0.2:
             v = rng.choice(present)
@@ -58,8 +58,8 @@ def draw(rng: random.Random, on: str, f: FieldSpec, values: list, bind: str, eng
                 # a pivot just past a stored element -- inside the 64-bit range, or
                 # the value could not travel as an integer at all
                 pivots[-1] = pivots[-1] + 1 if pivots[-1] < I64_MAX else pivots[-1] - 1
-            return leaf(rng.choice(("CONTAINSANY", "CONTAINSALL")), pivots)
-        return leaf("CONTAINS", rng.choice(elems))
+            return leaf(rng.choice(("HAS ANY", "HAS ALL")), pivots)
+        return leaf("HAS", rng.choice(elems))
     if f.type is FieldType.MAP:
         return _draw_map(rng, on, f, present, bind, leaf, engine)
     if f.type is FieldType.BOOL:
@@ -106,25 +106,25 @@ def draw(rng: random.Random, on: str, f: FieldSpec, values: list, bind: str, eng
 
 
 def _draw_map(rng: random.Random, on: str, f: FieldSpec, present: list, bind: str, leaf, engine):
-    """A predicate over a map of integers: `CONTAINSKEY` (a stored or absent key),
-    `VALUES CONTAINS` / `CONTAINSVALUE` (a stored or absent value), or an entry
+    """A predicate over a map of integers: `HAS KEY` (a stored or absent key),
+    `VALUES HAS` / `HAS VALUE` (a stored or absent value), or an entry
     comparison `m.k op p` under the usual operators and null tests -- never a
     definedness test, which a map entry answers differently per engine."""
     keys = sorted({k for m in present for k in m})
     elems = [x for m in present for x in m.values() if x is not None]
     roll = rng.random()
     if roll < 0.2 or not keys:
-        return leaf("CONTAINSKEY", rng.choice(keys) if keys and rng.random() < 0.8 else rng.choice(MAP_KEYS))
+        return leaf("HAS KEY", rng.choice(keys) if keys and rng.random() < 0.8 else rng.choice(MAP_KEYS))
     if roll < 0.32 and elems:
         # an absent value one past a stored one, kept inside the 64-bit range
-        return leaf("VALUES CONTAINS", rng.choice(elems) if rng.random() < 0.8 else offset(FieldType.INT, rng.choice(elems), 1))
+        return leaf("VALUES HAS", rng.choice(elems) if rng.random() < 0.8 else offset(FieldType.INT, rng.choice(elems), 1))
     if roll < 0.4 and elems:
-        return leaf("CONTAINSVALUE", rng.choice(elems))
+        return leaf("HAS VALUE", rng.choice(elems))
     k = rng.choice(keys)
     kvals = [m[k] for m in present if m.get(k) is not None]
     spec = FieldSpec(f.name, FieldType.INT)
     inner = draw(rng, on, spec, kvals, bind, engine) if kvals else None
-    if inner is None or inner.op in ("IS DEFINED", "IS NOT DEFINED"):
+    if inner is None or inner.op in ("IS PRESENT", "IS ABSENT"):
         return Predicate(on, f.name, rng.choice(("IS NULL", "IS NOT NULL")), "", None, True, "int", False, k)
     return Predicate(on, f.name, inner.op, inner.bind, inner.pivot, True, "int", False, k)
 

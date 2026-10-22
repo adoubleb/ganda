@@ -65,8 +65,8 @@ def test_the_total_type_order():
     assert predicate_hit(False, None, "<>", 5) and not predicate_hit(False, None, "=", 5)
     assert predicate_hit(True, None, "IN", [1, None]) and not predicate_hit(True, 2, "IN", [1, None])
     assert not predicate_hit(False, None, "BETWEEN", [1, 5]) and predicate_hit(True, 3, "BETWEEN", [1, 5])
-    assert predicate_hit(True, [1, 2], "CONTAINSALL", [1]) and not predicate_hit(True, None, "CONTAINS", 1)
-    assert predicate_hit(True, {"k1": 2}, "CONTAINSKEY", "k1") and predicate_hit(True, {"k1": 2}, "VALUES CONTAINS", 2)
+    assert predicate_hit(True, [1, 2], "HAS ALL", [1]) and not predicate_hit(True, None, "HAS", 1)
+    assert predicate_hit(True, {"k1": 2}, "HAS KEY", "k1") and predicate_hit(True, {"k1": 2}, "VALUES HAS", 2)
     assert predicate_hit(True, {"k1": 2}, ">", 1, key="k1") and predicate_hit(True, {"k2": 2}, "<", 1, key="k1")
 
 
@@ -78,7 +78,7 @@ def test_like_is_case_sensitive_and_crosses_a_newline_but_not_a_paragraph_separa
 
 
 def _leaf(field, op, pivot=None, ftype="int"):
-    return Predicate("source", field, op, "" if op in ("IS NULL", "IS NOT NULL", "IS DEFINED", "IS NOT DEFINED") else f"b{field}", pivot, True, ftype)
+    return Predicate("source", field, op, "" if op in ("IS NULL", "IS NOT NULL", "IS PRESENT", "IS ABSENT") else f"b{field}", pivot, True, ftype)
 
 
 def _random_tree(rng, depth=0):
@@ -89,13 +89,13 @@ def _random_tree(rng, depth=0):
         return Compound("source", op, kids)
     f = rng.choice(list(fields))
     if fields[f] is FieldType.LIST:
-        op = rng.choice(("CONTAINS", "CONTAINSANY", "CONTAINSALL", "=", "IS NULL"))
-        pivot = {"CONTAINS": rng.randint(0, 3), "=": [rng.randint(0, 3)], "IS NULL": None}.get(op, [rng.randint(0, 3) for _ in range(2)])
+        op = rng.choice(("HAS", "HAS ANY", "HAS ALL", "=", "IS NULL"))
+        pivot = {"HAS": rng.randint(0, 3), "=": [rng.randint(0, 3)], "IS NULL": None}.get(op, [rng.randint(0, 3) for _ in range(2)])
         return _leaf(f, op, pivot, "list")
     if fields[f] is FieldType.MAP:
-        op = rng.choice(("CONTAINSKEY", "VALUES CONTAINS", "IS NOT NULL"))
-        return _leaf(f, op, {"CONTAINSKEY": rng.choice(("k1", "k2")), "VALUES CONTAINS": rng.randint(0, 3)}.get(op), "map")
-    op = rng.choice(("=", "<>", "<", "<=", ">", ">=", "IN", "BETWEEN", "IS NULL", "IS NOT NULL", "IS DEFINED", "IS NOT DEFINED"))
+        op = rng.choice(("HAS KEY", "VALUES HAS", "IS NOT NULL"))
+        return _leaf(f, op, {"HAS KEY": rng.choice(("k1", "k2")), "VALUES HAS": rng.randint(0, 3)}.get(op), "map")
+    op = rng.choice(("=", "<>", "<", "<=", ">", ">=", "IN", "BETWEEN", "IS NULL", "IS NOT NULL", "IS PRESENT", "IS ABSENT"))
     pivot = {"IN": [rng.randint(0, 3), rng.randint(0, 3)], "BETWEEN": sorted([rng.randint(0, 3), rng.randint(0, 3)])}.get(op, rng.randint(0, 3) if not op.startswith("IS") else None)
     return _leaf(f, op, pivot)
 
@@ -389,7 +389,7 @@ def test_a40_guard_fires_on_a_membership_under_not_over_a_null_list():
     from ganda.core.data.model import NodeRow
     from ganda.arangodb.known_bugs.guards import a40_shape, membership_under_not
 
-    contains = Predicate("source", "l", "CONTAINS", "p", 1, True, "list")
+    contains = Predicate("source", "l", "HAS", "p", 1, True, "list")
     other = Predicate("source", "a", "=", "q", 1, True, "int")
     assert membership_under_not(Compound("source", "NOT", (contains,))) == {"l"}
     assert membership_under_not(Compound("source", "OR", (other, Compound("source", "NOT", (contains,))))) == {"l"}

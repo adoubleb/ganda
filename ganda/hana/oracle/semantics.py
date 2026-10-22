@@ -109,11 +109,11 @@ def truth(present: bool, v: Any, op: str, pivot: Any):
         return null_v
     if op == "IS NOT NULL":
         return not null_v
-    if op == "CONTAINS":
+    if op == "HAS":
         return isinstance(v, list) and any(eq(x, pivot) for x in v)
-    if op == "CONTAINSANY":
+    if op == "HAS ANY":
         return isinstance(v, list) and any(eq(x, p) for p in pivot for x in v)
-    if op == "CONTAINSALL":
+    if op == "HAS ALL":
         return isinstance(v, list) and all(any(eq(x, p) for x in v) for p in pivot)
     if null_v:
         return UNKNOWN

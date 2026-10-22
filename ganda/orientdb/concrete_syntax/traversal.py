@@ -191,7 +191,7 @@ def can_pull_up(q: TraversalQuery) -> bool:
     field (a projected value carries no collation: campaign c100, seed 670, an O25
     face)."""
     p = q.source_predicate
-    if p is None or has_op(p, ("IS DEFINED", "IS NOT DEFINED")):
+    if p is None or has_op(p, ("IS PRESENT", "IS ABSENT")):
         return False
     return not any(leaf.case_insensitive and leaf.op in _CI_OPS for leaf in p.leaves())
 

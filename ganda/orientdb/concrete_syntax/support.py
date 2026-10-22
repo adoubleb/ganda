@@ -8,7 +8,7 @@ import dataclasses
 
 from ganda.core.query.ir.select import TxWrite
 from ganda.core.data.model import FieldType, Instance, NodeRow, Schema
-from ganda.orientdb.storage.dialect import HASH_KINDS
+from ganda.orientdb.storage.dialect import HASH_KINDS, sql_op
 from ganda.orientdb.facade import predicates
 from ganda.orientdb.facade.predicates import Compound, Predicate
 from ganda.core.query.generators.support import bfs_distances, composite_and as _composite_and, draw_tx, tx_binds, tx_rows  # noqa: F401
@@ -38,13 +38,13 @@ def literal_pred(p) -> "str | None":
     if p.key is not None or p.op in predicates.MAP_OPS or p.sub is not None:
         return None
     if p.op in predicates.NO_BIND_OPS:
-        return f"{p.field} {p.op}"
+        return f"{p.field} {sql_op(p.op)}"
     pivots = p.pivot if isinstance(p.pivot, list) else [p.pivot]
     if p.op == "LIKE" or any(isinstance(v, str) or isinstance(v, list) or v is None for v in pivots):
         return None
     if p.op == "BETWEEN":
         return f"{p.field} BETWEEN {_literal(p.pivot[0])} AND {_literal(p.pivot[1])}"
-    return f"{p.field} {p.op} {_literal(p.pivot)}"
+    return f"{p.field} {sql_op(p.op)} {_literal(p.pivot)}"
 
 
 
@@ -79,7 +79,7 @@ def index_door(p, table: str, schema: Schema, data_model: str) -> "tuple[str, di
                 if ix.kind in HASH_KINDS:
                     continue
                 return f"SELECT rid.id AS id FROM index:{ix.name()} WHERE key BETWEEN :{p.bind}a AND :{p.bind}b", {}, ix
-            return f"SELECT rid.id AS id FROM index:{ix.name()} WHERE key {p.op} :{p.bind}", {}, ix
+            return f"SELECT rid.id AS id FROM index:{ix.name()} WHERE key {sql_op(p.op)} :{p.bind}", {}, ix
         return None
     if isinstance(p, Compound) and p.op == "AND" and all(isinstance(c, Predicate) and c.op == "=" and c.key is None for c in p.children):
         by_field = {c.field: c for c in p.children}

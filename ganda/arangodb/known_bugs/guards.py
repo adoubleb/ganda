@@ -21,7 +21,7 @@ import dataclasses
 from ganda.core.query.ir.predicates import Compound, Predicate
 
 A40 = "A40"
-_MEMBERSHIP = ("CONTAINS", "CONTAINSANY", "CONTAINSALL")
+_MEMBERSHIP = ("HAS", "HAS ANY", "HAS ALL")
 
 
 def membership_under_not(p, under: bool = False) -> set:

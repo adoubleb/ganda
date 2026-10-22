@@ -234,8 +234,8 @@ def _leaf_served(schema: Schema, table: str, leaf, data_model: str, edge: bool =
     reversed or arithmetic leaf never."""
     if leaf.key is not None or not _plain(leaf):
         return False
-    if leaf.op in ("CONTAINSKEY", "CONTAINSVALUE", "VALUES CONTAINS"):
-        want = {"CONTAINSKEY": "KEY", "CONTAINSVALUE": "VALUE"}.get(leaf.op)
+    if leaf.op in ("HAS KEY", "HAS VALUE", "VALUES HAS"):
+        want = {"HAS KEY": "KEY", "HAS VALUE": "VALUE"}.get(leaf.op)
         return want is not None and any(ix.option("by") == want for ix in schema.node_indexes(table, leaf.field, data_model))
     return _indexed(schema, table, leaf.field, data_model, edge)
 
@@ -334,7 +334,7 @@ def o7_predicate(schema: Schema, table: str, p, edge: bool = False) -> bool:
     declared data models only. The map face: `CONTAINSVALUE` with an Integer-boxed pivot
     on an `EMBEDDEDMAP LONG` matches nothing on a scan (a BY VALUE index answers)."""
     for leaf in _leaves(p):
-        if leaf.op == "CONTAINSVALUE" and isinstance(leaf.pivot, int) and not isinstance(leaf.pivot, bool) and _int32(leaf.pivot):
+        if leaf.op == "HAS VALUE" and isinstance(leaf.pivot, int) and not isinstance(leaf.pivot, bool) and _int32(leaf.pivot):
             return True
         if leaf.op not in _O7_OPS or leaf.key is not None:
             continue
@@ -824,7 +824,7 @@ def o8_shape(q: TraversalQuery, data_model: str, syntax: str) -> bool:
     the edge's links (`in.f`, `out.f`)."""
     if data_model != "graph" or syntax != "edgescan":
         return False
-    return any(predicates.has_op(p, ("IS DEFINED", "IS NOT DEFINED")) for p in (q.hops[0].target_predicate, q.source_predicate) if p is not None)
+    return any(predicates.has_op(p, ("IS PRESENT", "IS ABSENT")) for p in (q.hops[0].target_predicate, q.source_predicate) if p is not None)
 
 
 def o9_shape(q: TraversalQuery, data_model: str, syntax: str) -> bool:
@@ -840,7 +840,7 @@ def o39_predicate(p) -> bool:
     `NullPointerException`, whatever the pivot, the id index or the tree around it
     (under NOT, in an OR); as a FROM target it is fine, and so are `CONTAINSKEY`,
     `m.values() CONTAINS` and `m.k = :p` (probed)."""
-    return predicates.has_op_deep(p, ("CONTAINSVALUE",))
+    return predicates.has_op_deep(p, ("HAS VALUE",))
 
 
 def o39_shape(q: TraversalQuery, base: str, syntax: str) -> bool:
@@ -965,13 +965,13 @@ def list_ops_known(schema: Schema, table: str, p, data_model: str, edge: bool = 
     `CONTAINSANY`, so every data model is the scan."""
     conjuncts = _conjunct_leaves(p)
     for leaf in _leaves(p):
-        if leaf.op not in ("CONTAINSANY", "CONTAINSALL") or not isinstance(leaf.pivot, list):
+        if leaf.op not in ("HAS ANY", "HAS ALL") or not isinstance(leaf.pivot, list):
             continue
         if _column_type(schema, table, leaf.field, edge) is not FieldType.LIST:
             continue
         # only a top-level conjunct is served by the list index: under a NOT or an
         # OR the leaf is scanned (benchmark seed 3, `NOT (f CONTAINSANY [..] AND ...)`)
-        served = servable and leaf.op == "CONTAINSANY" and leaf in conjuncts and _leaf_served(schema, table, leaf, data_model, edge)
+        served = servable and leaf.op == "HAS ANY" and leaf in conjuncts and _leaf_served(schema, table, leaf, data_model, edge)
         if served and any(ix.kind in HASH_KINDS or ix.kind == "DICTIONARY" for ix in _field_indexes(schema, table, leaf.field, data_model, edge)):
             # the planner picks a hash or dictionary list index for CONTAINSANY and
             # cannot evaluate it: a 501 (an O5 face; campaign c100d, seed 1022)
@@ -995,7 +995,7 @@ def map_value_index_known(schema: Schema, table: str, p, data_model: str, edge: 
     if edge or not servable:
         return None
     for leaf in _leaves(p):
-        if leaf.op != "CONTAINSVALUE" or leaf.key is not None or not _plain(leaf):
+        if leaf.op != "HAS VALUE" or leaf.key is not None or not _plain(leaf):
             continue
         if any(ix.option("by") == "VALUE" and (ix.kind in HASH_KINDS or ix.kind == "DICTIONARY") for ix in schema.node_indexes(table, leaf.field, data_model)):
             return "O5"

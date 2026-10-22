@@ -84,13 +84,13 @@ def sql(p, alias: str = "", table: str = "", key: str = "id", names: Names = REL
         src = f"(SELECT * FROM {names.table(t2)}) u" if scan else f"{names.table(t2)} u"
         inner = f"u.{g} IS NOT NULL" + (f" AND {sql(q, 'u', t2, 'id', names)}" if q is not None else "")
         return f"{col} IN (SELECT u.{g} FROM {src} WHERE {inner})"
-    if p.op in ("CONTAINS", "CONTAINSANY", "CONTAINSALL"):
+    if p.op in ("HAS", "HAS ANY", "HAS ALL"):
         child = names.child(table, p.field)
         member = f"x.owner = {owner}"
-        if p.op == "CONTAINS":
+        if p.op == "HAS":
             cond = f":{p.bind} = x.v" if p.rev else f"x.v = :{p.bind}"
             return f"EXISTS (SELECT 1 FROM {child} x WHERE {member} AND {cond})"
-        if p.op == "CONTAINSANY":
+        if p.op == "HAS ANY":
             return f"EXISTS (SELECT 1 FROM {child} x WHERE {member} AND x.v IN :{p.bind})"
         if not names.count_membership:
             if not p.pivot:
@@ -127,7 +127,7 @@ def fields_used(p, record: str) -> list:
     semi-join's own class are asked inside their EXISTS)."""
     out: list = []
     for leaf in (p.leaves() if p is not None else []):
-        if leaf.op in ("CONTAINS", "CONTAINSANY", "CONTAINSALL"):
+        if leaf.op in ("HAS", "HAS ANY", "HAS ALL"):
             continue
         if (record, leaf.field) not in out:
             out.append((record, leaf.field))
@@ -175,13 +175,13 @@ def _leaf(p, record: str, regex: bool, native: bool) -> "tuple[str, str | None]"
         t2, g, q, _scan = p.sub
         inner = f"?gu a c:{t2} ; p:{g} ?gu_{g} ." + (f" {optionals(q, 'gu')} FILTER ({filter_expr(q, 'gu', regex, native)})" if q is not None else "") + f" FILTER (?gu_{g} = {v})"
         return f"EXISTS {{ {inner} }}", v
-    if p.op in ("CONTAINS", "CONTAINSANY", "CONTAINSALL"):
+    if p.op in ("HAS", "HAS ANY", "HAS ALL"):
         items = f"?{record} i:{p.field}"
-        if p.op == "CONTAINS":
+        if p.op == "HAS":
             if p.rev:
                 return f"EXISTS {{ {items} ?gx . FILTER ({sparql_literal(p.pivot)} = ?gx) }}", None
             return f"EXISTS {{ {items} {sparql_literal(p.pivot)} }}", None
-        if p.op == "CONTAINSANY":
+        if p.op == "HAS ANY":
             return f"EXISTS {{ {items} ?gx . FILTER (?gx IN ({', '.join(sparql_literal(x) for x in p.pivot)})) }}", None
         return "(" + " && ".join(f"EXISTS {{ {items} {sparql_literal(x)} }}" for x in p.pivot) + ")", None
     if p.op == "IS NULL":

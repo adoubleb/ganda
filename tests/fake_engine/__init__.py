@@ -49,13 +49,13 @@ class FakeSemantics(Semantics):
             return null
         if op == "IS NOT NULL":
             return not null
-        if op == "IS DEFINED":
+        if op == "IS PRESENT":
             return present
-        if op == "IS NOT DEFINED":
+        if op == "IS ABSENT":
             return not present
-        if op == "CONTAINSKEY":
+        if op == "HAS KEY":
             return isinstance(v, dict) and pivot in v
-        if op in ("VALUES CONTAINS", "CONTAINSVALUE"):
+        if op in ("VALUES HAS", "HAS VALUE"):
             return isinstance(v, dict) and any(self.eq(x, pivot) for x in v.values())
         if null or pivot is None:
             return False
@@ -70,11 +70,11 @@ class FakeSemantics(Semantics):
         if op == "LIKE":
             rx = "".join(".*" if c == "%" else re.escape(c) for c in pivot)
             return isinstance(v, str) and re.fullmatch(rx, v, re.S) is not None
-        if op == "CONTAINS":
+        if op == "HAS":
             return isinstance(v, list) and any(self.eq(x, pivot) for x in v)
-        if op == "CONTAINSANY":
+        if op == "HAS ANY":
             return isinstance(v, list) and any(self.eq(x, p) for p in pivot for x in v)
-        if op == "CONTAINSALL":
+        if op == "HAS ALL":
             return isinstance(v, list) and all(any(self.eq(x, p) for x in v) for p in pivot)
         if op == "<":
             return self.lt(v, pivot)

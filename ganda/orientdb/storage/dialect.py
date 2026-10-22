@@ -118,6 +118,24 @@ ID_INDEX_KINDS = ("UNIQUE", "UNIQUE_HASH_INDEX", "NOTUNIQUE", "none")
 # the id index when the id index axis drew none for a data model
 DEFAULT_ID_INDEX = "UNIQUE"
 
+# The core's predicate operators that OrientDB SQL spells differently; every other
+# operator (`=`, `IN`, `LIKE`, `IS NULL`, ...) is written as the core names it. `VALUES HAS`
+# has its own form (`m.values() CONTAINS :p`, `concrete_syntax.predicate`).
+OPERATORS = {
+    "HAS": "CONTAINS",
+    "HAS ANY": "CONTAINSANY",
+    "HAS ALL": "CONTAINSALL",
+    "HAS KEY": "CONTAINSKEY",
+    "HAS VALUE": "CONTAINSVALUE",
+    "IS PRESENT": "IS DEFINED",
+    "IS ABSENT": "IS NOT DEFINED",
+}
+
+
+def sql_op(op: str) -> str:
+    """A core predicate operator as OrientDB SQL writes it."""
+    return OPERATORS.get(op, op)
+
 # the storage option `clusters` is `CREATE CLASS n1 ... CLUSTERS n` (the
 # `clusters_probability` axis): records are spread round-robin over n clusters, so a
 # class scan is a multi-cluster fetch and an index covers several clusters (probed:

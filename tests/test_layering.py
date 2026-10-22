@@ -41,6 +41,10 @@ ENGINE_WORDS = (
     "OrientDB", "ArangoDB", "HANA", "SurrealDB", "AQL", "SPARQL", "Cypher", "RID",
     "NOTUNIQUE", "DICTIONARY", "HASH_INDEX", "CLUSTERS", "BY KEY", "BY VALUE",
     "EMBEDDED", "EMBEDDEDMAP", "COLLATE", "EXTENDS V",
+    # OrientDB's operator spellings: the core names them `HAS`, `HAS ANY`, `HAS ALL`,
+    # `HAS KEY`, `HAS VALUE`, `VALUES HAS`, `IS PRESENT`, `IS ABSENT`
+    "CONTAINS", "CONTAINSANY", "CONTAINSALL", "CONTAINSKEY", "CONTAINSVALUE",
+    "IS DEFINED", "IS NOT DEFINED",
 )
 
 

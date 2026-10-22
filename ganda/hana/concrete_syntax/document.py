@@ -182,7 +182,7 @@ def asks_membership(p) -> bool:
     if p is None:
         return False
     for leaf in p.leaves():
-        if leaf.op in ("CONTAINS", "CONTAINSANY", "CONTAINSALL"):
+        if leaf.op in ("HAS", "HAS ANY", "HAS ALL"):
             return True
         if leaf.sub is not None and asks_membership(leaf.sub[2]):
             return True
@@ -289,12 +289,12 @@ def doc_pred(p, alias: str = "", negate: bool = False, keep_not: bool = False) -
     if p.sub is not None or p.arith is not None or p.rev:
         raise Unsupported(p.signature)
     col = path(p.field, alias)
-    if p.op in ("CONTAINS", "CONTAINSANY", "CONTAINSALL"):
+    if p.op in ("HAS", "HAS ANY", "HAS ALL"):
         if negate:
             raise Unsupported("a negated membership")
-        if p.op == "CONTAINS":
+        if p.op == "HAS":
             return f'FOR ANY "e" IN {col} SATISFIES "e" = {_param("int", p.bind, p.pivot)} END'
-        if p.op == "CONTAINSANY":
+        if p.op == "HAS ANY":
             alts = " OR ".join(f'"e" = {_param("int", f"{p.bind}__{k}", v)}' for k, v in enumerate(p.pivot))
             return f'FOR ANY "e" IN {col} SATISFIES ({alts}) END'
         return "(" + " AND ".join(f'FOR ANY "e" IN {col} SATISFIES "e" = {_param("int", f"{p.bind}__{k}", v)} END' for k, v in enumerate(p.pivot)) + ")"

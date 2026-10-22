@@ -62,9 +62,9 @@ def test_dedup_keys_first_then_counts():
 
 def test_reference_semantics():
     assert predicate_hit(False, None, "<>", 1) and not predicate_hit(False, None, "<", 1) and predicate_hit(False, None, "IS NULL", None)
-    assert not predicate_hit(True, None, "=", None) and predicate_hit(True, None, "IS DEFINED", None)
+    assert not predicate_hit(True, None, "=", None) and predicate_hit(True, None, "IS PRESENT", None)
     assert not eq(-0.0, 0.0) and predicate_hit(True, -0.0, "<", 0.0)
     assert orient_key("\U0001F600") < orient_key("￿")
     assert predicate_hit(True, "abc", "LIKE", "a%") and predicate_hit(True, "abc", "LIKE", "%b%") and not predicate_hit(True, "abc", "LIKE", "b%")
-    assert predicate_hit(True, [1, 2], "CONTAINS", 2) and predicate_hit(True, 5, "BETWEEN", [5, 6])
+    assert predicate_hit(True, [1, 2], "HAS", 2) and predicate_hit(True, 5, "BETWEEN", [5, 6])
     assert agg("max", [None, 1, 3]) == 3 and agg("sum", [None]) == 0 and agg("max", [None]) is None and agg("distinct_count", [1, 1, 2]) == 2

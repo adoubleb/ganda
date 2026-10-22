@@ -15,7 +15,7 @@ from ganda.core.data.model import DATE_TYPES, FLOAT_TYPES, INT_TYPES, FieldType
 
 ORDERED_OPS = ("=", "<>", ">", ">=", "<", "<=", "IN", "BETWEEN")
 EQUALITY_OPS = ("=", "<>", "IN")
-NULL_OPS = ("IS NULL", "IS NOT NULL", "IS DEFINED", "IS NOT DEFINED")
+NULL_OPS = ("IS NULL", "IS NOT NULL", "IS PRESENT", "IS ABSENT")
 # a LIKE pattern is built only from a value holding none of these: the wildcards, the
 # escape, and the line terminators an ICU regex's `.` and `$` treat specially
 LIKE_WILDCARDS = "%_\\\n\r\u0085  "

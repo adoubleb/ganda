@@ -40,9 +40,9 @@ def render_predicate(p, var: str = "n", noopt: bool = False, schema=None) -> str
             src = f"(FOR {m} IN {t2} RETURN {m})" if scan else t2
         inner = f"FOR {s} IN {src}" + (f" FILTER {render_predicate(q, s, False, schema)}" if q is not None else "") + f" RETURN {s}.{g}"
         return f"{_wrap(expr, noopt)} IN ({inner})"
-    if p.op == "IS DEFINED":
+    if p.op == "IS PRESENT":
         return f"HAS({var}, '{p.field}')"
-    if p.op == "IS NOT DEFINED":
+    if p.op == "IS ABSENT":
         return f"NOT HAS({var}, '{p.field}')"
     if p.key is not None:
         expr = f"{expr}[@{p.key_bind}]" if p.key_bind else f"{expr}.{p.key}"
@@ -50,7 +50,7 @@ def render_predicate(p, var: str = "n", noopt: bool = False, schema=None) -> str
     if p.arith is not None:
         expr = f"({expr} {p.arith.sym} @{p.arith.bind})"
     if p.rev:
-        if p.op == "CONTAINS":
+        if p.op == "HAS":
             return f"{expr} ANY == @{p.bind}"
         return f"@{p.bind} {_OPS[MIRROR[p.op]]} {expr}"
     if p.op in NO_BIND_OPS:
@@ -63,18 +63,18 @@ def render_predicate(p, var: str = "n", noopt: bool = False, schema=None) -> str
         return f"{expr} IN @{p.bind}"
     if p.op == "NOT IN":
         return f"{expr} NOT IN @{p.bind}"
-    if p.op == "CONTAINS":
+    if p.op == "HAS":
         return f"@{p.bind} IN {expr}"
-    if p.op == "CONTAINSANY":
+    if p.op == "HAS ANY":
         return f"{expr} ANY IN @{p.bind}"
-    if p.op == "CONTAINSALL":
+    if p.op == "HAS ALL":
         return f"@{p.bind} ALL IN {expr}"
-    if p.op == "CONTAINSKEY":
+    if p.op == "HAS KEY":
         # `HAS` and `VALUES` reject a non-object (errorNum 1542 under failOnWarning), so
         # a null or absent map answers false through a ternary -- NOT `m || {}`: a filter
         # the optimizer moves into a traversal loses the default (A41)
         return f"(IS_OBJECT({expr}) ? HAS({expr}, @{p.bind}) : false)"
-    if p.op in ("VALUES CONTAINS", "CONTAINSVALUE"):
+    if p.op in ("VALUES HAS", "HAS VALUE"):
         return f"(IS_OBJECT({expr}) ? @{p.bind} IN VALUES({expr}) : false)"
     return f"{expr} {_OPS[p.op]} @{p.bind}"
 

@@ -197,8 +197,8 @@ class GeneratorConfig:
         "max_nodes_per_type": "most rows in a node class",
         "min_edges_per_type": "fewest edges of an edge type",
         "max_edges_per_type": "most edges of an edge type",
-        "null_probability": "chance a field is omitted from a row (absent: IS NULL true, IS DEFINED false)",
-        "explicit_null_probability": "chance a field holds an explicit stored null (IS NULL and IS DEFINED both true)",
+        "null_probability": "chance a field is omitted from a row (absent: IS NULL true, IS PRESENT false)",
+        "explicit_null_probability": "chance a field holds an explicit stored null (IS NULL and IS PRESENT both true)",
         "empty_table_probability": "chance a node class is generated with no rows",
         "self_loop_probability": "chance an edge between a class and itself is a self-loop",
         "parallel_edge_probability": "chance an edge repeats an existing source and target pair",
@@ -241,9 +241,9 @@ class GeneratorConfig:
     max_nodes_per_type: int = 40
     min_edges_per_type: int = 15
     max_edges_per_type: int = 60
-    # A field is omitted from a row (absent; `IS NULL` true, `IS DEFINED` false).
+    # A field is omitted from a row (absent; `IS NULL` true, `IS PRESENT` false).
     null_probability: float = 0.1
-    # An explicit stored `null` (`IS NULL` true, `IS DEFINED` true).
+    # An explicit stored `null` (`IS NULL` true, `IS PRESENT` true).
     explicit_null_probability: float = 0.05
     empty_table_probability: float = 0.1
     # Topology shaping.

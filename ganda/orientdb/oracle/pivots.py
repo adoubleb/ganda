@@ -11,7 +11,7 @@ from ganda.core.data.neighbours import _f32
 from ganda.core.data.model import DATE_TYPES, FieldType
 
 ORDERED_OPS = ("=", "<>", ">", ">=", "<", "<=", "IN", "BETWEEN")
-NULL_OPS = ("IS NULL", "IS NOT NULL", "IS DEFINED", "IS NOT DEFINED")
+NULL_OPS = ("IS NULL", "IS NOT NULL", "IS PRESENT", "IS ABSENT")
 # a LIKE pattern is built only from a value holding none of these
 LIKE_WILDCARDS = "%?_\\"
 

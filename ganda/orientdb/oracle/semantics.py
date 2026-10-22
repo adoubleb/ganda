@@ -278,16 +278,16 @@ def predicate_hit(present: bool, v: Any, op: str, pivot: Any, ftype: "str | None
     null; the map's own operators are `CONTAINSKEY`, `VALUES CONTAINS` and
     `CONTAINSVALUE`."""
     if key is not None:
-        if op in ("CONTAINSKEY", "VALUES CONTAINS", "CONTAINSVALUE"):
+        if op in ("HAS KEY", "VALUES HAS", "HAS VALUE"):
             raise ValueError(op)
         present = isinstance(v, dict) and key in v
         v = v.get(key) if isinstance(v, dict) else None
         ftype = "int"
-    if op == "CONTAINSKEY":
+    if op == "HAS KEY":
         return isinstance(v, dict) and pivot in v
-    if op == "VALUES CONTAINS":
+    if op == "VALUES HAS":
         return isinstance(v, dict) and any(x is not None and eq(x, pivot) for x in v.values())
-    if op == "CONTAINSVALUE":
+    if op == "HAS VALUE":
         # the declared LONG values are Long boxes; an Integer-boxed pivot never
         # equals one (O7's map face); a Long or a double compares through its box
         if isinstance(pivot, int) and not isinstance(pivot, bool) and -(2**31) <= pivot < 2**31:
@@ -297,9 +297,9 @@ def predicate_hit(present: bool, v: Any, op: str, pivot: Any, ftype: "str | None
         return not present or v is None
     if op == "IS NOT NULL":
         return present and v is not None
-    if op == "IS DEFINED":
+    if op == "IS PRESENT":
         return present
-    if op == "IS NOT DEFINED":
+    if op == "IS ABSENT":
         return not present
     null_v = not present or v is None
     if op == "<>":
@@ -330,11 +330,11 @@ def predicate_hit(present: bool, v: Any, op: str, pivot: Any, ftype: "str | None
         return not lt(a, lo) and not lt(hi, a)
     if op == "LIKE":
         return isinstance(v, str) and like_hit(v, pivot)
-    if op == "CONTAINS":
+    if op == "HAS":
         return isinstance(v, list) and any(eq(x, pivot) for x in v)
-    if op == "CONTAINSANY":
+    if op == "HAS ANY":
         return isinstance(v, list) and any(eq(x, pv) for pv in pivot for x in v)
-    if op == "CONTAINSALL":
+    if op == "HAS ALL":
         # vacuous over an empty pivot list (probed: `f CONTAINSALL []` holds for
         # every non-null list)
         return isinstance(v, list) and all(any(eq(x, pv) for x in v) for pv in pivot)

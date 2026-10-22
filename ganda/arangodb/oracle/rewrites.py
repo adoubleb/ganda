@@ -103,10 +103,10 @@ def rewrite(p, rng: random.Random, bind: str):
         return Predicate(on, f, op, bind if op not in NO_BIND_OPS else "", pv, p.reference, p.ftype, p.case_insensitive, p.key, f"{bind}k")
     if op in MAP_OPS or not p.plain:
         return None
-    if op in ("CONTAINSANY", "CONTAINSALL"):
+    if op in ("HAS ANY", "HAS ALL"):
         if len(pv) == 1:
-            return leaf("CONTAINS", bind, pv[0])
-        return Compound(on, "OR" if op == "CONTAINSANY" else "AND", tuple(leaf("CONTAINS", f"{bind}_{k}", v) for k, v in enumerate(pv)))
+            return leaf("HAS", bind, pv[0])
+        return Compound(on, "OR" if op == "HAS ANY" else "AND", tuple(leaf("HAS", f"{bind}_{k}", v) for k, v in enumerate(pv)))
     if op == "=":
         return leaf("IN", bind, [pv])
     if op == "<>":
@@ -124,10 +124,10 @@ def rewrite(p, rng: random.Random, bind: str):
         return Compound(on, "NOT", (leaf("IS NOT NULL", "", None),))
     if op == "IS NOT NULL":
         return Compound(on, "NOT", (leaf("IS NULL", "", None),))
-    if op == "IS DEFINED":
-        return Compound(on, "NOT", (leaf("IS NOT DEFINED", "", None),))
-    if op == "IS NOT DEFINED":
-        return Compound(on, "NOT", (leaf("IS DEFINED", "", None),))
+    if op == "IS PRESENT":
+        return Compound(on, "NOT", (leaf("IS ABSENT", "", None),))
+    if op == "IS ABSENT":
+        return Compound(on, "NOT", (leaf("IS PRESENT", "", None),))
     return None
 
 

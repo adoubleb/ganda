@@ -35,22 +35,24 @@ class Reach(StrEnum):
 
 
 class NullOp(StrEnum):
-    """The null tests: they bind no pivot (`IS [NOT] DEFINED` tells an absent field from a null)."""
+    """The null tests: they bind no pivot. `IS NULL` holds for a null or an absent field;
+    `IS PRESENT` / `IS ABSENT` tell a field that exists (null or not) from a missing one."""
 
     IS_NULL = "IS NULL"
     IS_NOT_NULL = "IS NOT NULL"
-    IS_DEFINED = "IS DEFINED"
-    IS_NOT_DEFINED = "IS NOT DEFINED"
+    IS_PRESENT = "IS PRESENT"
+    IS_ABSENT = "IS ABSENT"
 
     __repr__ = str.__repr__
 
 
 class MapOp(StrEnum):
-    """The map operators: `m CONTAINSKEY :k`, `m.values() CONTAINS :p`, `m CONTAINSVALUE :p`."""
+    """The map operators: the map has key `k`; its values hold `p` (`VALUES HAS` and
+    `HAS VALUE` ask the same question, so a provider may render them differently)."""
 
-    CONTAINSKEY = "CONTAINSKEY"
-    VALUES_CONTAINS = "VALUES CONTAINS"
-    CONTAINSVALUE = "CONTAINSVALUE"
+    HAS_KEY = "HAS KEY"
+    VALUES_HAS = "VALUES HAS"
+    HAS_VALUE = "HAS VALUE"
 
     __repr__ = str.__repr__
 

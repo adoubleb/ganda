@@ -105,7 +105,7 @@ def test_o5_sibling_faces():
     assert not o5_poly_sibling_index(_inheritance_schema([IndexSpec("n2", "f2", data_model="graph", kind="NOTUNIQUE")]), "n1", eq, "graph")
     assert not o5_poly_sibling_index(_inheritance_schema(both), "n1", Predicate("source", "f2", ">", "p", "2024-08-18 08:18:40", ftype="datetime"), "graph")
     # CONTAINSVALUE through a BY VALUE hash or dictionary map index: a 501
-    cv = Predicate("source", "m", "CONTAINSVALUE", "p", 2**31, ftype="map")
+    cv = Predicate("source", "m", "HAS VALUE", "p", 2**31, ftype="map")
     assert map_value_index_known(_inheritance_schema([IndexSpec("N0", "m", kind="NOTUNIQUE_HASH_INDEX", options=options(by="VALUE"))]), "n1", cv, "doc") == "O5"
     assert map_value_index_known(_inheritance_schema([IndexSpec("N0", "m", kind="DICTIONARY", options=options(by="VALUE"))]), "n1", cv, "doc") == "O5"
     assert map_value_index_known(_inheritance_schema([IndexSpec("N0", "m", kind="NOTUNIQUE", options=options(by="VALUE"))]), "n1", cv, "doc") is None

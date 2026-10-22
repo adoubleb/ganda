@@ -266,7 +266,7 @@ def cypher_filter(p, var: str, table: str, schema: Schema, params: "Params | Non
         return "(" + f" {p.op} ".join(cypher_filter(c, var, table, schema, params) for c in p.children) + ")"
     if p.sub is not None or p.case_insensitive or p.key is not None:
         raise Unsupported(f"no cypher form of {p.signature}")
-    if p.op in ("CONTAINS", "CONTAINSANY", "CONTAINSALL"):
+    if p.op in ("HAS", "HAS ANY", "HAS ALL"):
         raise Unsupported("a LIST membership has no cypher form")
     if p.ftype == "bool" and not BOOL_FILTERS:
         raise Unsupported("a BOOLEAN attribute is projected only")

@@ -95,12 +95,12 @@ def rewrite(p, rng: random.Random, bind: str):
         return None if p.sub.scan else Predicate(on, f, op, p.bind, pv, p.reference, p.ftype, sub=p.sub._replace(scan=True))
     if not p.plain:
         return None
-    if op == "CONTAINS":
-        return leaf("CONTAINSANY", bind, [pv])
-    if op in ("CONTAINSANY", "CONTAINSALL"):
+    if op == "HAS":
+        return leaf("HAS ANY", bind, [pv])
+    if op in ("HAS ANY", "HAS ALL"):
         if len(pv) == 1:
-            return leaf("CONTAINS", bind, pv[0])
-        return Compound(on, "OR" if op == "CONTAINSANY" else "AND", tuple(leaf("CONTAINS", f"{bind}_{k}", v) for k, v in enumerate(pv)))
+            return leaf("HAS", bind, pv[0])
+        return Compound(on, "OR" if op == "HAS ANY" else "AND", tuple(leaf("HAS", f"{bind}_{k}", v) for k, v in enumerate(pv)))
     if op == "=":
         if isinstance(pv, list):
             return Compound(on, "NOT", (leaf("<>", bind, pv),))

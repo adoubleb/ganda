@@ -157,21 +157,21 @@ def predicate_hit(present: bool, v: Any, op: str, pivot: Any, ftype: "str | None
     with `key`, `v` is a map and the comparison reads its entry (a missing map or key
     being null)."""
     if key is not None:
-        if op in ("CONTAINSKEY", "VALUES CONTAINS", "CONTAINSVALUE"):
+        if op in ("HAS KEY", "VALUES HAS", "HAS VALUE"):
             raise ValueError(op)
         present = isinstance(v, dict) and key in v
         v = v.get(key) if isinstance(v, dict) else None
-    if op == "CONTAINSKEY":
+    if op == "HAS KEY":
         return isinstance(v, dict) and pivot in v
-    if op in ("VALUES CONTAINS", "CONTAINSVALUE"):
+    if op in ("VALUES HAS", "HAS VALUE"):
         return isinstance(v, dict) and any(eq(x, pivot) for x in v.values())
     if op == "IS NULL":
         return not present or v is None
     if op == "IS NOT NULL":
         return present and v is not None
-    if op == "IS DEFINED":
+    if op == "IS PRESENT":
         return present
-    if op == "IS NOT DEFINED":
+    if op == "IS ABSENT":
         return not present
     if not present:
         v = None
@@ -188,11 +188,11 @@ def predicate_hit(present: bool, v: Any, op: str, pivot: Any, ftype: "str | None
         return not lt(v, lo) and not lt(hi, v)
     if op == "LIKE":
         return like_hit(v, pivot)
-    if op == "CONTAINS":
+    if op == "HAS":
         return isinstance(v, list) and any(eq(x, pivot) for x in v)
-    if op == "CONTAINSANY":
+    if op == "HAS ANY":
         return isinstance(v, list) and any(eq(x, p) for p in pivot for x in v)
-    if op == "CONTAINSALL":
+    if op == "HAS ALL":
         return isinstance(v, list) and all(any(eq(x, p) for x in v) for p in pivot)
     if op == "<":
         return lt(v, pivot)

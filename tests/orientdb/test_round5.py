@@ -37,7 +37,7 @@ def test_reverse_swaps_the_reversible_leaves_only():
     c = Compound("source", "AND", (Predicate("source", "f1", "IN", "p_0", [5]), Predicate("source", "f1", ">=", "p_1", 5)))
     rc = reverse(c)
     assert render(rc) == "(f1 IN :p_0 AND :p_1 <= f1)"
-    assert render(reverse(Predicate("source", "f1", "CONTAINS", "p", 2, ftype="list"))) == ":p IN f1"
+    assert render(reverse(Predicate("source", "f1", "HAS", "p", 2, ftype="list"))) == ":p IN f1"
     # the same answer on every row
     rows = [{"f1": 4}, {"f1": 5}, {"f1": 6}, {}, {"f1": None}]
     assert [evaluate(r, p) for r in rows] == [evaluate(r, rp) for r in rows]
@@ -82,29 +82,29 @@ def test_arithmetic_rewrite_is_exact_or_absent():
 
 
 def test_list_operators_reference_and_rewrite():
-    assert predicate_hit(True, [1, 2], "CONTAINSANY", [2, 9]) and not predicate_hit(True, [1, 2], "CONTAINSANY", [9])
-    assert predicate_hit(True, [1, 2], "CONTAINSALL", [2, 1]) and not predicate_hit(True, [1, 2], "CONTAINSALL", [2, 3])
-    assert predicate_hit(True, [], "CONTAINSALL", []) and not predicate_hit(False, None, "CONTAINSALL", [])
+    assert predicate_hit(True, [1, 2], "HAS ANY", [2, 9]) and not predicate_hit(True, [1, 2], "HAS ANY", [9])
+    assert predicate_hit(True, [1, 2], "HAS ALL", [2, 1]) and not predicate_hit(True, [1, 2], "HAS ALL", [2, 3])
+    assert predicate_hit(True, [], "HAS ALL", []) and not predicate_hit(False, None, "HAS ALL", [])
     rng = random.Random(3)
-    rw = predicates.rewrite(Predicate("source", "f1", "CONTAINSALL", "p", [1, 2], ftype="list"), rng, "q")
-    assert rw.op == "AND" and all(c.op == "CONTAINS" for c in rw.children)
-    rw = predicates.rewrite(Predicate("source", "f1", "CONTAINSANY", "p", [1, 2], ftype="list"), rng, "q")
+    rw = predicates.rewrite(Predicate("source", "f1", "HAS ALL", "p", [1, 2], ftype="list"), rng, "q")
+    assert rw.op == "AND" and all(c.op == "HAS" for c in rw.children)
+    rw = predicates.rewrite(Predicate("source", "f1", "HAS ANY", "p", [1, 2], ftype="list"), rng, "q")
     assert rw.op == "OR"
     rows = [{"f1": [1]}, {"f1": [1, 2]}, {"f1": []}, {}]
-    p = Predicate("source", "f1", "CONTAINSALL", "p", [1, 2], ftype="list")
+    p = Predicate("source", "f1", "HAS ALL", "p", [1, 2], ftype="list")
     assert [evaluate(r, p) for r in rows] == [evaluate(r, predicates.rewrite(p, rng, "q")) for r in rows]
 
 
 def test_list_ops_guard_names_the_boxed_faces():
     sch = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.LIST),)),), edge_types=(), indexes=(IndexSpec("n1", "f1", data_model="rel", kind="NOTUNIQUE"),))
-    boxed = Predicate("source", "f1", "CONTAINSANY", "p", [1, 2], ftype="list")
+    boxed = Predicate("source", "f1", "HAS ANY", "p", [1, 2], ftype="list")
     assert list_ops_known(sch, "n1", boxed, "doc") == "O7"  # a scan
     assert list_ops_known(sch, "n1", boxed, "rel") is None  # the list index converts the keys
     assert list_ops_known(sch, "n1", boxed, "rel", servable=False) == "O7"  # a bracket filter
-    mixed = Predicate("source", "f1", "CONTAINSANY", "p", [1, 2**40], ftype="list")
+    mixed = Predicate("source", "f1", "HAS ANY", "p", [1, 2**40], ftype="list")
     assert list_ops_known(sch, "n1", mixed, "rel") == "O10" and list_ops_known(sch, "n1", mixed, "doc") == "O7"
-    assert list_ops_known(sch, "n1", Predicate("source", "f1", "CONTAINSALL", "p", [1], ftype="list"), "rel") == "O7"
-    assert list_ops_known(sch, "n1", Predicate("source", "f1", "CONTAINSALL", "p", [2**40], ftype="list"), "rel") is None
+    assert list_ops_known(sch, "n1", Predicate("source", "f1", "HAS ALL", "p", [1], ftype="list"), "rel") == "O7"
+    assert list_ops_known(sch, "n1", Predicate("source", "f1", "HAS ALL", "p", [2**40], ftype="list"), "rel") is None
 
 
 def test_reversed_and_arithmetic_leaves_are_never_index_served():
@@ -189,7 +189,7 @@ def test_order_form_withholds_the_asc_walk_of_a_composite_index_with_a_null_comp
 
 def test_list_ops_guard_scans_under_not_or_and_on_the_scan_rewrite():
     sch = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.LIST), FieldSpec("f2", FieldType.INT))),), edge_types=(), indexes=(IndexSpec("n1", "f1", data_model="both", kind="NOTUNIQUE"),))
-    boxed = Predicate("source", "f1", "CONTAINSANY", "p_0", [1, 2], ftype="list")
+    boxed = Predicate("source", "f1", "HAS ANY", "p_0", [1, 2], ftype="list")
     other = Predicate("source", "f2", "<=", "p_1", 0, ftype="int")
     assert list_ops_known(sch, "n1", boxed, "graph") is None
     assert list_ops_known(sch, "n1", Compound("source", "AND", (boxed, other)), "graph") is None

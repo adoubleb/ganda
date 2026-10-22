@@ -140,7 +140,7 @@ def test_pulled_up_form_and_traverse():
     assert render(q, schema, "rel", "flat", pull_up=True) == "SELECT id, v FROM (SELECT DISTINCT src_id AS id, dst_id AS v FROM e2) WHERE id IN (SELECT id FROM n1 WHERE f1 > :p0)"
     assert applicable(q, schema, "graph", "traverse")
     assert not applicable(TraversalQuery("n1", (Hop("e1", "out"),), "distinct_ids"), schema, "graph", "traverse")  # e1 is self-typed
-    assert not can_pull_up(TraversalQuery("n1", (Hop("e2", "out"),), "ids", None, Predicate("source", "f1", "IS DEFINED", "", None)))
+    assert not can_pull_up(TraversalQuery("n1", (Hop("e2", "out"),), "ids", None, Predicate("source", "f1", "IS PRESENT", "", None)))
 
 
 def test_both_direction_nexists_and_optional_match():
@@ -230,8 +230,8 @@ def test_dates_and_maps_in_the_reference():
     assert predicate_hit(True, "2024-01-01 00:00:00", "BETWEEN", ["2024-01-01", "2024-01-01 12:00:00"], "date")
     assert not predicate_hit(True, "2024-01-01 00:00:00", "=", "2024-01-01 12:00:00", "date")
     m = {"k1": 1, "k2": 2}
-    assert predicate_hit(True, m, "CONTAINSKEY", "k2") and not predicate_hit(True, m, "CONTAINSKEY", "k3")
-    assert predicate_hit(True, m, "VALUES CONTAINS", 2) and not predicate_hit(True, m, "CONTAINSVALUE", 2)  # O7's map face
+    assert predicate_hit(True, m, "HAS KEY", "k2") and not predicate_hit(True, m, "HAS KEY", "k3")
+    assert predicate_hit(True, m, "VALUES HAS", 2) and not predicate_hit(True, m, "HAS VALUE", 2)  # O7's map face
     assert predicate_hit(True, m, "=", 2, key="k2") and predicate_hit(True, m, "IS NULL", None, key="k3")
     assert predicate_hit(False, None, "IS NULL", None, key="k3") and predicate_hit(True, m, "<>", 5, key="k3")
     assert not predicate_hit(True, m, ">", 1, key="k3")
@@ -240,4 +240,4 @@ def test_dates_and_maps_in_the_reference():
 
     assert render_pred(p) == "m.k2 = :p"
     assert render_pred(Predicate("source", "m", "=", "p", 2, True, "int", False, "k2", "pk")) == "m[:pk] = :p" and Predicate("source", "m", "=", "p", 2, True, "int", False, "k2", "pk").bind_vars == {"pk": "k2", "p": 2}
-    assert render_pred(Predicate("source", "m", "VALUES CONTAINS", "p", 2)) == "m.values() CONTAINS :p"
+    assert render_pred(Predicate("source", "m", "VALUES HAS", "p", 2)) == "m.values() CONTAINS :p"

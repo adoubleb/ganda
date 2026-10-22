@@ -90,7 +90,7 @@ def test_three_valued_logic():
     assert tri({}, Compound("source", "AND", (gt, _leaf("g", "IS NOT NULL")))) is False
     assert not evaluate({}, Compound("source", "NOT", (gt,)))
     # membership is two-valued: false over a null list
-    assert evaluate({"l": None}, Compound("source", "NOT", (_leaf("l", "CONTAINS", 1, "list"),)))
+    assert evaluate({"l": None}, Compound("source", "NOT", (_leaf("l", "HAS", 1, "list"),)))
     # a semi-join over a null field is unknown; its values' nulls are ignored
     sub = Predicate("source", "f", "INSUB", "", [None, 3], True, "int", sub=("n2", "g", None, False))
     assert tri({}, sub) is UNKNOWN and tri({"f": 4}, sub) is False and tri({"f": 3}, sub) is True
@@ -109,8 +109,8 @@ def _random_tree(rng, depth=0):
         return Compound("source", op, kids)
     f = rng.choice(list(fields))
     if fields[f] is FieldType.LIST:
-        op = rng.choice(("CONTAINS", "CONTAINSANY", "CONTAINSALL", "=", "IS NULL"))
-        pivot = {"CONTAINS": rng.randint(0, 3), "=": [rng.randint(0, 3)], "IS NULL": None}.get(op, [rng.randint(0, 3) for _ in range(2)])
+        op = rng.choice(("HAS", "HAS ANY", "HAS ALL", "=", "IS NULL"))
+        pivot = {"HAS": rng.randint(0, 3), "=": [rng.randint(0, 3)], "IS NULL": None}.get(op, [rng.randint(0, 3) for _ in range(2)])
         return _leaf(f, op, pivot, "list")
     op = rng.choice(("=", "<>", "<", "<=", ">", ">=", "IN", "NOT IN", "BETWEEN", "IS NULL", "IS NOT NULL"))
 
@@ -285,7 +285,7 @@ def test_the_doc_views_ask_containsall_without_a_scalar_subquery():
     from ganda.hana.concrete_syntax.document import NAMES
     from ganda.hana.concrete_syntax.predicate import sql
 
-    p = _leaf("l", "CONTAINSALL", [1, 2], "list")
+    p = _leaf("l", "HAS ALL", [1, 2], "list")
     assert "COUNT(DISTINCT" in sql(p, "t", "n1")
     # over the doc views the count is a correlated scalar subquery over UNNEST (H2)
     text = sql(p, "t", "n1", names=NAMES)
@@ -297,7 +297,7 @@ def test_a_doc_traversal_withholds_a_list_membership():
     from ganda.core.query.ir.traversal import Hop, TraversalQuery
     from ganda.hana.concrete_syntax import traversal
 
-    member = Predicate("target", "l", "CONTAINS", "bl", 1, True, "list")
+    member = Predicate("target", "l", "HAS", "bl", 1, True, "list")
     q = TraversalQuery("n1", (Hop("e1", "out", member),), "ids")
     # the Document Store refuses an EXISTS over an element view next to the UNNEST edge
     # views (B6) and crashes on the CONTAINSALL count (H2)
@@ -330,7 +330,7 @@ def test_no_rdf_sum_or_avg_sees_an_unbound_value(seed):
 def test_the_doc_views_ask_a_membership_only_as_a_conjunct():
     from ganda.hana.concrete_syntax.document import views_ask
 
-    member = _leaf("l", "CONTAINS", 1, "list")
+    member = _leaf("l", "HAS", 1, "list")
     other = _leaf("f", ">", 1)
     assert views_ask(member) and views_ask(Compound("source", "AND", (member, other)))
     # under OR or NOT, or inside a semi-join, the Document Store refuses the EXISTS (B6)
@@ -389,7 +389,7 @@ def test_a_pulled_up_traversal_correlates_a_membership_on_its_own_alias(dm):
         (NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f3", FieldType.LIST))),),
         (EdgeTypeSpec("e1", "n1", "n1", (FieldSpec("w", FieldType.INT),)),),
     )
-    member = Predicate("source", "f3", "CONTAINS", "p0", 1, True, "list")
+    member = Predicate("source", "f3", "HAS", "p0", 1, True, "list")
     for proj in ("ids", "exists"):
         q = TraversalQuery("n1", (Hop("e1", "out", None),), proj, None, member)
         for syntax in traversal.SYNTAXES[dm]:
@@ -600,7 +600,7 @@ def test_cypher_filter_mirrors_the_sql_binds_and_refuses_what_has_no_form():
     assert texts["fcmp"] == "(t.N1_F5 <= $p)" and texts["fin"] == "(t.N1_F5 = $p__0 OR t.N1_F5 = $p__1)" and texts["farith"] == "((t.N1_F5 * $arc) > $p)"
     # a string the grammar cannot spell has no native form
     assert not graph.expressible(Predicate("source", "f2", "=", "p", "a\nb", True, "string"), schema, "n1")
-    for leaf in (Predicate("source", "f3", "CONTAINS", "p", 1, True, "list"), Predicate("source", "f4", "=", "p", True, True, "bool"), Predicate("source", "f2", "=", "p", "x", True, "string", case_insensitive=True)):
+    for leaf in (Predicate("source", "f3", "HAS", "p", 1, True, "list"), Predicate("source", "f4", "=", "p", True, True, "bool"), Predicate("source", "f2", "=", "p", "x", True, "string", case_insensitive=True)):
         assert not graph.expressible(leaf, schema, "n1")
     assert not graph.expressible(Predicate("source", "f1", "IN", "p", [], True, "int", sub=("n1", "f1", None, False)), schema, "n1")
 
@@ -819,7 +819,7 @@ def test_a_traversal_the_doc_views_cannot_ask_is_still_asked_of_the_other_data_m
         assert not any(v.split(":")[0] == "doc" for v in c.queries), (c.shape, sorted(c.queries))
         assert {v.split(":")[0] for v in c.queries} == {"rel", "graph", "rdf"}, (c.shape, sorted(c.queries))
         # a membership or a whole-list comparison somewhere in the predicates' signatures
-        assert any(any(tok in sig for tok in ("CONTAINS", "=", "<>", "IN")) for sig in c.params["predicates"]), c.params["predicates"]
+        assert any(any(tok in sig for tok in ("HAS", "=", "<>", "IN")) for sig in c.params["predicates"]), c.params["predicates"]
     assert not any(c.params.get("partial") for c in cases if c.generator_name == "ir_traversal" and "doc" in c.queries)
 
 
@@ -1041,7 +1041,7 @@ def test_the_doc_neg_position_keeps_the_nots_the_store_can_say():
     assert has_not(tree) and not has_not(leaf) and not has_not(None)
     assert doc_pred(tree) == '($."f1" <> CAST(:p AS BIGINT) AND $."f2" IS NOT NULL)'
     assert doc_pred(tree, keep_not=True) == 'NOT (($."f1" = CAST(:p AS BIGINT) OR $."f2" IS NULL))'
-    member = Compound("source", "NOT", (Predicate("source", "f3", "CONTAINS", "p", 5, True, "list"),))
+    member = Compound("source", "NOT", (Predicate("source", "f3", "HAS", "p", 5, True, "list"),))
     assert not doc_filter_ok(member) and doc_filter_ok(member, keep_not=True)
     assert doc_pred(member, keep_not=True) == 'NOT (FOR ANY "e" IN $."f3" SATISFIES "e" = CAST(:p AS BIGINT) END)'
     like = Compound("source", "NOT", (Predicate("source", "f2", "LIKE", "p", "a%", True, "string"),))

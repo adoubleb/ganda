@@ -185,7 +185,7 @@ def _views_ask(q: SelectQuery, pred) -> bool:
     # list); the Document Store refuses that doubly-nested UNNEST view inside a subquery
     # ("unsupported form of subquery with UNNEST"). A node's single-UNNEST element view
     # is fine. The collection's own FOR ANY filter covers the edge shape.
-    if q.edge and pred is not None and any(leaf.op in ("CONTAINS", "CONTAINSANY", "CONTAINSALL") for leaf in pred.leaves()):
+    if q.edge and pred is not None and any(leaf.op in ("HAS", "HAS ANY", "HAS ALL") for leaf in pred.leaves()):
         return False
     return True
 

@@ -88,7 +88,7 @@ def test_insub_guards():
     assert select_known(q, SelectSyntax(position="scan"), Rewrites(), "graph", schema, inst) is None
     assert select_known(q, BASE, Rewrites(), "doc", schema, inst) is None
     # O39: a CONTAINSVALUE in the inner predicate, on every data model and position
-    cv = Predicate("source", "g1", "CONTAINSVALUE", "ps", 2**40, ftype="map")
+    cv = Predicate("source", "g1", "HAS VALUE", "ps", 2**40, ftype="map")
     q39 = SelectQuery("n1", _insub(cv, pivot=[]), "ids")
     assert {select_known(q39, sp, Rewrites(), s, schema, inst) for s in ("doc", "rel") for sp in (BASE, SelectSyntax(position="scan"))} == {"O39"}
 

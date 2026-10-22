@@ -107,7 +107,7 @@ def can_pull_up(q: TraversalQuery) -> bool:
     """A source predicate can be lifted over a projection unless it tests definedness
     (an absent attribute projects as an explicit null)."""
     p = q.source_predicate
-    return p is not None and not has_op(p, ("IS DEFINED", "IS NOT DEFINED"))
+    return p is not None and not has_op(p, ("IS PRESENT", "IS ABSENT"))
 
 
 def syntaxes_for(q: TraversalQuery, schema: Schema, data_model: str) -> list:
