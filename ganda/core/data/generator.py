@@ -231,9 +231,9 @@ class GeneratorConfig:
         "statements_per_request": "statements per setup request (0: the engine's own bulk form)",
     }
 
-    min_node_types: int = 2
+    min_node_types: int = 1
     max_node_types: int = 10
-    min_edge_types: int = 2
+    min_edge_types: int = 1
     max_edge_types: int = 20
     min_fields_per_type: int = 1
     max_fields_per_type: int = 4

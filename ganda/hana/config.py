@@ -17,6 +17,8 @@ class HanaConfig(GeneratorConfig):
         "graph_cache_probability": "chance the graph workspace is created NO CACHE (graph data model)",
     }
 
+    # HANA must have at least 2 node classes or else, bug H7 will trigger
+    min_node_types: int = 2
     # the index on `id`, per data model: one of `dialect.ID_INDEX_KINDS` instead of the
     # PRIMARY KEY (rel) / no index (doc)
     id_index_probability: float = 0.5
