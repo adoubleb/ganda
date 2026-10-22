@@ -1,6 +1,7 @@
 """The layering rule: the core knows no engine, and every registered provider fills the
 contract."""
 import ast
+import re
 import importlib
 import pathlib
 
@@ -33,6 +34,22 @@ def test_the_core_imports_no_registry_at_module_level():
         assert not top, p
 
 
+# engine names and schema vocabulary the core must not use, in code or comments: an
+# engine option is a value the provider draws and reads (`IndexSpec.options`,
+# `NodeTypeSpec.options`, `IndexSpec.kind`, `Schema.id_index`)
+ENGINE_WORDS = (
+    "OrientDB", "ArangoDB", "HANA", "SurrealDB", "AQL", "SPARQL", "Cypher", "RID",
+    "NOTUNIQUE", "DICTIONARY", "HASH_INDEX", "CLUSTERS", "BY KEY", "BY VALUE",
+    "EMBEDDED", "EMBEDDEDMAP", "COLLATE", "EXTENDS V",
+)
+
+
+def test_the_core_names_no_engine():
+    pattern = re.compile(r"(?<![A-Za-z_])(" + "|".join(re.escape(w) for w in ENGINE_WORDS) + r")(?![A-Za-z_])")
+    offenders = [f"{p.relative_to(ROOT)}:{i}: {m.group(1)}" for p in sorted((ROOT / "core").rglob("*.py")) for i, line in enumerate(p.read_text().splitlines(), 1) for m in pattern.finditer(line)]
+    assert not offenders, offenders
+
+
 def test_providers_do_not_import_each_other():
     for name in PROVIDERS:
         others = tuple(f"ganda.{n}" for n in PROVIDERS if n != name)
@@ -58,7 +75,7 @@ def test_a_full_provider_fills_every_slot():
         assert set(engine.mappers) == set(engine.data_models)
         for slot, members in {
             "pivots": ("NULL_OPS", "ORDERED_OPS", "LIKE_WILDCARDS", "ordered_ops", "cross_type", "refine"),
-            "physical_design": ("draw_index_kind", "NON_UNIQUE_KINDS", "EDGE_INDEX_DATA_MODELS", "is_unique", "holds_one_record_per_key", "demoted_kind", "index_key_value", "draw_id_indexes", "draw_storage_options", "draw_write_form", "is_valid_key", "BOUNDARY_VALUES"),
+            "physical_design": ("draw_index_kind", "NON_UNIQUE_KINDS", "EDGE_INDEX_DATA_MODELS", "is_unique", "holds_one_record_per_key", "demoted_kind", "index_key_value", "draw_id_indexes", "draw_index_options", "draw_storage_options", "draw_write_form", "is_valid_key", "BOUNDARY_VALUES"),
             "traversal_syntax": ("syntaxes_for", "render", "can_pull_up"),
             "select_syntax": ("BASE", "METHODS", "method_fn", "build_rewrites", "extra_binds", "rewrite_params", "base_data_models", "syntaxes_for", "applicable", "render"),
             "path_syntax": ("render_all", "bind_vars"),

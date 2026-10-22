@@ -54,7 +54,7 @@ from ganda.core.data.model import (
     Schema,
     WriteForm,
 )
-from ganda.orientdb.storage.dialect import ORIENT_TYPES, UNIQUE_KINDS
+from ganda.orientdb.storage.dialect import DEFAULT_ID_INDEX, ORIENT_TYPES, UNIQUE_KINDS
 from ganda.orientdb.engine.limits import LIMITS
 
 
@@ -134,7 +134,7 @@ def class_steps(name: str, fields: tuple, superclass: "str | None" = None, extra
 
 
 def id_index_step(table: str, schema: Schema, data_model: str) -> list:
-    kind = schema.id_index_kind(data_model)
+    kind = schema.id_index_kind(data_model) or DEFAULT_ID_INDEX
     if kind == "none":
         return []
     return [Sql(f"CREATE INDEX {table}_id ON {table} (id) {kind}")]
@@ -146,7 +146,8 @@ def index_step(ix: IndexSpec) -> Sql:
     the key `null` and rejects the second record lacking it), so `ignore_nulls` is
     only an axis when both values are rendered out. A map index names its data model
     (`m BY KEY` / `m BY VALUE`)."""
-    fields = ", ".join(ix.all_fields) + (f" BY {ix.by}" if ix.by else "")
+    by = ix.option("by")
+    fields = ", ".join(ix.all_fields) + (f" BY {by}" if by else "")
     metadata = f" METADATA {{ignoreNullValues: {'true' if ix.ignore_nulls else 'false'}}}"
     return Sql(f"CREATE INDEX {ix.name()} ON {ix.table} ({fields}) {ix.kind}{metadata}")
 
@@ -157,7 +158,7 @@ def node_ddl(schema: Schema, data_model: str, superclass: "str | None" = None, e
         steps += class_steps(schema.base.name, schema.base.fields, superclass, abstract=True)
         superclass = schema.base.name
     for nt in schema.node_types:
-        steps += class_steps(nt.name, nt.fields, superclass, extra(nt) if extra else None, declare_id=schema.base is None, clusters=nt.clusters)
+        steps += class_steps(nt.name, nt.fields, superclass, extra(nt) if extra else None, declare_id=schema.base is None, clusters=nt.option("clusters", 1))
         steps += id_index_step(nt.name, schema, data_model)
     for ix in schema.indexes:
         if ix.target == "node" and ix.applies_to(data_model):

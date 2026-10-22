@@ -8,7 +8,7 @@ import dataclasses
 import random
 
 from ganda.core.data.generator import BOUNDARY_VALUES  # noqa: F401 -- every one probed to round-trip on 3.2.56
-from ganda.core.data.model import WriteForm
+from ganda.core.data.model import FieldType, WriteForm, options
 from ganda.core.rng import stream
 from ganda.orientdb.storage.dialect import (
     EDGE_FROM_FORMS,
@@ -80,6 +80,11 @@ def draw_id_indexes(seed: "int | None", cfg) -> dict:
     return id_index
 
 
+def draw_index_options(rng: random.Random, ftype: FieldType) -> tuple:
+    """A map index keys either the map's keys or its values (`by`: KEY / VALUE)."""
+    return options(by=rng.choice(("KEY", "VALUE"))) if ftype is FieldType.MAP else ()
+
+
 def draw_storage_options(seed: "int | None", cfg, node_types: tuple) -> tuple:
     """The clusters axis: a class spread over 2 or 3 physical clusters."""
     if seed is None or cfg.clusters_probability <= 0:
@@ -88,7 +93,7 @@ def draw_storage_options(seed: "int | None", cfg, node_types: tuple) -> tuple:
     for nt in node_types:
         r = stream(seed, "clusters", nt.name)
         if r.random() < cfg.clusters_probability:
-            nt = dataclasses.replace(nt, clusters=r.choice((2, 3)))
+            nt = dataclasses.replace(nt, options=options(**dict(nt.options), clusters=r.choice((2, 3))))
         out.append(nt)
     return tuple(out)
 

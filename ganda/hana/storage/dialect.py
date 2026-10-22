@@ -79,6 +79,7 @@ UNIQUE_KINDS = ("UNIQUE",)
 # the kind of the index on `id` per data model (`Schema.id_index`): a missing data
 # model means "UNIQUE", rendered as the table's PRIMARY KEY
 ID_INDEX_KINDS = ("UNIQUE_INDEX", "INDEX", "none")
+DEFAULT_ID_INDEX = "UNIQUE"
 
 # --- setup write forms (`WriteForm`, `physical_design.draw_write_form`) ---------------------
 

@@ -98,8 +98,8 @@ ORIENT_TYPES = {
 # column whose values are distinct on every data model. `IndexSpec.ignore_nulls` is the
 # METADATA `ignoreNullValues`, always rendered out (the engine's default is false: a null
 # or ABSENT field is the key `null`, which a unique index holds once -- probed);
-# `IndexSpec.by` is a map index's `BY KEY` (serves CONTAINSKEY) or `BY VALUE` (serves
-# CONTAINSVALUE). An edge index sits on the graph data model's E subclass and the relational
+# the index option `by` (`physical_design.draw_index_options`) is a map index's `BY KEY`
+# (serves CONTAINSKEY) or `BY VALUE` (serves CONTAINSVALUE). An edge index sits on the graph data model's E subclass and the relational
 # data model's junction class; the doc data model has nothing to index (an embedded list's
 # sub-field is not indexable, probed). The planner uses a composite index for a
 # predicate on its first field only, and a base class's index for a query on any
@@ -115,8 +115,10 @@ RANGE_KINDS = ("NOTUNIQUE", "UNIQUE", "DICTIONARY")
 # issue-drafts/O1 depends on whether the outer query of a correlated subquery is
 # index-served.
 ID_INDEX_KINDS = ("UNIQUE", "UNIQUE_HASH_INDEX", "NOTUNIQUE", "none")
+# the id index when the id index axis drew none for a data model
+DEFAULT_ID_INDEX = "UNIQUE"
 
-# `NodeTypeSpec.clusters` is `CREATE CLASS n1 ... CLUSTERS n` (the
+# the storage option `clusters` is `CREATE CLASS n1 ... CLUSTERS n` (the
 # `clusters_probability` axis): records are spread round-robin over n clusters, so a
 # class scan is a multi-cluster fetch and an index covers several clusters (probed:
 # queries answer alike).

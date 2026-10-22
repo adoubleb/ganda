@@ -3,10 +3,10 @@
 An `Instance` is a small labelled property graph: typed node classes and typed edge
 (relationship) classes connecting them, plus concrete row/edge data.
 
-Nothing here is engine vocabulary except the VALUES of a few physical-design knobs --
-`IndexSpec.kind` / `ignore_nulls` / `by`, `Schema.id_index`, `NodeTypeSpec.clusters`,
-the `WriteForm` fields -- which this module carries without interpreting: a provider's
-`physical_design` draws them and its mapping reads them. A schema knows the provider it
+Nothing here is engine vocabulary. Engine options -- `IndexSpec.kind` and `options`,
+`NodeTypeSpec.options`, `Schema.id_index`, the `WriteForm` fields -- are values this
+module carries without reading: a provider's `physical_design` draws them and its
+mapping reads them. A schema knows the provider it
 was generated for (`Schema.engine`), which is how the layers below reach the engine's
 semantics, concrete syntax and known bugs.
 """
@@ -56,6 +56,17 @@ GROWABLE_TYPES = (FieldType.STRING, FieldType.BINARY, FieldType.LIST)
 MAP_KEYS = ("k1", "k2", "k3", "k4")
 
 
+def options(**kw) -> tuple:
+    """Engine options as hashable `(name, value)` pairs, in name order; a None value
+    is left out."""
+    return tuple(sorted((k, v) for k, v in kw.items() if v is not None))
+
+
+class _HasOptions:
+    def option(self, name: str, default: Any = None) -> Any:
+        return dict(self.options).get(name, default)
+
+
 @dataclass(frozen=True)
 class FieldSpec:
     name: str  # e.g. "f1"
@@ -68,26 +79,20 @@ class FieldSpec:
 
 
 @dataclass(frozen=True)
-class IndexSpec:
-    """A secondary index on node field `field` (plus `extra_fields`, a composite) of
-    class `table` (or, with `target == "edge"`, on attribute `field` of edge type
-    `table`: the graph data model's edge class and the relational data model's junction table; the
-    doc data model has none). `data_model` picks which materialization defines it: "doc", "graph",
-    "rel" or "both" (= every data model). A one-sided index turns every identical-text case
-    whose WHERE touches the field into an index-vs-scan oracle across two databases
-    holding the same node data. `kind`, `ignore_nulls` (whether a record with a null
-    key gets an entry) and `by` (a map index's key or value data model) are engine options
-    (the provider's `dialect`)."""
+class IndexSpec(_HasOptions):
+    """A secondary index on `field` (plus `extra_fields` for a composite index) of node class
+    or, with `target="edge"`, edge type `table`. `data_model` names the databases that
+    get it ("both" = all). `kind` and `options` are the engine's; `ignore_nulls` says
+    whether a record with a null key gets an entry."""
 
     table: str
     field: str
     data_model: str = "both"
-    kind: str = "NOTUNIQUE"
+    kind: "str | None" = None
     extra_fields: tuple = ()
     ignore_nulls: bool = True
     target: str = "node"
-    # a map index: `BY KEY` (serves CONTAINSKEY) or `BY VALUE` (serves CONTAINSVALUE)
-    by: "str | None" = None
+    options: tuple = ()
 
     @property
     def all_fields(self) -> tuple:
@@ -99,16 +104,14 @@ class IndexSpec:
         return self.data_model == "both" or self.data_model == data_model
 
     def name(self) -> str:
-        return f"ix_{self.table}_{'_'.join(self.all_fields)}" + (f"_by{self.by.lower()}" if self.by else "")
+        return f"ix_{self.table}_{'_'.join(self.all_fields)}" + "".join(f"_{k}{str(v).lower()}" for k, v in self.options)
 
 
 @dataclass(frozen=True)
-class NodeTypeSpec:
+class NodeTypeSpec(_HasOptions):
     name: str  # class name -- synthetic, e.g. "n1"
     fields: tuple
-    # an engine option: the number of physical partitions the class's records are
-    # spread over (a provider's storage axis)
-    clusters: int = 1
+    options: tuple = ()  # the engine's storage options for the class
 
 
 @dataclass(frozen=True)
@@ -127,8 +130,8 @@ class Schema:
     node_types: tuple
     edge_types: tuple
     indexes: tuple = ()
-    # data model -> the kind of index on `id` (an engine option;
-    # "none": no index); a missing data model means "UNIQUE".
+    # data model -> the kind of index on `id` (an engine option; "none": no index); a
+    # missing data model means the engine's default.
     id_index: dict = field(default_factory=dict)
     # The inheritance axis: an ABSTRACT base class every node class extends, declaring
     # `id` and `base.fields` (`b1`, ...), so a query on the base is polymorphic over
@@ -194,8 +197,9 @@ class Schema:
     def edge_types_to(self, node_type: str) -> list:
         return [et for et in self.edge_types if et.to_type == node_type]
 
-    def id_index_kind(self, data_model: str) -> str:
-        return self.id_index.get(data_model, "UNIQUE")
+    def id_index_kind(self, data_model: str) -> "str | None":
+        """None: the engine's default."""
+        return self.id_index.get(data_model)
 
     def node_indexes(self, table: str, field_name: str, data_model: str) -> list:
         """Every index on `data_model` whose LEAD field can serve a predicate on `field` of

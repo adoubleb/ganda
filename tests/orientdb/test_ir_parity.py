@@ -79,7 +79,7 @@ def test_insub_renders_evaluates_and_round_trips():
 
 
 def test_insub_guards():
-    ix = IndexSpec("n1", "f1", data_model="graph")
+    ix = IndexSpec("n1", "f1", data_model="graph", kind="NOTUNIQUE")
     schema, inst = _fixture([ix])
     null_listed = predicates.resolve_subs(_insub(), inst)  # [2, 7, None]
     q = SelectQuery("n1", null_listed, "ids")
@@ -104,7 +104,7 @@ def test_join_reference_keeps_the_outer_records_only():
 
 
 def test_join_syntaxes_and_o1():
-    ix = IndexSpec("n1", "f2", data_model="rel")
+    ix = IndexSpec("n1", "f2", data_model="rel", kind="NOTUNIQUE")
     schema, inst = _fixture([ix])
     where = Predicate("source", "f2", "=", "p", "a", ftype="string")
     q = SelectQuery("n1", where, "join", ("f1",), fn="<", arg="ids")
@@ -304,7 +304,7 @@ def test_o17_covers_a_map_entry_between():
 def test_scan_verdict_is_not_masked_by_an_index_finding():
     # a semi-join with a null answered value (O14 where served) next to a reversed
     # date leaf with a string pivot (O32 on every data model): the scan side is O32
-    ix = IndexSpec("n1", "f2", data_model="graph")
+    ix = IndexSpec("n1", "f2", data_model="graph", kind="NOTUNIQUE")
     schema = Schema(
         node_types=(NodeTypeSpec("n1", (FieldSpec("f2", FieldType.STRING), FieldSpec("d", FieldType.DATETIME))), NodeTypeSpec("n2", (FieldSpec("g", FieldType.STRING),))),
         edge_types=(),

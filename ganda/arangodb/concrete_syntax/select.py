@@ -327,7 +327,7 @@ def _door(p, q: SelectQuery, schema: Schema, data_model: str) -> "str | None":
     if not isinstance(p, Predicate) or p.key is not None or p.sub is not None or p.op not in _HINT_OPS or p.ftype in ("list", "map") or q.edge:
         return None
     for ix in schema.indexes:
-        if ix.target == "node" and ix.table == q.table and ix.field == p.field and ix.by is None and not ix.extra_fields and ix.applies_to(data_model):
+        if ix.target == "node" and ix.table == q.table and ix.field == p.field and ix.option("by") is None and not ix.extra_fields and ix.applies_to(data_model):
             # a sparse index holds no null key, and a null satisfies `<` / `<=` under the
             # total order: the planner refuses the hint there (errorNum 1577); so does
             # a composite index under a condition on its lead field alone

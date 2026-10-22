@@ -199,8 +199,10 @@ class Provider:
                     draw_index_kind(rng), NON_UNIQUE_KINDS, EDGE_INDEX_DATA_MODELS,
                     is_unique(ix), holds_one_record_per_key(ix), demoted_kind(kind),
                     index_key_value(v, ci), draw_id_indexes(seed, cfg),
-                    draw_storage_options(seed, cfg, node_types), draw_write_form(rng),
-                    is_valid_key(key), BOUNDARY_VALUES
+                    draw_index_options(rng, ftype) (an index's `options`),
+                    draw_storage_options(seed, cfg, node_types) (a node type's
+                    `options`), draw_write_form(rng), is_valid_key(key),
+                    BOUNDARY_VALUES; an id index left undrawn is the engine's default
     mappers         {data model: Instance -> setup plan}
     traversal_syntax  syntaxes_for(q, schema, dm), render(q, schema, dm, syntax,
                     pull_up=False), can_pull_up(q)

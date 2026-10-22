@@ -22,7 +22,7 @@ from ganda.core.query.ir import write as write_ast
 from ganda.core.query.ir.predicates import Compound
 from ganda.core.data.generator import BOUNDARY_VALUES, GeneratorConfig
 from ganda.core.data.limits import StorageLimits
-from ganda.core.data.model import WriteForm
+from ganda.core.data.model import FieldType, WriteForm, options
 from ganda.core.mutation.mutants import INSTANCE_MUTANTS
 from ganda.core.engine.provider import EngineError, Provider, Semantics, Server, Session
 from ganda.core.engine.setup_plan import step
@@ -388,6 +388,10 @@ class _PhysicalDesign:
     @staticmethod
     def draw_id_indexes(seed, cfg) -> dict:
         return {}
+
+    @staticmethod
+    def draw_index_options(rng, ftype) -> tuple:
+        return options(side=rng.choice(("KEY", "VALUE"))) if ftype is FieldType.MAP else ()
 
     @staticmethod
     def draw_storage_options(seed, cfg, node_types):

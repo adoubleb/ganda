@@ -14,7 +14,7 @@ import dataclasses
 import random
 
 from ganda.core.data.generator import BOUNDARY_VALUES as _CORE_BOUNDARY_VALUES
-from ganda.core.data.model import FieldType, WriteForm
+from ganda.core.data.model import FieldType, WriteForm, options
 from ganda.core.rng import stream
 from ganda.hana.storage.dialect import (
     EDGE_UPDATE_FORMS,
@@ -119,6 +119,11 @@ def graph_cache(schema) -> str:
     return schema.id_index.get(GRAPH_CACHE_KEY, "dynamic")
 
 
+def draw_index_options(rng: random.Random, ftype: FieldType) -> tuple:
+    """No index option: the provider models no MAP type."""
+    return ()
+
+
 def draw_storage_options(seed: "int | None", cfg, node_types: tuple) -> tuple:
     """The partition axis: a class's column table hash-partitioned into 2 or 3 parts."""
     if seed is None or cfg.clusters_probability <= 0:
@@ -127,7 +132,7 @@ def draw_storage_options(seed: "int | None", cfg, node_types: tuple) -> tuple:
     for nt in node_types:
         r = stream(seed, "clusters", nt.name)
         if r.random() < cfg.clusters_probability:
-            nt = dataclasses.replace(nt, clusters=r.choice((2, 3)))
+            nt = dataclasses.replace(nt, options=options(**dict(nt.options), partitions=r.choice((2, 3))))
         out.append(nt)
     return tuple(out)
 

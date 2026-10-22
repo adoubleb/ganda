@@ -17,7 +17,7 @@ from ganda.orientdb.known_bugs.guards import (
     o44_dfs_reach,
 )
 from ganda.orientdb.known_bugs.java_hash import distinct_collides, java_hash, string_hash
-from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
+from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema, options
 from ganda.core.query.ir.traversal import Hop, TraversalQuery
 from ganda.orientdb.facade.predicates import Compound, Predicate, arithmetic
 from ganda.orientdb.oracle.semantics import like_hit
@@ -98,22 +98,22 @@ def test_o5_sibling_faces():
     assert not o5_sibling_filter(_inheritance_schema([]), "n1", tree, "doc")
     # a sibling's LIST index on the same-named field converts a date pivot
     eq = Predicate("source", "f2", "=", "p", "2024-08-18 08:18:40", ftype="datetime")
-    both = [IndexSpec("n1", "f2", data_model="graph"), IndexSpec("n2", "f2", data_model="graph")]
+    both = [IndexSpec("n1", "f2", data_model="graph", kind="NOTUNIQUE"), IndexSpec("n2", "f2", data_model="graph", kind="NOTUNIQUE")]
     assert o5_poly_sibling_index(_inheritance_schema(both), "n1", eq, "graph")
     assert not o5_poly_sibling_index(_inheritance_schema(both), "n1", eq, "doc")
     # probed: the sibling's index alone, or a range, answers
-    assert not o5_poly_sibling_index(_inheritance_schema([IndexSpec("n2", "f2", data_model="graph")]), "n1", eq, "graph")
+    assert not o5_poly_sibling_index(_inheritance_schema([IndexSpec("n2", "f2", data_model="graph", kind="NOTUNIQUE")]), "n1", eq, "graph")
     assert not o5_poly_sibling_index(_inheritance_schema(both), "n1", Predicate("source", "f2", ">", "p", "2024-08-18 08:18:40", ftype="datetime"), "graph")
     # CONTAINSVALUE through a BY VALUE hash or dictionary map index: a 501
     cv = Predicate("source", "m", "CONTAINSVALUE", "p", 2**31, ftype="map")
-    assert map_value_index_known(_inheritance_schema([IndexSpec("N0", "m", kind="NOTUNIQUE_HASH_INDEX", by="VALUE")]), "n1", cv, "doc") == "O5"
-    assert map_value_index_known(_inheritance_schema([IndexSpec("N0", "m", kind="DICTIONARY", by="VALUE")]), "n1", cv, "doc") == "O5"
-    assert map_value_index_known(_inheritance_schema([IndexSpec("N0", "m", kind="NOTUNIQUE", by="VALUE")]), "n1", cv, "doc") is None
-    assert map_value_index_known(_inheritance_schema([IndexSpec("N0", "m", kind="NOTUNIQUE_HASH_INDEX", by="KEY")]), "n1", cv, "doc") is None
+    assert map_value_index_known(_inheritance_schema([IndexSpec("N0", "m", kind="NOTUNIQUE_HASH_INDEX", options=options(by="VALUE"))]), "n1", cv, "doc") == "O5"
+    assert map_value_index_known(_inheritance_schema([IndexSpec("N0", "m", kind="DICTIONARY", options=options(by="VALUE"))]), "n1", cv, "doc") == "O5"
+    assert map_value_index_known(_inheritance_schema([IndexSpec("N0", "m", kind="NOTUNIQUE", options=options(by="VALUE"))]), "n1", cv, "doc") is None
+    assert map_value_index_known(_inheritance_schema([IndexSpec("N0", "m", kind="NOTUNIQUE_HASH_INDEX", options=options(by="KEY"))]), "n1", cv, "doc") is None
 
 
 def test_o31_desc_walk():
-    schema = Schema((NodeTypeSpec("n1", (FieldSpec("f", FieldType.INT),)),), (), (IndexSpec("n1", "f", ignore_nulls=False),))
+    schema = Schema((NodeTypeSpec("n1", (FieldSpec("f", FieldType.INT),)),), (), (IndexSpec("n1", "f", ignore_nulls=False, kind="NOTUNIQUE"),))
     update = TxWrite("n1", "update", "f", "n1/r1", 500)
     assert o31_desc_walk(schema, "n1", ["f"], ["DESC"], update, "doc")
     assert not o31_desc_walk(schema, "n1", ["f"], ["ASC"], update, "doc")

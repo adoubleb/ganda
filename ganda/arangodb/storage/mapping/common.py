@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 from ganda.core.data.generator import initial_node_values, initial_nodes  # noqa: F401
 from ganda.core.data.model import EdgeUpdate, FieldType, Instance, NodeUpdate, Schema, WriteForm
 from ganda.core.engine.setup_plan import churned_away_edges, initial_edge_values, initial_edges, step, step_from_dict  # noqa: F401
-from ganda.arangodb.storage.dialect import UNIQUE_KINDS, document_key, engine_id
+from ganda.arangodb.storage.dialect import DEFAULT_ID_INDEX, UNIQUE_KINDS, document_key, engine_id
 from ganda.arangodb.engine.limits import LIMITS
 
 
@@ -153,7 +153,7 @@ def _index_fields(schema: Schema, ix) -> "list | None":
     """The attribute paths an index spec names: a LIST field expanded (`f[*]`, the
     array index over its elements); None for a map index (`BY KEY` / `BY VALUE` has no
     equivalent: the spec stays in the schema, inert)."""
-    if ix.by is not None:
+    if ix.option("by") is not None:
         return None
     out = []
     for f in ix.all_fields:
@@ -175,8 +175,8 @@ def _index_collections(schema: Schema, ix) -> list:
 def index_steps(schema: Schema, data_model: str) -> list:
     """The index on `id` of every node collection (unique unless the id index axis drew
     a plain one), then this data model's indexes."""
-    kind = schema.id_index_kind(data_model)
-    steps = [CreateIndex(nt.name, ["id"], f"ix_{nt.name}_id", unique=kind in ("UNIQUE",) + UNIQUE_KINDS) for nt in schema.node_types]
+    kind = schema.id_index_kind(data_model) or DEFAULT_ID_INDEX
+    steps = [CreateIndex(nt.name, ["id"], f"ix_{nt.name}_id", unique=kind in UNIQUE_KINDS) for nt in schema.node_types]
     for ix in schema.indexes:
         if not ix.applies_to(data_model):
             continue

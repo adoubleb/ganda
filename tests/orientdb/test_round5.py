@@ -96,7 +96,7 @@ def test_list_operators_reference_and_rewrite():
 
 
 def test_list_ops_guard_names_the_boxed_faces():
-    sch = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.LIST),)),), edge_types=(), indexes=(IndexSpec("n1", "f1", data_model="rel"),))
+    sch = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.LIST),)),), edge_types=(), indexes=(IndexSpec("n1", "f1", data_model="rel", kind="NOTUNIQUE"),))
     boxed = Predicate("source", "f1", "CONTAINSANY", "p", [1, 2], ftype="list")
     assert list_ops_known(sch, "n1", boxed, "doc") == "O7"  # a scan
     assert list_ops_known(sch, "n1", boxed, "rel") is None  # the list index converts the keys
@@ -108,7 +108,7 @@ def test_list_ops_guard_names_the_boxed_faces():
 
 
 def test_reversed_and_arithmetic_leaves_are_never_index_served():
-    sch = _schema([IndexSpec("n1", "f1", data_model="both")])
+    sch = _schema([IndexSpec("n1", "f1", data_model="both", kind="NOTUNIQUE")])
     plain = Predicate("source", "f1", "<", "p", 5, ftype="int")
     assert _leaf_served(sch, "n1", plain, "doc")
     assert not _leaf_served(sch, "n1", reverse(plain), "doc")
@@ -188,7 +188,7 @@ def test_order_form_withholds_the_asc_walk_of_a_composite_index_with_a_null_comp
 
 
 def test_list_ops_guard_scans_under_not_or_and_on_the_scan_rewrite():
-    sch = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.LIST), FieldSpec("f2", FieldType.INT))),), edge_types=(), indexes=(IndexSpec("n1", "f1", data_model="both"),))
+    sch = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.LIST), FieldSpec("f2", FieldType.INT))),), edge_types=(), indexes=(IndexSpec("n1", "f1", data_model="both", kind="NOTUNIQUE"),))
     boxed = Predicate("source", "f1", "CONTAINSANY", "p_0", [1, 2], ftype="list")
     other = Predicate("source", "f2", "<=", "p_1", 0, ftype="int")
     assert list_ops_known(sch, "n1", boxed, "graph") is None

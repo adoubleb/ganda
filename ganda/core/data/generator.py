@@ -2,7 +2,7 @@
 
 Identifiers are synthetic (`n1`, `e1`, `f1`, `r0`) 
 
-Customizations that can be switched off, e.g. node deletion, `ci` collation, list indexes, clusters
+Customizations that can be switched off, e.g. node deletion, case-insensitive collation, list indexes, storage options
 draw from *tail* streams keyed by their own name, so at probability 0 they reproduce exactly what 
 the generator produced without them.
 
@@ -120,7 +120,7 @@ BOUNDARY_VALUES = {
     FieldType.MAP: [{}, {"k1": 0}, {"k1": 1, "k2": 2}, {"k2": 2**40}, {"k1": -1, "k2": 0, "k3": 1}, {"k4": I64_MAX}, {"k1": 1, "k1x": 1} if False else {"k3": 7, "k4": -7}, {"k1": 2**31 - 1, "k2": 2**31}],
     # byte strings as their base64 text: single bytes, runs, every byte value, the
     # three padding lengths, bytes that read as text or as a record id, invalid UTF-8,
-    # a byte-order mark. No EMPTY byte string: an engine may store it as null (OrientDB
+    # a byte-order mark. No EMPTY byte string: an engine may store it as null (one
     # does, probed), which would be a divergence of the fuzzer's own making
     FieldType.BINARY: [
         _b64(b) for b in (
@@ -218,7 +218,7 @@ class GeneratorConfig:
         "inheritance_probability": "chance of an abstract base class every node class extends",
         "narrow_type_probability": "chance an INT or FLOAT field becomes a narrower numeric column (INTEGER, FLOAT, DECIMAL)",
         "date_map_probability": "chance an INT field becomes a DATETIME or DATE column, or a LIST field a map column",
-        "collate_probability": "chance a STRING field is declared case-insensitive (COLLATE ci)",
+        "collate_probability": "chance a STRING field is declared case-insensitive",
         "list_index_probability": "chance a LIST or MAP field gets an index over its elements, keys or values",
         "churn_edge_update_probability": "chance an edge is written with initial attributes and then updated",
         "traversal_cases": "traversal questions asked per generated instance",
@@ -281,16 +281,13 @@ class GeneratorConfig:
     # unchanged, so only the retyped column's values move.
     narrow_type_probability: float = 0.0
     # Per node field: an INT field becomes a DATETIME or a DATE column, a LIST field
-    # an EMBEDDEDMAP LONG (`FieldType.DATETIME` / `DATE` / `MAP`); tail streams too.
+    # a MAP; tail streams too.
     date_map_probability: float = 0.0
-    # Per STRING node field: `COLLATE ci`, and every stored value of the field is
-    # case-flipped with probability 0.5 so case variants collide.
+    # Per STRING node field: a case-insensitive collation, and every stored value of the
+    # field is case-flipped with probability 0.5 so case variants collide.
     collate_probability: float = 0.0
-    # Per node class: 2 or 3 clusters (`CREATE CLASS ... CLUSTERS n`).
-    # Per LIST node field: a NOTUNIQUE / NOTUNIQUE_HASH_INDEX index on the list (an
-    # index over the elements: `CONTAINSANY` and a list `=` / `IN` are served by it,
-    # `CONTAINS` is not, probed). Per MAP node field: the same, `BY KEY` (serves
-    # CONTAINSKEY) or `BY VALUE` (serves CONTAINSVALUE).
+    # Per LIST or MAP node field: a non-unique index over its elements; the provider
+    # draws the index's options (`physical_design.draw_index_options`).
     list_index_probability: float = 0.0
     # Per edge: the relationship is written with initial attribute values and then
     # updated to its final ones (`EdgeUpdate`), through the data model's edge update form.
@@ -486,8 +483,8 @@ def _list_indexes(seed: "int | None", cfg: GeneratorConfig, node_types: tuple, b
                 continue
             r = _stream(seed, "listindex", nt.name, f.name)
             if r.random() < cfg.list_index_probability:
-                by = r.choice(("KEY", "VALUE")) if f.type is FieldType.MAP else None
-                out.append(IndexSpec(table=nt.name, field=f.name, data_model=r.choice(engine.data_models + ("both",)), kind=r.choice(engine.physical_design.NON_UNIQUE_KINDS), ignore_nulls=r.random() < 0.5, by=by))
+                opts = engine.physical_design.draw_index_options(r, f.type)
+                out.append(IndexSpec(table=nt.name, field=f.name, data_model=r.choice(engine.data_models + ("both",)), kind=r.choice(engine.physical_design.NON_UNIQUE_KINDS), ignore_nulls=r.random() < 0.5, options=opts))
     return out
 
 

@@ -178,8 +178,8 @@ def build_case(q: TraversalQuery, rng: random.Random, schema: Schema, instance: 
     for data_model in schema.engine.data_models:
         options = syn.syntaxes_for(q, schema, data_model)
         if not options:
-            # a data model with no syntax for the question (a LIST membership the doc
-            # data model's views cannot ask in a traversal, on SAP HANA) leaves the case
+            # a data model with no syntax for the question (say, a LIST membership its
+            # views cannot ask in a traversal) leaves the case
             # PARTIAL where the provider says so (`Provider.partial_traversals`), as a
             # select does: the others still compare among themselves and with the
             # reference; otherwise the question is dropped on every data model

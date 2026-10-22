@@ -34,7 +34,7 @@ class Predicate:
     pivot: Any
     reference: bool = True
     ftype: "str | None" = None  # the column's `FieldType.value`; None for an untyped embedded value
-    case_insensitive: bool = False  # the column is `COLLATE ci`
+    case_insensitive: bool = False  # the column has a case-insensitive collation
     key: "str | None" = None  # a map entry: the leaf compares `field.key` (or `field[:kb]` when `key_bind`)
     key_bind: str = "" 
     rev: bool = False # reverse operand positions

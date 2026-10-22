@@ -31,7 +31,7 @@ class's table; a query on `N0` reads the view, a write on it the tables.
 from __future__ import annotations
 
 from ganda.core.data.model import EdgeDelete, EdgeUpdate, FieldType, Instance, NodeDelete, NodeUpdate
-from ganda.hana.storage.dialect import ID_TYPE, SQL_TYPES, child_table, list_text
+from ganda.hana.storage.dialect import DEFAULT_ID_INDEX, ID_TYPE, SQL_TYPES, child_table, list_text
 from ganda.hana.storage.mapping.common import Declare, Sql, SqlBatch, Transaction, initial_edge_values, initial_edges, initial_node_values, initial_nodes, wrap
 
 DATA_MODEL = "rel"
@@ -83,12 +83,13 @@ def base_view_ddl(schema) -> list:
 
 def ddl(instance: Instance, data_model: str = DATA_MODEL) -> list:
     schema = instance.schema
-    kind = schema.id_index_kind(data_model)
+    kind = schema.id_index_kind(data_model) or DEFAULT_ID_INDEX
     steps = [Declare(declared_types(instance))]
     for nt in schema.node_types:
         fields = schema.query_fields(nt.name)
         cols = [f"id {ID_TYPE}" + (" PRIMARY KEY" if kind == "UNIQUE" else " NOT NULL")] + _column_defs(fields)
-        part = f" PARTITION BY HASH (id) PARTITIONS {nt.clusters}" if nt.clusters > 1 else ""
+        partitions = nt.option("partitions", 1)
+        part = f" PARTITION BY HASH (id) PARTITIONS {partitions}" if partitions > 1 else ""
         steps.append(Sql(f"CREATE COLUMN TABLE {nt.name} ({', '.join(cols)}){part}"))
         if kind == "UNIQUE_INDEX":
             steps.append(Sql(f"CREATE UNIQUE INDEX ix_{nt.name}_id ON {nt.name} (id)"))

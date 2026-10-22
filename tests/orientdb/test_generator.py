@@ -156,7 +156,7 @@ def test_new_axes_are_tail_axes():
     types = {f.type for nt in schema.node_types for f in nt.fields}
     assert FieldType.INT not in types and FieldType.FLOAT not in types
     for nt in schema.node_types:
-        assert nt.clusters in (2, 3)
+        assert nt.option("clusters") in (2, 3)
         for f in nt.fields:
             if f.type is FieldType.STRING:
                 assert f.case_insensitive
@@ -223,7 +223,7 @@ def test_date_and_map_axes():
                 assert set(v) <= {"k1", "k2", "k3", "k4"}
     # a seed whose schema holds a LIST field, now a map with an index on it
     mapped = next(build(seed, GeneratorConfig(date_map_probability=1.0, list_index_probability=1.0))[1] for seed in range(41, 80) if any(f.type is FieldType.LIST for nt in build(seed, GeneratorConfig())[0].node_types for f in nt.fields))
-    assert any(ix.by in ("KEY", "VALUE") for ix in mapped.schema.indexes)
+    assert any(ix.option("by") in ("KEY", "VALUE") for ix in mapped.schema.indexes)
     ddl = []
     for data_model, mapper in MAPPERS.items():
         texts = [s.command for s in mapper(tail) if hasattr(s, "command")]

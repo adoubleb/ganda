@@ -236,7 +236,7 @@ def _leaf_served(schema: Schema, table: str, leaf, data_model: str, edge: bool =
         return False
     if leaf.op in ("CONTAINSKEY", "CONTAINSVALUE", "VALUES CONTAINS"):
         want = {"CONTAINSKEY": "KEY", "CONTAINSVALUE": "VALUE"}.get(leaf.op)
-        return want is not None and any(ix.by == want for ix in schema.node_indexes(table, leaf.field, data_model))
+        return want is not None and any(ix.option("by") == want for ix in schema.node_indexes(table, leaf.field, data_model))
     return _indexed(schema, table, leaf.field, data_model, edge)
 
 
@@ -997,7 +997,7 @@ def map_value_index_known(schema: Schema, table: str, p, data_model: str, edge: 
     for leaf in _leaves(p):
         if leaf.op != "CONTAINSVALUE" or leaf.key is not None or not _plain(leaf):
             continue
-        if any(ix.by == "VALUE" and (ix.kind in HASH_KINDS or ix.kind == "DICTIONARY") for ix in schema.node_indexes(table, leaf.field, data_model)):
+        if any(ix.option("by") == "VALUE" and (ix.kind in HASH_KINDS or ix.kind == "DICTIONARY") for ix in schema.node_indexes(table, leaf.field, data_model)):
             return "O5"
     return None
 

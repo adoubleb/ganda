@@ -20,10 +20,10 @@ def _schema(indexes=()):
 def test_o1_shape_is_correlated_plus_indexed_source_predicate():
     sp = Predicate("source", "f1", ">", "p0", 0)
     q = TraversalQuery("n1", (Hop("e1", "out"),), "ids", None, sp)
-    assert o1_shape(q, _schema([IndexSpec("n1", "f1", data_model="rel")]), "rel", "let")
-    assert not o1_shape(q, _schema([IndexSpec("n1", "f1", data_model="doc")]), "rel", "let")
-    assert not o1_shape(q, _schema([IndexSpec("n1", "f1", data_model="rel")]), "graph", "chain")
-    assert not o1_shape(TraversalQuery("n1", (Hop("e1", "out"),), "ids"), _schema([IndexSpec("n1", "f1", data_model="rel")]), "rel", "let")
+    assert o1_shape(q, _schema([IndexSpec("n1", "f1", data_model="rel", kind="NOTUNIQUE")]), "rel", "let")
+    assert not o1_shape(q, _schema([IndexSpec("n1", "f1", data_model="doc", kind="NOTUNIQUE")]), "rel", "let")
+    assert not o1_shape(q, _schema([IndexSpec("n1", "f1", data_model="rel", kind="NOTUNIQUE")]), "graph", "chain")
+    assert not o1_shape(TraversalQuery("n1", (Hop("e1", "out"),), "ids"), _schema([IndexSpec("n1", "f1", data_model="rel", kind="NOTUNIQUE")]), "rel", "let")
     # flat: an IN-subquery predicate on the FK next to a correlated LET
     assert o1_shape(TraversalQuery("n1", (Hop("e1", "out"),), "field", "f1", sp), _schema(), "rel", "flat")
     assert not o1_shape(TraversalQuery("n1", (Hop("e1", "out"),), "ids", None, sp), _schema(), "rel", "flat")
@@ -32,14 +32,14 @@ def test_o1_shape_is_correlated_plus_indexed_source_predicate():
 def test_o2_shape_is_correlated_plus_indexed_second_predicate():
     tp = Predicate("target", "f1", ">", "p1", 0)
     q = TraversalQuery("n1", (Hop("e1", "out", tp),), "ids")
-    assert o2_shape(q, _schema([IndexSpec("n1", "f1", data_model="both")]), "rel", "let")
+    assert o2_shape(q, _schema([IndexSpec("n1", "f1", data_model="both", kind="NOTUNIQUE")]), "rel", "let")
     assert not o2_shape(q, _schema(), "rel", "let")
     ep = Predicate("edge", "w", "=", "p1", 0)
     q = TraversalQuery("n1", (Hop("e1", "out", ep),), "ids")
-    assert o2_shape(q, _schema([IndexSpec("e1", "w", data_model="rel", target="edge")]), "rel", "let")
-    assert not o2_shape(q, _schema([IndexSpec("e1", "w", data_model="graph", target="edge")]), "rel", "let")
+    assert o2_shape(q, _schema([IndexSpec("e1", "w", data_model="rel", target="edge", kind="NOTUNIQUE")]), "rel", "let")
+    assert not o2_shape(q, _schema([IndexSpec("e1", "w", data_model="graph", target="edge", kind="NOTUNIQUE")]), "rel", "let")
     null = Predicate("target", "f1", "IS NULL", "", None)
-    assert o2_shape(TraversalQuery("n1", (Hop("e1", "out", null),), "ids"), _schema([IndexSpec("n1", "f1", data_model="both")]), "rel", "let")
+    assert o2_shape(TraversalQuery("n1", (Hop("e1", "out", null),), "ids"), _schema([IndexSpec("n1", "f1", data_model="both", kind="NOTUNIQUE")]), "rel", "let")
 
 
 def test_known_variants_are_marked_on_generated_cases():
@@ -79,7 +79,7 @@ def test_guards_see_leaves_inside_compounds():
     from ganda.orientdb.known_bugs.guards import node_case_known, o10_predicate, o12_literal
     from ganda.orientdb.facade.predicates import Compound
 
-    schema = _schema([IndexSpec("n1", "f1", data_model="rel")])
+    schema = _schema([IndexSpec("n1", "f1", data_model="rel", kind="NOTUNIQUE")])
     inner = Predicate("target", "f1", ">", "p1_0", 0)
     tp = Compound("target", "OR", (Predicate("target", "f1", "IS NULL", "", None), inner))
     q = TraversalQuery("n1", (Hop("e1", "out", tp),), "ids")
@@ -96,7 +96,7 @@ def test_pulled_up_variants_are_judged_without_the_source_predicate():
     from ganda.orientdb.known_bugs.guards import mark_known_bugs
     from ganda.core.oracle.case import Comparison, QueryCase
 
-    schema = _schema([IndexSpec("n1", "f1", data_model="rel")])
+    schema = _schema([IndexSpec("n1", "f1", data_model="rel", kind="NOTUNIQUE")])
     sp = Predicate("source", "f1", ">", "p0", 0)
     q = TraversalQuery("n1", (Hop("e1", "out"),), "ids", None, sp)
     case = QueryCase("ir_traversal", "e1", Comparison.MULTISET_BY_ID, {"doc": "d", "graph": "g", "rel": "r", "rel:pull_up": "h"}, params={"concrete_syntax": {"doc": "path", "graph": "chain", "rel": "let", "rel:pull_up": "let"}, "pulled_up": ["rel:pull_up"]})
@@ -121,7 +121,7 @@ def test_cross_type_guards_o16_o17():
     assert node_case_known("n1", bt, schema, inst) == {"doc": "O17", "graph": "O17", "rel": "O17"}
     ebt = Predicate("edge", "w", "BETWEEN", "p", [0.5, 5])
     assert edge_case_known("e1", ebt, schema, inst) == {"doc": "O17", "graph": "O17", "rel": "O17"}
-    assert edge_case_known("e1", Predicate("edge", "w", "=", "p", 5.5), _schema([IndexSpec("e1", "w", data_model="graph", target="edge")]), inst) == {"graph": "O16"}
+    assert edge_case_known("e1", Predicate("edge", "w", "=", "p", 5.5), _schema([IndexSpec("e1", "w", data_model="graph", target="edge", kind="NOTUNIQUE")]), inst) == {"graph": "O16"}
 
 
 def test_o18_withholds_the_desc_order_variant_under_an_index_that_ignores_nulls():
@@ -159,7 +159,7 @@ def test_new_type_and_collation_guards():
     schema = Schema(
         node_types=(NodeTypeSpec("n1", (FieldSpec("i", FieldType.INT32), FieldSpec("f", FieldType.FLOAT32), FieldSpec("d", FieldType.DECIMAL), FieldSpec("s", FieldType.STRING, case_insensitive=True), FieldSpec("g", FieldType.INT))),),
         edge_types=(EdgeTypeSpec("e1", "n1", "n1", ()),),
-        indexes=(IndexSpec("n1", "i", data_model="rel"), IndexSpec("n1", "f", data_model="doc", kind="NOTUNIQUE_HASH_INDEX"), IndexSpec("n1", "d", data_model="graph"), IndexSpec("n1", "s", data_model="rel"), IndexSpec("n1", "s", data_model="doc", kind="NOTUNIQUE_HASH_INDEX")),
+        indexes=(IndexSpec("n1", "i", data_model="rel", kind="NOTUNIQUE"), IndexSpec("n1", "f", data_model="doc", kind="NOTUNIQUE_HASH_INDEX"), IndexSpec("n1", "d", data_model="graph", kind="NOTUNIQUE"), IndexSpec("n1", "s", data_model="rel", kind="NOTUNIQUE"), IndexSpec("n1", "s", data_model="doc", kind="NOTUNIQUE_HASH_INDEX")),
     )
     # O16: a Long that wraps on an INTEGER index, a double that rounds on a FLOAT index
     assert o16_predicate(schema, "n1", Predicate("source", "i", "=", "p", 2**32 + 5), "rel") and not o16_predicate(schema, "n1", Predicate("source", "i", "=", "p", 5), "rel")
@@ -179,7 +179,7 @@ def test_new_type_and_collation_guards():
     assert node_case_known("n1", Predicate("source", "s", "IN", "p", ["a"]), schema, inst) == {"doc": "O21", "rel": "O21"}
     # O11: `<` on the second field of a composite index next to an equality on its lead
     inst2 = build(3, GeneratorConfig())[1]
-    comp = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f2", FieldType.INT))),), edge_types=(), indexes=(IndexSpec("n1", "f1", extra_fields=("f2",), data_model="both"),))
+    comp = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f2", FieldType.INT))),), edge_types=(), indexes=(IndexSpec("n1", "f1", extra_fields=("f2",), data_model="both", kind="NOTUNIQUE"),))
     from ganda.core.data.model import NodeRow
 
     rows = Instance(comp, [NodeRow("n1", 0, {"f1": 1}), NodeRow("n1", 1, {"f1": 1, "f2": 0})], [])
@@ -190,10 +190,10 @@ def test_new_type_and_collation_guards():
     assert ordered_keys_known(comp, rows, "n1", ["f1", "f2"], ["ASC", "ASC"], "doc") == "O18"
     assert ordered_keys_known(comp, rows, "n1", ["f1"], ["DESC"], "doc") == "O18"
     assert ordered_keys_known(comp, rows, "n1", ["f1", "f2"], ["ASC", "DESC"], "doc") is None
-    keep = Schema(node_types=comp.node_types, edge_types=(), indexes=(IndexSpec("n1", "f1", extra_fields=("f2",), data_model="both", ignore_nulls=False),))
+    keep = Schema(node_types=comp.node_types, edge_types=(), indexes=(IndexSpec("n1", "f1", extra_fields=("f2",), data_model="both", ignore_nulls=False, kind="NOTUNIQUE"),))
     assert ordered_keys_known(keep, rows, "n1", ["f1", "f2"], ["ASC", "ASC"], "doc") == "O23"
     assert ordered_keys_known(keep, rows, "n1", ["f2"], ["ASC"], "doc") is None
-    single = Schema(node_types=comp.node_types, edge_types=(), indexes=(IndexSpec("n1", "f1", data_model="both", ignore_nulls=False),))
+    single = Schema(node_types=comp.node_types, edge_types=(), indexes=(IndexSpec("n1", "f1", data_model="both", ignore_nulls=False, kind="NOTUNIQUE"),))
     assert ordered_keys_known(single, rows, "n1", ["f1"], ["ASC"], "doc") is None
 
 

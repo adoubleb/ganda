@@ -62,7 +62,7 @@ def index_door(p, table: str, schema: Schema, data_model: str) -> "tuple[str, di
     [a, b]` for an AND of equalities over a composite index's fields (a prefix of
     them too). A range through the door is O3's ClassCastException, a BETWEEN through
     a hash index an O5 501: neither is emitted."""
-    own = [ix for ix in schema.indexes if ix.target == "node" and ix.table == table and ix.applies_to(data_model) and ix.by is None]
+    own = [ix for ix in schema.indexes if ix.target == "node" and ix.table == table and ix.applies_to(data_model) and ix.option("by") is None]
     if isinstance(p, Predicate):
         if p.key is not None or p.op not in ("=", "IN", "BETWEEN") or p.ftype in ("list", "map"):
             return None

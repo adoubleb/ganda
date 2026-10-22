@@ -13,7 +13,7 @@ from __future__ import annotations
 import random
 
 from ganda.core.data.generator import BOUNDARY_VALUES as _CORE_BOUNDARY_VALUES
-from ganda.core.data.model import FieldType, WriteForm
+from ganda.core.data.model import FieldType, WriteForm, options
 from ganda.core.rng import stream
 from ganda.arangodb.storage.dialect import (
     EDGE_UPDATE_FORMS,
@@ -95,6 +95,12 @@ def draw_id_indexes(seed: "int | None", cfg) -> dict:
             if r.random() < cfg.id_index_probability:
                 id_index[data_model] = r.choice(ID_INDEX_KINDS)
     return id_index
+
+
+def draw_index_options(rng: random.Random, ftype: FieldType) -> tuple:
+    """A map index keys either the map's keys or its values (`by`: KEY / VALUE); ArangoDB
+    creates neither, the spec stays in the schema inert."""
+    return options(by=rng.choice(("KEY", "VALUE"))) if ftype is FieldType.MAP else ()
 
 
 def draw_storage_options(seed: "int | None", cfg, node_types: tuple) -> tuple:

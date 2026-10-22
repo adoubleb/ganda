@@ -41,6 +41,8 @@ UNIQUE_KINDS = ("unique",)
 # persistent index; the axis may make it a plain one (`persistent`). Never none: a hop
 # of the relational data model is a lookup by `id`, which no large instance can scan
 ID_INDEX_KINDS = ("unique", "persistent")
+# the id index when the id index axis drew none for a data model
+DEFAULT_ID_INDEX = "unique"
 # the write doors (`WriteForm`): the document API's bulk insert or `FOR d IN @docs
 # INSERT d`; a NodeUpdate as UPDATE / REPLACE / UPSERT / `INSERT ... overwriteMode` /
 # PATCH / PUT; a relationship's update as UPDATE or REPLACE; the data steps inside one
