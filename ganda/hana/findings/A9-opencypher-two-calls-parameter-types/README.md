@@ -21,6 +21,46 @@ SELECT ID FROM OPENCYPHER_TABLE(GRAPH WORKSPACE w QUERY 'MATCH (n) WHERE n.I = $
     with (1, 2)       -> [('a',), ('a',)]      expected [('a',), ('b',)]
 ```
 
+## Steps to reproduce
+Plain SQL with BOUND parameters (`?`), e.g. `cursor.execute(sql, [1, 2])` in hdbcli.
+
+1. A vertex table with `a` (i = 1) and `b` (i = 2), and a workspace over it:
+   ```sql
+   CREATE SCHEMA A9_REPRO;
+   SET SCHEMA A9_REPRO;
+   CREATE COLUMN TABLE v (id NVARCHAR(10) PRIMARY KEY, i BIGINT);
+   CREATE COLUMN TABLE e (eid NVARCHAR(10) PRIMARY KEY, src_id NVARCHAR(10) NOT NULL, dst_id NVARCHAR(10) NOT NULL);
+   INSERT INTO v VALUES ('a', 1);
+   INSERT INTO v VALUES ('b', 2);
+   CREATE GRAPH WORKSPACE w
+     VERTEX TABLE v KEY COLUMN id
+     EDGE TABLE e KEY COLUMN eid SOURCE COLUMN src_id TARGET COLUMN dst_id;
+   ```
+2. One call alone binds correctly: bind `(1)` -> `a`; bind `(2)` -> `b`:
+   ```sql
+   SELECT ID FROM OPENCYPHER_TABLE(GRAPH WORKSPACE w
+     QUERY 'MATCH (n) WHERE n.I = $p RETURN n.ID AS ID' PARAMETERS ('p' = ?));
+   ```
+3. Two calls in one statement, bind `(1, 2)` -> **`a, a`** (bug; expected `a, b`):
+   ```sql
+   SELECT ID FROM OPENCYPHER_TABLE(GRAPH WORKSPACE w
+     QUERY 'MATCH (n) WHERE n.I = $p RETURN n.ID AS ID' PARAMETERS ('p' = ?))
+   UNION ALL
+   SELECT ID FROM OPENCYPHER_TABLE(GRAPH WORKSPACE w
+     QUERY 'MATCH (n) WHERE n.I = $q RETURN n.ID AS ID' PARAMETERS ('q' = ?));
+   ```
+4. A SQL `?` before a call, bind `('z', 2)` -> **`[339] invalid number: not a valid number string 'z'`**
+   (bug; expected `z, b`):
+   ```sql
+   SELECT TO_NVARCHAR(?) AS ID FROM DUMMY
+   UNION ALL
+   SELECT ID FROM OPENCYPHER_TABLE(GRAPH WORKSPACE w
+     QUERY 'MATCH (n) WHERE n.I = $p RETURN n.ID AS ID' PARAMETERS ('p' = ?));
+   ```
+5. Clean up: `DROP SCHEMA A9_REPRO CASCADE;`
+
+Reproduced on 4.00.000.00.1788856605 (2026-10-23).
+
 ## Actual (`repro.py`, 2026-10-13)
 ```
   one call, binds (1)                         : OK [('a',)]                 expected [('a',)]

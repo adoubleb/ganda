@@ -25,6 +25,50 @@ as `TOFLOAT('-985.1950000000002')`, match nothing -- as HANA SQL's `WHERE d = ?`
 nothing. `TOFLOAT('-985.1950000000002')` projected comes back as `-985.1950000000002`
 exactly, so the string parser is exact; the numeric-literal parser is not.
 
+## Steps to reproduce
+Plain SQL, in a scratch schema. The workspace has two edge tables only to avoid A7.
+
+1. A vertex table with a DOUBLE attribute holding `-985.195` and `0.5`:
+   ```sql
+   CREATE SCHEMA A8_REPRO;
+   SET SCHEMA A8_REPRO;
+   CREATE COLUMN TABLE rv (id NVARCHAR(256) PRIMARY KEY, d DOUBLE);
+   CREATE COLUMN TABLE re1 (eid NVARCHAR(256) PRIMARY KEY, src_id NVARCHAR(256) NOT NULL, dst_id NVARCHAR(256) NOT NULL);
+   CREATE COLUMN TABLE re2 (eid NVARCHAR(256) PRIMARY KEY, src_id NVARCHAR(256) NOT NULL, dst_id NVARCHAR(256) NOT NULL);
+   INSERT INTO rv VALUES ('b', ?);   -- bind the double -985.195
+   INSERT INTO rv VALUES ('h', 0.5);
+   ```
+2. Views and the workspace:
+   ```sql
+   CREATE VIEW gv_rv AS SELECT id, d AS rv_d FROM rv;
+   CREATE VIEW gv_re1 AS SELECT eid, src_id, dst_id FROM re1;
+   CREATE VIEW gv_re2 AS SELECT eid, src_id, dst_id FROM re2;
+   CREATE GRAPH WORKSPACE rw
+     VERTEX TABLE gv_rv KEY COLUMN id LABEL 'rv'
+     EDGE TABLE gv_re1 KEY COLUMN eid SOURCE COLUMN src_id REFERENCES gv_rv TARGET COLUMN dst_id REFERENCES gv_rv LABEL 're1'
+     EDGE TABLE gv_re2 KEY COLUMN eid SOURCE COLUMN src_id REFERENCES gv_rv TARGET COLUMN dst_id REFERENCES gv_rv LABEL 're2';
+   ```
+3. Compare with a constant ONE ulp below the stored value -> **`b`** (bug; expected no row).
+   Two ulps below (`-985.1950000000003`), or `0.5000000000000002` against `0.5`, match too:
+   ```sql
+   SELECT * FROM OPENCYPHER_TABLE(GRAPH WORKSPACE rw
+     QUERY 'MATCH (a:rv) WHERE a.RV_D = -985.1950000000002 RETURN a.ID AS ID');
+   ```
+4. Controls with the same digits, each -> no row (exact):
+   ```sql
+   -- bound as a parameter (bind -985.1950000000002)
+   SELECT * FROM OPENCYPHER_TABLE(GRAPH WORKSPACE rw
+     QUERY 'MATCH (a:rv) WHERE a.RV_D = $p RETURN a.ID AS ID' PARAMETERS ('p' = ?));
+   -- TOFLOAT of a string constant
+   SELECT * FROM OPENCYPHER_TABLE(GRAPH WORKSPACE rw
+     QUERY 'MATCH (a:rv) WHERE a.RV_D = TOFLOAT(''-985.1950000000002'') RETURN a.ID AS ID');
+   -- HANA SQL (bind -985.1950000000002)
+   SELECT id FROM rv WHERE d = ?;
+   ```
+5. Clean up: `DROP SCHEMA A8_REPRO CASCADE;`
+
+Reproduced on 4.00.000.00.1788856605 (2026-10-23).
+
 ## Actual (`repro.py`, 2026-10-12)
 ```
 stored d = -985.195; one ulp below = -985.1950000000002; two ulps below = -985.1950000000003

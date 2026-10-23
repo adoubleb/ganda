@@ -25,6 +25,46 @@ Reference QRC 2/2026, MATCH clause) and `LABEL` is documented for every graph ta
 label is specified, the label defaults to the corresponding vertex or edge table name");
 nothing restricts either to heterogeneous workspaces.
 
+## Steps to reproduce
+Plain SQL, in a scratch schema.
+
+1. One vertex table and one edge table, with the edge `m -> n`:
+   ```sql
+   CREATE SCHEMA A7_REPRO;
+   SET SCHEMA A7_REPRO;
+   CREATE COLUMN TABLE v (id NVARCHAR(256) PRIMARY KEY, name NVARCHAR(100));
+   CREATE COLUMN TABLE e (eid NVARCHAR(256) PRIMARY KEY, src_id NVARCHAR(256) NOT NULL, dst_id NVARCHAR(256) NOT NULL);
+   INSERT INTO v VALUES ('m', 'M');
+   INSERT INTO v VALUES ('n', 'N');
+   INSERT INTO e VALUES ('f0', 'm', 'n');
+   ```
+2. A homogeneous workspace over them:
+   ```sql
+   CREATE GRAPH WORKSPACE w1
+     VERTEX TABLE v KEY COLUMN id LABEL 'v'
+     EDGE TABLE e KEY COLUMN eid SOURCE COLUMN src_id TARGET COLUMN dst_id LABEL 'e';
+   ```
+3. Match by the vertex label -> **`[260] invalid column name: a.CYPHER$TABLE$LABEL`** (bug;
+   expected `m`, `n`):
+   ```sql
+   SELECT * FROM OPENCYPHER_TABLE(GRAPH WORKSPACE w1 QUERY 'MATCH (a:v) RETURN a.ID AS ID');
+   ```
+4. Controls over the same workspace: `'MATCH (a) RETURN a.ID AS ID, LABEL(a) AS L'` -> `(m, v), (n, v)`
+   (the label the pattern cannot name); `'MATCH (a)-[x:e]->(b) RETURN a.ID AS ID, b.ID AS V'` -> `(m, n)`.
+5. Control: add a second edge table and the vertex label answers:
+   ```sql
+   CREATE COLUMN TABLE e2 (eid NVARCHAR(256) PRIMARY KEY, src_id NVARCHAR(256) NOT NULL, dst_id NVARCHAR(256) NOT NULL);
+   INSERT INTO e2 VALUES ('f1', 'n', 'm');
+   CREATE GRAPH WORKSPACE w6
+     VERTEX TABLE v KEY COLUMN id LABEL 'v'
+     EDGE TABLE e KEY COLUMN eid SOURCE COLUMN src_id TARGET COLUMN dst_id LABEL 'e'
+     EDGE TABLE e2 KEY COLUMN eid SOURCE COLUMN src_id TARGET COLUMN dst_id LABEL 'e2';
+   SELECT * FROM OPENCYPHER_TABLE(GRAPH WORKSPACE w6 QUERY 'MATCH (a:v) RETURN a.ID AS ID');   -- m, n
+   ```
+6. Clean up: `DROP SCHEMA A7_REPRO CASCADE;`
+
+Reproduced on 4.00.000.00.1788856605 (2026-10-23).
+
 ## Actual (`repro.py`, 2026-10-12)
 Scratch schema; `v(id PK, name)`, `v2`, `e(eid PK, src_id, dst_id)` with `m -> n`, `e2` with
 `n -> m`; views `gv_v`, `gv_e`. Seven workspaces, five queries each.

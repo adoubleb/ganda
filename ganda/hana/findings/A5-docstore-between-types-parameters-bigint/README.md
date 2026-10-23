@@ -9,6 +9,38 @@ Over a field of a collection read through SQL, `f BETWEEN ? AND ?` with string p
 `[-10427] Conversion of parameter/column (1) from data type UCS2 (LE) to BIGINT failed`. The field
 holds strings only. `f >= ? AND f <= ?` -- what SQL defines BETWEEN as -- answers.
 
+## Steps to reproduce
+Plain SQL. Steps 3 and 4 need BOUND parameters (`?`), e.g. `cursor.execute(sql, ['A', 'i'])` in
+hdbcli; with the values written as constants the query answers.
+
+1. Create a scratch schema and a collection whose field `f` holds strings only:
+   ```sql
+   CREATE SCHEMA A5_REPRO;
+   SET SCHEMA A5_REPRO;
+   CREATE COLLECTION c;
+   INSERT INTO c VALUES('{"f": "abc"}');
+   INSERT INTO c VALUES('{"f": "xyz"}');
+   ```
+2. A column table with the same field, for the control:
+   ```sql
+   CREATE COLUMN TABLE t (f NVARCHAR(5000));
+   INSERT INTO t VALUES ('abc');
+   ```
+3. `BETWEEN` with bound strings, binding `('A', 'i')`:
+   ```sql
+   WITH raw AS (SELECT $."f" AS f FROM c) SELECT f FROM raw WHERE f BETWEEN ? AND ?;
+   ```
+   -> **`[-10427] Conversion of parameter/column (1) from data type UCS2 (LE) to BIGINT failed`** (bug).
+4. What `BETWEEN` is defined as, the same binds -> `abc`:
+   ```sql
+   WITH raw AS (SELECT $."f" AS f FROM c) SELECT f FROM raw WHERE f >= ? AND f <= ?;
+   ```
+5. Controls, each -> `abc`: `... WHERE f BETWEEN 'A' AND 'i'` (constants);
+   `... WHERE TO_NVARCHAR(f) BETWEEN ? AND ?`; `SELECT f FROM t WHERE f BETWEEN ? AND ?`.
+6. Clean up: `DROP SCHEMA A5_REPRO CASCADE;`
+
+Reproduced on 4.00.000.00.1788856605 (2026-10-23).
+
 ## Actual (from repro.py)
 ```
 collection field: f BETWEEN ? AND ?     : [-10427] ... to BIGINT failed (... 'A')
