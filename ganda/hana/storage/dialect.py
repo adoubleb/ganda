@@ -3,7 +3,7 @@ of each `FieldType` in a column table, how a value is stored in a JSON collectio
 RDF terms, the IRIs of the triple store, the index kinds a schema may name, and the
 write forms a setup may take. `ganda.core.data.model` imports nothing from this module.
 
-Four data models of one HANA Cloud database (`RULES.md` holds the facts each rests on):
+Four data models of one HANA Cloud database (`rules/catalog.py` holds the rules each rests on):
 
 - `doc`: the JSON Document Store. One COLLECTION per node class; a document holds `id`,
   its fields and, per edge type leaving its class, an array of link objects

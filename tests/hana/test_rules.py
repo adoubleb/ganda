@@ -1,13 +1,13 @@
-"""SAP HANA's rule catalog (`ganda/hana/rules/`) against the code it describes: the probe's
-facts, the findings it cites, the connection's error classification and the generated
-RULES.md."""
+"""SAP HANA's rule catalog (`ganda/hana/rules/`) against the code it describes: the probe
+facts that check it, the findings its defects name, the connection's error
+classification and the generated RULES.md."""
 import pathlib
 import types
 
 import pytest
 
 from ganda.core.engine.provider import EngineCrash, EngineError
-from ganda.core.rules.model import ErrorKind, Finding, validate
+from ganda.core.rules.model import ErrorKind, validate
 from ganda.core.rules.render import render
 from ganda.hana.engine import connection
 from ganda.hana.rules import CATALOG
@@ -16,23 +16,13 @@ from ganda.hana.scripts import probe
 HANA = pathlib.Path(__file__).resolve().parents[2] / "ganda" / "hana"
 
 
-def test_the_catalog_is_well_formed():
-    assert validate(CATALOG) == []
+def test_the_catalog_is_well_formed_and_its_checks_name_probe_facts():
+    assert validate(CATALOG, {f.id for f in probe.FACTS}) == []
 
 
-def test_every_cited_probe_fact_exists():
-    assert CATALOG.fact_ids() <= {f.id for f in probe.FACTS}
-
-
-def test_every_cited_finding_has_its_directory():
+def test_every_defect_has_its_finding():
     names = [p.name for p in (HANA / "findings").iterdir() if p.is_dir()]
-    missing = sorted(r.id for r in CATALOG.refs() if isinstance(r, Finding) and not any(n.startswith(f"{r.id}-") for n in names))
-    assert not missing
-
-
-def test_every_defect_alias_has_its_draft():
-    drafts = [p.name for p in (HANA / "issues-draft").iterdir()]
-    assert all(any(n.startswith(f"{a}-") for n in drafts) for d in CATALOG.defects for a in d.aliases)
+    assert [d.id for d in CATALOG.defects if not any(n.startswith(f"{d.id}-") for n in names)] == []
 
 
 def test_the_connection_holds_the_catalogs_error_codes():
@@ -57,6 +47,11 @@ def test_the_catalog_classifies_errors_as_the_connection_does(code, text):
     seen = ErrorKind.CONNECTION_LOST if isinstance(e, EngineCrash) else ErrorKind.TIMEOUT if e.timeout else ErrorKind.INTERNAL if e.internal else ErrorKind.REJECTION
     assert isinstance(e, (EngineCrash, EngineError))
     assert CATALOG.classify(code, text) is seen
+
+
+def test_the_probe_names_the_rules_a_failing_fact_checks():
+    assert probe.backed_by("G5") == ["order.nulls.asc (opencypher)"]
+    assert probe.backed_by("K0") == ["no rule"]
 
 
 def test_the_generated_rules_are_current():

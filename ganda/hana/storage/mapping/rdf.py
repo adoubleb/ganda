@@ -22,7 +22,7 @@ the same on the relationship resource, an EdgeDelete deletes the resource and, w
 the last relationship of its pair, the link, a NodeDelete its relationships and then
 every triple of the node. The transaction door wraps the updates in one SQL
 transaction. There is no cancelled-junk block on this data model: whether a SPARQL
-update joins the SQL transaction is a fact to probe first (`RULES.md`).
+update joins the SQL transaction is a fact to probe first (`rules/catalog.py`).
 """
 from __future__ import annotations
 

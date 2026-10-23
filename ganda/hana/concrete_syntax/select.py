@@ -815,7 +815,7 @@ def _sparql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, position: st
                 item = agg_proj(guarded(fn, "?w"), FieldType.FLOAT if q.fn == "avg" else ft, "v")
             # SUM / AVG over the records holding a value: once a predicate IRI has held a
             # second datatype anywhere in the store, HANA answers unbound for a group with an
-            # unbound value in it (H3, RULES.md); a null is skipped by the aggregate anyway
+            # unbound value in it (defect A3, `rules/catalog.py`); a null is skipped by the aggregate anyway
             value = f"?n p:{f} ?w ." if q.fn in ("sum", "avg") else opt(f, "?w")
             select, body = f"SELECT {item}", f"{records} {value}"
     elif kind == "group":

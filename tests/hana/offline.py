@@ -391,7 +391,7 @@ def _with_views(text: str) -> str:
 # --- rdf: Oxigraph ---------------------------------------------------------------------------
 
 # Oxigraph follows SPARQL 1.1 18.5.1 to the letter: an unbound (error) argument makes
-# MIN / MAX of its whole group an error, so unbound; HANA skips it (RULES.md, H3: "MAX and
+# MIN / MAX of its whole group an error, so unbound; HANA skips it (defect A3 in `ganda/hana/rules/`: "MAX and
 # COUNT still skip it"), as rdflib does. The stand-in skips it too: the argument is
 # COALESCEd to a term the ordering puts below every literal for MAX (a blank node) or
 # above it for MIN (a triple term), and an answer holding that term is unbound

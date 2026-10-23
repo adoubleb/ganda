@@ -2,7 +2,7 @@
 order and equality the oracle and the state check compare answers under, and the
 predicate logic and arithmetic the generators walk the `Instance` with. No answer is
 predicted from them. Every rule is the SQL standard's or SPARQL 1.1's, chosen so that
-the two agree; `RULES.md` says which ones the live probe (`ganda hana probe`) checks.
+the two agree; `rules/catalog.py` names the probe fact (`ganda hana probe`) behind each.
 
 - **Three-valued logic.** A comparison with a null operand is UNKNOWN; `NOT` keeps it
   unknown, `AND` / `OR` follow Kleene's tables, and a record is kept only where the

@@ -60,5 +60,5 @@ stored d = -985.195; one ulp below = -985.1950000000002; two ulps below = -985.1
 ## What the provider does
 A double is never written as a constant in a cypher text: it is bound (`graph.cypher_filter`),
 and the `literal` variant that inlined constants is gone (an integer, a string and a LIST's
-text inline exactly: probe G30 / G34). Probe G31 records the behaviour. `RULES.md`, "The
-graph data model".
+text inline exactly: probe G30 / G34). Probe G31 records the behaviour; `ganda/hana/rules/catalog.py`
+(defect A8, `exact.constant.double`).

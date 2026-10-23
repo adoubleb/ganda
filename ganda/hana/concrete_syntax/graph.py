@@ -20,7 +20,7 @@ Two families of concrete syntax, both reaching the engine:
   (`cypher_filter`), the aggregate, the ordering -- and SQL only wraps what the
   language lacks (a start with no path, COUNT DISTINCT, NOT EXISTS, MIN over levels).
 
-The language is a subset (RULES.md, G*): ONE MATCH clause (a heterogeneous workspace,
+The language is a subset (`rules/catalog.py`, the G facts): ONE MATCH clause (a heterogeneous workspace,
 which every campaign's is, takes no second one: probed G8) of comma-separated patterns
 and one RETURN; no incoming arrow (a hop in is the pattern reversed), no OPTIONAL
 MATCH, UNION, WITH or IN; comparisons, IS NULL, CONTAINS / STARTS WITH / ENDS WITH over
@@ -50,7 +50,7 @@ needs no decode suffix except a LIST's `__JSON`; aliases are uppercase so a SQL 
 reads them unquoted and the session lowercases them.
 
 The module constants named after probe facts (`WALK_ACROSS_CLAUSES`, ...) hold the
-documented behaviour until the fact is probed (RULES.md); each selects a rendering.
+probed behaviour (its fact's answer in `rules/catalog.py`); each selects a rendering.
 """
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ from ganda.core.data.model import FieldType, Schema
 from ganda.hana.concrete_syntax.predicate import Names
 from ganda.hana.storage.dialect import SQL_TYPES, child_table, graph_attr, graph_columns, graph_label, list_text, opencypher_table, param_expr
 
-# --- probe-selected switches (the fact in RULES.md; the default is the documented answer) -----
+# --- probe-selected switches (each its fact's probed answer in `rules/catalog.py`) -------------
 
 # G8 (probed 2026-10-11): a heterogeneous workspace -- every campaign's -- takes ONE
 # MATCH clause ("For heterogeneous graphs only one match clause is allowed"), so a

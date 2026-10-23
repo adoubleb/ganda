@@ -48,7 +48,7 @@ CONNECTION_LOST = {-10709, -10807, -10108, -10821, -10806}
 TIMEOUT_CODES = {613}
 # a raw failure inside the engine, a finding whatever the other variants did: a general
 # error, a fatal error, a transaction rolled back by an internal error, a column store
-# error (to refine against live answers: HANDOFF.md)
+# error (to refine against live answers)
 INTERNAL_CODES = {2, 3, 129, 2048}
 # ... but 129 is also how the triple store and the Document Store wrap an ORDINARY refusal
 # (probed 2026-10-09: a SPARQL syntax error, an undefined prefix, an unknown function, a

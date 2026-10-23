@@ -59,4 +59,4 @@ HANA version: 4.00.000.00.1788859455
 The reference computes `avg` over integers as SQL does (`semantics.mean`: the quotient
 truncated to six places); an rdf `avg` variant is compared only where double arithmetic and
 `DECIMAL(25,6)` agree -- a sum below 2^53 and a quotient exact in six places
-(`known_bugs.B13`). Probe K23 records the behaviour; `RULES.md`, "Query forms".
+(`known_bugs.B13`). Probe K23 records the behaviour; `ganda/hana/rules/catalog.py` (`aggregate.avg.integer.result`).

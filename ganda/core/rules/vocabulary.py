@@ -1,11 +1,13 @@
-"""The questions every engine's catalog answers, their answer domains, and the core IR's
-own answers to them (`IR_ANSWERS`): where a language's answer differs from the IR's, a
-native rendering cannot ask that shape as the IR means it."""
+"""The questions every engine's catalog may answer, their answer domains, and the core
+IR's own answers (`IR_RULES`): where a subject answers a compare question differently
+from the IR, its native rendering cannot ask that shape as the IR means it."""
 from __future__ import annotations
 
 import enum
 
-from ganda.core.rules.model import IR, Answer, Basis, Question, Verdict  # noqa: F401 -- Verdict for the catalogs
+from ganda.core.rules.model import IR, Kind, Question, Rule
+
+COMPARE, EXACT, EQUIVALENT = Kind.COMPARE, Kind.EXACT, Kind.EQUIVALENT
 
 
 class NullPlacement(enum.StrEnum):
@@ -57,52 +59,65 @@ class PathMode(enum.StrEnum):
     SIMPLE = "simple"
 
 
-class NumericKind(enum.StrEnum):
-    INTEGER = "integer"
-    DECIMAL = "decimal"
-    DOUBLE = "double"
+class Combination(enum.StrEnum):
+    CARTESIAN_PRODUCT = "cartesian-product"
 
 
-# --- ordering ------------------------------------------------------------------------------------
-NULLS_ASC = Question("order.nulls.asc", NullPlacement)
-NULLS_DESC = Question("order.nulls.desc", NullPlacement)
-STRING_ORDER = Question("order.string", StringOrder)
+class TypedBy(enum.StrEnum):
+    VALUE = "value"
+    COLUMN = "column"
 
-# --- values --------------------------------------------------------------------------------------
-INTEGER_RANGE = Question("value.integer.range", tuple)
-STRING_MAX_LENGTH = Question("value.string.max_length", int)
-SIGNED_ZERO_KEPT = Question("value.float.signed_zero_kept", bool)
-STRING_PADDING = Question("value.string.padding", Padding)
-EMPTY_STRING_IS_NULL = Question("value.string.empty_is_null", bool)
-ABSENT_IS_NULL = Question("value.absent_is_null", bool)
+
+# --- order and values ----------------------------------------------------------------------------
+NULLS_ASC = Question("order.nulls.asc", NullPlacement, COMPARE)
+NULLS_DESC = Question("order.nulls.desc", NullPlacement, COMPARE)
+STRING_ORDER = Question("order.string", StringOrder, COMPARE)
+ABSENT_IS_NULL = Question("value.absent_is_null", bool, COMPARE)
+EMPTY_STRING_IS_NULL = Question("value.string.empty_is_null", bool, COMPARE)
+STRING_PADDING = Question("value.string.padding", Padding, COMPARE)
+DOUBLE_EXACT_ROUND_TRIP = Question("value.double.exact_round_trip", bool, COMPARE)
 
 # --- predicates ----------------------------------------------------------------------------------
-FILTER_LOGIC = Question("filter.logic", Logic)
-LIKE_CASE_SENSITIVE = Question("filter.like.case_sensitive", bool)
+FILTER_LOGIC = Question("filter.logic", Logic, COMPARE)
+LIKE_CASE_SENSITIVE = Question("filter.like.case_sensitive", bool, COMPARE)
+MEMBERSHIP_ABSENT_LIST = Question("filter.membership.absent_list", Truth, COMPARE)
+BARE_PARAMETER_TYPED_BY = Question("parameter.bare.typed_by", TypedBy, COMPARE)
 
 # --- aggregates ----------------------------------------------------------------------------------
-SUM_EMPTY = Question("aggregate.sum.empty_input", EmptyAggregate)
-MAX_EMPTY = Question("aggregate.max.empty_input", EmptyAggregate)
-COUNT_EMPTY = Question("aggregate.count.empty_input", EmptyAggregate)
-UNGROUPED_EMPTY_ROWS = Question("aggregate.ungrouped.empty_input.rows", EmptyInputRows)
-GROUPED_EMPTY_ROWS = Question("aggregate.grouped.empty_input.rows", EmptyInputRows)
-
-# --- arithmetic ----------------------------------------------------------------------------------
-INTEGER_DIVISION = Question("arithmetic.integer_division.result", NumericKind)
+SUM_EMPTY = Question("aggregate.sum.empty_input", EmptyAggregate, COMPARE)
+SUM_ALL_NULL = Question("aggregate.sum.all_null_input", EmptyAggregate, COMPARE)
+MAX_EMPTY = Question("aggregate.max.empty_input", EmptyAggregate, COMPARE)
+COUNT_EMPTY = Question("aggregate.count.empty_input", EmptyAggregate, COMPARE)
+SKIPS_NULL = Question("aggregate.skips_null", bool, COMPARE)
+UNGROUPED_EMPTY_ROWS = Question("aggregate.ungrouped.empty_input.rows", EmptyInputRows, COMPARE)
+GROUPED_EMPTY_ROWS = Question("aggregate.grouped.empty_input.rows", EmptyInputRows, COMPARE)
+NULL_KEY_GROUPS = Question("aggregate.group.null_key.groups", int, COMPARE)
+SUM_EXACT_BELOW = Question("aggregate.sum.integer.exact_below", int, EXACT)
 
 # --- pattern matching ----------------------------------------------------------------------------
-EDGE_BINDING = Question("match.edge_binding", EdgeBinding)
-UNDIRECTED_SELF_LOOP_ROWS = Question("match.undirected.self_loop.rows", int)
-VARIABLE_LENGTH_PATH_MODE = Question("path.variable_length.mode", PathMode)
+EDGE_BINDING = Question("match.edge_binding", EdgeBinding, COMPARE)
+UNDIRECTED_SELF_LOOP_ROWS = Question("match.undirected.self_loop.rows", int, COMPARE)
+PARALLEL_EDGE_ROWS = Question("match.parallel_edges.rows", int, COMPARE)
+DISCONNECTED_PATTERNS = Question("match.disconnected_patterns", Combination, COMPARE)
+VARIABLE_LENGTH_PATH_MODE = Question("path.variable_length.mode", PathMode, COMPARE)
 
-# --- transactions --------------------------------------------------------------------------------
-PEER_SEES_UNCOMMITTED = Question("transaction.peer_sees_uncommitted", bool)
-OWN_UNCOMMITTED_VISIBLE = Question("transaction.own_uncommitted_visible", bool)
+# --- writes and transactions ---------------------------------------------------------------------
+WRITE_ROW_COUNT = Question("statement.write.answers_row_count", bool, COMPARE)
+JOINS_SQL_TRANSACTION = Question("transaction.joins_sql_transaction", bool, COMPARE)
+OWN_UNCOMMITTED_VISIBLE = Question("transaction.own_uncommitted_visible", bool, COMPARE)
+PEER_READ_COMMITTED = Question("equivalent.peer_read.committed_state", bool, EQUIVALENT)
 
 
-IR_ANSWERS = (
-    Answer(EDGE_BINDING, IR, EdgeBinding.HOMOMORPHISM, Basis.DEFINITION),
-    Answer(VARIABLE_LENGTH_PATH_MODE, IR, PathMode.WALK, Basis.DEFINITION),
-    Answer(UNDIRECTED_SELF_LOOP_ROWS, IR, 2, Basis.DEFINITION),
-    Answer(FILTER_LOGIC, IR, Logic.KLEENE, Basis.DEFINITION),
+IR_RULES = (
+    Rule(FILTER_LOGIC, IR, Logic.KLEENE),
+    Rule(MEMBERSHIP_ABSENT_LIST, IR, Truth.FALSE),
+    Rule(BARE_PARAMETER_TYPED_BY, IR, TypedBy.VALUE),
+    Rule(NULL_KEY_GROUPS, IR, 1),
+    Rule(EDGE_BINDING, IR, EdgeBinding.HOMOMORPHISM),
+    Rule(UNDIRECTED_SELF_LOOP_ROWS, IR, 2),
+    Rule(PARALLEL_EDGE_ROWS, IR, 2),
+    Rule(DISCONNECTED_PATTERNS, IR, Combination.CARTESIAN_PRODUCT),
+    Rule(VARIABLE_LENGTH_PATH_MODE, IR, PathMode.WALK),
+    Rule(JOINS_SQL_TRANSACTION, IR, True),
+    Rule(OWN_UNCOMMITTED_VISIBLE, IR, True),
 )

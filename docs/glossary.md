@@ -30,7 +30,7 @@ README's "Vocabulary" table maps them.
 | **Finding key / deduplication** | `(generator, shape, failing pairs, class)`. Only the first finding per key is bundled. | `core/oracle/dedup.py` |
 | **Bundle** | A self-contained, replayable directory for one finding. | `core/campaign/reporter.py`, `bugs/` |
 | **Known bug** | A filed bug whose exact shape is withheld from campaigns and counted. | `<engine>/known_bugs.py` |
-| **Probe** | Live checks of every engine fact a provider relies on. | `ganda <engine> probe`, `RULES.md` |
+| **Probe** | Live checks of every engine fact a provider relies on. | `ganda <engine> probe`, `RULES.md`, `ganda <engine> rules` |
 | **Mutant / mutation benchmark** | A deliberate corruption of the pipeline; the benchmark measures how often the oracle catches it. | `core/mutation/`, `<engine>/mutants.py` |
 | **Write phase** | Predicate-targeted writes after the reads, each compared, applied to the Instance and re-checked. | `core/query/generators/write_phase.py` |
 | **Transaction door** | A question read inside a transaction that writes one record and rolls back. | `SelectQuery.tx` |

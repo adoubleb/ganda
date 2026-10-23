@@ -340,7 +340,7 @@ def guarded(fn: str, var: str, zero: "str | None" = None) -> str:
     is refused without a GROUP BY too).
 
     Once a predicate IRI has held a second datatype anywhere in the store, HANA's SUM /
-    AVG answer unbound for a group that has an unbound value in it (H3, RULES.md): a group mixing
+    AVG answer unbound for a group that has an unbound value in it (defect A3, `rules/catalog.py`): a group mixing
     present and missing values passes `zero` (the column type's 0) to sum
     `COALESCE(var, zero)`; a caller that can bind `var` only where present needs none."""
     inner = f"COALESCE({var}, {zero})" if zero is not None else var

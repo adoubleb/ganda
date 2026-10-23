@@ -105,5 +105,5 @@ def _rdf(tx: TxWrite, schema: Schema) -> list:
 
 def statements(tx: TxWrite, schema: Schema, data_model: str) -> list:
     # the graph data model's door is the rel one: its tables are the rel tables, and the
-    # workspace reads the transaction's own writes (RULES.md, G12)
+    # workspace reads the transaction's own writes (G12: `transaction.own_uncommitted_visible` in `rules/catalog.py`)
     return {"rel": _rel, "doc": _doc, "rdf": _rdf, "graph": _rel}[data_model](tx, schema)

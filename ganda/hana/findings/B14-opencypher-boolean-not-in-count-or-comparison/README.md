@@ -55,4 +55,4 @@ HANA version: 4.00.000.00.1788859455
 ## What the provider does
 A native cypher text counts no BOOLEAN field (an `agg` count, a grouped count) and correlates
 no self-join on one (`select._cypher_asks`); the views family asks those in SQL. Probe G33
-records the behaviour; `RULES.md`, "The graph data model".
+records the behaviour; `ganda/hana/rules/catalog.py` (`accepts.count.boolean_attribute`, `accepts.compare.boolean_attributes`).

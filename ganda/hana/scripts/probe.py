@@ -3,7 +3,7 @@
 Each fact is one small statement against the attached instance (HANA_HOST, ...), run in
 a scratch schema and graph that are dropped afterwards. A fact is either REQUIRED (the
 provider's rendering or its semantics assume it: a failure means the provider must
-change, see HANDOFF.md) or OBSERVED (recorded so a later run can see a change; never
+change: the probe names the rules of `rules/catalog.py` the fact checks) or OBSERVED (recorded so a later run can see a change; never
 fails). Every line prints what the engine answered.
 
     python3 -m ganda hana probe            # every fact
@@ -1297,7 +1297,7 @@ def main(argv=None) -> int:
 
     wanted = list(argv if argv is not None else sys.argv[1:])
     facts = [f for f in FACTS if not wanted or any(f.id == w or f.id.startswith(w) and w.isalpha() for w in wanted)]
-    failed = 0
+    failed = []
     with HanaServer() as server:
         sessions = {}
         for kind in ("rel", "doc", "rdf", "graph"):
@@ -1313,7 +1313,7 @@ def main(argv=None) -> int:
                         detail += "\n" + traceback.format_exc(limit=2)
                 mark = "ok  " if ok else ("FAIL" if f.required else "obs ")
                 if not ok and f.required:
-                    failed += 1
+                    failed.append(f.id)
                 print(f"{mark} {f.id:4s} {f.text}\n          {detail}")
         finally:
             for kind in sessions:
@@ -1321,8 +1321,17 @@ def main(argv=None) -> int:
                     server.drop_database(f"fz_probe_{kind}")
                 except Exception:  # noqa: BLE001
                     pass
-    print(f"{len(facts) - failed}/{len(facts)} facts hold" + (f"; {failed} REQUIRED facts fail: see HANDOFF.md, 'when a probe fact fails'" if failed else ""))
+    print(f"{len(facts) - len(failed)}/{len(facts)} facts hold" + (f"; {len(failed)} REQUIRED facts fail: change the provider, never the probe" if failed else ""))
+    for fid in failed:
+        print(f"  {fid} backs: {', '.join(backed_by(fid))}")
     return 1 if failed else 0
+
+
+def backed_by(fid: str) -> list:
+    """The rules of `rules/catalog.py` a probe fact checks (`rules/checks.py`)."""
+    from ganda.hana.rules import CATALOG
+
+    return [f"{r.question.name} ({r.subject.value})" for r in CATALOG.checks.get(fid, ())] or ["no rule"]
 
 
 if __name__ == "__main__":

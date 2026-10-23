@@ -1,49 +1,48 @@
-"""The rule records (`ganda.core.rules`): the schema `validate` enforces, the ordered
-error classification and the divergences a catalog derives."""
+"""The rule records (`ganda.core.rules`): the schema `validate` enforces, the divergences
+and unchecked rules a catalog derives, and the ordered error classification."""
 import enum
 
-from ganda.core.rules.model import IR, Answer, Basis, Catalog, Defect, Effect, ErrorClass, ErrorKind, Finding, Handling, Question, VendorDoc, Verdict, validate
+from ganda.core.rules.model import IR, Catalog, Defect, ErrorClass, ErrorKind, Kind, Question, Rule, Verdict, validate
 from ganda.core.rules.render import render
 from ganda.core.rules.vocabulary import NULLS_ASC, NullPlacement
 
 
-class Lang(enum.StrEnum):
+class Subj(enum.StrEnum):
     A = "a"
     B = "b"
 
 
-DOC = VendorDoc("Manual", "1.0")
-FLAG = Question("value.flag", bool)
+ASK_THING = Question("accepts.thing", Verdict, Kind.ASK)
 
 
-def _catalog(*answers, defects=(), errors=()):
-    return Catalog("toy", Lang, tuple(answers), tuple(defects), tuple(errors))
+def _catalog(*rules, defects=(), errors=(), checks=None):
+    return Catalog("toy", Subj, tuple(rules), tuple(defects), tuple(errors), checks or {})
 
 
-def test_a_well_formed_catalog_validates():
-    c = _catalog(
-        Answer(NULLS_ASC, Lang.A, NullPlacement.FIRST, Basis.VENDOR_DOC, refs=(DOC,)),
-        Answer(NULLS_ASC, Lang.B, NullPlacement.LAST, Basis.OBSERVED, ("X1",)),
-        defects=(Defect("D1", Lang.A, "query.crash", Effect.INTERNAL_ERROR, Handling.WITHHELD, refs=(Finding("D1"),)),),
-    )
-    assert validate(c) == []
-    ((q, answers),) = c.divergences()
-    assert q == NULLS_ASC and [a.language for a in answers] == [Lang.A, Lang.B]
+def test_a_well_formed_catalog_validates_and_derives():
+    first, last = Rule(NULLS_ASC, Subj.A, NullPlacement.FIRST), Rule(NULLS_ASC, Subj.B, NullPlacement.LAST)
+    c = _catalog(first, last, Rule(ASK_THING, Subj.A, Verdict.REFUSED), defects=(Defect("D1", Subj.A),), checks={"X1": (first,)})
+    assert validate(c, {"X1"}) == []
+    ((q, rules),) = c.divergences()
+    assert q == NULLS_ASC and [r.subject for r in rules] == [Subj.A, Subj.B]
+    assert c.checked_by(first) == ["X1"] and c.unchecked() == [last, c.rules[2]]
 
 
 def test_validate_names_every_broken_field():
+    flag = Question("value.flag", bool, Kind.COMPARE)
     bad = validate(_catalog(
-        Answer(Question("Not An Identifier", bool), Lang.A, True, Basis.ASSUMED),
-        Answer(FLAG, Lang.A, "yes", Basis.ASSUMED),
-        Answer(FLAG, Lang.A, True, Basis.ASSUMED),
-        Answer(NULLS_ASC, Lang.A, NullPlacement.LAST, Basis.OBSERVED),
-        Answer(NULLS_ASC, Lang.B, NullPlacement.LAST, Basis.VENDOR_DOC, documented=NullPlacement.LAST),
-        Answer(Question("accepts.thing", Verdict), Lang.A, Verdict.ACCEPTED, Basis.ASSUMED, error=7),
-        Answer(Question("value.ir_only", bool), IR, True, Basis.ASSUMED),
-        defects=(Defect("D1", Lang.A, "Crash!", Effect.REFUSAL, Handling.NOT_MET), Defect("D1", Lang.B, "query.x", Effect.REFUSAL, Handling.NOT_MET, refs=(Finding("D1"),))),
-    ))
+        Rule(Question("Not An Identifier", bool, Kind.COMPARE), Subj.A, True),
+        Rule(flag, Subj.A, "yes"),
+        Rule(flag, Subj.A, True),
+        Rule(Question("value.flag", int, Kind.COMPARE), Subj.B, 1),
+        Rule(Question("accepts.other", bool, Kind.ASK), Subj.A, True),
+        Rule(Question("equivalent.form", Verdict, Kind.EQUIVALENT), Subj.A, Verdict.ACCEPTED),
+        Rule(ASK_THING, IR, Verdict.ACCEPTED),
+        defects=(Defect("D1", Subj.A), Defect("D1", Subj.B)),
+        checks={"X9": (Rule(flag, Subj.B, False),)},
+    ), {"X1"})
     text = "\n".join(bad)
-    for expected in ("no dotted identifier", "outside the domain", "answered twice", "names the probe facts", "cites the vendor's document", "another value of the domain", "only a refusal carries an error code", "only they, are definitions", "the trigger is no dotted identifier", "a defect cites its finding", "used twice"):
+    for expected in ("no dotted identifier", "outside the domain", "answered twice", "two questions share the name", "ask question", "equivalent question", "IR answers compare questions only", "no such probe fact", "no rule of the catalog", "used twice"):
         assert expected in text, expected
 
 
@@ -62,8 +61,7 @@ def test_error_classes_match_in_order():
     assert c.classify(9, "crash only") is ErrorKind.REJECTION
 
 
-def test_render_is_tables_of_fields():
-    c = _catalog(Answer(Question("accepts.thing", Verdict), Lang.A, Verdict.REFUSED, Basis.OBSERVED, ("X1",), error=7))
-    text = render(c)
-    assert "| accepts.thing | a | refused [7] | observed | X1 |" in text
-    assert render(c) == text
+def test_render_is_tables_of_the_three_fields_and_the_checks():
+    r = Rule(ASK_THING, Subj.A, Verdict.REFUSED)
+    text = render(_catalog(r, Rule(ASK_THING, Subj.B, Verdict.ACCEPTED), checks={"X1": (r,)}))
+    assert "| accepts.thing | a | refused | X1 |" in text and "| accepts.thing | b | accepted | unchecked |" in text

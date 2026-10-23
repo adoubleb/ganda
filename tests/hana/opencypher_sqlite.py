@@ -15,7 +15,7 @@ ORDER BY, LIMIT and SKIP. Anything else raises `UnsupportedCypher` (`translatabl
 the runner's valve: such a variant is left out offline, as rdf's `native` is).
 
 It mirrors the engine's semantics as probed (2026-10-11), each a switch named after the
-probe fact (RULES.md): one MATCH clause only (a second one is the engine's refusal, raised
+probe fact (`ganda/hana/rules/catalog.py`): one MATCH clause only (a second one is the engine's refusal, raised
 at run time); a relationship binds once within the clause (pairwise `eid <>` between its
 edge variables); an undirected edge is both orientations but a self-loop once; a
 variable-length path never repeats a relationship; SUM over a group of nulls is NULL;
@@ -27,7 +27,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-# --- the engine's documented behaviour (probe facts, RULES.md) ---------------------------------
+# --- the engine's probed behaviour (probe facts, `ganda/hana/rules/catalog.py`) -----------------
 
 SELF_LOOP_TWICE = False  # G7 (probed 2026-10-11): an undirected edge matches a self-loop once
 ISOMORPHIC_WITHIN_CLAUSE = True  # G8 (probed): edge variables of one clause bind distinct relationships

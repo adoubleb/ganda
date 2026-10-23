@@ -141,10 +141,15 @@ are in `../arangoDB/issue-drafts/`); this port's findings go under `issues/` (A4
 
 ## SAP HANA
 
-`ganda/hana/HANDOFF.md` is the guide (setup, the order of live work, where each probe
-fact lives in the code); `ganda/hana/RULES.md` lists the engine facts with their status
-(documented, assumed, probed). Data models `doc` (JSON Document Store), `rel` (column
-tables), `graph` (Property Graph Engine: a GRAPH WORKSPACE over views of rel-shaped
+The engine rules are minimal records in `ganda/hana/rules/catalog.py` (`ganda/core/rules/`):
+`Rule(question, subject, answer)`, the question's kind saying what the fuzzer does with
+it (compare, ask, equivalent, exact); the defects A1-A10 and the error classes beside
+them. `rules/checks.py` lists the rules each probe fact's check asserts; the rest are
+unchecked. `ganda hana rules --write` renders `ganda/hana/rules/RULES.md`, and
+`tests/hana/test_rules.py` keeps the catalog, the checks, the probe, `connection.py`'s
+error codes and the rendered file in step. Data models
+`doc` (JSON Document Store), `rel` (column tables), `graph` (Property Graph Engine: a
+GRAPH WORKSPACE over views of rel-shaped
 tables, openCypher through `OPENCYPHER_TABLE`; added 2026-10-11, its 32 `G*` probe facts
 run live the same day) and `rdf` (Knowledge Graph Engine, SPARQL). The provider attaches
 to a HANA Cloud instance (`HANA_HOST`, `HANA_PORT`, `HANA_USER`, `HANA_PASSWORD`); there
@@ -153,15 +158,16 @@ is no container.
 The graph data model has two syntax families (`concrete_syntax/graph.py`): rel's SQL
 over `g_` CTEs that read every table through the engine (the views family: full
 coverage), and native openCypher where the language states the question. What the probe
-fixed (RULES.md "The graph data model"): a heterogeneous workspace takes ONE MATCH clause
-of one-edge comma-separated patterns, and a relationship binds once in it, so a native
+fixed (`accepts.match.second_clause`, `match.edge_binding`, `order.nulls.asc` in the
+catalog): a heterogeneous workspace takes ONE MATCH clause of one-edge comma-separated
+patterns, and a relationship binds once in it, so a native
 multi-hop is asked only over pairwise distinct edge types (the other data models' walk
 semantics has no other native form); cypher's ORDER BY puts NULL last ascending (HANA SQL: first),
 so native `page` / `keys` are not asked; parameters bind bare only; an undirected
 self-loop matches once; SUM over nothing answered NULL (the docs say 0: every native sum
 carries its COUNT and SQL decides). The switches in `graph.py` are named after the facts.
 
-Added 2026-10-12 (each with a RULES.md section and probe facts): plan steering
+Added 2026-10-12 (each with catalog rules and probe facts): plan steering
 (`concrete_syntax/hints.py`: every SQL text asked once more under one of sixteen `WITH
 HINT (...)` profiles -- HEX off or on, ESX, OLAP, the join engine, row vs column operators, the
 optimizer levels, the rewrites off, HEX's disk operators and join kinds, no indexes,
@@ -189,7 +195,7 @@ other providers keep off: `partial_traversals`
 everywhere) and `compare_despite_errors` (the variants that answered are compared when
 another one errored; the finding key names the mismatching pairs and the error's code
 through `error_signature`). Cross-type numeric pivots and `NOT IN` are drawn
-(`hana/oracle/pivots.py`), each typed per data model (RULES.md "Values"); no variant repeats
+(`hana/oracle/pivots.py`), each typed per data model (`exact.cross_type_numeric_pivot.below`); no variant repeats
 another's text on its data model; a decoding failure is an internal `EngineError`.
 More engine paths per question (track 2, 2026-10-12): `rel:again` (the base text a second
 time), the profile `plan_cache`, the hinted collection query, `rel:inline` (constants in the
@@ -224,6 +230,7 @@ a direct address. `connection.connect()` retries a lost connect (`HANA_CONNECT_R
 pytest tests/hana tests/test_layering.py -q        # no server (test_offline needs rdflib)
 python3 -m tests.hana.run_offline --seeds 1 10     # whole campaigns on SQLite + rdflib through the real session code
 python3 -m ganda hana doctor
+python3 -m ganda hana rules                        # the engine rules as tables; --write renders ganda/hana/rules/RULES.md
 python3 -m ganda hana probe                        # 141 facts (R/D/K 2026-10-10, G 2026-10-11, P and the 2026-10-12 facts); `probe K5 D` for a subset
 ```
 
