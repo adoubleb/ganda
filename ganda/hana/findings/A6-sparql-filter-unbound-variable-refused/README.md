@@ -1,4 +1,4 @@
-# A6 / H6 — SPARQL: FILTER / BIND over a variable bound nowhere is refused
+# A6 / H6 — SPARQL rejects a valid query when a FILTER or BIND uses a variable that is never assigned a value
 
 **Bucket:** A (conformance bug — a legal query refused; the answers HANA gives are right).
 **Version:** HANA Cloud 4.00.000.00. **Repro:** `python3 -I repro.py` (was B10, "B/A boundary")
