@@ -35,8 +35,15 @@ hdbcli; with the values written as constants the query answers.
    ```sql
    WITH raw AS (SELECT $."f" AS f FROM c) SELECT f FROM raw WHERE f >= ? AND f <= ?;
    ```
-5. Controls, each -> `abc`: `... WHERE f BETWEEN 'A' AND 'i'` (constants);
-   `... WHERE TO_NVARCHAR(f) BETWEEN ? AND ?`; `SELECT f FROM t WHERE f BETWEEN ? AND ?`.
+5. Controls, each -> `abc`:
+   ```sql
+   -- the same BETWEEN with constants instead of parameters
+   WITH raw AS (SELECT $."f" AS f FROM c) SELECT f FROM raw WHERE f BETWEEN 'A' AND 'i';
+   -- the field cast to NVARCHAR, binding ('A', 'i')
+   WITH raw AS (SELECT $."f" AS f FROM c) SELECT f FROM raw WHERE TO_NVARCHAR(f) BETWEEN ? AND ?;
+   -- the column table, binding ('A', 'i')
+   SELECT f FROM t WHERE f BETWEEN ? AND ?;
+   ```
 6. Clean up: `DROP SCHEMA A5_REPRO CASCADE;`
 
 Reproduced on 4.00.000.00.1788856605 (2026-10-23).
