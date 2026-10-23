@@ -73,11 +73,15 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
 
 ## OrientDB
 
-`ganda/orientdb/RULES.md` holds the engine rules that keep the oracle sound (each one
-probed live). Layout: `storage/dialect.py` (vocabulary), `storage/physical_design.py`, `config.py`,
+The engine rules are minimal records in `ganda/orientdb/rules/catalog.py`, as HANA's (the
+subjects are OrientDB SQL's execution paths: a scan, an index-served statement, MATCH,
+TRAVERSE, the script / transaction door, /batch, the `index:` door); the defects O1..O46
+beside them; `rules/checks.py` lists the rules each probe check (C1..C330 in
+`scripts/probe_osql.py`) asserts. `ganda orientdb rules --write` renders
+`ganda/orientdb/rules/RULES.md`; `tests/orientdb/test_rules.py` keeps them in step. Layout: `storage/dialect.py` (vocabulary), `storage/physical_design.py`, `config.py`,
 `engine/limits.py` (what the engine can hold), `engine/connection.py`, `storage/mapping/`, `oracle/semantics.py`, `oracle/pivots.py`, `oracle/rewrites.py`,
 `concrete_syntax/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),
-`known_bugs/guards.py` (O1..O45 guarded; O46 documented, no guard) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `engine/coverage.py` (JaCoCo),
+`known_bugs/guards.py` (most of O1..O46; O3, O22, O24, O29, O30, O34, O42, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `engine/coverage.py` (JaCoCo),
 
 `scripts/` (`probe_osql.py`, `coverage_report.py`).
 

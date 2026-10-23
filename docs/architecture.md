@@ -203,8 +203,8 @@ it is suspect.
    question is asked, and again after every write.
 2. **Every engine fact is probed.** Each rule in a provider's `oracle/semantics.py` or
    concrete syntax should come from a live probe (`ganda <engine> probe`) and be listed
-   in that provider's `RULES.md` (HANA: a typed record in `rules/catalog.py`, rendered
-   by `ganda hana rules`). When a probe fact fails, the provider changes, never
+   in that provider's `RULES.md` (HANA, OrientDB: a typed record in `rules/catalog.py`, rendered
+   by `ganda <engine> rules`). When a probe fact fails, the provider changes, never
    the probe.
 3. **Randomness is in named streams** (`core/rng.py`). Every consumer draws from
    `stream(seed, name)`, so adding a draw in one place never shifts another. A new axis

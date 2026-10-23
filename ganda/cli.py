@@ -75,7 +75,10 @@ def _rules(engine, write: bool) -> int:
     if engine.rules is None:
         print(f"{engine.name} has no rule catalog yet")
         return 0
-    text = render(engine.rules)
+    import importlib
+
+    module = importlib.import_module(f"ganda.{engine.name}.rules")
+    text = module.rendered() if hasattr(module, "rendered") else render(engine.rules)
     if not write:
         print(text)
         return 0

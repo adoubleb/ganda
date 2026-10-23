@@ -58,7 +58,7 @@ ganda/
   orientdb/ arangodb/ hana/ surrealdb/     one provider each (same layout)
     provider.py            the slots
     RULES.md               engine facts the oracle rests on, each with its probe
-    rules/                 (HANA) the same as typed records: catalog.py, RULES.md generated
+    rules/                 (HANA, OrientDB) the same as typed records: catalog.py, RULES.md generated
     connection.py          Server, Session
     mapping/               Instance -> setup plan, per data model
     semantics.py, pivots.py, rewrites.py, physical_design.py, limits.py, config.py
@@ -110,7 +110,7 @@ silently corrupted results in the past.
 4. **Don't rename query generator ids** (`ir_traversal`, `ir_select`, `ir_path`,
    `ir_write`). They name random streams.
 5. **Every engine fact is probed.** Before code relies on how the engine behaves, add a
-   check to the provider's probe and a line to its `RULES.md` (HANA: a record in
+   check to the provider's probe and a line to its `RULES.md` (HANA, OrientDB: a record in
    `rules/catalog.py`). If a probe fact fails,
    change the provider, not the probe.
 6. **Respect the engine's limits.** Sizes come from the provider's `limits` slot; the
@@ -137,7 +137,7 @@ already gets asked, so the oracle gains one more engine path to compare.
    in `render`.
 3. If it hits a filed bug at a known shape, withhold it in `known_bugs/guards.py`.
 4. If its correctness relies on an engine fact nobody probed yet, add the probe and the
-   `RULES.md` line (HANA: the `rules/catalog.py` record).
+   `RULES.md` line (HANA, OrientDB: the `rules/catalog.py` record).
 5. Run `pytest`, the probe, a campaign, and a mutation A/B over the same seeds.
 
 The new syntax shows up as a variant `<data model>:<tag>` and is compared against every
@@ -151,7 +151,7 @@ with (to draw filters that keep records, writes that match some, sums that stay 
 It predicts no answer.
 
 1. Write a probe fact showing the engine's behaviour over boundary values.
-2. Make `oracle/semantics.py` match it, and add the fact to `RULES.md` (HANA: `rules/catalog.py`).
+2. Make `oracle/semantics.py` match it, and add the fact to `RULES.md` (HANA, OrientDB: `rules/catalog.py`).
 3. If a question would part the data models for a legitimate reason (a collation one
    of them applies, say), narrow `ordered_ops` or the generator so it is not asked.
 
