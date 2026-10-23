@@ -81,7 +81,7 @@ def test_a_full_provider_fills_every_slot():
             "pivots": ("NULL_OPS", "ORDERED_OPS", "LIKE_WILDCARDS", "ordered_ops", "cross_type", "refine"),
             "physical_design": ("draw_index_kind", "NON_UNIQUE_KINDS", "EDGE_INDEX_DATA_MODELS", "is_unique", "holds_one_record_per_key", "demoted_kind", "index_key_value", "draw_id_indexes", "draw_index_options", "draw_storage_options", "draw_write_form", "is_valid_key", "BOUNDARY_VALUES"),
             "traversal_syntax": ("syntaxes_for", "render", "can_pull_up"),
-            "select_syntax": ("BASE", "METHODS", "method_fn", "build_rewrites", "extra_binds", "rewrite_params", "base_data_models", "syntaxes_for", "applicable", "render"),
+            "select_syntax": ("BASE", "METHODS", "build_rewrites", "extra_binds", "rewrite_params", "base_data_models", "syntaxes_for", "applicable", "render"),
             "path_syntax": ("render_all", "bind_vars"),
             "write_syntax": ("build_rewrites", "all_syntaxes", "applicable", "render", "execute", "shared_binds", "rewrite_params"),
             "rewrites": ("arith_exact",),

@@ -2,7 +2,7 @@
 """Re-check every OrientDB SQL fact the fuzzer's design rests on, live, and exit
 non-zero if one has changed. Each check is one statement (or a few) with the expected
 answer that was observed on 3.2.56; a change means a template, a guard or the
-reference leg needs a second look before the next campaign.
+semantics needs a second look before the next campaign.
 
     python3 -m ganda orientdb probe                # Docker
     ORIENT_URL=http://127.0.0.1:2480 ORIENT_PASSWORD=fuzz python3 -m ganda orientdb probe

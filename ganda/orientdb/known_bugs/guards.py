@@ -1311,14 +1311,19 @@ def select_shape_known(q, sp, data_model: str, schema: Schema, instance: Instanc
     (`ordered_keys_known`, `_order_form_o18`; an edge type's own indexes for an
     edge target, the transaction's view of the rows under the door). A subquery
     target always sorts."""
-    from ganda.core.query.ir.select import column, evaluate, hits, view
+    from ganda.core.query.ir.select import column, hits, view
     from ganda.orientdb.concrete_syntax.select import WALK_POSITIONS
+    from ganda.orientdb.oracle.semantics import orient_key
 
     walk = sp.position in WALK_POSITIONS
     inst = view(q, instance)
     if q.kind == "distinct":
         types = {name: column(schema, q, f).type for f, name in zip(q.fields, ("v", "w"))}
-        if distinct_collides(evaluate(q, instance), types):
+        seen: dict = {}
+        for n in hits(q, instance):
+            vals = tuple(n.values.get(f) for f in q.fields)
+            seen.setdefault(tuple(orient_key(v) for v in vals), vals)
+        if distinct_collides([dict(zip(("v", "w"), vals)) for vals in seen.values()], types):
             return "O41"
     if q.kind == "agg" and q.fn == "distinct_count" and sp.form == "base":
         if o41_values([n.values.get(q.field) for n in hits(q, instance)], q.field, column(schema, q, q.field).type):
@@ -1410,7 +1415,7 @@ def _join_known(q, sp, data_model: str, schema: Schema, instance: Instance, eff)
             return "O1"
     if sp.form == "base":
         col = column(schema, q, q.field)
-        leaf = Predicate("source", q.field, q.fn, "", None, True, col.type.value, col.case_insensitive)
+        leaf = Predicate("source", q.field, q.fn, "", None, col.type.value, col.case_insensitive)
         return node_case_known(q.table, leaf, schema, instance).get(data_model)
     return None
 

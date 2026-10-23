@@ -54,7 +54,7 @@ class QueryCase:
                 raise ValueError(f"variant {variant!r} must be a data model or <data model>:<tag>")
         if self.params.get("partial"):
             # a question only some storage models can render (a graph function):
-            # the pairs run among the data models present, plus the reference leg
+            # the pairs run among the data models present
             if not any(s in self.queries for s in self.data_models):
                 raise ValueError("a partial case needs at least one data model")
             return

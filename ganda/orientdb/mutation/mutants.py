@@ -13,7 +13,6 @@ accompanied by an A/B run over the same seeds.
 
 Categories: structural (edges dropped/duplicated/reversed), attribute (values
 shifted), churn (a churn step skipped so the final state is not the Instance),
-oracle-blind (a corruption every data model shares, which only the reference leg can see),
 render (a predicate operator or a projection changed on one side), setup (the cancelled
 junk block committed), index (an INDEX-path defect on one side: the texts whose filter
 or ORDER BY an index of that data model may serve are corrupted the way a broken index

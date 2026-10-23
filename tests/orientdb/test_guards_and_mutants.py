@@ -64,15 +64,10 @@ def test_mutants_change_something():
     assert len(names) == len(set(names))
 
 
-def test_every_read_generator_emits_and_references():
-    from ganda.core.query.generators.registry import reference_for
-
+def test_every_read_generator_emits():
     schema, inst, rng = build(4, GeneratorConfig())
     cases = all_cases(rng, schema, inst, select_cases=30, path_cases=3)
     assert {c.generator_name for c in cases} == {"ir_traversal", "ir_select", "ir_path"}
-    for c in cases:
-        has, ref = reference_for(c, inst)
-        assert has
 
 
 def test_guards_see_leaves_inside_compounds():
@@ -204,14 +199,14 @@ def test_o25_withholds_bracket_syntaxes_on_ci_targets():
         node_types=(NodeTypeSpec("n1", (FieldSpec("s", FieldType.STRING, case_insensitive=True),)),),
         edge_types=(EdgeTypeSpec("e1", "n1", "n1", ()),),
     )
-    tp = Predicate("target", "s", "=", "p1", "a", True, "string", True)
+    tp = Predicate("target", "s", "=", "p1", "a", "string", True)
     q = TraversalQuery("n1", (Hop("e1", "out", tp),), "ids")
     assert o25_shape(q, schema, "graph", "chain") and o25_shape(q, schema, "doc", "path") and o25_shape(q, schema, "graph", "edgescan")
     assert not o25_shape(q, schema, "graph", "match") and not o25_shape(q, schema, "rel", "let") and not o25_shape(q, schema, "doc", "inpath")
-    sp = Predicate("source", "s", "=", "p0", "a", True, "string", True)
+    sp = Predicate("source", "s", "=", "p0", "a", "string", True)
     q2 = TraversalQuery("n1", (Hop("e1", "out"),), "ids", None, sp)
     assert o25_shape(q2, schema, "graph", "edgescan") and not o25_shape(q2, schema, "graph", "chain")
-    assert not o25_shape(TraversalQuery("n1", (Hop("e1", "out", Predicate("target", "s", "IN", "p1", ["a"], True, "string", True)),), "ids"), schema, "graph", "chain")
+    assert not o25_shape(TraversalQuery("n1", (Hop("e1", "out", Predicate("target", "s", "IN", "p1", ["a"], "string", True)),), "ids"), schema, "graph", "chain")
 
 
 def test_o36_between_on_a_composite_lead_next_to_a_later_field():

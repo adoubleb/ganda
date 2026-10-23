@@ -13,7 +13,7 @@ from ganda.orientdb.concrete_syntax.support import bfs_distances
 from ganda.orientdb.concrete_syntax.support import tx_rows as _tx_rows
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render
 from ganda.orientdb.facade.predicates import Compound, Predicate, apply_arith, arithmetic, evaluate, reverse
-from ganda.core.query.generators.registry import all_cases, reference_for
+from ganda.core.query.generators.registry import all_cases
 from ganda.orientdb.oracle.semantics import predicate_hit
 
 
@@ -81,7 +81,7 @@ def test_arithmetic_rewrite_is_exact_or_absent():
         assert at is None or at.children[0].pivot != top.pivot
 
 
-def test_list_operators_reference_and_rewrite():
+def test_list_operators_predicate_logic_and_rewrite():
     assert predicate_hit(True, [1, 2], "HAS ANY", [2, 9]) and not predicate_hit(True, [1, 2], "HAS ANY", [9])
     assert predicate_hit(True, [1, 2], "HAS ALL", [2, 1]) and not predicate_hit(True, [1, 2], "HAS ALL", [2, 3])
     assert predicate_hit(True, [], "HAS ALL", []) and not predicate_hit(False, None, "HAS ALL", [])

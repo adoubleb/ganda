@@ -7,8 +7,10 @@ tables, and queried in each form. Ganda turns that promise into a test oracle:
 1. generate one abstract property graph (the **Instance**) from a seed;
 2. store it once per **data model** of the engine, in separate databases on one server;
 3. ask every database the same question, through several **concrete syntaxes** each;
-4. require every pair of answers to agree, and agree with a **reference** answer
-   computed in Python from the Instance.
+4. require every pair of answers to agree.
+
+The oracle is purely differential: no answer is predicted from the Instance, so a
+fault every data model and every syntax shares is out of reach by design.
 
 ## The two layers
 
@@ -73,8 +75,7 @@ flowchart LR
     render --> case["QueryCase<br/>variant → text, shared bind vars"]
     case -- "known_bugs withholds<br/>filed shapes" --> oracle
 
-    sc -- "yes" --> oracle{"oracle.run_case<br/>every pair of variants<br/>+ reference leg"}
-    inst -- "IR.evaluate with<br/>provider semantics" --> oracle
+    sc -- "yes" --> oracle{"oracle.run_case<br/>every pair of variants"}
 
     oracle -- "ok" --> stats["campaign stats"]
     oracle -- "finding" --> dedup["dedup<br/>(generator, shape, pairs, class)"]
@@ -91,11 +92,11 @@ Step by step:
 | Generate | `core/data/generator.py`, `core/data/model.py` | `build(seed, cfg, engine)` returns `(schema, instance, rng)`. The Instance is a small labelled property graph: node classes, edge types, rows, plus *churn* (records written then updated or deleted, so write paths get exercised). |
 | Map | `<engine>/mapping/` | Each data model's mapper turns the Instance into a **setup plan**: a list of provider-defined steps (`@step("op")` in `core/engine/setup_plan.py`). Records are named by logical id; an engine-assigned id is a `Ref(id)` placeholder resolved at run time. |
 | Materialize | `<engine>/connection.py` | `Server.fresh_session(db)` gives an empty database per data model; `Session.apply_setup(plan)` runs the plan. |
-| Verify state | `core/engine/state_check.py` | Read every database back and compare with the Instance. A diff on one data model only is an engine write-path finding; a diff on all of them is a Ganda bug. |
+| Compare state | `core/engine/state_check.py` | Read every database back and compare the data models with each other. The data model off the consensus is the one with the problem (a tie names every one); a diff on one data model only is an engine write-path finding. |
 | Sample questions | `core/query/generators/` | Each query generator draws IRs from its own random stream. |
 | Render | `<engine>/concrete_syntax/` | The provider turns an IR into text for each data model, through every concrete syntax that applies. |
-| Compare | `core/oracle/oracle.py` | Every variant runs on its data model's session. Answers are normalized (row folding, multiset order) and compared pair by pair, then against the reference. |
-| Write phase | `core/query/generators/write_phase.py` | After the reads, predicate-targeted writes run on every data model. Their answers are compared, the write is applied to the Instance, and the stored state is checked again. |
+| Compare | `core/oracle/oracle.py` | Every variant runs on its data model's session. Answers are normalized (row folding, multiset order) and compared pair by pair. |
+| Write phase | `core/query/generators/write_phase.py` | After the reads, predicate-targeted writes run on every data model. Their answers are compared, the write is applied to the Instance (which later draws read from), and the stored states are compared again. |
 | Report | `core/oracle/dedup.py`, `core/campaign/reporter.py` | The first finding per key becomes a self-contained bundle with a `repro.py`. |
 
 `--workers N` runs N shards of seeds as threads against the same server, each in its own
@@ -121,12 +122,16 @@ Because the oracle compares *every pair*, one case produces two kinds of evidenc
 
 ### The four query IRs (`core/query/ir/`)
 
-| IR | Question | Reference |
-|---|---|---|
-| `traversal.py` | Start class, 1 to `MAX_HOPS` hops (`out` / `in` / `both`), predicates on edges or targets, a projection | Walks the Instance |
-| `select.py` | One class or edge type, an optional filter, a result kind (`ids`, `count`, `agg`, `group`, `page`, `join`, ...), optionally inside a rolled-back transaction | Filters the Instance's records |
-| `path.py` | Vertex count of a shortest path between two records | BFS over the Instance |
-| `write.py` | Update / delete / upsert by predicate, edge attribute writes | `apply` returns the new Instance; `answer` the expected rows |
+| IR | Question |
+|---|---|
+| `traversal.py` | Start class, 1 to `MAX_HOPS` hops (`out` / `in` / `both`), predicates on edges or targets, a projection |
+| `select.py` | One class or edge type, an optional filter, a result kind (`ids`, `count`, `agg`, `group`, `page`, `join`, ...), optionally inside a rolled-back transaction |
+| `path.py` | Vertex count of a shortest path between two records |
+| `write.py` | Update / delete / upsert by predicate, edge attribute writes |
+
+The IRs walk the Instance only to steer generation: a filter that keeps some records,
+a write that matches some, a sum that stays exact, and `write.apply` keeps the Instance
+in step with the databases so later questions draw their constants from current data.
 
 `predicates.py` holds the predicate tree all four share. Pivots are drawn *on*, *next to*
 or *outside* stored values, because bugs live at boundaries.
@@ -149,7 +154,6 @@ From `CaseResult.finding_class` (`core/oracle/oracle.py`), most severe first:
 | `error_asymmetry` | Some variants errored, others answered. |
 | `duplicate_id_rows` | A scalar answer returned one id twice. |
 | `mismatch` | Two variants answered differently. `failing_pairs` says which. |
-| `reference_mismatch` | Every database agreed, the reference did not. Suspect the provider's `semantics` first. |
 
 Setup problems are reported separately: `setup-asymmetry`, `state-diff`, `state-leak`
 (a rolled-back transaction leaked) and `write-state-<step>`.
@@ -219,9 +223,9 @@ it is suspect.
   how often the oracle catches it. Real bugs are rare, so this is how a change to the
   query supply is judged. Compare catch rates over the *same* mutants and seeds.
 - **Scale** (`core/data/scale.py`, `core/data/limits.py`, `--scale large`): thousands of records,
-  hubs of thousands of edges, values grown to the engine's limits, bulk writes. The
-  reference leg is off (data models are compared pairwise only), state is checked by
-  counts plus a sample, and a query timeout is "no answer" rather than an error.
+  hubs of thousands of edges, values grown to the engine's limits, bulk writes. State is
+  compared by counts plus a sample, and a query timeout is "no answer" rather than an
+  error.
 - **Coverage** (`core/engine/coverage.py`, `--coverage seed|case|variant`): a hook protocol;
   OrientDB implements it with JaCoCo.
 - **Replay** (`core/campaign/replay.py`): a bundle's `repro.py` regenerates the Instance

@@ -64,7 +64,7 @@ def arithmetic(p, rng: random.Random, bind: str, ftype: FieldType, values: list)
     if not all(arith_exact(v, sym, c, ftype) for v in values) or not arith_exact(pv, sym, c, ftype):
         return None
     op = p.op if (c > 0 or sym != "*") else MIRROR[p.op]
-    return Predicate(p.on, p.field, op, bind, apply_arith(pv, sym, c, ftype.value), p.reference, p.ftype, p.case_insensitive, None, "", False, Arith(sym, f"{bind}c", c))
+    return Predicate(p.on, p.field, op, bind, apply_arith(pv, sym, c, ftype.value), p.ftype, p.case_insensitive, None, "", False, Arith(sym, f"{bind}c", c))
 
 
 def rewrite(p, rng: random.Random, bind: str):
@@ -81,18 +81,18 @@ def rewrite(p, rng: random.Random, bind: str):
             if isinstance(c, Compound):
                 return c.children[0]  # NOT NOT a
             if c.op in _COMPLEMENT and c.plain and c.sub is None:
-                return Predicate(c.on, c.field, _COMPLEMENT[c.op], c.bind if c.op not in ("IS NULL", "IS NOT NULL") else "", c.pivot, c.reference, c.ftype)
+                return Predicate(c.on, c.field, _COMPLEMENT[c.op], c.bind if c.op not in ("IS NULL", "IS NOT NULL") else "", c.pivot, c.ftype)
             return None
         # a AND b == NOT (NOT a OR NOT b)
         return Compound(p.on, "NOT", (Compound(p.on, "OR" if p.op == "AND" else "AND", tuple(Compound(p.on, "NOT", (c,)) for c in p.children)),))
     f, op, pv, on = p.field, p.op, p.pivot, p.on
 
     def leaf(o, b, v):
-        return Predicate(on, f, o, b, v, p.reference, p.ftype)
+        return Predicate(on, f, o, b, v, p.ftype)
 
     if p.sub is not None:
         # the subquery over a derived table of its class: the same values
-        return None if p.sub.scan else Predicate(on, f, op, p.bind, pv, p.reference, p.ftype, sub=p.sub._replace(scan=True))
+        return None if p.sub.scan else Predicate(on, f, op, p.bind, pv, p.ftype, sub=p.sub._replace(scan=True))
     if not p.plain:
         return None
     if op == "HAS":

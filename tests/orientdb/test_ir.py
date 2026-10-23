@@ -2,7 +2,7 @@ import itertools
 
 from ganda.orientdb.facade.generate import GeneratorConfig, build
 from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, Instance, NodeRow, NodeTypeSpec, Schema
-from ganda.core.query.ir.traversal import PROJECTIONS, SHAPE_DENOMINATOR, Hop, TraversalQuery, all_signatures, evaluate, from_params, shape_signature
+from ganda.core.query.ir.traversal import PROJECTIONS, SHAPE_DENOMINATOR, Hop, TraversalQuery, all_signatures, from_params, shape_signature
 from ganda.core.query.generators.traversal import generate_traversal_cases, sample_query
 from ganda.orientdb.facade.predicates import Compound, Predicate
 from ganda.orientdb.concrete_syntax.traversal import SYNTAXES, applicable, can_pull_up, render, syntaxes_for
@@ -24,24 +24,6 @@ def _fixture():
         EdgeRow("e2", 0, "n1/r2", "n2/r0", {}),
     ]
     return schema, Instance(schema, nodes, edges)
-
-
-def test_evaluate_multiplicity_and_null_predicate():
-    schema, inst = _fixture()
-    q = TraversalQuery("n1", (Hop("e1", "out"),), "ids")
-    assert evaluate(q, inst) == {"n1/r0": ["n1/r1", "n1/r1", "n1/r0"], "n1/r1": ["n1/r2"], "n1/r2": []}
-    q = TraversalQuery("n1", (Hop("e1", "out", Predicate("edge", "w", ">", "p1", 1)),), "count")
-    assert evaluate(q, inst) == {"n1/r0": 2, "n1/r1": 0, "n1/r2": 0}  # the null w edge fails `> 1`
-    q = TraversalQuery("n1", (Hop("e1", "out", Predicate("edge", "w", "<>", "p1", 1)),), "count")
-    assert evaluate(q, inst)["n1/r1"] == 1  # null <> 1 holds
-    q = TraversalQuery("n1", (Hop("e1", "in"),), "ids")
-    assert evaluate(q, inst)["n1/r1"] == ["n1/r0", "n1/r0"]
-    q = TraversalQuery("n1", (Hop("e1", "out"), Hop("e2", "out")), "ids")
-    assert evaluate(q, inst) == {"n1/r0": [], "n1/r1": ["n2/r0"], "n1/r2": []}
-    q = TraversalQuery("n1", (Hop("e1", "out"),), "exists")
-    assert evaluate(q, inst) == ["n1/r0", "n1/r1"]
-    q = TraversalQuery("n1", (Hop("e1", "out"),), "max", "f1")
-    assert evaluate(q, inst) == {"n1/r0": 1, "n1/r1": 2, "n1/r2": None}
 
 
 def test_params_round_trip():
@@ -112,21 +94,17 @@ def test_sampler_is_deterministic():
 def test_edge_projections_and_paths():
     schema, inst = _fixture()
     q = TraversalQuery("n1", (Hop("e1", "out"),), "efield", "w")
-    assert evaluate(q, inst) == {"n1/r0": [1, 2, 3], "n1/r1": [None], "n1/r2": []}
     q = TraversalQuery("n1", (Hop("e1", "in"),), "emax", "w")
-    assert evaluate(q, inst) == {"n1/r0": 3, "n1/r1": 2, "n1/r2": None}
     q = TraversalQuery("n1", (Hop("e1", "out"), Hop("e1", "out")), "esum", "w")
-    assert evaluate(q, inst) == {"n1/r0": 6, "n1/r1": 0, "n1/r2": 0}
     assert render(q, schema, "graph", "chain") == "SELECT id, sum(out('e1').outE('e1').w) AS v FROM n1 GROUP BY id"
     assert render(TraversalQuery("n1", (Hop("e1", "out"),), "efield", "w"), schema, "rel", "flat") == "SELECT src_id AS id, w AS v FROM e1"
     assert not applicable(TraversalQuery("n1", (Hop("e1", "out", Predicate("target", "f1", ">", "p1", 0)),), "efield", "w"), schema, "graph", "chain")
 
 
-def test_compound_predicates_render_and_evaluate():
+def test_compound_predicates_render():
     schema, inst = _fixture()
     p = Compound("edge", "NOT", (Compound("edge", "OR", (Predicate("edge", "w", "<", "p1_0_0", 2), Predicate("edge", "w", "IS NULL", "", None))),))
     q = TraversalQuery("n1", (Hop("e1", "out", p),), "count")
-    assert evaluate(q, inst) == {"n1/r0": 2, "n1/r1": 0, "n1/r2": 0}
     assert render(q, schema, "doc", "path") == "SELECT id, e1[NOT ((w < :p1_0_0 OR w IS NULL))].target.size() AS v FROM n1"
     assert from_params(q.to_params()) == q
     assert q.bind_vars == {"p1_0_0": 2}
@@ -146,8 +124,6 @@ def test_pulled_up_form_and_traverse():
 def test_both_direction_nexists_and_optional_match():
     schema, inst = _fixture()
     q = TraversalQuery("n1", (Hop("e1", "both"),), "ids")
-    # a self-loop is visited twice, parallel edges twice, the incoming data model once more
-    assert evaluate(q, inst) == {"n1/r0": ["n1/r1", "n1/r1", "n1/r0", "n1/r0"], "n1/r1": ["n1/r2", "n1/r0", "n1/r0"], "n1/r2": ["n1/r1"]}
     assert render(q, schema, "graph", "chain") == "SELECT id, both('e1').id AS v FROM n1"
     assert render(q, schema, "graph", "bag") == "SELECT id, unionall(out_e1.in, in_e1.out).id AS v FROM n1"
     assert render(q, schema, "rel", "let") == "SELECT id, unionall($h0.v, $g0.v) AS v FROM n1 LET $h0 = (SELECT dst_id AS v FROM e1 WHERE src_id = $parent.$current.id), $g0 = (SELECT src_id AS v FROM e1 WHERE dst_id = $parent.$current.id)"
@@ -160,7 +136,6 @@ def test_both_direction_nexists_and_optional_match():
     assert not applicable(TraversalQuery("n1", (Hop("e1", "both"), Hop("e1", "out")), "ids"), schema, "graph", "chain")
     # nexists: the complement of exists; the anti-join on the relational data model
     nq = TraversalQuery("n1", (Hop("e1", "out"),), "nexists")
-    assert evaluate(nq, inst) == ["n1/r2"]
     assert render(nq, schema, "graph", "chain") == "SELECT id FROM n1 WHERE out('e1').size() = 0"
     assert render(nq, schema, "rel", "flat") == "SELECT id FROM n1 WHERE id NOT IN (SELECT src_id FROM e1)"
     assert not applicable(nq, schema, "graph", "match")
@@ -169,8 +144,8 @@ def test_both_direction_nexists_and_optional_match():
     assert render(oq, schema, "graph", "match_opt") == "MATCH {class: n1, as: a} .outE('e1') {as: ae1, where: (w > :p1), optional: true} .inV() {as: av1, optional: true} RETURN a.id AS id, av1.id AS v"
 
 
-def test_narrow_types_in_the_reference():
-    from ganda.orientdb.oracle.semantics import agg, predicate_hit, sum_is_exact
+def test_narrow_types_in_the_predicate_logic():
+    from ganda.orientdb.oracle.semantics import predicate_hit, sum_is_exact
 
     # an INTEGER column: a Long pivot compares exactly on a scan; the wrap is the index's (O16)
     assert not predicate_hit(True, 5, "=", 2**32 + 5, "int32")
@@ -194,7 +169,6 @@ def test_narrow_types_in_the_reference():
     assert predicate_hit(True, "Ab", "LOWER=", "ab", "string", True)
     # sums: 32-bit for an INTEGER column, exact decimal arithmetic for a DECIMAL one
     assert sum_is_exact([2**31 - 1, 5], "int") and not sum_is_exact([2**31 - 1, 5], "int32")
-    assert agg("sum", [0.1, 0.2], "decimal") == 0.3
 
 
 def test_reach_projections():
@@ -202,9 +176,6 @@ def test_reach_projections():
 
     schema, inst = _fixture()
     q = TraversalQuery("n1", (Hop("e1", "out"),), "reach2")
-    # r0 -> r1 -> r2 (two hops), the self-loop keeps r0; r2 has no e1 out-edge
-    assert evaluate(q, inst) == {"n1/r0": ["n1/r0", "n1/r1", "n1/r2"], "n1/r1": ["n1/r1", "n1/r2"], "n1/r2": ["n1/r2"]}
-    assert evaluate(TraversalQuery("n1", (Hop("e1", "out"),), "reach3_count"), inst) == {"n1/r0": 3, "n1/r1": 2, "n1/r2": 1}
     for proj in REACH_PROJECTIONS:
         q = TraversalQuery("n1", (Hop("e1", "out"),), proj)
         for data_model in ("doc", "graph", "rel"):
@@ -216,7 +187,7 @@ def test_reach_projections():
     assert render(TraversalQuery("n1", (Hop("e1", "out"),), "reach2_count"), schema, "doc", "path").count("UNWIND v") == 2
 
 
-def test_dates_and_maps_in_the_reference():
+def test_dates_and_maps_in_the_predicate_logic():
     from ganda.orientdb.oracle.semantics import canonical_date, predicate_hit
 
     assert canonical_date("2024-01-01") == "2024-01-01 00:00:00"
@@ -235,9 +206,9 @@ def test_dates_and_maps_in_the_reference():
     assert predicate_hit(True, m, "=", 2, key="k2") and predicate_hit(True, m, "IS NULL", None, key="k3")
     assert predicate_hit(False, None, "IS NULL", None, key="k3") and predicate_hit(True, m, "<>", 5, key="k3")
     assert not predicate_hit(True, m, ">", 1, key="k3")
-    p = Predicate("source", "m", "=", "p", 2, True, "int", False, "k2")
+    p = Predicate("source", "m", "=", "p", 2, "int", False, "k2")
     from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
 
     assert render_pred(p) == "m.k2 = :p"
-    assert render_pred(Predicate("source", "m", "=", "p", 2, True, "int", False, "k2", "pk")) == "m[:pk] = :p" and Predicate("source", "m", "=", "p", 2, True, "int", False, "k2", "pk").bind_vars == {"pk": "k2", "p": 2}
+    assert render_pred(Predicate("source", "m", "=", "p", 2, "int", False, "k2", "pk")) == "m[:pk] = :p" and Predicate("source", "m", "=", "p", 2, "int", False, "k2", "pk").bind_vars == {"pk": "k2", "p": 2}
     assert render_pred(Predicate("source", "m", "VALUES HAS", "p", 2)) == "m.values() CONTAINS :p"

@@ -159,16 +159,6 @@ def sample_query(rng: random.Random, schema: Schema, instance: Instance, max_hop
     return q
 
 
-def _aggregates_exactly(q: TraversalQuery, schema: Schema, instance: Instance) -> bool:
-    """Whether the semantics reproduce a `max` / `min` projection over the projected
-    field's type (`Semantics.aggregates_exactly`)."""
-    if q.projection not in ("max", "min", "emax", "emin"):
-        return True
-    from ganda.core.query.ir.traversal import projected_type
-
-    return schema.engine.semantics.aggregates_exactly(q.projection.lstrip("e"), FieldType(projected_type(q, instance)))
-
-
 def build_case(q: TraversalQuery, rng: random.Random, schema: Schema, instance: Instance) -> "QueryCase | None":
     syn = schema.engine.traversal_syntax
     queries: dict = {}
@@ -181,8 +171,8 @@ def build_case(q: TraversalQuery, rng: random.Random, schema: Schema, instance: 
             # a data model with no syntax for the question (say, a LIST membership its
             # views cannot ask in a traversal) leaves the case
             # PARTIAL where the provider says so (`Provider.partial_traversals`), as a
-            # select does: the others still compare among themselves and with the
-            # reference; otherwise the question is dropped on every data model
+            # select does: the others still compare among themselves; otherwise the
+            # question is dropped on every data model
             if not getattr(schema.engine, "partial_traversals", False):
                 return None
             skipped.append(data_model)
@@ -204,7 +194,6 @@ def build_case(q: TraversalQuery, rng: random.Random, schema: Schema, instance: 
     params = {
         "shape": shape_signature(q),
         "traversal": q.to_params(),
-        "reference": q.reference and _aggregates_exactly(q, schema, instance),
         "projection": q.projection,
         "field": q.field,
         "concrete_syntax": chosen,

@@ -44,7 +44,7 @@ from ganda.core.query.ir import predicates
 from ganda.core.query.generators import predicates as sampler
 from ganda.core.oracle.case import QueryCase
 from ganda.core.query.ir.enums import AggFn, GroupFn, JoinForm, JoinOp, SelectKind, SortDirection
-from ganda.core.query.ir.select import EDGE_KINDS, SelectQuery, coverage_signature, hits, present_values, reference_ok, shape_signature, target_fields
+from ganda.core.query.ir.select import EDGE_KINDS, SelectQuery, coverage_signature, hits, present_values, shape_signature, target_fields
 from ganda.core.query.generators.support import composite_and as _composite_and, draw_tx, tx_binds
 
 CASES_PER_INSTANCE = 30
@@ -112,8 +112,9 @@ def _draw_where(rng: random.Random, schema: Schema, instance: Instance, table: s
 
 
 def _admits(fn: str, f, present: list, sum_is_exact) -> bool:
-    """Whether aggregate `fn` has an exact reference over column `f` with these
-    present values among the matching records."""
+    """Whether aggregate `fn` is asked over column `f` with these present values among
+    the matching records: a sum (an average, a median) only where it is exact in every
+    order, so the data models' different visiting orders cannot part the answers."""
     if fn == "sum":
         return f.type in INT_TYPES + (FieldType.DECIMAL,) and sum_is_exact(present, f.type.value)
     if fn in ("avg", "median"):
@@ -172,7 +173,7 @@ def _realize(rng: random.Random, schema: Schema, instance: Instance, table: str,
         entries = list(_METHODS.get(f.type, ()))
         rng.shuffle(entries)
         values = present(f)
-        for template, _fn, guard in entries:
+        for template, guard in entries:
             if all(guard(v) for v in values):
                 return make(fields=(f.name,), fn=template)
         return None
@@ -276,7 +277,7 @@ def _tx_admits(q: SelectQuery, schema: Schema, instance: Instance) -> bool:
     if q.kind == "group" and q.fn != "count_star":
         return _admits(q.fn, column(schema, q, q.arg), present(q.arg), sum_is_exact)
     if q.kind == "method":
-        guard = next(g for t, _fn, g in METHODS[column(schema, q, q.field).type] if t == q.fn)
+        guard = next(g for t, g in METHODS[column(schema, q, q.field).type] if t == q.fn)
         return all(guard(v) for v in present(q.field))
     return True
 
@@ -317,7 +318,6 @@ def build_case(q: SelectQuery, rng: random.Random, schema: Schema, instance: Ins
         "shape": shape_signature(q, schema),
         "coverage": coverage_signature(q),
         "select": q.to_params(),
-        "reference": reference_ok(q, instance),
         "table": q.table,
         "concrete_syntax": syntaxes,
     }

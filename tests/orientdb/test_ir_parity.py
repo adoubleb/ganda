@@ -11,13 +11,13 @@ from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, I
 from ganda.orientdb.mutation.mutants import MUTANTS_BY_NAME
 from ganda.orientdb.facade import predicates
 from ganda.core.oracle.case import Comparison, QueryCase
-from ganda.core.query.ir.path import PathQuery, evaluate as evaluate_path
+from ganda.core.query.ir.path import PathQuery
 from ganda.orientdb.concrete_syntax.path import render_all
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render
 from ganda.orientdb.facade.predicates import Compound, Predicate
 from ganda.core.query.generators.select import KIND_WEIGHTS, build_case, strata
 from ganda.core.query.ir.enums import SelectKind
-from ganda.core.query.ir.select import SelectQuery, TxWrite, evaluate, tx_instance
+from ganda.core.query.ir.select import SelectQuery, TxWrite, tx_instance
 from ganda.orientdb.concrete_syntax.select import BASE, SelectSyntax, Rewrites, applicable, render as render_select
 from ganda.orientdb.concrete_syntax.support import tx_write
 from ganda.core.query.generators.registry import all_cases
@@ -54,7 +54,7 @@ def _fixture(indexes=(), edge_indexes=()):
 
 
 def _insub(q=None, scan=False, pivot=None):
-    return Predicate("source", "f1", "INSUB", "", pivot if pivot is not None else [], True, "int", False, sub=("n2", "g1", q, scan))
+    return Predicate("source", "f1", "INSUB", "", pivot if pivot is not None else [], "int", False, sub=("n2", "g1", q, scan))
 
 
 # --- the semi-join leaf -----------------------------------------------------------------------
@@ -96,13 +96,6 @@ def test_insub_guards():
 # --- the join kind ----------------------------------------------------------------------------
 
 
-def test_join_reference_keeps_the_outer_records_only():
-    schema, inst = _fixture()
-    # a filter keeps the outer records only; the LET still reads the whole class
-    kept = SelectQuery("n1", Predicate("source", "f2", "IS NOT NULL", "", None), "join", ("f1",), fn="<=", arg="count")
-    assert evaluate(kept, inst) == {"n1/r0": 1, "n1/r1": 3, "n1/r3": 1}
-
-
 def test_join_syntaxes_and_o1():
     ix = IndexSpec("n1", "f2", data_model="rel", kind="NOTUNIQUE")
     schema, inst = _fixture([ix])
@@ -122,11 +115,10 @@ def test_join_syntaxes_and_o1():
 # --- edge-type targets ------------------------------------------------------------------------
 
 
-def test_edge_target_reference_and_doc_syntax():
+def test_edge_target_doc_syntax():
     schema, inst = _fixture()
     p = Predicate("edge", "w", ">", "p", 2, ftype="int")
     q = SelectQuery("e1", p, "ids", edge=True)
-    assert evaluate(q, inst) == [{"id": "e1/e1"}]
     t = Rewrites(rw=predicates.rewrite(p, random.Random(1), "q"))
     assert render_select(q, schema, BASE, t, "graph") == "SELECT eid AS id FROM e1 WHERE w > :p"
     assert render_select(q, schema, BASE, t, "doc") == "SELECT v AS id FROM (SELECT v FROM (SELECT e1[w > :p].eid AS v FROM n1 UNWIND v) WHERE v IS NOT NULL)"
@@ -149,7 +141,6 @@ def test_tx_view_render_and_o31():
     assert [n.record_id for n in tx_instance(inst, tx).nodes_of("n1")][-1] == "n1/tx0"
     where = Predicate("source", "f1", ">", "p", 1, ftype="int")
     q = SelectQuery("n1", where, "count", tx=tx)
-    assert evaluate(q, inst) == [{"v": 3}]
     text = render_select(q, schema, BASE, Rewrites(), "graph")
     assert text == "BEGIN; CREATE VERTEX n1 SET id = :tid, f1 = :tv; LET $r = (SELECT count(*) AS v FROM n1 WHERE f1 > :p TIMEOUT 20000 EXCEPTION); ROLLBACK; RETURN $r"
     assert tx_write(tx, "rel").startswith("INSERT INTO n1") and tx_write(dataclasses.replace(tx, write="delete"), "graph") == "DELETE VERTEX n1 WHERE id = :tid"
@@ -214,7 +205,6 @@ def _chain():
 def test_path_answers_and_syntaxes():
     schema, inst = _chain()
     q = PathQuery("n1/r0", "n1", "n1/r3", "n1", "OUT", "e1", 3)
-    assert evaluate_path(q, inst) == [{"v": 4}]
     queries, known_bugs = render_all(q, schema, inst)
     assert {"doc", "graph", "rel", "rel:inline", "rel:asc", "doc:deep", "graph:unbounded"} <= set(queries)
     assert known_bugs == {"graph": "O35", "rel:asc": "O40"}
@@ -222,7 +212,7 @@ def test_path_answers_and_syntaxes():
     assert queries["rel:inline"].index("SELECT 3 AS d") < queries["rel:inline"].index("SELECT 0 AS d")
     # beyond the bound: no row, and no unbounded form
     near = PathQuery("n1/r0", "n1", "n1/r3", "n1", "OUT", "e1", 2)
-    assert evaluate_path(near, inst) == [] and "graph:unbounded" not in render_all(near, schema, inst)[0]
+    assert "graph:unbounded" not in render_all(near, schema, inst)[0]
     # IN: no doc data model; BOTH or every type: no rel data model
     assert "doc" not in render_all(PathQuery("n1/r3", "n1", "n1/r0", "n1", "IN", "e1", 3), schema, inst)[0]
     assert "rel" not in render_all(PathQuery("n1/r0", "n1", "n1/r3", "n1", "BOTH", "e1", 3), schema, inst)[0]
@@ -311,7 +301,7 @@ def test_scan_verdict_is_not_masked_by_an_index_finding():
         indexes=(ix,),
     )
     inst = Instance(schema, [NodeRow("n1", 0, {"f2": "a", "d": "2020-01-01 00:00:00"}), NodeRow("n2", 0, {})], [])
-    sub = Predicate("source", "f2", "INSUB", "", [None], True, "string", sub=("n2", "g", None, False))
+    sub = Predicate("source", "f2", "INSUB", "", [None], "string", sub=("n2", "g", None, False))
     rev = Predicate("source", "d", "<", "p_1", "2021-01-01 00:00:00", ftype="datetime", rev=True)
     q = SelectQuery("n1", Compound("source", "AND", (sub, rev)), "ids")
     assert select_known(q, BASE, Rewrites(), "graph", schema, inst) == "O14"

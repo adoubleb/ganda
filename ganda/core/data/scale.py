@@ -2,19 +2,16 @@
 campaign does differently when there is a lot of it.
 
 `default` is the size every campaign so far ran at: a few classes of a few dozen short
-rows, where the Python reference over the Instance is cheap, the whole stored state is
-read back after the setup, and a bundle carries the instance and every setup plan.
+rows, where the whole stored state is read back after the setup, and a bundle carries
+the instance and every setup plan.
 
 `large` is the storage-engine stress mode. The three data models of an engine differ
 most in how they STORE a relationship and a record -- an embedded list, an edge bag, a
 junction row -- and those paths are exercised by volume and by size: classes of
 thousands of records with many fields, relationship types of thousands of edges with
 hubs of thousands of links, records carrying strings, binaries and lists grown to the
-engine's limits (`ganda.core.data.limits`), all written through bulk requests. The reference
-leg is REDUNDANT here: an answer over such an instance costs more in Python than in
-the engine, and the question the mode asks is whether the storage layouts agree with
-each other, so the oracle compares the data models pairwise only. The stored state is
-verified by counts and a sample, and a bundle carries the shape of the instance and
+engine's limits (`ganda.core.data.limits`), all written through bulk requests. The
+stored state is compared by counts and a sample, and a bundle carries the shape of the instance and
 the replay (`repro.py` regenerates the data from the seed).
 
 A profile is a set of `GeneratorConfig` fields it changes WHERE THE FLAG WAS LEFT AT ITS
@@ -32,8 +29,6 @@ from typing import Callable
 @dataclass(frozen=True)
 class ScaleProfile:
     name: str
-    # whether the reference leg runs (False: the data models are compared pairwise only)
-    reference: bool
     # 0: the whole stored state is read back; N: counts, plus N records per class and
     # N sources per relationship type (the heaviest ones first)
     state_sample: int
@@ -76,10 +71,10 @@ def _large(limits) -> dict:
 
 
 PROFILES = {
-    "default": ScaleProfile("default", reference=True, state_sample=0, embed_data=True, max_bundle_value_chars=0, query_timeout_ms=30000),
+    "default": ScaleProfile("default", state_sample=0, embed_data=True, max_bundle_value_chars=0, query_timeout_ms=30000),
     # a minute per query: a relational hop is a correlated subquery, and three of them
     # over thousands of records is the performance cliff the mode is not about
-    "large": ScaleProfile("large", reference=False, state_sample=200, embed_data=False, max_bundle_value_chars=256, query_timeout_ms=60000, timeouts_are_errors=False, overrides=_large),
+    "large": ScaleProfile("large", state_sample=200, embed_data=False, max_bundle_value_chars=256, query_timeout_ms=60000, timeouts_are_errors=False, overrides=_large),
 
 
 }

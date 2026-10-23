@@ -6,9 +6,7 @@ The core's catalog names `doc`, `graph` and `rel`. The graph data model is the P
 Graph Engine here, so a corruption aimed at `graph` stays there; the triple store gets a
 copy of each (`rdf_*`), being a graph of its own; the relational node-value corruption
 gets a copy per data model (`doc_` / `graph_` / `rdf_offset_node_numeric`: the core has
-one, and a stored scalar wrong on one model is the plainest thing a select must see); a
-reference-only corruption (every data model alike, only the reference sees it) covers
-all four, or it would stop being oracle-blind.
+one, and a stored scalar wrong on one model is the plainest thing a select must see).
 """
 from __future__ import annotations
 
@@ -25,11 +23,6 @@ def _rdf_copy(m: Mutant) -> Mutant:
     return dataclasses.replace(m, name=re.sub(r"^graph_", "rdf_", m.name), description=m.description.replace("graph data model", "rdf data model"), instance_for_data_model={"rdf": fn})
 
 
-def _every_model(m: Mutant) -> Mutant:
-    fn = next(iter(m.instance_for_data_model.values()))
-    return dataclasses.replace(m, instance_for_data_model={dm: fn for dm in DATA_MODELS})
-
-
 def _node_value_copy(m: Mutant, data_model: str) -> Mutant:
     """The relational node-value corruption aimed at another data model: a stored
     scalar wrong on one model is what a select or a traversal projection must see."""
@@ -40,9 +33,6 @@ def _node_value_copy(m: Mutant, data_model: str) -> Mutant:
 def _instance_mutants() -> list:
     out = []
     for m in INSTANCE_MUTANTS:
-        if m.reference_only:
-            out.append(_every_model(m))
-            continue
         out.append(m)
         if "graph" in m.instance_for_data_model:
             out.append(_rdf_copy(m))

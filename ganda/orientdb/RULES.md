@@ -35,11 +35,11 @@ Before relying on a new engine fact, add it to `scripts/probe_osql.py`
   0). A bracket filter beyond the first hop of such a path matches nothing (O9), so
   `doc:path`/`graph:bag` are withheld there; `count`/aggregates are admitted for
   one-hop shapes only (`syntaxes.applicable`).
-- **Strings compare by UTF-16 code units, but ORDER BY collates** (O6). The reference
-  orders by `str.encode("utf-16-be")`; `node_ordered_page` has no reference on strings
-  or custom keys, and `node_max_vs_order` withholds its STRING variant.
+- **Strings compare by UTF-16 code units, but ORDER BY collates** (O6). `orient_key`
+  orders by `str.encode("utf-16-be")`, and `node_max_vs_order` withholds its STRING
+  variant.
 - **`-0.0 < 0.0`** (`Double.compare`): `d = 0` misses a stored `-0.0`, GROUP BY keeps
-  the two apart, and the reference's `orient_key` does too.
+  the two apart, and `orient_key` does too.
 - **Null**: `IS NULL` and `<>` hold for an absent or null field, nothing else does;
   `IS DEFINED` tells absent from explicit null. `max`/`min` ignore null; `sum` over
   nothing is 0; nulls sort last ASC and first DESC. A null PIVOT (a value join binds
@@ -53,7 +53,7 @@ Before relying on a new engine fact, add it to `scripts/probe_osql.py`
   (truncation on LONG, WRAPPING on INTEGER, rounding on FLOAT: O16) and `BETWEEN`
   converts its bounds (O17). A DECIMAL against a double goes through the double's
   binary expansion on a scan and through its decimal string in an index or a BETWEEN
-  bound (O20); the reference models the scan, the pivots are half dyadic. `sum()`
+  bound (O20); `predicate_hit` models the scan, the pivots are half dyadic. `sum()`
   over Integers is 32-bit (O19): an INTEGER column and an embedded Integer attribute
   are summed only where the total fits an int.
 - **Every value of a narrow type is exact on the JSON wire**: int32 values; float32
@@ -101,7 +101,7 @@ Before relying on a new engine fact, add it to `scripts/probe_osql.py`
   `SET f = f + :d`, whose delta must itself be a long (c100 seed 605). `UPDATE EDGE
   CONTENT` keeps the endpoints.
 - **Dates are their `yyyy-MM-dd HH:mm:ss` strings** (UTC, a DATE at midnight):
-  the reference compares them lexicographically and normalizes a pivot the way the
+  `predicate_hit` compares them lexicographically and normalizes a pivot the way the
   engine converts it (`semantics.canonical_date`: a date alone -> midnight, epoch
   millis -> the second). A partially matching string (ISO `T`, no seconds) is
   compared as the date's midnight (O27, withheld everywhere). Never `LIKE` a date.

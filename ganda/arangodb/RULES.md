@@ -29,17 +29,15 @@ A fact that fails changes the provider, never the probe.
 - Numbers are one type: `1 == 1.0`, `-0.0 == 0`; a 64-bit integer against a double is
   compared EXACTLY (`2^53 + 1 == 9007199254740992.0` is false; **probed** V2 over the
   numeric boundary pairs). An integral double comes back as an integer on the wire, so
-  the reference's rows are canonicalized the same way (`Semantics.canonical`). No signed zero is ever stored
+  every variant's rows are canonicalized the same way (`Semantics.canonical`). No signed zero is ever stored
   (`physical_design.BOUNDARY_VALUES`): the document API keeps the sign and every AQL
   write path drops it (A2), and a stored `-0.0` is one value to comparison and two to
   hashing (A1) -- a divergence of the write door drawn, not of the storage model.
 - Strings are equal code point by code point (no Unicode normalization: an NFD `e` +
   U+0301 is two code points, not `==` U+00E9); their ORDER is ICU collation, upper
-  case first (`'B' < 'a'`), which the reference does not model (**legacy**, **probed**
-  V3). So a STRING (or BINARY) column takes the equality family only
-  (`pivots.ordered_ops`), the reference of an ordering by a string or tiebroken by a
-  custom key is withheld (`orders_exactly`), and `MAX` / `MIN` over a string column is
-  compared across data models only. The model's DATETIME / DATE values are strings of
+  case first (`'B' < 'a'`), which Python's order does not reproduce (**legacy**,
+  **probed** V3). So a STRING (or BINARY) column takes the equality family only in the
+  generated filters (`pivots.ordered_ops`). The model's DATETIME / DATE values are strings of
   one fixed shape, on which ICU and code-point order agree digit by digit.
 - `IN` compares with `==`, so a null element matches a null value (**probed** V4): a
   semi-join's answered nulls match the records lacking the field.
@@ -55,8 +53,7 @@ A fact that fails changes the provider, never the probe.
 - `%` takes the dividend's sign; `7 / 2` is 3.5; an integral double comes back as an
   integer on the wire (**probed** V7); the oracle compares numbers by value.
 - `SORT` puts null first ascending and last descending (**probed** V9).
-- `MAX` / `MIN` over a string column order by collation: the reference leg is withheld
-  for them (`Semantics.aggregates_exactly`), as for a page ordered by a string.
+- `MAX` / `MIN` over a string column order by collation.
 - `HAS()` and `VALUES()` reject a non-object (errorNum 1542 under `failOnWarning`): the
   map operators answer false for a non-object through a ternary, `IS_OBJECT(n.m) ?
   ... : false` (a ternary evaluates the taken branch only), never through `n.m || {}`:

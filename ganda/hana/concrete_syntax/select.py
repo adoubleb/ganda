@@ -76,7 +76,7 @@ from ganda.core.data.generator import BASE_CLASS
 from ganda.core.data.model import FieldType, Instance, Schema
 from ganda.hana.oracle import rewrites as _rewrites
 from ganda.hana.concrete_syntax import document, graph, hints, tx as _tx
-from ganda.hana.concrete_syntax.methods import METHODS, method_fn, result_type, sparql_text, sql_text  # noqa: F401
+from ganda.hana.concrete_syntax.methods import METHODS, result_type, sparql_text, sql_text  # noqa: F401
 from ganda.hana.concrete_syntax.predicate import REL, Names, filter_expr, optionals, sparql_filter, sql
 from ganda.hana.concrete_syntax.traversal import agg_proj, guarded, sparql_table
 from ganda.hana.storage.dialect import GRAPH_TOKEN, PREFIX_TEXT
@@ -925,4 +925,4 @@ def rewrite_params(rewrites: Rewrites) -> dict:
     return params
 
 
-__all__ = ["BASE", "METHODS", "method_fn", "fields_of"]
+__all__ = ["BASE", "METHODS", "fields_of"]

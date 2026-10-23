@@ -308,8 +308,7 @@ class GeneratorConfig:
     write_cases: int = 8
     # The scale profile (`ganda.core.data.scale`): "default", or "large" for the
     # storage-engine stress mode, which sets the sizes above and the three axes below
-    # wherever their flags were left at these defaults, and runs the campaign without
-    # the reference leg.
+    # wherever their flags were left at these defaults, and samples the state check.
     scale: str = "default"
     # Per node row, on a tail stream: the row is a LARGE row, whose present STRING /
     # BINARY / LIST values (the uncontrolled ones) grow to the engine's limits

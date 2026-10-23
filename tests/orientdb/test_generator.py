@@ -123,7 +123,7 @@ def test_inheritance_axis_is_a_tail_axis():
 
 def test_inheritance_ddl_and_cases():
     from ganda.orientdb.storage.mapping import MAPPERS
-    from ganda.core.query.generators.registry import all_cases, reference_for
+    from ganda.core.query.generators.registry import all_cases
 
     found_poly = False
     for seed in range(1, 12):
@@ -135,8 +135,6 @@ def test_inheritance_ddl_and_cases():
             assert all(f"EXTENDS N0" in t for t in texts if t.startswith("CREATE CLASS n"))
             assert not any(t.startswith("CREATE PROPERTY n") and t.endswith(".id STRING") for t in texts)
         for c in all_cases(rng, schema, inst, traversal_cases=0, select_cases=30):
-            has, ref = reference_for(c, inst)
-            assert has or c.params.get("reference") is False
             if c.params.get("table") == "N0":
                 found_poly = True
     assert found_poly
@@ -204,7 +202,7 @@ def test_date_and_map_axes():
     import datetime as _dt
 
     from ganda.orientdb.storage.mapping import MAPPERS
-    from ganda.core.query.generators.registry import all_cases, reference_for
+    from ganda.core.query.generators.registry import all_cases
 
     base = build(41, GeneratorConfig())[1]
     tail = build(41, GeneratorConfig(date_map_probability=1.0, list_index_probability=1.0))[1]
@@ -237,8 +235,6 @@ def test_date_and_map_axes():
     for seed in range(41, 47):
         schema, inst, rng = build(seed, GeneratorConfig(date_map_probability=0.7, list_index_probability=1.0, index_probability=0.6, inheritance_probability=0.5))
         for c in all_cases(rng, schema, inst, select_cases=30):
-            has, ref = reference_for(c, inst)
-            assert has or c.params.get("reference") is False, c.generator_name
             seen |= {s_.split(":", 1)[1] for s_ in c.queries if ":" in s_}
     assert {"index", "poly", "polyin"} <= seen
 

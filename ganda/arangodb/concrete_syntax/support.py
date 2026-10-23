@@ -13,13 +13,6 @@ from ganda.arangodb.storage.dialect import document_key
 F64_INT_EXACT = 2**53
 
 
-def _c_mod(a: int, b: int) -> int:
-    """AQL `%`: the remainder takes the sign of the dividend (C's `fmod`)."""
-    q = abs(a) // abs(b)
-    q = q if (a >= 0) == (b >= 0) else -q
-    return a - q * b
-
-
 def _bmp(s: str) -> bool:
     return all(ord(c) < 0x10000 for c in s)
 
@@ -28,44 +21,44 @@ def _small(v) -> bool:
     return abs(v) < F64_INT_EXACT
 
 
-# Methods with an exact Python mirror over PRESENT values (the query filters `!= null`).
-# Casing and trimming mirrors are trusted over ASCII only; the character-position
+# Methods, each with a guard on the PRESENT values it is asked over (the query filters
+# `!= null`). Casing and trimming are asked over ASCII only; the character-position
 # functions over the Basic Multilingual Plane (an astral code point is two UTF-16 units
 # to some of the engine's string functions, A11's class). Nothing renders a float as
 # text (its shortest form is the engine's business) and nothing rounds (A5).
 _INT_METHODS = [
-    ("TO_STRING({f})", lambda v: str(v), _small),
-    ("{f} + 1", lambda v: v + 1, _small),
-    ("{f} - 1", lambda v: v - 1, _small),
-    ("{f} * 2", lambda v: v * 2, lambda v: abs(v) < 2**52),
-    ("{f} / 2", lambda v: v / 2, _small),
-    ("{f} % 3", lambda v: _c_mod(v, 3), _small),
-    ("ABS({f})", lambda v: abs(v), _small),
-    ("FLOOR({f})", lambda v: v, _small),
+    ("TO_STRING({f})", _small),
+    ("{f} + 1", _small),
+    ("{f} - 1", _small),
+    ("{f} * 2", lambda v: abs(v) < 2**52),
+    ("{f} / 2", _small),
+    ("{f} % 3", _small),
+    ("ABS({f})", _small),
+    ("FLOOR({f})", _small),
 ]
 _FLOAT_METHODS = [
-    ("{f} * 2", lambda v: v * 2, lambda v: math.isfinite(v) and abs(v) < 8e307),
-    ("{f} + 0", lambda v: v + 0, lambda v: True),
-    ("ABS({f})", lambda v: abs(v), lambda v: True),
-    ("FLOOR({f})", lambda v: math.floor(v), lambda v: abs(v) < 2**62),
+    ("{f} * 2", lambda v: math.isfinite(v) and abs(v) < 8e307),
+    ("{f} + 0", lambda v: True),
+    ("ABS({f})", lambda v: True),
+    ("FLOOR({f})", lambda v: abs(v) < 2**62),
 ]
 _DATE_METHODS = [
-    ("LENGTH({f})", lambda v: len(v), lambda v: True),
-    ("LEFT({f}, 10)", lambda v: v[:10], lambda v: True),
-    ("SUBSTRING({f}, 11)", lambda v: v[11:], lambda v: True),
-    ("CONCAT({f}, 'x')", lambda v: v + "x", lambda v: True),
+    ("LENGTH({f})", lambda v: True),
+    ("LEFT({f}, 10)", lambda v: True),
+    ("SUBSTRING({f}, 11)", lambda v: True),
+    ("CONCAT({f}, 'x')", lambda v: True),
 ]
 METHODS = {
     FieldType.STRING: [
-        ("UPPER({f})", lambda s: s.upper(), lambda s: s.isascii()),
-        ("LOWER({f})", lambda s: s.lower(), lambda s: s.isascii()),
-        ("LENGTH({f})", lambda s: len(s), lambda s: True),
-        ("CONCAT({f}, 'x')", lambda s: s + "x", lambda s: True),
-        ("CONCAT('x', {f})", lambda s: "x" + s, lambda s: True),
-        ("LEFT({f}, 1)", lambda s: s[:1], _bmp),
-        ("TRIM({f})", lambda s: s.strip(" \t\n\r"), lambda s: s.isascii()),
-        ("CONTAINS({f}, 'a')", lambda s: "a" in s, lambda s: True),
-        ("FIND_FIRST({f}, 'a')", lambda s: s.find("a"), _bmp),
+        ("UPPER({f})", lambda s: s.isascii()),
+        ("LOWER({f})", lambda s: s.isascii()),
+        ("LENGTH({f})", lambda s: True),
+        ("CONCAT({f}, 'x')", lambda s: True),
+        ("CONCAT('x', {f})", lambda s: True),
+        ("LEFT({f}, 1)", _bmp),
+        ("TRIM({f})", lambda s: s.isascii()),
+        ("CONTAINS({f}, 'a')", lambda s: True),
+        ("FIND_FIRST({f}, 'a')", _bmp),
     ],
     FieldType.INT: _INT_METHODS,
     FieldType.INT32: _INT_METHODS,
@@ -73,34 +66,27 @@ METHODS = {
     FieldType.FLOAT32: _FLOAT_METHODS,
     FieldType.DECIMAL: _FLOAT_METHODS,
     FieldType.BOOL: [
-        ("TO_STRING({f})", lambda v: "true" if v else "false", lambda v: True),
-        ("TO_NUMBER({f})", lambda v: 1 if v else 0, lambda v: True),
-        ("NOT {f}", lambda v: not v, lambda v: True),
+        ("TO_STRING({f})", lambda v: True),
+        ("TO_NUMBER({f})", lambda v: True),
+        ("NOT {f}", lambda v: True),
     ],
     FieldType.LIST: [
-        ("LENGTH({f})", lambda v: len(v), lambda v: True),
-        ("LENGTH(UNIQUE({f}))", lambda v: len(set(v)), lambda v: True),
-        ("FIRST({f})", lambda v: v[0] if v else None, lambda v: True),
-        ("MAX({f})", lambda v: max(v) if v else None, lambda v: True),
-        ("SUM({f})", lambda v: sum(v), lambda v: sum(abs(x) for x in v) < F64_INT_EXACT),
+        ("LENGTH({f})", lambda v: True),
+        ("LENGTH(UNIQUE({f}))", lambda v: True),
+        ("FIRST({f})", lambda v: True),
+        ("MAX({f})", lambda v: True),
+        ("SUM({f})", lambda v: sum(abs(x) for x in v) < F64_INT_EXACT),
     ],
     FieldType.MAP: [
-        ("LENGTH({f})", lambda v: len(v), lambda v: True),
-        ("LENGTH(ATTRIBUTES({f}))", lambda v: len(v), lambda v: True),
-        ("HAS({f}, 'k1')", lambda v: "k1" in v, lambda v: True),
+        ("LENGTH({f})", lambda v: True),
+        ("LENGTH(ATTRIBUTES({f}))", lambda v: True),
+        ("HAS({f}, 'k1')", lambda v: True),
     ],
     FieldType.DATETIME: _DATE_METHODS,
     FieldType.DATE: _DATE_METHODS,
     # a blob is projected, never computed over
     FieldType.BINARY: [],
 }
-
-
-def method_fn(template: str, ftype: FieldType):
-    for t, fn, _ in METHODS[ftype]:
-        if t == template:
-            return fn
-    raise KeyError(template)
 
 
 # --- the transaction door ---------------------------------------------------------------------

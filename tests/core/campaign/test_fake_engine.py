@@ -6,12 +6,12 @@ import os
 from ganda.core.campaign import run as campaign
 from ganda.core.data.generator import build
 from ganda.core.oracle.dedup import BugDeduplicator
-from ganda.core.query.generators.registry import all_cases, reference_for
+from ganda.core.query.generators.registry import all_cases
 from ganda.core.query.generators.write_phase import run_write_phase
 from ganda.core.mutation import runner as mutation
 from ganda.core.oracle.oracle import run_case
 from ganda.core.campaign.reporter import report_bug
-from ganda.core.engine.state_check import verify_state
+from ganda.core.engine.state_check import compare_states
 from tests.fake_engine import SMALL, FakeProvider
 
 
@@ -42,20 +42,18 @@ def test_generation_is_deterministic_and_bound_to_the_engine():
     assert texts and texts == [c.queries for c in all_cases(again[2], again[0], again[1], cfg=cfg)]
 
 
-def test_every_generator_emits_cases_that_agree_and_have_a_reference():
+def test_every_generator_emits_cases_that_agree():
     engine = FakeProvider()
     cfg = engine.config_class(**SMALL)
     seen = set()
     for seed in range(1, 6):
         schema, instance, rng = build(seed, cfg, engine)
         sessions = _sessions(engine, instance)
-        assert all(verify_state(sessions[dm], dm, instance).ok for dm in engine.data_models)
+        assert all(d.ok for d in compare_states(sessions, instance).values())
         for case in all_cases(rng, schema, instance, cfg=cfg):
             assert case.engine is engine and set(engine.data_models) <= set(case.variants)
-            r = run_case(case, sessions, instance)
-            assert r.ok, (case.generator_name, case.shape, r.failing_pairs, r.reference_mismatches[:2])
-            if case.params.get("reference") is not False:
-                assert reference_for(case, instance)[0]
+            r = run_case(case, sessions)
+            assert r.ok, (case.generator_name, case.shape, r.failing_pairs)
             seen.add(case.generator_name)
         wp = run_write_phase(sessions, instance, rng.for_generator("ir_write"), cfg.write_cases)
         assert not wp.stopped and all(r.ok for r in wp.results), wp.stopped
@@ -74,10 +72,10 @@ def test_a_corrupted_data_model_is_a_finding_with_a_bundle(tmp_path):
         sessions["graph"].tamper = lambda rows: rows[1:]  # the graph data model loses its first row
         plans = {dm: engine.mappers[dm](instance) for dm in engine.data_models}
         for case in all_cases(rng, schema, instance, cfg=cfg):
-            r = run_case(case, sessions, instance)
+            r = run_case(case, sessions)
             if r.ok:
                 continue
-            assert all("graph" in pair.split("/") for pair in r.failing_pairs) and {m.variant for m in r.reference_mismatches} <= {"graph"}
+            assert r.failing_pairs and all("graph" in pair.split("/") for pair in r.failing_pairs)
             first, n = dedup.admit(r)
             if first:
                 bundles.append(report_bug(engine, str(tmp_path), "t", seed, cfg, instance, plans, r, times_seen=n))
@@ -100,22 +98,18 @@ def test_campaign_runs_clean_and_counts(tmp_path):
     assert all(not server.databases for server in engine.servers)  # every database dropped
 
 
-def test_mutation_benchmark_catches_instance_mutants_and_needs_the_reference_for_the_blind_one():
+def test_mutation_benchmark_catches_instance_mutants():
     engine = FakeProvider()
-    picked = ["graph_drop_first_edge", "rel_swap_direction", "all_sides_drop_edge"]
+    picked = ["graph_drop_first_edge", "rel_swap_direction"]
     report = mutation.run_benchmark(engine, _args(mutation.add_arguments, engine, ["--trials", "4", "--mutants", *picked]))
     assert report["engine"] == "fake" and set(report["mutants"]) == set(picked)
     assert report["mutants"]["graph_drop_first_edge"]["caught"] > 0
-    assert report["mutants"]["all_sides_drop_edge"]["caught"] > 0  # only the reference sees it
-    blind = mutation.run_benchmark(engine, _args(mutation.add_arguments, engine, ["--trials", "4", "--no-reference", "--mutants", "all_sides_drop_edge"]))
-    assert blind["mutants"]["all_sides_drop_edge"]["caught"] == 0
 
 
 def test_every_finding_class_has_a_deduplication_key():
     engine = FakeProvider()
     cfg = engine.config_class(**SMALL)
     tampers = {
-        "reference_mismatch": (lambda rows: rows[1:], ("doc", "graph", "rel")),  # every data model alike
         "duplicate_id_rows": (lambda rows: rows + rows[:1], ("graph",)),
         "mismatch": (lambda rows: rows[1:], ("graph",)),
     }
@@ -128,7 +122,7 @@ def test_every_finding_class_has_a_deduplication_key():
             for dm in data_models:
                 sessions[dm].tamper = tamper
             for case in cases:
-                r = run_case(case, sessions, instance)
+                r = run_case(case, sessions)
                 if not r.ok:
                     key = BugDeduplicator.key(r)
                     assert key[0] == case.generator_name and key[3] == r.finding_class and key[2]

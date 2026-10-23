@@ -28,8 +28,10 @@ class EngineCrash(RuntimeError):
 
 
 class Semantics:
-    """The engine's value semantics: what the reference interpreter must reproduce to
-    predict an answer from the `Instance`."""
+    """The engine's value semantics: the value order and equality the oracle and the
+    state check compare answers under, and the predicate logic and arithmetic the
+    generators walk the `Instance` with (to draw filters that keep records, writes
+    that match some, sums that stay exact). No answer is predicted from it."""
 
     def key(self, v: Any):
         """A total-order key reproducing the engine's comparison inside one type, and a
@@ -69,43 +71,14 @@ class Semantics:
         """`v <sym> c` as the engine computes it."""
         raise NotImplementedError
 
-    def agg(self, fn: str, values: list, ftype: "str | None" = None):
-        raise NotImplementedError
-
-    def mean(self, values: list):
-        raise NotImplementedError
-
     def sum_is_exact(self, values: list, ftype: "str | None" = "int") -> bool:
         """Whether the engine's sum of `values` is exact in every order."""
         raise NotImplementedError
 
-    def aggregate_over_no_rows(self, fn: str) -> list:
-        """The rows an aggregate other than a count answers over no input rows."""
-        raise NotImplementedError
-
-    def nulls_first(self, desc: bool) -> bool:
-        """Whether an ORDER BY puts the null keys first in this direction."""
-        raise NotImplementedError
-
-    def order_key(self, v: Any, desc: bool):
-        """A per-key sort key for an ORDER BY: `key` with the engine's null placement,
-        reversed for a descending key."""
-        raise NotImplementedError
-
-    def orders_exactly(self, ftype, custom_keys: bool) -> bool:
-        """Whether the reference reproduces an id-tiebroken ORDER BY on a column of
-        `ftype` (a collation the reference does not model makes it inexact)."""
-        raise NotImplementedError
-
-    def aggregates_exactly(self, fn: str, ftype) -> bool:
-        """Whether the reference reproduces `fn` (`max` / `min`) over a column of `ftype`
-        (an order the reference does not model, a collated string, makes it inexact)."""
-        return True
-
     def canonical(self, value):
-        """A bare answer's values as the engine puts them on the wire, so the reference's
-        rows compare in the same form (an engine that prints an integral double as an
-        integer says so here); the identity by default."""
+        """A bare answer's values in one wire form, so two variants' rows compare in the
+        same form (an engine that prints an integral double as an integer says so
+        here); the identity by default."""
         return value
 
 
@@ -189,11 +162,10 @@ class Provider:
                     the engine's own axes); every field is a command-line flag
     limits          `ganda.core.data.limits.StorageLimits`: what the engine can hold, which
                     the large-data axes stay inside (`ganda <engine> limits` prints it)
-    semantics       `Semantics`: what the reference interpreter must reproduce
+    semantics       `Semantics`: the value order, equality and predicate logic
     pivots          predicate sampling: NULL_OPS, ORDERED_OPS, LIKE_WILDCARDS,
                     ordered_ops(ftype) (the comparison operators a column of the type
-                    admits: a subset of ORDERED_OPS where the engine orders a type
-                    the reference cannot model), cross_type(rng, ftype, v),
+                    admits: a subset of ORDERED_OPS), cross_type(rng, ftype, v),
                     refine(rng, ftype, v)
     physical_design index kinds and what they enforce, write forms, key rules:
                     draw_index_kind(rng), NON_UNIQUE_KINDS, EDGE_INDEX_DATA_MODELS,
@@ -206,7 +178,7 @@ class Provider:
     mappers         {data model: Instance -> setup plan}
     traversal_syntax  syntaxes_for(q, schema, dm), render(q, schema, dm, syntax,
                     pull_up=False), can_pull_up(q)
-    select_syntax   BASE, METHODS, method_fn(template, ftype), build_rewrites(q, rng,
+    select_syntax   BASE, METHODS, build_rewrites(q, rng,
                     schema, instance), extra_binds(q, schema, rewrites),
                     rewrite_params(rewrites), base_data_models(q),
                     syntaxes_for(q, schema, rewrites, dm), applicable(q, schema, syntax,
@@ -222,7 +194,7 @@ class Provider:
                     write_known(q, syntax, rewrites, dm, schema, instance) -> id | None
     mutants         the mutation benchmark's catalog (`ganda.core.mutation.mutants`)
     extra_generators  {generator name: (rng, schema, instance, cfg) -> cases}: the
-                    engine-only query generators, with `reference_for` for their answers
+                    engine-only query generators
     compare_despite_errors  the oracle compares the variants that answered when another
                     errored (default False: an error ends the comparison)
     partial_traversals  a traversal with no syntax on some data model stays as a partial
@@ -258,9 +230,8 @@ class Provider:
     # fuzzers' behaviour
     compare_despite_errors = False
     # a traversal question some data model has no concrete syntax for is kept as a
-    # PARTIAL case (the others compare among themselves and with the reference, as a
-    # select does); off, the question is dropped on every data model -- the legacy
-    # behaviour
+    # PARTIAL case (the others compare among themselves, as a select does); off, the
+    # question is dropped on every data model -- the legacy behaviour
     partial_traversals = False
 
     def error_signature(self, message: str) -> str:
@@ -307,10 +278,6 @@ class Provider:
         if getattr(args, "coverage", "off") != "off":
             raise SystemExit(f"{self.name} has no code-coverage collector")
         return None
-
-    def reference_for(self, case, instance):
-        """(has a reference, the expected answer) for a case of an extra generator."""
-        return False, None
 
     def probe(self, facts: "list | None" = None) -> int:
         """Re-check live the engine facts the provider rests on; a process exit code.

@@ -41,11 +41,6 @@ def distance(q: PathQuery, instance: Instance) -> "int | None":
     return bfs_distances(instance, q.start, q.direction, q.edge_type).get(q.goal)
 
 
-def evaluate(q: PathQuery, instance: Instance) -> list:
-    d = distance(q, instance)
-    return [{"v": d + 1}] if d is not None and d <= q.depth else []
-
-
 def reach(q: PathQuery, instance: Instance) -> Reach:
     d = distance(q, instance)
     return Reach.SAME if d == 0 else Reach.NO if d is None else Reach.CUT if d > q.depth else Reach.YES

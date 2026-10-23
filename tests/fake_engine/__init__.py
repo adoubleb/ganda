@@ -2,8 +2,8 @@
 run on.
 
 Every data model's "database" is that data model's own copy of the `Instance`; a query
-text is the JSON of the IR and a session answers it with the core's evaluators over
-its copy. So a healthy campaign agrees with itself by construction, and a corruption
+text is the JSON of the IR and a session answers it with the double's own query
+processor (`interpreter`) over its copy. So a healthy campaign agrees with itself by construction, and a corruption
 of one data model's copy (a mutant, a faulty session in a test) is a real disagreement
 the oracle has to catch. No engine-specific package is imported here: if the core
 needed one, these tests could not run.
@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 
 from ganda.core.query.ir import path as path_ast
 from ganda.core.query.ir import select as select_ast
+from tests.fake_engine import interpreter
 from ganda.core.query.ir import traversal as traversal_ast
 from ganda.core.query.ir import write as write_ast
 from ganda.core.query.ir.predicates import Compound
@@ -98,6 +99,12 @@ class FakeSemantics(Semantics):
     def apply_arith(self, v, sym, c, ftype):
         return {"+": v + c, "-": v - c, "*": v * c}[sym]
 
+    def sum_is_exact(self, values, ftype="int") -> bool:
+        return all(isinstance(v, int) and not isinstance(v, bool) for v in values)
+
+    # not the contract's: the value rules the double's own executor (`interpreter`)
+    # answers aggregates and orderings with
+
     def agg(self, fn, values, ftype=None):
         present = [v for v in values if v is not None]
         if fn == "count":
@@ -113,9 +120,6 @@ class FakeSemantics(Semantics):
     def mean(self, values):
         return sum(values) / len(values)
 
-    def sum_is_exact(self, values, ftype="int") -> bool:
-        return all(isinstance(v, int) and not isinstance(v, bool) for v in values)
-
     def aggregate_over_no_rows(self, fn) -> list:
         return [{"v": None}]
 
@@ -127,9 +131,6 @@ class FakeSemantics(Semantics):
             return (1, ())
         k = self.key(v)
         return (0, tuple(-x if isinstance(x, (int, float)) else x for x in k)) if desc else (0, k)
-
-    def orders_exactly(self, ftype, custom_keys: bool) -> bool:
-        return True
 
 
 # --- the "engine": one Instance copy per database --------------------------------------------
@@ -174,12 +175,12 @@ class FakeSession(Session):
         kind, params = doc["ast"], doc["q"]
         if kind == "traversal":
             q = traversal_ast.from_params(params)
-            value = traversal_ast.evaluate(q, self.instance)
+            value = interpreter.evaluate_traversal(q, self.instance)
             rows = [{"id": i} for i in value] if q.projection in traversal_ast.SET_PROJECTIONS else _rows(value)
         elif kind == "select":
-            rows = _rows(select_ast.evaluate(select_ast.from_params(params), self.instance))
+            rows = _rows(interpreter.evaluate_select(select_ast.from_params(params), self.instance))
         elif kind == "path":
-            rows = _rows(path_ast.evaluate(path_ast.from_params(params), self.instance))
+            rows = _rows(interpreter.evaluate_path(path_ast.from_params(params), self.instance))
         else:
             raise EngineError(f"unknown query kind {kind!r}")
         return self.tamper(rows) if self.tamper else rows
@@ -257,10 +258,6 @@ class _SelectSyntax:
     METHODS: dict = {}
 
     @staticmethod
-    def method_fn(template, ftype):
-        raise KeyError(template)
-
-    @staticmethod
     def build_rewrites(q, rng, schema, instance):
         return _NoRewrites()
 
@@ -329,7 +326,7 @@ class _WriteSyntax:
 
     @staticmethod
     def execute(session, st) -> list:
-        answer = write_ast.answer(st.query, session.instance)
+        answer = interpreter.write_answer(st.query, session.instance)
         session.instance = write_ast.apply(st.query, session.instance)
         return answer
 

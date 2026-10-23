@@ -47,10 +47,10 @@ ganda/
     model.py               Schema, Instance, rows, churn
     data_generator.py      seeded generation; GeneratorConfig
     rng.py                 named random streams
-    ir/                    predicates + traversal, select, path, write IRs and their reference
+    ir/                    predicates + traversal, select, path, write IRs (and the Instance walks generation steers by)
     generators/            query generators (ir_traversal, ir_select, ir_path, ir_write), write phase
-    case.py, oracle.py     QueryCase, pairwise comparison, reference leg, finding classes
-    state_check.py         stored state == Instance?
+    case.py, oracle.py     QueryCase, pairwise comparison, finding classes
+    state_check.py         do the data models' stored states agree?
     campaign.py            the campaign loop (start with run_instance)
     dedup.py, reporter.py, replay.py
     mutation/, coverage.py, scale.py, limits.py, docker.py, setup_plan.py
@@ -143,15 +143,15 @@ other variant automatically. You don't touch the oracle.
 
 ### Add a rule to a provider's semantics
 
-`oracle/semantics.py` is how the reference predicts the engine's answer: value order, equality,
-null logic, aggregates, where nulls sort. A `reference_mismatch` where every database
-agrees usually means a rule here is wrong.
+`oracle/semantics.py` holds the engine's value rules: the order and equality answers are
+compared under, and the predicate logic and arithmetic the generators walk the Instance
+with (to draw filters that keep records, writes that match some, sums that stay exact).
+It predicts no answer.
 
 1. Write a probe fact showing the engine's behaviour over boundary values.
 2. Make `oracle/semantics.py` match it, and add the fact to `RULES.md`.
-3. If the reference cannot model the behaviour exactly (a collation, say), make the
-   relevant `orders_exactly` / `aggregates_exactly` / `ordered_ops` answer `False` so
-   those questions are not asked, rather than approximating.
+3. If a question would part the data models for a legitimate reason (a collation one
+   of them applies, say), narrow `ordered_ops` or the generator so it is not asked.
 
 ### Add a generation axis
 
@@ -179,7 +179,7 @@ Follow the order below; each step has a check you can run before moving on.
 | Step | Files | Check |
 |---|---|---|
 | 1. Connection | `engine/connection.py` (`Server`, usually a `core.docker.DockerServer` subclass, and `Session` with a `ping()` for `doctor`), `provider.py`, `engine/limits.py` (`StorageLimits.conservative()` until probed), register in `ganda/registry.py` with `has_generators = False` | `ganda <engine> doctor`, `pytest tests/test_layering.py` |
-| 2. Mapping | `storage/dialect.py`, `storage/physical_design.py`, `storage/mapping/` (one mapper per data model) | `state_check.verify_state` agrees on every data model |
+| 2. Mapping | `storage/dialect.py`, `storage/physical_design.py`, `storage/mapping/` (one mapper per data model) | `state_check.compare_states` finds the data models in agreement |
 | 3. Semantics | `oracle/semantics.py`, `oracle/pivots.py`, probe script, `RULES.md` | Probe passes; most of the work is here |
 | 4. Concrete syntax | `concrete_syntax/` for all four IRs, at least one syntax per data model | Offline unit tests, then a small campaign |
 | 5. Finish | `known_bugs/guards.py`, `mutation/mutants.py`, `oracle/rewrites.py`, then `has_generators = True` | `pytest` (the full slot check), campaign, mutation benchmark |
@@ -202,10 +202,8 @@ Work through it in this order:
 2. **Read `failing_pairs`.** A same-database pair (`graph/graph:match`) is an inconsistency
    inside one storage layout, which makes the strongest report. A cross-model pair needs
    the setup plans checked too.
-3. **An empty pair list with `reference_mismatches`** means every database agreed and only
-   the reference didn't. Suspect the provider's `oracle/semantics.py` before the engine.
-4. **`internal_error`** is a raw engine exception and is a finding by itself.
-5. **Reduce it by hand** to a few statements against a fresh database, then write it up
+3. **`internal_error`** is a raw engine exception and is a finding by itself.
+4. **Reduce it by hand** to a few statements against a fresh database, then write it up
    under `issues/<id>-<slug>.md`: engine version, minimal reproduction, expected vs actual,
    analysis down to the engine source where possible, scope, and how Ganda found it.
    The existing files there show the format.

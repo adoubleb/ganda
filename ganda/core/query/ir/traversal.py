@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass
-from typing import Any
 
 from ganda.core.data.model import Instance
 from ganda.core.query.ir import predicates
@@ -69,10 +68,6 @@ class TraversalQuery:
         for p in self.predicates:
             out.update(p.bind_vars)
         return out
-
-    @property
-    def reference(self) -> bool:
-        return all(p.reference for p in self.predicates)
 
     @property
     def edge_projection(self) -> bool:
@@ -142,7 +137,7 @@ def all_signatures(max_hops: int = MAX_HOPS) -> list:
 SHAPE_DENOMINATOR = len(all_signatures())
 
 
-# --- the reference leg -----------------------------------------------------------------------
+# --- walking the Instance (the generators' guards) ------------------------------------------
 
 
 def _hit(instance: Instance, values: dict, p) -> bool:
@@ -220,45 +215,6 @@ def reach(q: TraversalQuery, instance: Instance, start: str) -> list:
                     nxt.append(target)
         frontier = nxt
     return sorted(seen)
-
-
-def evaluate(q: TraversalQuery, instance: Instance) -> Any:
-    """{start id: value} for row-keyed projections; a sorted id list for `exists` /
-    `nexists`."""
-    out: dict = {}
-    bare: list = []
-    if q.projection in REACH_PROJECTIONS:
-        for n in instance.nodes_of(q.source_table):
-            if q.source_predicate is not None and not _hit(instance, n.values, q.source_predicate):
-                continue
-            r = reach(q, instance, n.record_id)
-            out[n.record_id] = r if q.projection.endswith(("2", "3")) else len(r)
-        return out
-    ftype = projected_type(q, instance) if q.projection in AGG_PROJECTIONS or q.projection in EDGE_AGG_PROJECTIONS else None
-    for n in instance.nodes_of(q.source_table):
-        if q.source_predicate is not None and not _hit(instance, n.values, q.source_predicate):
-            continue
-        paths = final_paths(q, instance, n.record_id)
-        ids = [t for t, _ in paths]
-        if q.projection in SET_PROJECTIONS:
-            if bool(ids) == (q.projection == "exists"):
-                bare.append(n.record_id)
-            continue
-        if q.projection == "ids":
-            v: Any = ids
-        elif q.projection == "distinct_ids":
-            v = sorted(set(ids))
-        elif q.projection == "count":
-            v = len(ids)
-        elif q.projection == "distinct_count":
-            v = len(set(ids))
-        else:
-            values = _projected_values(q, instance, paths)
-            v = values if q.projection in ("field", "efield") else instance.schema.engine.semantics.agg(q.projection.lstrip("e") if q.edge_projection else q.projection, values, ftype)
-        out[n.record_id] = v
-    if q.projection in SET_PROJECTIONS:
-        return sorted(bare)
-    return out
 
 
 # the most paths `sums_exactly` enumerates before declining: far above what any

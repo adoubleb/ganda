@@ -22,7 +22,8 @@ from ganda.hana.engine.connection import decode_column, decode_row, positional, 
 from ganda.hana.storage.dialect import list_text, record_iri, sparql_literal, sparql_string
 from ganda.hana.storage.physical_design import BOUNDARY_VALUES
 from ganda.hana.provider import PROVIDER as E
-from ganda.hana.oracle.semantics import UNKNOWN, evaluate, mean, tri
+from ganda.hana.oracle.semantics import UNKNOWN, evaluate, tri
+from tests.hana.offline import hana_avg as mean
 
 CFG = E.config_class(write_form_probability=0.8, churn_edge_update_probability=0.3, clusters_probability=0.3)
 
@@ -79,7 +80,7 @@ def test_sparql_literals():
 
 
 def _leaf(field, op, pivot=None, ftype="int"):
-    return Predicate("source", field, op, "" if op in ("IS NULL", "IS NOT NULL") else f"b{field}", pivot, True, ftype)
+    return Predicate("source", field, op, "" if op in ("IS NULL", "IS NOT NULL") else f"b{field}", pivot, ftype)
 
 
 def test_three_valued_logic():
@@ -92,7 +93,7 @@ def test_three_valued_logic():
     # membership is two-valued: false over a null list
     assert evaluate({"l": None}, Compound("source", "NOT", (_leaf("l", "HAS", 1, "list"),)))
     # a semi-join over a null field is unknown; its values' nulls are ignored
-    sub = Predicate("source", "f", "INSUB", "", [None, 3], True, "int", sub=("n2", "g", None, False))
+    sub = Predicate("source", "f", "INSUB", "", [None, 3], "int", sub=("n2", "g", None, False))
     assert tri({}, sub) is UNKNOWN and tri({"f": 4}, sub) is False and tri({"f": 3}, sub) is True
 
 
@@ -166,11 +167,11 @@ def test_cross_type_pivots_stay_inside_the_bound_and_render_typed_on_every_data_
         assert pivots.cross_type(rng, FieldType.INT, v) is v or pivots.cross_type(rng, FieldType.INT, v) == v
     assert "NOT IN" in pivots.ORDERED_OPS
     schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f5", FieldType.FLOAT))),), ())
-    gt = Predicate("source", "f1", ">", "p", 1.5, True, "int")
-    isin = Predicate("source", "f1", "IN", "p", [1.5, 2], True, "int")
-    btw = Predicate("source", "f1", "BETWEEN", "p", [0.5, 2.5], True, "int")
-    rev = Predicate("source", "f1", "<", "p", 1.5, True, "int", rev=True)
-    fint = Predicate("source", "f5", "=", "p", 2, True, "float")
+    gt = Predicate("source", "f1", ">", "p", 1.5, "int")
+    isin = Predicate("source", "f1", "IN", "p", [1.5, 2], "int")
+    btw = Predicate("source", "f1", "BETWEEN", "p", [0.5, 2.5], "int")
+    rev = Predicate("source", "f1", "<", "p", 1.5, "int", rev=True)
+    fint = Predicate("source", "f5", "=", "p", 2, "float")
     # SQL types the parameter by the pivot (a bare `?` would take BIGINT and truncate)
     assert predicate.sql(gt, "t", "n1") == "t.f1 > CAST(:p AS DOUBLE)"
     assert predicate.sql(isin, "t", "n1") == "t.f1 IN (CAST(:p__0 AS DOUBLE), :p__1)"
@@ -183,12 +184,12 @@ def test_cross_type_pivots_stay_inside_the_bound_and_render_typed_on_every_data_
     # pivot on a FLOAT field, written as the double it is (rdflib's IN compares by term)
     assert predicate.sparql_filter(gt, "r") == 'OPTIONAL { ?r p:f1 ?r_f1 } FILTER ((BOUND(?r_f1) && (?r_f1 > "1.5"^^xsd:double)))'
     assert predicate.sparql_filter(fint, "r").endswith('(?r_f5 = "2.0"^^xsd:double)))')
-    assert predicate.sparql_filter(Predicate("source", "f5", "IN", "p", [2, 3.5], True, "float"), "r").endswith('(?r_f5 IN ("2.0"^^xsd:double, "3.5"^^xsd:double))))')
+    assert predicate.sparql_filter(Predicate("source", "f5", "IN", "p", [2, 3.5], "float"), "r").endswith('(?r_f5 IN ("2.0"^^xsd:double, "3.5"^^xsd:double))))')
     # openCypher: both sides doubles, the pivot as TOFLOAT of its text (G36), no parameter
     for leaf, text in ((gt, "(TOFLOAT(t.N1_F1) > TOFLOAT('1.5'))"), (isin, "(TOFLOAT(t.N1_F1) = TOFLOAT('1.5') OR t.N1_F1 = 2)"), (btw, "(TOFLOAT(t.N1_F1) >= TOFLOAT('0.5') AND TOFLOAT(t.N1_F1) <= TOFLOAT('2.5'))"), (rev, "(TOFLOAT('1.5') > TOFLOAT(t.N1_F1))"), (fint, "(t.N1_F5 = TOFLOAT('2'))")):
         params = graph.Params()
         assert graph.cypher_filter(leaf, "t", "n1", schema, params) == text and not params.items
-    # the reference compares exactly across the types
+    # the predicate logic compares exactly across the types
     assert tri({"f1": 2}, gt) is True and tri({"f1": 1}, gt) is False and tri({}, gt) is UNKNOWN and tri({"f5": 2.0}, fint) is True
 
 
@@ -196,7 +197,7 @@ def test_not_in_renders_on_every_data_model_and_rewrites_three_valued():
     from ganda.hana.concrete_syntax import document, graph, predicate
 
     schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT),)),), ())
-    p = Predicate("source", "f1", "NOT IN", "p", [1, 2], True, "int")
+    p = Predicate("source", "f1", "NOT IN", "p", [1, 2], "int")
     assert predicate.sql(p, "t", "n1") == "t.f1 NOT IN :p"
     assert document.doc_pred(p) == '($."f1" <> CAST(:p__0 AS BIGINT) AND $."f1" <> CAST(:p__1 AS BIGINT))'
     assert predicate.sparql_filter(p, "r").endswith('FILTER ((BOUND(?r_f1) && (?r_f1 NOT IN ("1"^^xsd:long, "2"^^xsd:long))))')
@@ -297,7 +298,7 @@ def test_a_doc_traversal_withholds_a_list_membership():
     from ganda.core.query.ir.traversal import Hop, TraversalQuery
     from ganda.hana.concrete_syntax import traversal
 
-    member = Predicate("target", "l", "HAS", "bl", 1, True, "list")
+    member = Predicate("target", "l", "HAS", "bl", 1, "list")
     q = TraversalQuery("n1", (Hop("e1", "out", member),), "ids")
     # the Document Store refuses an EXISTS over an element view next to the UNNEST edge
     # views (B6) and crashes on the CONTAINSALL count (H2)
@@ -337,7 +338,7 @@ def test_the_doc_views_ask_a_membership_only_as_a_conjunct():
     assert not views_ask(Compound("source", "OR", (member, other)))
     assert not views_ask(Compound("source", "NOT", (member,)))
     assert not views_ask(Compound("source", "AND", (other, Compound("source", "OR", (member, other)))))
-    semi = Predicate("source", "f", "INSUB", "", [3], True, "int", sub=("n2", "g", member, False))
+    semi = Predicate("source", "f", "INSUB", "", [3], "int", sub=("n2", "g", member, False))
     assert not views_ask(semi)
     assert views_ask(Compound("source", "OR", (other, _leaf("g", "IS NULL"))))
 
@@ -389,7 +390,7 @@ def test_a_pulled_up_traversal_correlates_a_membership_on_its_own_alias(dm):
         (NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f3", FieldType.LIST))),),
         (EdgeTypeSpec("e1", "n1", "n1", (FieldSpec("w", FieldType.INT),)),),
     )
-    member = Predicate("source", "f3", "HAS", "p0", 1, True, "list")
+    member = Predicate("source", "f3", "HAS", "p0", 1, "list")
     for proj in ("ids", "exists"):
         q = TraversalQuery("n1", (Hop("e1", "out", None),), proj, None, member)
         for syntax in traversal.SYNTAXES[dm]:
@@ -570,18 +571,18 @@ def test_cypher_filter_mirrors_the_sql_binds_and_refuses_what_has_no_form():
 
     schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f2", FieldType.STRING), FieldSpec("f3", FieldType.LIST), FieldSpec("f4", FieldType.BOOL), FieldSpec("f5", FieldType.FLOAT))),), ())
     leaves = {
-        "cmp": Predicate("source", "f1", ">", "p", 1, True, "int"),
-        "rev": Predicate("source", "f1", "<", "p", 1, True, "int", rev=True),
-        "in": Predicate("source", "f1", "IN", "p", [1, 2], True, "int"),
-        "between": Predicate("source", "f1", "BETWEEN", "p", [1, 2], True, "int"),
-        "null": Predicate("source", "f1", "IS NOT NULL", "", None, True, "int"),
-        "like": Predicate("source", "f2", "LIKE", "p", "ab%", True, "string"),
-        "str": Predicate("source", "f2", "=", "p", "it's", True, "string"),
-        "arith": Predicate("source", "f1", ">=", "p", 3, True, "int", arith=("+", "arc", 2)),
-        "list": Predicate("source", "f3", "=", "p", [1], True, "list"),
-        "fcmp": Predicate("source", "f5", "<=", "p", 1.5, True, "float"),
-        "fin": Predicate("source", "f5", "IN", "p", [1.5, 2.5], True, "float"),
-        "farith": Predicate("source", "f5", ">", "p", 3.0, True, "float", arith=("*", "arc", 2.0)),
+        "cmp": Predicate("source", "f1", ">", "p", 1, "int"),
+        "rev": Predicate("source", "f1", "<", "p", 1, "int", rev=True),
+        "in": Predicate("source", "f1", "IN", "p", [1, 2], "int"),
+        "between": Predicate("source", "f1", "BETWEEN", "p", [1, 2], "int"),
+        "null": Predicate("source", "f1", "IS NOT NULL", "", None, "int"),
+        "like": Predicate("source", "f2", "LIKE", "p", "ab%", "string"),
+        "str": Predicate("source", "f2", "=", "p", "it's", "string"),
+        "arith": Predicate("source", "f1", ">=", "p", 3, "int", arith=("+", "arc", 2)),
+        "list": Predicate("source", "f3", "=", "p", [1], "list"),
+        "fcmp": Predicate("source", "f5", "<=", "p", 1.5, "float"),
+        "fin": Predicate("source", "f5", "IN", "p", [1.5, 2.5], "float"),
+        "farith": Predicate("source", "f5", ">", "p", 3.0, "float", arith=("*", "arc", 2.0)),
     }
     texts = {}
     for name, leaf in leaves.items():
@@ -599,10 +600,10 @@ def test_cypher_filter_mirrors_the_sql_binds_and_refuses_what_has_no_form():
     assert texts["like"] == "t.N1_F2 STARTS WITH 'ab'" and texts["arith"] == "((t.N1_F1 + 2) >= 3)" and texts["list"] == "(t.N1_F3 = '[1]')"
     assert texts["fcmp"] == "(t.N1_F5 <= $p)" and texts["fin"] == "(t.N1_F5 = $p__0 OR t.N1_F5 = $p__1)" and texts["farith"] == "((t.N1_F5 * $arc) > $p)"
     # a string the grammar cannot spell has no native form
-    assert not graph.expressible(Predicate("source", "f2", "=", "p", "a\nb", True, "string"), schema, "n1")
-    for leaf in (Predicate("source", "f3", "HAS", "p", 1, True, "list"), Predicate("source", "f4", "=", "p", True, True, "bool"), Predicate("source", "f2", "=", "p", "x", True, "string", case_insensitive=True)):
+    assert not graph.expressible(Predicate("source", "f2", "=", "p", "a\nb", "string"), schema, "n1")
+    for leaf in (Predicate("source", "f3", "HAS", "p", 1, "list"), Predicate("source", "f4", "=", "p", True, "bool"), Predicate("source", "f2", "=", "p", "x", "string", case_insensitive=True)):
         assert not graph.expressible(leaf, schema, "n1")
-    assert not graph.expressible(Predicate("source", "f1", "IN", "p", [], True, "int", sub=("n1", "f1", None, False)), schema, "n1")
+    assert not graph.expressible(Predicate("source", "f1", "IN", "p", [], "int", sub=("n1", "f1", None, False)), schema, "n1")
 
 
 # --- the offline openCypher translator ----------------------------------------------------------
@@ -697,12 +698,13 @@ def test_translator_filters_ordering_and_parameters():
 @pytest.mark.parametrize("seed", range(1, 4))
 def test_the_graph_model_round_trips_offline_without_rdflib(seed):
     """The graph setup, its state read back through the translated openCypher, and
-    every rel / graph variant of every case against each other and the reference."""
+    every rel / graph variant of every case against each other."""
     import dataclasses
 
     from ganda.core.oracle.oracle import run_cases
-    from ganda.core.engine.state_check import verify_state
+    from ganda.core.engine.state_check import compare_states
     from tests.hana.offline import OfflineServer
+    from tests.instance_session import InstanceSession
 
     schema, instance, cases = _cases(seed)
     server = OfflineServer()
@@ -710,9 +712,9 @@ def test_the_graph_model_round_trips_offline_without_rdflib(seed):
     for dm in ("rel", "graph"):
         s = server.fresh_session(E.database_name(f"g{seed}", dm))
         s.apply_setup(E.mappers[dm](instance))
-        diff = verify_state(s, dm, instance)
-        assert diff.ok, (dm, diff.problems[:3])
         sessions[dm] = s
+    for dm, diff in compare_states({**sessions, "instance": InstanceSession(instance)}, instance).items():
+        assert diff.ok, (dm, diff.problems[:3])
     from tests.hana.run_offline import _offline
 
     kept = []
@@ -721,7 +723,7 @@ def test_the_graph_model_round_trips_offline_without_rdflib(seed):
         queries = {v: t for v, t in c.queries.items() if v.split(":", 1)[0] in sessions and _offline(v, t, syntaxes.get(v) if isinstance(syntaxes, dict) else None)}
         if "rel" in queries and "graph" in queries:
             kept.append(dataclasses.replace(c, queries=queries, params={**c.params, "partial": True}))
-    results = run_cases(kept, sessions, instance)
+    results = run_cases(kept, sessions)
     bad = [r for r in results if not r.ok]
     assert len(kept) > 100 and not bad, [(r.finding_class, r.case.shape, r.errors, [str(m)[:200] for m in r.mismatches[:1]]) for r in bad[:3]]
 
@@ -916,7 +918,7 @@ def test_the_set_operation_form_partitions_a_filter_on_every_sql_path_and_in_spa
     from ganda.hana.concrete_syntax import select
 
     schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT),)),), ())
-    pred = Predicate("source", "f1", ">", "p", 1, True, "int")
+    pred = Predicate("source", "f1", ">", "p", 1, "int")
     for kind in ("ids", "count"):
         q = SelectQuery("n1", pred, kind)
         rw = select.Rewrites()
@@ -1036,15 +1038,15 @@ def test_a_decoding_failure_is_an_internal_engine_error_not_a_dead_worker():
 def test_the_doc_neg_position_keeps_the_nots_the_store_can_say():
     from ganda.hana.concrete_syntax.document import doc_filter_ok, doc_pred, has_not
 
-    leaf = Predicate("source", "f1", "=", "p", 1, True, "int")
-    tree = Compound("source", "NOT", (Compound("source", "OR", (leaf, Predicate("source", "f2", "IS NULL", "", None, True, "string"))),))
+    leaf = Predicate("source", "f1", "=", "p", 1, "int")
+    tree = Compound("source", "NOT", (Compound("source", "OR", (leaf, Predicate("source", "f2", "IS NULL", "", None, "string"))),))
     assert has_not(tree) and not has_not(leaf) and not has_not(None)
     assert doc_pred(tree) == '($."f1" <> CAST(:p AS BIGINT) AND $."f2" IS NOT NULL)'
     assert doc_pred(tree, keep_not=True) == 'NOT (($."f1" = CAST(:p AS BIGINT) OR $."f2" IS NULL))'
-    member = Compound("source", "NOT", (Predicate("source", "f3", "HAS", "p", 5, True, "list"),))
+    member = Compound("source", "NOT", (Predicate("source", "f3", "HAS", "p", 5, "list"),))
     assert not doc_filter_ok(member) and doc_filter_ok(member, keep_not=True)
     assert doc_pred(member, keep_not=True) == 'NOT (FOR ANY "e" IN $."f3" SATISFIES "e" = CAST(:p AS BIGINT) END)'
-    like = Compound("source", "NOT", (Predicate("source", "f2", "LIKE", "p", "a%", True, "string"),))
+    like = Compound("source", "NOT", (Predicate("source", "f2", "LIKE", "p", "a%", "string"),))
     assert doc_pred(like) == "$.\"f2\" NOT LIKE 'a%'" and doc_pred(like, keep_not=True) == "NOT ($.\"f2\" LIKE 'a%')"
     # the position in the cases: a collection query with a NOT kept, only where the tree has one
     negs = [(c, v, t) for seed in (1, 2, 3) for c in _cases(seed)[2] for v, t in c.queries.items() if v.startswith("doc:") and "neg" in v.split(":", 1)[1].split("+")]
@@ -1175,8 +1177,8 @@ def test_translator_unlabelled_vertex_projects_the_shared_attributes():
 
 
 def test_the_mean_is_hana_sql_avg():
-    """AVG over BIGINT is DECIMAL(25,6): the quotient truncated to six places (R20); the
-    B13 guard withholds an rdf average the triple store's double arithmetic cannot
+    """AVG over BIGINT is DECIMAL(25,6): the quotient truncated to six places (R20), as the
+    offline stand-in answers it; the B13 guard withholds an rdf average the triple store's double arithmetic cannot
     answer as SQL does."""
     from ganda.hana.known_bugs import guards as known_bugs
 

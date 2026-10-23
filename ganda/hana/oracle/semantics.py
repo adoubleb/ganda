@@ -1,7 +1,8 @@
-"""The independent oracle leg: expected answers computed from the `Instance`, under SAP
-HANA's value semantics as the three data models' concrete syntaxes ask it. Every rule
-is the SQL standard's or SPARQL 1.1's, chosen so that the two agree; `RULES.md` says
-which ones the live probe (`ganda hana probe`) checks.
+"""SAP HANA's value semantics as the data models' concrete syntaxes ask it: the value
+order and equality the oracle and the state check compare answers under, and the
+predicate logic and arithmetic the generators walk the `Instance` with. No answer is
+predicted from them. Every rule is the SQL standard's or SPARQL 1.1's, chosen so that
+the two agree; `RULES.md` says which ones the live probe (`ganda hana probe`) checks.
 
 - **Three-valued logic.** A comparison with a null operand is UNKNOWN; `NOT` keeps it
   unknown, `AND` / `OR` follow Kleene's tables, and a record is kept only where the
@@ -22,13 +23,8 @@ which ones the live probe (`ganda hana probe`) checks.
   HANA's CESU-8 NVARCHAR and equals SPARQL's code-point order on the Basic
   Multilingual Plane -- the provider's value pools hold no astral code point
   (`physical_design.BOUNDARY_VALUES`), the one place the two orders part.
-- **Aggregates.** `count` counts the present values; `sum` over integers is exact (an
-  answer is emitted only where every partial sum fits a BIGINT); `max` / `min` / `sum`
-  over no present value are NULL (SQL; the rdf syntax guards SPARQL's `SUM` of nothing,
-  which is 0); `avg` is the exact quotient, read back as an int when it is integral.
-- **ORDER BY** puts nulls first ascending and last descending (NULL is the smallest
-  value, which is also SPARQL's place for an unbound key); every SQL ordering states it
-  with `NULLS FIRST` / `NULLS LAST`.
+- **Sums.** A sum over integers is asked only where every partial sum fits a BIGINT
+  (`sum_is_exact`); a double sum depends on the order, so it is never asked.
 """
 from __future__ import annotations
 
@@ -36,7 +32,6 @@ import re
 from typing import Any
 
 from ganda.core.query.ir.predicates import Compound
-from ganda.core.data.model import FieldType
 from ganda.core.engine.provider import Semantics
 
 UNKNOWN = None
@@ -190,23 +185,6 @@ def evaluate(values: dict, p) -> bool:
     return tri(values, p) is True
 
 
-def mean(values: list):
-    """AVG as HANA SQL answers it: over integers a DECIMAL(25,6) (documented), the exact
-    quotient TRUNCATED to six places (7/128 is 0.054687, probe R20) -- read back as an
-    int when integral; over doubles the double quotient. The triple store's AVG is
-    double(SUM) / COUNT instead (B13, probe K23): an rdf average is compared only where
-    the two agree (`known_bugs`)."""
-    total, n = sum(values), len(values)
-    if all(isinstance(v, int) and not isinstance(v, bool) for v in values):
-        if total % n == 0:
-            return total // n
-        from decimal import ROUND_DOWN, Decimal
-
-        q = (Decimal(total) / Decimal(n)).quantize(Decimal("0.000001"), rounding=ROUND_DOWN)
-        return int(q) if q == q.to_integral_value() else float(q)
-    return total / n
-
-
 I64 = 2**63
 
 
@@ -218,37 +196,6 @@ def sum_is_exact(values: list, ftype: "str | None" = "int") -> bool:
     return sum(abs(v) for v in values) < 2**62
 
 
-def agg(fn: str, values: list, ftype: "str | None" = None):
-    present = [v for v in values if v is not None]
-    if fn == "count":
-        return len(present)
-    if fn == "distinct_count":
-        return len({hana_key(v) for v in present})
-    if not present:
-        return None
-    if fn == "sum":
-        return sum(present)
-    if fn == "max":
-        return max(present, key=hana_key)
-    if fn == "min":
-        return min(present, key=hana_key)
-    raise ValueError(fn)
-
-
-def order_key(v, desc: bool):
-    """A per-key sort key: nulls first ascending, last descending; the key order
-    reversed for DESC (numbers and booleans, the types an ordering of several keys
-    names)."""
-    if v is None:
-        return (1 if desc else 0, ())
-    k = hana_key(v)
-    if desc:
-        if k[0] in (1, 2):
-            return (0, (k[0], -k[1]))
-        raise ValueError(f"a DESC key over {v!r}")
-    return (1, k)
-
-
 class HanaSemantics(Semantics):
     key = staticmethod(hana_key)
     eq = staticmethod(eq)
@@ -256,25 +203,6 @@ class HanaSemantics(Semantics):
     predicate_hit = staticmethod(predicate_hit)
     evaluate = staticmethod(evaluate)
     apply_arith = staticmethod(apply_arith)
-    agg = staticmethod(agg)
-    mean = staticmethod(mean)
     sum_is_exact = staticmethod(sum_is_exact)
-    order_key = staticmethod(order_key)
-
-    def aggregate_over_no_rows(self, fn: str) -> list:
-        # an aggregate without GROUP BY answers one row over no rows: NULL, a distinct
-        # count 0; `set` / `list` are the rows of the present values, so none
-        if fn in ("set", "list"):
-            return []
-        if fn == "distinct_count":
-            return [{"v": 0}]
-        return [{"v": None}]
-
-    def nulls_first(self, desc: bool) -> bool:
-        return not desc
-
-    def orders_exactly(self, ftype, custom_keys: bool) -> bool:
-        return ftype is not FieldType.LIST
-
 
 SEMANTICS = HanaSemantics()

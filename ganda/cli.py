@@ -60,7 +60,7 @@ def _limits(engine) -> int:
         if getattr(large, f.name) != getattr(defaults, f.name):
             print(f"  --{f.name.replace('_', '-'):28s} {getattr(large, f.name)!s:>12}   (default {getattr(defaults, f.name)})")
     p = _scale.profile("large")
-    print(f"  reference leg {'on' if p.reference else 'off'}; stored state checked by counts and a sample of {p.state_sample} per class; query timeout {p.query_timeout_ms} ms; bundles carry the shape of the data, values cut to {p.max_bundle_value_chars} chars")
+    print(f"  stored state checked by counts and a sample of {p.state_sample} per class; query timeout {p.query_timeout_ms} ms; bundles carry the shape of the data, values cut to {p.max_bundle_value_chars} chars")
     return 0
 
 

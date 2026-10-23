@@ -1,8 +1,7 @@
-"""The independent oracle leg: expected answers computed from the `Instance` itself,
-under OrientDB's value semantics (live-probed 3.2.56, `scripts/probe_osql.py`).
-
-Pairwise comparison cannot see a bug every representation shares; this leg can (the
-`all_sides_drop_edge` mutant proves it works). What Python reproduces exactly here:
+"""OrientDB's value semantics (live-probed 3.2.56, `scripts/probe_osql.py`): the value
+order and equality the oracle and the state check compare answers under, and the
+predicate logic and arithmetic the generators and the guards walk the `Instance` with.
+No answer is predicted from them. The rules:
 
 - **Order.** LONG / INTEGER are Java integer order. DOUBLE / FLOAT are
   `Double.compare`: `-0.0 < 0.0`, so `d = 0` misses a stored `-0.0`, `d < 0` finds it,
@@ -27,7 +26,7 @@ Pairwise comparison cannot see a bug every representation shares; this leg can (
   through double (a FLOAT value is its exact widening); a DECIMAL against an integer
   exactly and against a double through `new BigDecimal(double)`, the double's binary
   expansion (`0.1 = 0.1` is FALSE on a scan; O20 -- an index and a BETWEEN bound use
-  the decimal string instead, which the reference models for BETWEEN and the guard
+  the decimal string instead, which `predicate_hit` follows for BETWEEN and the guard
   withholds for an index).
 - **Collation `ci`.** `=`, `<>`, `<`, `<=`, `>`, `>=` compare the lower-cased strings;
   `IN` and `BETWEEN` do NOT (O21, a scan compares code units); `LIKE` is
@@ -55,7 +54,6 @@ from typing import Any
 
 from ganda.core.query.ir.predicates import Compound
 from ganda.core.data.neighbours import shift_date
-from ganda.core.data.model import FieldType
 from ganda.core.engine.provider import Semantics
 
 
@@ -350,16 +348,6 @@ def predicate_hit(present: bool, v: Any, op: str, pivot: Any, ftype: "str | None
     raise ValueError(op)
 
 
-def mean(values: list):
-    """`avg()` over present values: in the operands' arithmetic (O28) -- over
-    integers the long quotient (the callers withhold an inexact one), which a float
-    division loses above 2^53 (`avg` over one `2^53 + 1` is `2^53 + 1`, local
-    smoke tri400c seed 5285)."""
-    if values and all(isinstance(v, int) and not isinstance(v, bool) for v in values) and sum(values) % len(values) == 0:
-        return sum(values) // len(values)
-    return sum(values) / len(values)
-
-
 def sum_is_exact(values: list, ftype: "str | None" = "int") -> bool:
     """Every partial sum in every order stays in the engine's arithmetic: ints with an
     absolute total below 2^62 (half the long range, so no interleaving of signs can
@@ -371,32 +359,6 @@ def sum_is_exact(values: list, ftype: "str | None" = "int") -> bool:
         return False
     bound = 2**30 if ftype == "int32" else 2**62
     return sum(abs(v) for v in values) < bound
-
-
-def agg(fn: str, values: list, ftype: "str | None" = None):
-    """`values` are the elements the engine aggregates (null included, as a list
-    projection would carry them)."""
-    present = [v for v in values if v is not None]
-    if fn == "count":
-        return len(values)
-    if fn == "distinct_count":
-        return len({orient_key(v) for v in values})
-    if fn == "sum":
-        if ftype == "decimal":
-            # BigDecimal arithmetic, read back as the double of its decimal string
-            return float(sum((decimal_of(v) for v in present), Decimal(0))) if present else 0
-        return sum(present) if present else 0
-    if not present:
-        return None
-    if fn == "max":
-        return max(present, key=orient_key)
-    if fn == "min":
-        return min(present, key=orient_key)
-    raise ValueError(fn)
-
-
-def sort_values(values: list) -> list:
-    return sorted(values, key=orient_key)
 
 
 def apply_arith(v, sym: str, c, ftype: "str | None"):
@@ -434,26 +396,6 @@ def evaluate(values: dict, p) -> bool:
     return predicate_hit(present, v, p.op, p.pivot, p.ftype, p.case_insensitive, p.key)
 
 
-def order_key(v, desc: bool):
-    """A per-key sort key with OrientDB's null placement (last ascending, first
-    descending) and the key order reversed for DESC."""
-    if v is None:
-        return (0 if desc else 1, ())
-    k = orient_key(v)
-    if desc:
-        return (1, negate_key(k))
-    return (0, k)
-
-
-def negate_key(k):
-    """The reverse of `orient_key`'s order for a numeric or boolean value."""
-    if k[0] == 1:
-        return (-k[1],)
-    if k[0] == 2:
-        return (-k[1], -k[2])
-    raise ValueError(k)
-
-
 class OrientSemantics(Semantics):
     """OrientDB's value semantics as the core's `Semantics`: this module's functions."""
 
@@ -463,20 +405,6 @@ class OrientSemantics(Semantics):
     predicate_hit = staticmethod(predicate_hit)
     evaluate = staticmethod(evaluate)
     apply_arith = staticmethod(apply_arith)
-    agg = staticmethod(agg)
-    mean = staticmethod(mean)
     sum_is_exact = staticmethod(sum_is_exact)
-    order_key = staticmethod(order_key)
-
-    def aggregate_over_no_rows(self, fn: str) -> list:
-        return []  # every aggregate but count answers no row over no rows (probed)
-
-    def nulls_first(self, desc: bool) -> bool:
-        return desc  # nulls sort last ascending, first descending
-
-    def orders_exactly(self, ftype, custom_keys: bool) -> bool:
-        # ORDER BY collates a string (O6), and the id tiebreak collates custom keys too
-        return ftype is not FieldType.STRING and not custom_keys
-
 
 SEMANTICS = OrientSemantics()

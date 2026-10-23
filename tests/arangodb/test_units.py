@@ -17,7 +17,8 @@ from ganda.core.query.generators.registry import all_cases
 from ganda.core.query.generators.write import sample_write
 from ganda.core.data.model import FieldType
 from ganda.core.engine.setup_plan import plan_from_dict, plan_to_dict
-from ganda.core.engine.state_check import verify_state
+from ganda.core.engine.state_check import compare_states
+from tests.instance_session import InstanceSession
 from ganda.arangodb.oracle import rewrites
 from ganda.arangodb.engine.connection import bind_subset
 from ganda.arangodb.storage.dialect import ARANGO_KEY_RE, document_key, engine_id, logical_id
@@ -78,7 +79,7 @@ def test_like_is_case_sensitive_and_crosses_a_newline_but_not_a_paragraph_separa
 
 
 def _leaf(field, op, pivot=None, ftype="int"):
-    return Predicate("source", field, op, "" if op in ("IS NULL", "IS NOT NULL", "IS PRESENT", "IS ABSENT") else f"b{field}", pivot, True, ftype)
+    return Predicate("source", field, op, "" if op in ("IS NULL", "IS NOT NULL", "IS PRESENT", "IS ABSENT") else f"b{field}", pivot, ftype)
 
 
 def _random_tree(rng, depth=0):
@@ -246,7 +247,7 @@ class _Store:
 
 
 class _Session:
-    """`state_check.verify_state`'s view of a `_Store`."""
+    """`state_check.compare_states`'s view of a `_Store`."""
 
     def __init__(self, store: _Store):
         self.store = store
@@ -279,6 +280,7 @@ BULK_CFG = dataclasses.replace(CFG, statements_per_request=7, write_form_probabi
 @pytest.mark.parametrize("cfg", [CFG, BULK_CFG], ids=["plain", "bulk"])
 def test_every_plan_round_trips_and_replays_to_the_instance(seed, cfg):
     schema, instance, _rng = build(seed, cfg, E)
+    sessions = {"instance": InstanceSession(instance)}
     for data_model in E.data_models:
         plan = E.mappers[data_model](instance)
         if cfg is BULK_CFG:
@@ -289,10 +291,11 @@ def test_every_plan_round_trips_and_replays_to_the_instance(seed, cfg):
         store = _Store()
         for s in plan:
             store.step(s)
-        diff = verify_state(_Session(store), data_model, instance)
-        assert diff.ok, (data_model, diff.problems[:5])
+        sessions[data_model] = _Session(store)
         # the cancelled junk left nothing behind
         assert not any("junk" in k for coll in store.colls.values() for k in coll)
+    for data_model, diff in compare_states(sessions, instance).items():
+        assert diff.ok, (data_model, diff.problems[:5])
 
 
 def _flat(plan) -> list:
@@ -389,8 +392,8 @@ def test_a40_guard_fires_on_a_membership_under_not_over_a_null_list():
     from ganda.core.data.model import NodeRow
     from ganda.arangodb.known_bugs.guards import a40_shape, membership_under_not
 
-    contains = Predicate("source", "l", "HAS", "p", 1, True, "list")
-    other = Predicate("source", "a", "=", "q", 1, True, "int")
+    contains = Predicate("source", "l", "HAS", "p", 1, "list")
+    other = Predicate("source", "a", "=", "q", 1, "int")
     assert membership_under_not(Compound("source", "NOT", (contains,))) == {"l"}
     assert membership_under_not(Compound("source", "OR", (other, Compound("source", "NOT", (contains,))))) == {"l"}
     assert membership_under_not(Compound("source", "NOT", (Compound("source", "AND", (other, contains)),))) == {"l"}

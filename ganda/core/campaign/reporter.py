@@ -121,7 +121,6 @@ def report_bug(engine, out_dir: str, tag: str, seed: int, cfg, instance, plans: 
         "internal": result.internal,
         "plans": result.plans,
         "mismatches": [cut(_jsonable(m)) for m in result.mismatches],
-        "reference_mismatches": [cut(_jsonable(m)) for m in result.reference_mismatches],
         "duplicate_id_rows": [_jsonable(x) for x in result.duplicate_id_rows],
     }
     with open(os.path.join(d, "queries.json"), "w") as fh:
@@ -199,11 +198,6 @@ def _readme(seed, cfg, result, times_seen) -> str:
         lines.append("## Mismatches (first 12)")
         for m in result.mismatches[:12]:
             lines.append(f"- `{m.record_id}` {m.pair}: {json.dumps(m.left_normalized, ensure_ascii=False, default=repr)[:200]} vs {json.dumps(m.right_normalized, ensure_ascii=False, default=repr)[:200]}")
-        lines.append("")
-    if result.reference_mismatches:
-        lines.append("## Reference mismatches (first 12)")
-        for m in result.reference_mismatches[:12]:
-            lines.append(f"- `{m.record_id}` {m.variant}: got {json.dumps(m.got, ensure_ascii=False, default=repr)[:200]} expected {json.dumps(m.expected, ensure_ascii=False, default=repr)[:200]}")
         lines.append("")
     if result.duplicate_id_rows:
         lines.append("## Duplicate id rows")

@@ -3,8 +3,8 @@
 the result decoding) over SQLite for the rel and doc data models and over rdflib for the
 rdf data model.
 
-It checks the LOGIC of every rendering against the reference -- a join that loses a
-path, a filter in the wrong place, a SPARQL aggregate over the wrong group -- not HANA's
+It checks the LOGIC of every rendering against the other data models' -- a join that
+loses a path, a filter in the wrong place, a SPARQL aggregate over the wrong group -- not HANA's
 syntax or semantics, which only the live probe (`ganda hana probe`) and a live campaign
 can check. What the translation does:
 
@@ -29,7 +29,7 @@ can check. What the translation does:
   (one relationship per edge variable within a clause, both orientations of an
   undirected edge, a trail for a variable-length path, SUM 0 over nothing, NULL first
   ascending), so the state read back through openCypher and every graph variant are
-  checked against the other data models and the reference; an unlabelled vertex (the
+  checked against the other data models; an unlabelled vertex (the
   base class of the inheritance axis) is the union of the vertex views over the
   attributes they share.
 
@@ -86,9 +86,24 @@ def _as_hana(response: str, table: bool) -> str:
     return json.dumps(doc)
 
 
+def hana_avg(values: list):
+    """AVG as HANA SQL answers it: over integers a DECIMAL(25,6) (documented), the exact
+    quotient TRUNCATED to six places (7/128 is 0.054687, probe R20) -- read back as an
+    int when integral; over doubles the double quotient."""
+    total, n = sum(values), len(values)
+    if all(isinstance(v, int) and not isinstance(v, bool) for v in values):
+        if total % n == 0:
+            return total // n
+        from decimal import ROUND_DOWN, Decimal
+
+        q = (Decimal(total) / Decimal(n)).quantize(Decimal("0.000001"), rounding=ROUND_DOWN)
+        return int(q) if q == q.to_integral_value() else float(q)
+    return total / n
+
+
 class _Avg:
-    """AVG as HANA SQL answers it (`semantics.mean`: over integers DECIMAL(25,6), the exact
-    quotient truncated to six places; SQLite's own is a double sum, inexact above 2^53)."""
+    """AVG as HANA SQL answers it (`hana_avg`; SQLite's own is a double sum, inexact
+    above 2^53)."""
 
     def __init__(self):
         self.values = []
@@ -98,9 +113,7 @@ class _Avg:
             self.values.append(v)
 
     def finalize(self):
-        from ganda.hana.oracle.semantics import mean
-
-        return mean(self.values) if self.values else None
+        return hana_avg(self.values) if self.values else None
 
 
 class _Median:

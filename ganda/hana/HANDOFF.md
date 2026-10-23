@@ -8,7 +8,7 @@ real SAP HANA Cloud instance.
 ## 1. What exists
 
 `ganda hana ...` fuzzes four data models of ONE SAP HANA Cloud database against each
-other and against a Python reference:
+other (the oracle is purely differential: no answer is predicted in Python):
 
 | data model | storage | query language(s) |
 |---|---|---|
@@ -102,7 +102,8 @@ What was verified, offline only:
   check, every read case, the write phase with its state checks and read-backs) through
   the provider's OWN session code, with SQLite standing in for rel and doc and rdflib for
   rdf (`tests/hana/offline.py`). Seeds 1-20 (about 4,700 cases, every variant of every
-  data model) agree pairwise and with the reference. This checks the LOGIC of every
+  data model) agreed pairwise and with the reference leg of the time (since removed).
+  This checks the LOGIC of every
   rendering, not HANA's syntax or semantics.
 - The whole project suite passes (`pytest tests/`, 176 tests) and OrientDB's golden
   parity still holds (`scripts/golden_dump.py --check`).
@@ -177,7 +178,7 @@ Each line is `ok`, `FAIL` (a REQUIRED fact does not hold) or `obs` (recorded onl
 what HANA answered. The probe runs in its own scratch schema and graph.
 
 **When a probe fact fails**, the provider must change so that its renderings and its
-reference agree with what HANA really does. Do NOT edit the probe to make it pass (unless
+semantics agree with what HANA really does. Do NOT edit the probe to make it pass (unless
 the probe's own SQL is wrong for a reason unrelated to the fact, e.g. a typo). The table
 says where each fact lives:
 
@@ -220,14 +221,14 @@ it into one of three kinds:
 
 1. **A provider bug** (the common case at first): one variant fails with a SYNTAX error
    (257) or a feature-not-supported error (7), or every variant of a data model disagrees
-   with the reference in the same way. Fix the renderer or the semantics. Typical
+   with the other data models in the same way. Fix the renderer or the semantics. Typical
    causes: a HANA dialect detail (a function name, a cast, a clause order), a value
    decoded with the wrong type, a semantics rule that is not HANA's.
 2. **A known limitation** of a store: the store cannot ask a shape at all (documented).
    Make the shape inapplicable for that data model (`applicable()` in the syntax
    module), so the case becomes `partial` there rather than an error.
 3. **A candidate engine bug**: two variants that both run, on the same or different data
-   models, answer differently, and the reference agrees with one of them; or an internal
+   models, answer differently, and the other variants agree with one of them; or an internal
    error (`internal_error`: codes 2, 3, 129, 2048). Reproduce it by hand in a SQL console
    with the bundle's data. Reduce it to the smallest statement. Check the documentation:
    is it documented behaviour? If it is a real defect, write it up under `issues/` (see
@@ -259,7 +260,7 @@ ganda/hana/
     physical_design.py index kinds, id index and partition draws, write forms, value pools
     mapping/           one setup plan per data model (document.py, relational.py, rdf.py)
   oracle/
-    semantics.py       the reference: three-valued logic, order, aggregates
+    semantics.py       value semantics: three-valued logic, order, exact sums
     pivots.py          operators a predicate draws (null tests: IS NULL / IS NOT NULL only)
     rewrites.py        equivalent predicate trees (three-valued), arithmetic rewrite
   concrete_syntax/

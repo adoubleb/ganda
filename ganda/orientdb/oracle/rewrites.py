@@ -93,11 +93,11 @@ def arithmetic(p, rng: random.Random, bind: str, ftype: FieldType, values: list)
             return None
     op = p.op if (c > 0 or sym != "*") else MIRROR[p.op]
     cbind = f"{bind}c"
-    leaf = Predicate(p.on, p.field, op, bind, apply_arith(pv, sym, c, ftype.value), p.reference, p.ftype, p.case_insensitive, None, "", False, Arith(sym, cbind, c))
+    leaf = Predicate(p.on, p.field, op, bind, apply_arith(pv, sym, c, ftype.value), p.ftype, p.case_insensitive, None, "", False, Arith(sym, cbind, c))
     if op == "<>":
         # `f <> p` holds for a null f: the null rows are added back explicitly
-        return Compound(p.on, "OR", (leaf, Predicate(p.on, p.field, "IS NULL", "", None, p.reference, p.ftype, p.case_insensitive)))
-    return Compound(p.on, "AND", (leaf, Predicate(p.on, p.field, "IS NOT NULL", "", None, p.reference, p.ftype, p.case_insensitive)))
+        return Compound(p.on, "OR", (leaf, Predicate(p.on, p.field, "IS NULL", "", None, p.ftype, p.case_insensitive)))
+    return Compound(p.on, "AND", (leaf, Predicate(p.on, p.field, "IS NOT NULL", "", None, p.ftype, p.case_insensitive)))
 
 
 def rewrite(p, rng: random.Random, bind: str):
@@ -120,7 +120,7 @@ def rewrite(p, rng: random.Random, bind: str):
     on = p.on
 
     def leaf(o, b, v):
-        return Predicate(on, f, o, b, v, p.reference, p.ftype, p.case_insensitive, p.key, p.key_bind)
+        return Predicate(on, f, o, b, v, p.ftype, p.case_insensitive, p.key, p.key_bind)
 
     if p.sub is not None:
         # the inner subquery over `(SELECT FROM t2)`: the same values, never
@@ -128,7 +128,7 @@ def rewrite(p, rng: random.Random, bind: str):
         return None if p.sub.scan else dataclasses.replace(p, sub=p.sub._replace(scan=True))
     if p.key is not None and not p.key_bind and rng.random() < 0.5:
         # the parameter-keyed bracket form of the same entry: `m[:kb] op :p`
-        return Predicate(on, f, op, bind if op not in NO_BIND_OPS else "", pv, p.reference, p.ftype, p.case_insensitive, p.key, f"{bind}k")
+        return Predicate(on, f, op, bind if op not in NO_BIND_OPS else "", pv, p.ftype, p.case_insensitive, p.key, f"{bind}k")
     if op in MAP_OPS or not p.plain:
         return None
     if op in ("HAS ANY", "HAS ALL"):

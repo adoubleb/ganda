@@ -20,10 +20,11 @@ statement answers (`returning`):
     returning    count (every op) | before | after (the node update ops): the matched
                  records' `id` and the written field before / after the write
 
-`apply` is the reference: the Instance with the write applied; `answer` the rows the
-statement must return over the Instance before it (`[{"count": n}]`, or one `{id, v}`
-row per matched record). A provider's `write_syntax` renders the statements, runs them
-and adapts its engine's answer to that shape.
+`apply` is the Instance with the write applied, which the later writes and the
+state check's sample are drawn from. A provider's `write_syntax` renders the
+statements, runs them and adapts its engine's answer to one shape on every data
+model (`[{"count": n}]`, or one `{id, v}` row per matched record), so the data
+models' answers compare.
 """
 from __future__ import annotations
 
@@ -108,7 +109,7 @@ def comparison(q: WriteQuery) -> Comparison:
     return Comparison.SINGLE_VALUE if q.returning == "count" else Comparison.NESTED_VALUE
 
 
-# --- the reference leg -----------------------------------------------------------------------
+# --- the write over the Instance (the generators' state) -----------------------------------
 
 
 def _match(values: dict, q: WriteQuery, sem) -> bool:
@@ -177,21 +178,6 @@ def apply(q: WriteQuery, instance: Instance) -> Instance:
     ftype = _field_type(q, schema)
     nodes = [dataclasses.replace(n, values=_new_values(q, n.values, ftype, instance.schema.engine.semantics)) if n.record_id in hit else n for n in instance.nodes]
     return dataclasses.replace(instance, nodes=nodes)
-
-
-def answer(q: WriteQuery, instance: Instance) -> list:
-    """The rows the statement returns, over the Instance BEFORE the write."""
-    if q.edge:
-        return [{"count": len(edge_hits(q, instance))}]
-    if q.op == "upsert":
-        return [{"count": 1}]
-    hits = node_hits(q, instance)
-    if q.returning == "count" or q.op == "delete":
-        return [{"count": len(hits)}]
-    ftype = _field_type(q, instance.schema)
-    if q.returning == "before":
-        return [{"id": n.record_id, "v": n.values.get(q.field)} for n in hits]
-    return [{"id": n.record_id, "v": _new_values(q, n.values, ftype, instance.schema.engine.semantics).get(q.field)} for n in hits]
 
 
 def touched(q: WriteQuery, instance: Instance) -> "tuple[set, set]":

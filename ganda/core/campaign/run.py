@@ -25,7 +25,7 @@ from ganda.core.query.generators.write_phase import run_write_phase
 from ganda.core.oracle.oracle import is_empty_value, run_cases
 from ganda.core.engine.provider import EngineCrash, EngineError
 from ganda.core.campaign.reporter import report_bug, report_crash, report_setup_problem
-from ganda.core.engine.state_check import verify_state
+from ganda.core.engine.state_check import compare_states
 
 
 class CampaignStats(NamedTuple):
@@ -56,7 +56,6 @@ class CampaignStats(NamedTuple):
     elapsed: float
     coverage: "dict | None" = None  # the provider's coverage summary under --coverage
     timeouts: int = 0  # variants that gave no answer in time (left out of their case's comparison)
-    reference: bool = True  # whether the reference leg ran
     scale: str = "default"
     state_sample: int = 0  # 0: the stored state was read whole
     cases_partial: int = 0  # cases some data model had no concrete syntax for (compared among the others)
@@ -85,8 +84,8 @@ def _tpl(shared: _Shared, name: str) -> dict:
 
 
 def _sample_rng(seed: int) -> random.Random:
-    """The state check's sample for one instance: a fresh stream per call, so every
-    data model is checked on the same records."""
+    """The state check's sample for one instance: a fresh stream per check, so the
+    setup's check and a re-check after the cases read the same records."""
     return random.Random(f"{seed}:statesample")
 
 
@@ -102,8 +101,8 @@ class _SeedRun:
     instance: object
     plans: dict
 
-    def check_state(self, session, data_model: str):
-        return verify_state(session, data_model, self.instance, sample=self.args.state_sample, rng=_sample_rng(self.seed))
+    def check_state(self, sessions: dict) -> dict:
+        return compare_states(sessions, self.instance, sample=self.args.state_sample, rng=_sample_rng(self.seed))
 
     def count(self, counter: str) -> None:
         with self.shared.lock:
@@ -138,10 +137,10 @@ def _set_up(run: _SeedRun) -> "dict | None":
             s.apply_setup(plan)
             errors[data_model] = ""
             sessions[data_model] = s
-            if run.args.verify_state:
-                diffs[data_model] = run.check_state(s, data_model)
         except EngineError as e:
             errors[data_model] = str(e)
+    if run.args.verify_state:
+        diffs = run.check_state(sessions)
     if run.shared.coverage:
         run.shared.coverage.after_setup()
     run.count("instances")
@@ -172,18 +171,17 @@ def _read_phase(run: _SeedRun, sessions: dict, schema, rng) -> list:
     args = run.args
     cov = run.shared.coverage
     hooks = {"after_case": cov.after_case, "after_variant": cov.after_variant} if cov else {}
-    reference = run.instance if args.reference else None
     cases = all_cases(rng, schema, run.instance, cfg=run.cfg)
-    results = run_cases(cases, sessions, reference, explain=args.explain, keep_known_bugs=args.no_known_bugs, timeouts_are_errors=args.timeouts_are_errors, **hooks)
+    results = run_cases(cases, sessions, explain=args.explain, keep_known_bugs=args.no_known_bugs, timeouts_are_errors=args.timeouts_are_errors, **hooks)
     if args.verify_state and any(run.engine.may_write(r.case) for r in results):
         _check_state_leaks(run, sessions)
     return results
 
 
 def _check_state_leaks(run: _SeedRun, sessions: dict) -> None:
-    # a read case that writes inside a transaction rolled it back: the live state
-    # must still be the Instance on every data model
-    after = {data_model: run.check_state(s, data_model) for data_model, s in sessions.items()}
+    # a read case that writes inside a transaction rolled it back: the data models
+    # must still hold one state
+    after = run.check_state(sessions)
     leaked = [data_model for data_model, d in after.items() if not d.ok]
     if leaked:
         run.count("state_leaks")
@@ -195,7 +193,7 @@ def _write_phase(run: _SeedRun, sessions: dict, rng) -> list:
     # predicate-targeted writes after every read, each checked and applied to the
     # Instance (`ganda.core.query.generators.write_phase`)
     args = run.args
-    wp = run_write_phase(sessions, run.instance, rng.for_generator("ir_write"), run.cfg.write_cases, verify=args.verify_state, keep_known_bugs=args.no_known_bugs, reference=args.reference, state_sample=args.state_sample, state_rng=lambda: _sample_rng(run.seed), timeouts_are_errors=args.timeouts_are_errors)
+    wp = run_write_phase(sessions, run.instance, rng.for_generator("ir_write"), run.cfg.write_cases, verify=args.verify_state, keep_known_bugs=args.no_known_bugs, state_sample=args.state_sample, state_rng=lambda: _sample_rng(run.seed), timeouts_are_errors=args.timeouts_are_errors)
     writes = [r.case for r in wp.results if r.case.generator_name == "ir_write"]
     with run.shared.lock:
         run.shared.counters["writes"] += len(writes)
@@ -313,11 +311,9 @@ def _worker(engine, worker_id: int, seeds: list, cfg: GeneratorConfig, args, sha
 
 def apply_profile(args, cfg) -> None:
     """Fill the campaign settings the scale profile decides wherever the flag was left
-    unset (`args.reference`, `args.state_sample`, `args.query_timeout_ms`), and the two
+    unset (`args.state_sample`, `args.query_timeout_ms`), and the two
     it always decides (`args.embed_data`, `args.max_value_chars`)."""
     p = _scale.profile_of(cfg)
-    if getattr(args, "reference", None) is None:
-        args.reference = p.reference
     if getattr(args, "state_sample", None) is None:
         args.state_sample = p.state_sample
     if getattr(args, "query_timeout_ms", None) is None:
@@ -327,7 +323,7 @@ def apply_profile(args, cfg) -> None:
     args.timeouts_are_errors = p.timeouts_are_errors
     if p.name != "default":
         state = "read whole" if not args.state_sample else f"checked by counts and a sample of {args.state_sample}"
-        print(f"scale {p.name}: reference leg {'on' if args.reference else 'off'}, stored state {state}, query timeout {args.query_timeout_ms / 1000:.0f} s ({'a finding' if p.timeouts_are_errors else 'left out of the comparison'}), bundles carry the shape of the data", flush=True)
+        print(f"scale {p.name}: stored state {state}, query timeout {args.query_timeout_ms / 1000:.0f} s ({'a finding' if p.timeouts_are_errors else 'left out of the comparison'}), bundles carry the shape of the data", flush=True)
 
 
 def run_campaign(engine, args) -> "tuple[CampaignStats, object]":
@@ -378,7 +374,6 @@ def run_campaign(engine, args) -> "tuple[CampaignStats, object]":
         elapsed=time.time() - start,
         coverage=shared.coverage.summary() if shared.coverage else None,
         timeouts=c["timeouts"],
-        reference=bool(args.reference),
         scale=cfg.scale,
         state_sample=args.state_sample,
     )
@@ -394,8 +389,8 @@ def print_stats(stats: CampaignStats, dedup_summary: "dict | None" = None, colle
     print(f"known bugs withheld: {stats.known_bugs_suppressed}")
     print(f"distinct shapes: {stats.distinct_shapes}  ir_traversal shape coverage: {stats.traversal_shapes_visited}/{SHAPE_DENOMINATOR}  ir_select coverage: {stats.select_shapes_visited}/{SELECT_COVERAGE_DENOMINATOR}  ir_path coverage: {stats.path_shapes_visited}/{PATH_COVERAGE_DENOMINATOR}  distinct plan pairs: {stats.distinct_plan_pairs}")
     print(f"writes: {stats.writes}  write-state diffs: {stats.write_state_diffs}  ir_write coverage: {stats.write_shapes_visited}/{WRITE_COVERAGE_DENOMINATOR}")
-    if stats.scale != "default" or stats.timeouts or not stats.reference:
-        print(f"scale: {stats.scale}  reference leg: {'on' if stats.reference else 'off'}  state: {'read whole' if not stats.state_sample else f'counts + sample of {stats.state_sample}'}  timeouts: {stats.timeouts}")
+    if stats.scale != "default" or stats.timeouts:
+        print(f"scale: {stats.scale}  state: {'read whole' if not stats.state_sample else f'counts + sample of {stats.state_sample}'}  timeouts: {stats.timeouts}")
     print(f"elapsed: {stats.elapsed:.1f}s")
     for name, t in sorted(stats.per_generator.items()):
         a = 100.0 * t["asserting"] / t["cases"] if t["cases"] else 0.0
@@ -419,12 +414,11 @@ def add_arguments(ap: argparse.ArgumentParser, engine) -> None:
     ap.add_argument("--stats-dir", default="campaign_reports", help="directory the campaign statistics JSON is written to (default: %(default)s)")
     ap.add_argument("--max-findings", type=int, default=0, help="stop after this many distinct findings; 0 runs every iteration (default: %(default)s)")
     ap.add_argument("--explain", action="store_true", help="fingerprint every variant's plan (extra round trips)")
-    ap.add_argument("--no-verify-state", dest="verify_state", action="store_false", help="skip comparing each database's stored data with the generated instance (after setup and after writes)")
+    ap.add_argument("--no-verify-state", dest="verify_state", action="store_false", help="skip comparing the databases' stored data with each other (after setup and after writes)")
     ap.add_argument("--no-known-bugs", action="store_true", help="run the variants that match a filed bug")
     ap.add_argument("--bundle-all", action="store_true", help="bundle every finding, not only the first per key")
     ap.add_argument("--bundle-setup-failures", action="store_true", help="also write a bundle when setup fails in every data model (a partial failure is always bundled)")
     ap.add_argument("--coverage", choices=engine.coverage_levels, default="off", help="collect the engine's code coverage: seed = the growth curve; case / variant = also attribute it to the query generator / the variant that ran (--workers 1)")
-    ap.add_argument("--reference", action=argparse.BooleanOptionalAction, default=None, help="run the reference leg (default: the scale profile's: on at the default scale, off at the large one)")
     ap.add_argument("--state-sample", type=int, default=None, help="verify the stored state by counts and this many sampled records per class, 0 reads it whole (default: the scale profile's)")
     ap.add_argument("--query-timeout-ms", type=int, default=None, help="how long one query may run before it is a timeout, left out of the comparison (default: the scale profile's)")
     engine.add_arguments(ap)

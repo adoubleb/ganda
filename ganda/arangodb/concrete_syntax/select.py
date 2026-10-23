@@ -58,7 +58,7 @@ from ganda.core.query.ir.select import SelectQuery
 from ganda.core.data.model import FieldType, Instance, Schema
 from ganda.arangodb.oracle import rewrites as _rewrites
 from ganda.arangodb.concrete_syntax.predicate import render_predicate as render_pred
-from ganda.arangodb.concrete_syntax.support import METHODS, method_fn, tx_extra_binds, tx_script  # noqa: F401
+from ganda.arangodb.concrete_syntax.support import METHODS, tx_extra_binds, tx_script  # noqa: F401
 
 FILTERS = ("plain", "rw", "rev", "arith", "noopt")
 POSITIONS = ("table", "scan", "nest", "noindex", "hint", "poly", "polyin")

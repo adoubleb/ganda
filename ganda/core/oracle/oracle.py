@@ -26,8 +26,10 @@ OUT (`EngineError.timeout`) is recorded in `CaseResult.timeouts` (the campaign c
 them) and, by default, read as the rejection it is on a small instance -- a plan that
 never finishes is a finding (O37). With `timeouts_are_errors=False` (the large scale,
 where a data model may simply be slower than the question allows) it gave no answer at
-all: it is left out of every pair. The Python reference leg, when the campaign runs it
-(`instance` given), is compared against each data model under the same normalization.
+all: it is left out of every pair.
+
+The oracle is purely differential: no answer is predicted from the `Instance`, so a
+fault every variant shares is not seen.
 """
 from __future__ import annotations
 
@@ -37,7 +39,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
-from ganda.core.data.model import Instance, hashable_value
+from ganda.core.data.model import hashable_value
 from ganda.core.oracle.case import Comparison, QueryCase, data_model_of
 from ganda.core.engine.provider import DEFAULT_SEMANTICS, EngineCrash, EngineError
 
@@ -176,14 +178,6 @@ class Mismatch:
 
 
 @dataclass
-class ReferenceMismatch:
-    variant: str
-    record_id: Any
-    got: Any
-    expected: Any
-
-
-@dataclass
 class CaseResult:
     case: QueryCase
     ok: bool
@@ -191,7 +185,6 @@ class CaseResult:
     errors: dict = field(default_factory=dict)
     internal: dict = field(default_factory=dict)
     mismatches: list = field(default_factory=list)
-    reference_mismatches: list = field(default_factory=list)
     duplicate_id_rows: list = field(default_factory=list)
     plans: dict = field(default_factory=dict)
     suppressed: dict = field(default_factory=dict)  # data model -> known bug id
@@ -230,8 +223,6 @@ class CaseResult:
             return "duplicate_id_rows"
         if self.mismatches:
             return "mismatch"
-        if self.reference_mismatches:
-            return "reference_mismatch"
         return None
 
     def compared_values(self) -> list:
@@ -244,12 +235,14 @@ class CaseResult:
 
     @property
     def asserts_anything(self) -> bool:
-        if any(self.errors.values()):
+        """Whether the case compared a non-empty answer: at least two variants answered
+        (a lone variant has nothing to be compared with) and no variant erred."""
+        if any(self.errors.values()) or len(self.variants) < 2:
             return False
         return any(not is_empty_value(v) for v in self.compared_values())
 
 
-def run_case(case: QueryCase, sessions: dict, instance: "Instance | None" = None, explain: bool = False, keep_known_bugs: bool = False, after_variant=None, timeouts_are_errors: bool = True) -> CaseResult:
+def run_case(case: QueryCase, sessions: dict, explain: bool = False, keep_known_bugs: bool = False, after_variant=None, timeouts_are_errors: bool = True) -> CaseResult:
     """`after_variant(case, data_model)` runs once a data model (and its plan) has been asked --
     a coverage collector closes a window there. `timeouts_are_errors` False leaves a
     timed-out variant out of the comparison (see the module)."""
@@ -288,7 +281,7 @@ def run_case(case: QueryCase, sessions: dict, instance: "Instance | None" = None
                 plans[variant] = plan
         if after_variant is not None:
             after_variant(case, variant)
-    result = build_result(case, rows, errors, instance)
+    result = build_result(case, rows, errors)
     result.internal = internal
     result.plans = plans
     result.suppressed = suppressed
@@ -299,49 +292,20 @@ def run_case(case: QueryCase, sessions: dict, instance: "Instance | None" = None
 
 
 
-def run_cases(cases: list, sessions: dict, instance: "Instance | None" = None, after_case=None, **kw) -> list:
+def run_cases(cases: list, sessions: dict, after_case=None, **kw) -> list:
     out = []
     for c in cases:
-        out.append(run_case(c, sessions, instance, **kw))
+        out.append(run_case(c, sessions, **kw))
         if after_case is not None:
             after_case(c)
     return out
 
 
-def _expected(case: QueryCase, instance: Instance):
-    from ganda.core.query.generators.registry import reference_for
-
-    return reference_for(case, instance)
-
-
-def _reference_check(case: QueryCase, instance: "Instance | None", data_model_values: dict) -> list:
-    if instance is None or case.params.get("reference") is False:
-        return []
-    has_ref, ref = _expected(case, instance)
-    if not has_ref:
-        return []
-    out = []
-    if case.comparison in _BARE:
-        ref_n = normalize_bare(case, ref)
-        for variant, value in data_model_values.items():
-            if normalize_bare(case, value) != ref_n:
-                out.append(ReferenceMismatch(variant=variant, record_id="<single>", got=value, expected=ref))
-        return out
-    key = _key_of(case)
-    ref_map = {hashable_value(k): v for k, v in ref.items()}
-    for variant, data_model_map in data_model_values.items():
-        for rid in sorted(set(data_model_map) | set(ref_map), key=repr):
-            got, exp = data_model_map.get(rid), ref_map.get(rid)
-            if normalize(case.comparison, got, key) != normalize(case.comparison, exp, key):
-                out.append(ReferenceMismatch(variant=variant, record_id=rid, got=got, expected=exp))
-    return out
-
-
-def build_result(case: QueryCase, rows: dict, errors: dict, instance: "Instance | None") -> CaseResult:
+def build_result(case: QueryCase, rows: dict, errors: dict) -> CaseResult:
     """The comparison. An error on any variant ends it (`ok` only when every variant
     erred alike) -- unless the provider says `compare_despite_errors`: the variants that
-    answered are then compared among themselves and with the reference, so an error
-    asymmetry does not hide a wrong answer among the rest (the result carries both)."""
+    answered are then compared among themselves, so an error asymmetry does not hide
+    a wrong answer among the rest (the result carries both)."""
     failed = any(errors.values())
     if failed and not getattr(case.engine, "compare_despite_errors", False):
         return CaseResult(case=case, ok=all(errors.values()), rows=rows, errors=errors)
@@ -349,7 +313,6 @@ def build_result(case: QueryCase, rows: dict, errors: dict, instance: "Instance 
 
     variants = [s for s in case.variants if s in rows and not errors.get(s)]
     pairs = list(itertools.combinations(variants, 2))
-    base_data_models = [s for s in variants if ":" not in s]
 
     if case.comparison in _BARE:
         normalized = {s: normalize_bare(case, rows[s]) for s in variants}
@@ -358,8 +321,7 @@ def build_result(case: QueryCase, rows: dict, errors: dict, instance: "Instance 
             for left, right in pairs
             if normalized[left] != normalized[right]
         ]
-        ref_mismatches = _reference_check(case, instance, {s: rows[s] for s in base_data_models})
-        return CaseResult(case=case, ok=not mismatches and not ref_mismatches and not asymmetry, rows=rows, errors=errors, mismatches=mismatches, reference_mismatches=ref_mismatches)
+        return CaseResult(case=case, ok=not mismatches and not asymmetry, rows=rows, errors=errors, mismatches=mismatches)
 
     key = _key_of(case)
     maps: dict = {}
@@ -376,13 +338,11 @@ def build_result(case: QueryCase, rows: dict, errors: dict, instance: "Instance 
             ln, rn = normalize(case.comparison, lv, key), normalize(case.comparison, rv, key)
             if ln != rn:
                 mismatches.append(Mismatch(rid, left, right, lv, rv, ln, rn))
-    ref_mismatches = _reference_check(case, instance, {s: maps[s] for s in base_data_models})
     return CaseResult(
         case=case,
-        ok=not mismatches and not ref_mismatches and not dups and not asymmetry,
+        ok=not mismatches and not dups and not asymmetry,
         rows=rows,
         errors=errors,
         mismatches=mismatches,
-        reference_mismatches=ref_mismatches,
         duplicate_id_rows=dups,
     )

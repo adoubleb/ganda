@@ -1,22 +1,22 @@
 """The write phase: after every read case of an instance, `write_cases` writes run one
 after another on every data model, each followed by checks, and the Instance the
-reference uses evolves with them.
+generators draw from evolves with them.
 
 One step:
 1. draw a write and each data model's concrete syntax (`generators.write`);
 2. run it on every data model (the provider's `write_syntax.execute`) and compare the
-   answers -- a count, or the returned records -- pair by pair and against the
-   reference over the Instance BEFORE the write (`ir_write`, an ordinary `CaseResult`);
+   answers -- a count, or the returned records -- pair by pair (`ir_write`, an
+   ordinary `CaseResult`);
 3. apply the write to the Instance and read the touched classes back on every data
-   model (`state_check.verify_state`): a data model whose stored state differs is a
-   write-path finding;
+   model (`state_check.compare_states`): a data model whose stored state differs from
+   the others' is a write-path finding;
 4. read the written field back through the select generator (`READBACKS` questions
    over the written class, their filter over the written field -- a stale index entry
    is an index-vs-scan disagreement), or the relationship type through its filtered
    `ids`.
 
-A step that errors on some data model, or leaves some data model's state off the
-reference, ends the phase: the databases no longer hold one state.
+A step that errors on some data model, or leaves the data models' states apart, ends
+the phase: the databases no longer hold one state.
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from ganda.core.oracle.case import QueryCase
 from ganda.core.query.ir.write import apply, comparison, coverage_signature, shape_signature, touched
 from ganda.core.query.generators.select import build_case, sample_select
 from ganda.core.query.generators.write import sample_write
-from ganda.core.engine.state_check import StateDiff, verify_state
+from ganda.core.engine.state_check import StateDiff, compare_states
 
 READBACKS = 2
 
@@ -78,7 +78,6 @@ def build_write_case(q, rewrites, syntaxes: dict, step: int, before: Instance, a
         "keep_known_bugs": keep_known_bugs,
         "concrete_syntax": {data_model: sp.tag for data_model, (sp, _k) in syntaxes.items()},
         "statements": {data_model: st.display() for data_model, st in statements.items()},
-        "reference": q.where is None or q.where.reference,
     }
     if set(queries) != set(engine.data_models):
         params["partial"] = True
@@ -88,12 +87,10 @@ def build_write_case(q, rewrites, syntaxes: dict, step: int, before: Instance, a
     return case, statements
 
 
-def run_write_phase(sessions: dict, instance: Instance, rng: random.Random, steps: int, verify: bool = True, keep_known_bugs: bool = False, stop_after: "int | None" = None, reference: bool = True, state_sample: int = 0, state_rng: "random.Random | None" = None, timeouts_are_errors: bool = True) -> WritePhase:
+def run_write_phase(sessions: dict, instance: Instance, rng: random.Random, steps: int, verify: bool = True, keep_known_bugs: bool = False, stop_after: "int | None" = None, state_sample: int = 0, state_rng: "random.Random | None" = None, timeouts_are_errors: bool = True) -> WritePhase:
     """`verify` reads the touched classes back after every write (by counts and a
-    sample with `state_sample`, `state_check.verify_state`; `state_rng` is the
-    sample's stream, or a function returning a fresh one per check so every data
-    model is sampled alike); `reference` False compares the data models only (the
-    mutation benchmark's `--no-reference`, the large scale)."""
+    sample with `state_sample`, `state_check.compare_states`; `state_rng` is the
+    sample's stream, or a function returning a fresh one per check)."""
     phase = WritePhase(instance=instance)
     inst = instance
     schema = instance.schema
@@ -122,7 +119,7 @@ def run_write_phase(sessions: dict, instance: Instance, rng: random.Random, step
                     rows[data_model], errors[data_model], internal[data_model] = [], str(e), getattr(e, "internal", False)
                 else:
                     state_errors[data_model] = str(e)
-        result = build_result(case, rows, errors, inst if reference else None)
+        result = build_result(case, rows, errors)
         result.internal = internal
         if result.internal_error:
             result.ok = False
@@ -137,15 +134,13 @@ def run_write_phase(sessions: dict, instance: Instance, rng: random.Random, step
         phase.instance = inst
         if verify:
             tables, edge_types = touched(q, inst)
-            diffs = {data_model: verify_state(sessions[data_model], data_model, inst, tables=tables, edge_types=edge_types, sample=state_sample, rng=state_rng() if callable(state_rng) else state_rng) for data_model in data_models}
-
-
+            diffs = compare_states(sessions, inst, tables=tables, edge_types=edge_types, sample=state_sample, rng=state_rng() if callable(state_rng) else state_rng)
             if any(not d.ok for d in diffs.values()):
                 phase.diffs = diffs
                 phase.failed_step = step
-                phase.stopped = f"step {step}: state off the reference on {sorted(s for s, d in diffs.items() if not d.ok)}"
+                phase.stopped = f"step {step}: the state differs on {sorted(s for s, d in diffs.items() if not d.ok)}"
                 return phase
         for c in _readbacks(q, rng, inst, step):
-            phase.results.append(run_case(c, sessions, inst if reference else None, keep_known_bugs=keep_known_bugs, timeouts_are_errors=timeouts_are_errors))
+            phase.results.append(run_case(c, sessions, keep_known_bugs=keep_known_bugs, timeouts_are_errors=timeouts_are_errors))
 
     return phase

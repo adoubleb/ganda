@@ -30,31 +30,31 @@ def _rows(v):
 def test_an_error_ends_the_comparison_by_default_and_not_under_the_option():
     rows = {"doc": _rows(1), "graph": _rows(2), "rel": [], "rel:scan": _rows(1)}
     errors = {"doc": "", "graph": "", "rel": "[7] refused", "rel:scan": ""}
-    plain = build_result(_case(FakeProvider()), rows, errors, None)
+    plain = build_result(_case(FakeProvider()), rows, errors)
     assert plain.finding_class == "error_asymmetry" and not plain.mismatches and not plain.ok
-    despite = build_result(_case(_Despite()), rows, errors, None)
+    despite = build_result(_case(_Despite()), rows, errors)
     assert despite.finding_class == "error_asymmetry" and not despite.ok
     # the answering variants were compared: doc and rel:scan agree, graph differs
     assert {m.pair for m in despite.mismatches} == {"doc/graph", "graph/rel:scan"}
     # a symmetric error stays ok either way, with nothing to compare
     every = {s: "[7] refused" for s in rows}
-    assert build_result(_case(_Despite()), {s: [] for s in rows}, every, None).ok
-    assert build_result(_case(FakeProvider()), {s: [] for s in rows}, every, None).ok
+    assert build_result(_case(_Despite()), {s: [] for s in rows}, every).ok
+    assert build_result(_case(FakeProvider()), {s: [] for s in rows}, every).ok
     # no error: the same comparison as before
-    clean = build_result(_case(_Despite()), {**rows, "rel": _rows(1)}, {s: "" for s in rows}, None)
+    clean = build_result(_case(_Despite()), {**rows, "rel": _rows(1)}, {s: "" for s in rows})
     assert clean.finding_class == "mismatch" and {m.pair for m in clean.mismatches} == {"doc/graph", "graph/rel", "graph/rel:scan"}
 
 
 def test_the_finding_key_carries_the_error_signature_and_a_hidden_mismatch():
     rows = {"doc": _rows(1), "graph": _rows(1), "rel": [], "rel:scan": _rows(1)}
-    seven = build_result(_case(_Despite()), rows, {"doc": "", "graph": "", "rel": "[7] refused", "rel:scan": ""}, None)
-    eight = build_result(_case(_Despite()), rows, {"doc": "", "graph": "", "rel": "[8] other", "rel:scan": ""}, None)
+    seven = build_result(_case(_Despite()), rows, {"doc": "", "graph": "", "rel": "[7] refused", "rel:scan": ""})
+    eight = build_result(_case(_Despite()), rows, {"doc": "", "graph": "", "rel": "[8] other", "rel:scan": ""})
     assert BugDeduplicator.key(seven) != BugDeduplicator.key(eight)
     assert BugDeduplicator.key(seven)[2] == ("rel#[7]",)
-    hidden = build_result(_case(_Despite()), {**rows, "graph": _rows(2)}, {"doc": "", "graph": "", "rel": "[7] refused", "rel:scan": ""}, None)
+    hidden = build_result(_case(_Despite()), {**rows, "graph": _rows(2)}, {"doc": "", "graph": "", "rel": "[7] refused", "rel:scan": ""})
     assert BugDeduplicator.key(hidden) != BugDeduplicator.key(seven) and "doc/graph" in BugDeduplicator.key(hidden)[2]
     # the default provider: the key names the variants alone, as the baseline records
-    plain = build_result(_case(FakeProvider()), rows, {"doc": "", "graph": "", "rel": "[7] refused", "rel:scan": ""}, None)
+    plain = build_result(_case(FakeProvider()), rows, {"doc": "", "graph": "", "rel": "[7] refused", "rel:scan": ""})
     assert BugDeduplicator.key(plain)[2] == ("rel",)
 
 

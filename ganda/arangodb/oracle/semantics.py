@@ -1,6 +1,7 @@
-"""The independent oracle leg: expected answers computed from the `Instance` itself,
-under AQL's value semantics (the legacy port probed them on 3.12; `ganda arangodb
-probe` re-checks the ones listed in `RULES.md`).
+"""AQL's value semantics (the legacy port probed them on 3.12; `ganda arangodb probe`
+re-checks the ones listed in `RULES.md`): the value order and equality the oracle and
+the state check compare answers under, and the predicate logic and arithmetic the
+generators walk the `Instance` with. No answer is predicted from them.
 
 - **Order across types** is total: null < bool < number < string < array < object. So
   a comparison never fails for an absent or null value: `null < 5` and `null <= 5`
@@ -11,9 +12,8 @@ probe` re-checks the ones listed in `RULES.md`).
   (A1), which is why the generator stores none.
 - **Strings** compare for equality code point by code point (no Unicode
   normalization); their ORDER is ICU collation, which Python does not reproduce, so
-  the provider never draws an ordered comparison on a string column
-  (`pivots.ordered_ops`) and withholds the reference of an ordering by one
-  (`orders_exactly`); `key` orders strings by code point for the oracle's own
+  the generators' filters never hold an ordered comparison on a string column
+  (`pivots.ordered_ops`); `key` orders strings by code point for the oracle's own
   canonical forms only. The model's DATETIME / DATE values are strings of one fixed
   shape, on which ICU and code-point order agree digit by digit.
 - **`LIKE`** is case-sensitive, `%` any run and `_` one character, across a newline
@@ -33,7 +33,6 @@ import re
 from typing import Any
 
 from ganda.core.query.ir.predicates import Compound
-from ganda.core.data.model import FieldType
 from ganda.core.engine.provider import Semantics
 
 F64_INT_EXACT = 2**53
@@ -205,36 +204,12 @@ def predicate_hit(present: bool, v: Any, op: str, pivot: Any, ftype: "str | None
     raise ValueError(op)
 
 
-def mean(values: list):
-    """`AVERAGE` over present values: a double division (the callers admit it only
-    where the sum is exact)."""
-    return sum(values) / len(values)
-
-
 def sum_is_exact(values: list, ftype: "str | None" = "int") -> bool:
     """Every partial sum in every order stays exact in double arithmetic: integers
     whose absolute total is under 2^53. A double sum is never shown exact."""
     if any(isinstance(v, bool) or not isinstance(v, int) for v in values):
         return False
     return sum(abs(v) for v in values) < F64_INT_EXACT
-
-
-def agg(fn: str, values: list, ftype: "str | None" = None):
-    """`values` are the elements the engine aggregates (null included)."""
-    present = [v for v in values if v is not None]
-    if fn == "count":
-        return len(values)
-    if fn == "distinct_count":
-        return len({aql_key(v) for v in values})
-    if fn == "sum":
-        return sum(present) if present else 0
-    if not present:
-        return None
-    if fn == "max":
-        return max(present, key=aql_key)
-    if fn == "min":
-        return min(present, key=aql_key)
-    raise ValueError(fn)
 
 
 def apply_arith(v, sym: str, c, ftype: "str | None"):
@@ -272,28 +247,6 @@ def canonical(value):
     return value
 
 
-class _Reversed:
-    """A sort key whose order is the reverse of the wrapped key's."""
-
-    __slots__ = ("k",)
-
-    def __init__(self, k):
-        self.k = k
-
-    def __lt__(self, other) -> bool:
-        return other.k < self.k
-
-    def __eq__(self, other) -> bool:
-        return self.k == other.k
-
-
-def order_key(v, desc: bool):
-    """A per-key sort key: AQL's type order (null smallest, so first ascending and
-    last descending), reversed for DESC."""
-    k = aql_key(v)
-    return _Reversed(k) if desc else k
-
-
 class ArangoSemantics(Semantics):
     key = staticmethod(aql_key)
     eq = staticmethod(eq)
@@ -301,30 +254,7 @@ class ArangoSemantics(Semantics):
     predicate_hit = staticmethod(predicate_hit)
     evaluate = staticmethod(evaluate)
     apply_arith = staticmethod(apply_arith)
-    agg = staticmethod(agg)
-    mean = staticmethod(mean)
     sum_is_exact = staticmethod(sum_is_exact)
-    order_key = staticmethod(order_key)
-
-    def aggregate_over_no_rows(self, fn: str) -> list:
-        """`SUM([])` and `COUNT_DISTINCT([])` are 0; `MAX`, `MIN`, `AVERAGE` and
-        `MEDIAN` of nothing are null; a set or list of nothing is no row."""
-        if fn in ("sum", "distinct_count"):
-            return [{"v": 0}]
-        if fn in ("set", "list"):
-            return []
-        return [{"v": None}]
-
-    def nulls_first(self, desc: bool) -> bool:
-        return not desc  # null is the smallest value
-
-    def orders_exactly(self, ftype, custom_keys: bool) -> bool:
-        # an ORDER BY a string is ICU collation, and the id tiebreak collates a custom key
-        return ftype not in (FieldType.STRING, FieldType.BINARY) and not custom_keys
-
-    def aggregates_exactly(self, fn: str, ftype) -> bool:
-        # MAX / MIN of strings is their ICU order
-        return ftype not in (FieldType.STRING, FieldType.BINARY)
 
     def canonical(self, value):
         """The wire form: an integral double comes back as an integer (`2.0` is `2`)."""

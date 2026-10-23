@@ -1,6 +1,5 @@
 """The large scale on the in-memory engine: the profile, the limits every grown value
-and hub respects, the tail axes at zero, the campaign without the reference leg, the
-sampled state check, slim bundles and timeouts."""
+and hub respects, the tail axes at zero, the large campaign, the sampled state check, slim bundles and timeouts."""
 import argparse
 import base64
 import dataclasses
@@ -20,7 +19,7 @@ from ganda.core.data.model import BLOB_TYPES, GROWABLE_TYPES, FieldType
 from ganda.core.oracle.oracle import run_case
 from ganda.core.engine.provider import EngineError
 from ganda.core.campaign.reporter import report_bug
-from ganda.core.engine.state_check import verify_state
+from ganda.core.engine.state_check import compare_states
 from tests.fake_engine import SMALL, FakeProvider
 
 # the large profile's mechanisms at a size a unit test can afford: every size flag is
@@ -60,7 +59,7 @@ def test_resolve_applies_the_profile_where_a_flag_was_left_at_its_default():
     with pytest.raises(ValueError):
         scale.profile("huge")
     p = scale.profile_of(cfg)
-    assert p.name == "large" and not p.reference and p.state_sample > 0 and not p.embed_data
+    assert p.name == "large" and p.state_sample > 0 and not p.embed_data
 
 
 def test_the_large_scale_stays_inside_the_engine_limits():
@@ -138,22 +137,22 @@ def test_the_tail_axes_at_zero_reproduce_the_default_instance_and_a_grown_row_mo
                 assert b.values.get(k) == v  # only the retyped column's values move
 
 
-def test_a_large_campaign_runs_without_the_reference_on_a_sampled_state(tmp_path):
+def test_a_large_campaign_runs_on_a_sampled_state(tmp_path):
     engine = FakeProvider()
     argv = ["--iterations", "2", "--seed", "1", "--out-dir", str(tmp_path / "bugs"), "--stats-dir", str(tmp_path / "stats")]
     args = _args(campaign.add_arguments, engine, LARGE_SMALL, argv)
     stats, _ = campaign.run_campaign(engine, args)
-    assert stats.scale == "large" and stats.reference is False and stats.state_sample == scale.profile("large").state_sample
+    assert stats.scale == "large" and stats.state_sample == scale.profile("large").state_sample
     assert stats.instances == 2 and stats.findings == 0 and stats.setup_asymmetries == 0 and stats.cases > 0 and stats.writes > 0
     assert args.embed_data is False and args.max_value_chars > 0 and args.query_timeout_ms == scale.profile("large").query_timeout_ms
     # an explicit flag wins over the profile
-    args = _args(campaign.add_arguments, engine, LARGE_SMALL, argv + ["--reference", "--state-sample", "0"])
+    args = _args(campaign.add_arguments, engine, LARGE_SMALL, argv + ["--state-sample", "0"])
     stats, _ = campaign.run_campaign(engine, args)
-    assert stats.reference is True and stats.state_sample == 0 and stats.findings == 0
-    # the default scale: the reference leg on, the state read whole
+    assert stats.state_sample == 0 and stats.findings == 0
+    # the default scale: the state read whole
     args = _args(campaign.add_arguments, engine, SMALL, argv)
     stats, _ = campaign.run_campaign(engine, args)
-    assert stats.scale == "default" and stats.reference is True and stats.state_sample == 0 and args.embed_data is True
+    assert stats.scale == "default" and stats.state_sample == 0 and args.embed_data is True
 
 
 def test_the_sampled_state_check_sees_counts_and_the_heaviest_rows():
@@ -161,15 +160,16 @@ def test_the_sampled_state_check_sees_counts_and_the_heaviest_rows():
     cfg = engine.config_class(**SMALL, large_row_probability=0.5)
     schema, instance, _ = build(2, cfg, engine)
     sessions = _sessions(engine, instance)
-    for dm in engine.data_models:
-        assert verify_state(sessions[dm], dm, instance, sample=3).ok
+    assert all(d.ok for d in compare_states(sessions, instance, sample=3).values())
     # a lost record shows in the count although the sample never reads it
     table = max(schema.node_types, key=lambda nt: len(instance.nodes_of(nt.name))).name
     victim = instance.nodes_of(table)[-1]
     s = sessions["graph"]
     s.instance = dataclasses.replace(s.instance, nodes=[n for n in s.instance.nodes if n.record_id != victim.record_id])
-    d = verify_state(s, "graph", instance, sample=1)
-    assert any("records stored" in p for p in d.problems), d.problems
+    diffs = compare_states(sessions, instance, sample=1)
+    assert any("record count" in p for p in diffs["graph"].problems), diffs["graph"].problems
+    assert diffs["doc"].ok and diffs["rel"].ok
+    s.instance = instance
     # the heaviest row of its class is always sampled: its damaged value is seen
     s = sessions["rel"]
     heavy = max(instance.nodes, key=lambda n: sum(len(v) for v in n.values.values() if isinstance(v, (str, list))))
@@ -177,12 +177,16 @@ def test_the_sampled_state_check_sees_counts_and_the_heaviest_rows():
     rows = [dataclasses.replace(n, values={**n.values, field_name: "damaged"}) if n.record_id == heavy.record_id else n for n in s.instance.nodes]
 
     s.instance = dataclasses.replace(s.instance, nodes=rows)
-    d = verify_state(s, "rel", instance, sample=1)
-    assert any(heavy.record_id in p and field_name in p for p in d.problems), d.problems
+    diffs = compare_states(sessions, instance, sample=1)
+    assert any(heavy.record_id in p and field_name in p for p in diffs["rel"].problems), diffs["rel"].problems
+    assert diffs["doc"].ok and diffs["graph"].ok
+    s.instance = instance
     # a lost relationship shows in the relationship count
     s = sessions["doc"]
     s.instance = dataclasses.replace(s.instance, edges=s.instance.edges[1:])
-    assert any("relationships stored" in p for p in verify_state(s, "doc", instance, sample=1).problems)
+    diffs = compare_states(sessions, instance, sample=1)
+    assert any("relationship count" in p for p in diffs["doc"].problems)
+    assert diffs["graph"].ok and diffs["rel"].ok
 
 
 def test_the_write_phase_samples_the_state_from_a_fresh_stream_per_check():
@@ -196,9 +200,9 @@ def test_the_write_phase_samples_the_state_from_a_fresh_stream_per_check():
     schema, instance, rng = build(2, cfg, engine)
     sessions = _sessions(engine, instance)
     # a sample smaller than the classes, so the stream is drawn from on every check
-    wp = run_write_phase(sessions, instance, rng.for_generator("ir_write"), cfg.write_cases, reference=False, state_sample=3, state_rng=lambda: random.Random("s"))
+    wp = run_write_phase(sessions, instance, rng.for_generator("ir_write"), cfg.write_cases, state_sample=3, state_rng=lambda: random.Random("s"))
     assert wp.steps == cfg.write_cases and not wp.stopped and all(r.ok for r in wp.results), wp.stopped
-    wp = run_write_phase(sessions, instance, rng.for_generator("ir_write"), 1, reference=False, state_sample=3, state_rng=random.Random("s"))
+    wp = run_write_phase(sessions, instance, rng.for_generator("ir_write"), 1, state_sample=3, state_rng=random.Random("s"))
     assert not wp.stopped
 
 
@@ -210,7 +214,7 @@ def test_a_slim_bundle_carries_the_shape_of_the_data(tmp_path):
     sessions = _sessions(engine, instance)
     sessions["graph"].tamper = lambda rows: rows[1:]
     plans = {dm: engine.mappers[dm](instance) for dm in engine.data_models}
-    failing = next(r for c in all_cases(rng, schema, instance, cfg=cfg) if not (r := run_case(c, sessions, None)).ok)
+    failing = next(r for c in all_cases(rng, schema, instance, cfg=cfg) if not (r := run_case(c, sessions)).ok)
     d = report_bug(engine, str(tmp_path), "t", 4, cfg, instance, plans, failing, embed_data=False, max_value_chars=24)
     recorded = json.load(open(os.path.join(d, "instance.json")))
     assert "summary" in recorded and recorded["nodes"] == {nt.name: len(instance.nodes_of(nt.name)) for nt in schema.node_types} and "schema" in recorded
@@ -237,22 +241,22 @@ def test_a_timed_out_variant_is_left_out_of_the_comparison_not_read_as_a_rejecti
     sessions = _sessions(engine, instance)
     cases = all_cases(rng, schema, instance, cfg=cfg)
     sessions["graph"] = _SlowSession()
-    results = [run_case(c, sessions, instance, timeouts_are_errors=False) for c in cases]
+    results = [run_case(c, sessions, timeouts_are_errors=False) for c in cases]
     assert results and all(r.ok for r in results)
     assert all("graph" in r.timeouts and "graph" not in r.variants and not r.error_asymmetry for r in results)
     # at the default scale a timeout is the rejection it is: an error asymmetry, and counted
-    strict = [run_case(c, sessions, instance) for c in cases]
+    strict = [run_case(c, sessions) for c in cases]
     assert all(r.finding_class == "error_asymmetry" and "graph" in r.timeouts for r in strict)
     # a rejection on the same data model is still a finding
     rejecting = type("R", (), {"execute": lambda self, text, binds=None, options=None: (_ for _ in ()).throw(EngineError("no"))})()
     sessions["graph"] = rejecting
-    assert any(run_case(c, sessions, instance).finding_class == "error_asymmetry" for c in cases)
+    assert any(run_case(c, sessions).finding_class == "error_asymmetry" for c in cases)
 
 
 def test_a_case_with_every_variant_timed_out_asserts_nothing():
     engine = FakeProvider()
     case = QueryCase("ir_select", "", Comparison.SINGLE_VALUE, {"doc": "x", "graph": "x", "rel": "x"}, engine=engine)
-    r = run_case(case, {dm: _SlowSession() for dm in engine.data_models}, None, timeouts_are_errors=False)
+    r = run_case(case, {dm: _SlowSession() for dm in engine.data_models}, timeouts_are_errors=False)
     assert r.ok and set(r.timeouts) == set(engine.data_models) and not r.asserts_anything and not r.variants
-    assert run_case(case, {dm: _SlowSession() for dm in engine.data_models}, None).symmetric_error
+    assert run_case(case, {dm: _SlowSession() for dm in engine.data_models}).symmetric_error
 

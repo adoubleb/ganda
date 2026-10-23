@@ -57,9 +57,13 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
   `large` scale profile (`core/data/scale.py`) stay inside them; the core never hard-codes
   a size an engine would reject. A new axis of the kind draws from a tail stream and
   defaults to off.
-- **At the large scale the reference leg is off by design** (the profile's
-  `reference=False`; `--reference` turns it back on): the oracle is the pairwise
-  comparison of the data models, the state check samples (`--state-sample`), a
+- **The oracle is purely differential.** No answer is predicted from the Instance: a
+  case compares its variants pair by pair, and the state check compares the data
+  models' stored states with each other (the one off the consensus has the problem;
+  a tie names every one). A fault every data model shares is out of reach by design.
+  The IRs walk the Instance only to steer generation (filters that keep records,
+  writes that match some, exact sums, `write.apply` for later draws).
+- **At the large scale** the state check samples (`--state-sample`), a
   timeout is no answer (`CaseResult.timeouts`; at the default scale it stays the
   error asymmetry it was, the finding seed 1010 has always carried), and bundles are
   slim. A `BINARY`
@@ -96,7 +100,7 @@ transactions, `maxRuntime` as the timeout), `engine/tx.py` (the transaction door
 text), `storage/mapping/` (bulk inserts chunked under half the request bound, `mergeObjects:
 false` on every update door), `oracle/semantics.py` (the total type order, exact numbers, code
 point string equality, `LIKE` as an ICU regex), `oracle/pivots.py` (`ordered_ops`: a string
-column takes the equality family only -- ICU collation has no reference), `oracle/rewrites.py`,
+column takes the equality family only -- ICU collation orders them), `oracle/rewrites.py`,
 `concrete_syntax/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),
 `known_bugs/guards.py` (A40 guarded), `mutation/mutants.py`, `scripts/probe.py`.
 
@@ -151,8 +155,8 @@ over `g_` CTEs that read every table through the engine (the views family: full
 coverage), and native openCypher where the language states the question. What the probe
 fixed (RULES.md "The graph data model"): a heterogeneous workspace takes ONE MATCH clause
 of one-edge comma-separated patterns, and a relationship binds once in it, so a native
-multi-hop is asked only over pairwise distinct edge types (the reference's walk semantics
-has no other native form); cypher's ORDER BY puts NULL last ascending (HANA SQL: first),
+multi-hop is asked only over pairwise distinct edge types (the other data models' walk
+semantics has no other native form); cypher's ORDER BY puts NULL last ascending (HANA SQL: first),
 so native `page` / `keys` are not asked; parameters bind bare only; an undirected
 self-loop matches once; SUM over nothing answered NULL (the docs say 0: every native sum
 carries its COUNT and SQL decides). The switches in `graph.py` are named after the facts.
@@ -176,7 +180,7 @@ exact) and **A9** (two OPENCYPHER_TABLE calls in one statement type the second c
 parameters in the wrong order when they mix a string and a number): the graph renderings
 now bind DOUBLE pivots only and inline every other pivot as a constant, and the `literal`
 variant is gone. Also found: HANA SQL's `AVG(BIGINT)` is `DECIMAL(25,6)` TRUNCATED to six
-places (the reference follows it) while the triple store's AVG computes in double (B13,
+places while the triple store's AVG computes in double (B13,
 guarded in `known_bugs`); a BOOLEAN is refused inside COUNT and in a comparison (B14).
 
 The oracle on HANA runs with two provider options the core added 2026-10-12 and the
@@ -245,9 +249,7 @@ offline, never an error). The provider bugs of campaign-20261009-095838
 engine, every variant's text, bind variables, rows, mismatches), one
 `<data model>_setup.json` plan each, `instance.json` and `repro.py` (which calls
 `ganda.core.campaign.replay`). Read `failing_pairs` first: a same-database pair
-(`graph/graph:match`) is a within-engine inconsistency with no cross-model confound; an
-empty list with `reference_mismatches` means every database agreed and only the
-reference disagreed, so check the provider's semantics before blaming the engine.
+(`graph/graph:match`) is a within-engine inconsistency with no cross-model confound.
 `internal_error` is a raw exception from inside the engine and is a finding on its own.
 A triaged finding is written up under `issues/` (`O46-...md`: the version, a minimal
 reproduction, expected and actual, the analysis down to the engine's source, the scope,

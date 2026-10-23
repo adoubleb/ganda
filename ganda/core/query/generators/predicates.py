@@ -31,7 +31,7 @@ def draw(rng: random.Random, on: str, f: FieldSpec, values: list, bind: str, eng
     pivots_of, _sort_key = engine.pivots, engine.semantics.key
 
     def leaf(op, pivot):
-        return Predicate(on, f.name, op, "" if op in NO_BIND_OPS else bind, pivot, True, ft, ci)
+        return Predicate(on, f.name, op, "" if op in NO_BIND_OPS else bind, pivot, ft, ci)
 
     roll = rng.random()
     if roll < 0.12:
@@ -125,8 +125,8 @@ def _draw_map(rng: random.Random, on: str, f: FieldSpec, present: list, bind: st
     spec = FieldSpec(f.name, FieldType.INT)
     inner = draw(rng, on, spec, kvals, bind, engine) if kvals else None
     if inner is None or inner.op in ("IS PRESENT", "IS ABSENT"):
-        return Predicate(on, f.name, rng.choice(("IS NULL", "IS NOT NULL")), "", None, True, "int", False, k)
-    return Predicate(on, f.name, inner.op, inner.bind, inner.pivot, True, "int", False, k)
+        return Predicate(on, f.name, rng.choice(("IS NULL", "IS NOT NULL")), "", None, "int", False, k)
+    return Predicate(on, f.name, inner.op, inner.bind, inner.pivot, "int", False, k)
 
 
 def draw_insub(rng: random.Random, schema, instance, table: str, bind: str) -> "Predicate | None":
@@ -149,8 +149,7 @@ def draw_insub(rng: random.Random, schema, instance, table: str, bind: str) -> "
             return [n.values.get(x.name) for n in instance.nodes_of(t2) if x.name in n.values]
 
         q = draw_over(rng, "source", schema.query_fields(t2), values_of=inner_values, bind=f"{bind}s", engine=schema.engine)
-    reference = q is None or q.reference
-    return Predicate("source", f.name, "INSUB", "", sub_values(instance, t2, g.name, q), reference, f.type.value, f.case_insensitive, sub=SubQuery(t2, g.name, q, False))
+    return Predicate("source", f.name, "INSUB", "", sub_values(instance, t2, g.name, q), f.type.value, f.case_insensitive, sub=SubQuery(t2, g.name, q, False))
 
 
 def draw_over(rng: random.Random, on: str, fields, values_of, bind: str, engine, compound_probability: float = COMPOUND_PROBABILITY, depth: int = 0):
