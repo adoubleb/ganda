@@ -809,6 +809,12 @@ def test_no_variant_repeats_a_text_and_the_hint_reaches_every_rdf_question(seed)
     assert hinted_rdf > 20
 
 
+def test_partial_traversals_are_drawn():
+    """Some seed draws a traversal the doc views cannot ask (a seed's schema decides whether
+    a LIST field is ever filtered on: seed 3 has drawn none since `min_edge_types` became 1)."""
+    assert any(c.generator_name == "ir_traversal" and c.params.get("partial") for seed in range(1, 11) for c in _cases(seed)[2])
+
+
 @pytest.mark.parametrize("seed", range(1, 4))
 def test_a_traversal_the_doc_views_cannot_ask_is_still_asked_of_the_other_data_models(seed):
     """A traversal with a LIST membership (or a whole-list comparison) in a predicate has
@@ -816,7 +822,6 @@ def test_a_traversal_the_doc_views_cannot_ask_is_still_asked_of_the_other_data_m
     still compare -- where it used to be dropped on every data model."""
     _schema, _instance, cases = _cases(seed)
     partial = [c for c in cases if c.generator_name == "ir_traversal" and c.params.get("partial")]
-    assert partial, "no partial traversal case: the LIST predicates of this seed all have a doc form?"
     for c in partial:
         assert not any(v.split(":")[0] == "doc" for v in c.queries), (c.shape, sorted(c.queries))
         assert {v.split(":")[0] for v in c.queries} == {"rel", "graph", "rdf"}, (c.shape, sorted(c.queries))
