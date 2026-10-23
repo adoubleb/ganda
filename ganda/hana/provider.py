@@ -87,6 +87,12 @@ class HanaProvider(Provider):
         return known_bugs
 
     @property
+    def rules(self):
+        from ganda.hana.rules import CATALOG
+
+        return CATALOG
+
+    @property
     def mutants(self) -> list:
         from ganda.hana.mutation.mutants import MUTANTS
 

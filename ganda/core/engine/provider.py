@@ -193,6 +193,8 @@ class Provider:
                     select_known(q, syntax, rewrites, dm, schema, instance) -> id | None,
                     write_known(q, syntax, rewrites, dm, schema, instance) -> id | None
     mutants         the mutation benchmark's catalog (`ganda.core.mutation.mutants`)
+    rules           `ganda.core.rules.Catalog`: the engine rules as typed records (None:
+                    the provider has no catalog yet); `ganda <engine> rules` renders it
     extra_generators  {generator name: (rng, schema, instance, cfg) -> cases}: the
                     engine-only query generators
     compare_despite_errors  the oracle compares the variants that answered when another
@@ -220,6 +222,7 @@ class Provider:
     rewrites = None
     known_bugs = None
     mutants: list = []
+    rules = None  # a `ganda.core.rules.Catalog`
     extra_generators: dict = {}
     coverage_levels = ("off", "seed", "case", "variant")
     # False for a provider that only has its connection layer so far

@@ -6,6 +6,7 @@
     ganda orientdb probe                    re-check the engine facts the provider rests on
     ganda orientdb doctor                   start a server and answer one query per data model
     ganda orientdb limits                   what the engine can hold, and the large profile on it
+    ganda hana rules [--write]              the engine rules as tables (ganda/<engine>/rules/RULES.md)
     ganda orientdb run --scale large        the storage-engine stress mode (large tables,
                                             documents, graphs, strings and binaries)
 
@@ -64,6 +65,26 @@ def _limits(engine) -> int:
     return 0
 
 
+def _rules(engine, write: bool) -> int:
+    """The engine's rule catalog as Markdown tables (`ganda.core.rules.render`); with
+    `write`, into `ganda/<engine>/rules/RULES.md`."""
+    import pathlib
+
+    from ganda.core.rules.render import render
+
+    if engine.rules is None:
+        print(f"{engine.name} has no rule catalog yet")
+        return 0
+    text = render(engine.rules)
+    if not write:
+        print(text)
+        return 0
+    path = pathlib.Path(__file__).resolve().parent / engine.name / "rules" / "RULES.md"
+    path.write_text(text)
+    print(f"wrote {path}")
+    return 0
+
+
 def _needs_generators(engine, command: str) -> None:
     if not engine.has_generators:
         raise SystemExit(f"{engine.name} is a skeleton provider: it has a connection layer (`ganda {engine.name} doctor`) but no query generators yet, so `{command}` cannot run. See ganda/{engine.name}/PORTING.md.")
@@ -99,6 +120,9 @@ def main(argv=None) -> int:
     probe.set_defaults(handler=lambda a: engine.probe(a.facts))
     sub.add_parser("doctor", help="start a server and answer one query per data model").set_defaults(handler=lambda a: _doctor(engine, a))
     sub.add_parser("limits", help="what the engine can hold, and what the large scale profile does on it").set_defaults(handler=lambda a: _limits(engine))
+    rules = sub.add_parser("rules", help="the engine rules as tables: each answer with its basis and evidence, the divergences, the defects, the error classes")
+    rules.add_argument("--write", action="store_true", help="write ganda/<engine>/rules/RULES.md instead of printing")
+    rules.set_defaults(handler=lambda a: _rules(engine, a.write))
 
     args = ap.parse_args(argv[1:])
     try:
