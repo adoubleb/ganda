@@ -55,9 +55,7 @@ from ganda.orientdb.rules.catalog import SQL
 # index key is compared by content) -- a scan-vs-index divergence the model does not
 # ask about, since a BINARY column takes no comparison predicate and no index.
 
-# a DECIMAL travels as a JSON number, never as a string whose scale it would keep (O34);
 # a BINARY column is never compared or indexed (O46)
-works_around("O34")
 works_around("O46")
 # every write door stores a base64 BINARY as the same text
 assumes("value.binary.base64_round_trip", SQL, True)

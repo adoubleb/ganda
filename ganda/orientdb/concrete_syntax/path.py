@@ -4,7 +4,7 @@ from ganda.core.query.ir.path import PathQuery, distance
 from ganda.core.data.model import Instance, Schema
 
 from ganda.orientdb.rules import assumes, works_around
-from ganda.orientdb.rules.catalog import MATCH, REFUSED, SQL, TRAVERSE
+from ganda.orientdb.rules.catalog import MATCH, SQL, TRAVERSE
 from ganda.core.rules.vocabulary import EmptyInputRows
 
 _FN = {"OUT": "out", "IN": "in", "BOTH": "both"}
@@ -23,7 +23,6 @@ def _start(q: PathQuery) -> str:
 assumes("shortest_path.unreachable.result", SQL, 0)
 assumes("shortest_path.same_record.result", SQL, 1)
 assumes("aggregate.ungrouped.empty_input.rows", SQL, EmptyInputRows.NO_ROW)
-assumes("accepts.max_depth.parameter", TRAVERSE, REFUSED)
 works_around("O35")
 
 

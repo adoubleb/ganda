@@ -15,21 +15,18 @@ from ganda.core.data.neighbours import _f32
 from ganda.core.data.model import DATE_TYPES, FieldType
 from ganda.orientdb.oracle.pivots import lossy_pivot
 from ganda.orientdb.oracle.semantics import apply_arith
-from ganda.orientdb.rules import assumes, works_around
-from ganda.orientdb.rules.catalog import ACCEPTED, SQL
+from ganda.orientdb.rules import works_around
 
 
 
-# INTEGER arithmetic wraps (O29), and so does an out-of-range write into an INTEGER
-# column (O24): a write whose result leaves int32 is never drawn
-works_around("O29")
+# an out-of-range write into an INTEGER column is stored wrapped (O24): a write whose
+# result leaves int32 is never drawn
 works_around("O24")
 
 
 def arith_exact(v, sym: str, c, ftype: FieldType) -> bool:
     """Whether `v <sym> c` is computed exactly in the column's Java box: an int
-    (INTEGER `*` wraps in 32 bits, `+` / `-` wrap on a negative overflow, O29; a write
-    stores an out-of-range result wrapped, O24),
+    (a write stores an out-of-range result wrapped, O24),
     a long, a float32-exact float, a double scaled by a power of two, a decimal
     with at most three places, a date inside the format's range."""
     if v is None:
@@ -94,7 +91,6 @@ def arithmetic(p, rng: random.Random, bind: str, ftype: FieldType):
 
 
 # `m[:k] op :p`, the parameter-keyed map entry
-assumes("accepts.map_entry.parameter_key", SQL, ACCEPTED)
 
 
 def rewrite(p, rng: random.Random, bind: str):

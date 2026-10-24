@@ -82,8 +82,8 @@ removed 2026-10-24). A pair differs in data model or in spelling (`rw`, `rev`, `
 
 The engine rules are minimal records in `ganda/orientdb/rules/catalog.py`, as HANA's (the
 subjects are OrientDB SQL's execution paths: a scan, an index-served statement, MATCH,
-TRAVERSE, the script / transaction door, /batch); the defects O1..O46 (but O3, O4)
-beside them; `rules/checks.py` lists the rules each probe check (223 of them, ids up to C338
+TRAVERSE, the script / transaction door, /batch); the defects O1..O46 that can still make two data models differ
+(O3, O4, O11, O28, O29, O30, O32, O33, O34, O37, O42 retired) beside them; `rules/checks.py` lists the rules each probe check (167 of them, ids up to C338
 in `scripts/probe_osql.py`, never reused) asserts and the defects it reproduces (every defect has a check
 whose expected answer is the defect's). A failing check prints the rule that no
 longer holds, or the defect that no longer reproduces, and the code reading it. A rule
@@ -103,7 +103,7 @@ IR). `ganda orientdb rules --write` renders
 `ganda/orientdb/rules/RULES.md`; `tests/orientdb/test_rules.py` keeps them in step. Layout: `storage/dialect.py` (vocabulary), `storage/physical_design.py`, `config.py`,
 `engine/limits.py` (what the engine can hold), `engine/connection.py`, `storage/mapping/`, `oracle/semantics.py`, `oracle/pivots.py`, `oracle/rewrites.py`,
 `concrete_syntax/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),
-`known_bugs/guards.py` (most of O1..O46; O4 retired, fixed in 3.2.57; O3, O22, O24, O29, O30, O34, O42, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `engine/coverage.py` (JaCoCo),
+`known_bugs/guards.py` (most of O1..O46; O4 retired, fixed in 3.2.57; O22, O24, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `engine/coverage.py` (JaCoCo),
 
 `scripts/` (`probe_osql.py`, `coverage_report.py`).
 

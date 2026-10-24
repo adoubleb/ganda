@@ -6,7 +6,7 @@ import random
 
 from ganda.core.query.ir.select import TxWrite
 from ganda.orientdb.facade.generate import GeneratorConfig, build
-from ganda.orientdb.known_bugs.guards import _leaf_served, list_ops_known, o31_known, o32_predicate
+from ganda.orientdb.known_bugs.guards import _leaf_served, list_ops_known, o31_known
 from ganda.core.data.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.engine.connection import is_script, unwrap_script
 from ganda.orientdb.facade import predicates
@@ -102,11 +102,7 @@ def test_reversed_and_arithmetic_leaves_are_never_index_served():
     assert not _leaf_served(sch, "n1", reverse(plain), "doc")
     ap = arithmetic(plain, random.Random(1), "ar", FieldType.INT)
     assert not _leaf_served(sch, "n1", ap, "doc")
-    # O32: a string date pivot on the left
-    dsch = _schema([], FieldType.DATETIME)
-    dp = Predicate("source", "f1", "=", "p", "2024-01-01 00:00:00", ftype="datetime")
-    assert o32_predicate(dsch, "n1", reverse(dp)) and not o32_predicate(dsch, "n1", dp)
-    assert not o32_predicate(dsch, "n1", reverse(Predicate("source", "f1", "=", "p", 1704067200000, ftype="datetime")))
+
 
 
 def test_o31_is_a_one_sided_range_after_a_write_of_the_key():

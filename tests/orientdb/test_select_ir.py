@@ -78,14 +78,14 @@ def test_o18_needs_a_null_key_on_3_2_57():
 
 
 
-def test_distinct_count_and_avg_findings():
+def test_distinct_count_and_avg_are_not_withheld():
+    # O33 (count(distinct())) and O28 (avg over integers) answer alike on every data
+    # model, so they are compared across data models like any other aggregate
     schema, inst = _fixture()
     q = SelectQuery("n1", None, "agg", ("f1",), fn="distinct_count")
-    assert select_known(q, SelectSyntax(form="fn"), Rewrites(present=[3, 1]), "doc", schema, inst) == "O33"
-    assert select_known(q, SelectSyntax(form="set"), Rewrites(present=[3, 1]), "doc", schema, inst) is None
+    assert select_known(q, SelectSyntax(form="fn"), Rewrites(present=[3, 1]), "doc", schema, inst) is None
     avg = SelectQuery("n1", None, "agg", ("f3",), fn="avg")
-    assert select_known(avg, BASE, Rewrites(present=[1, 2]), "doc", schema, inst) == "O28"
-    assert select_known(avg, BASE, Rewrites(present=[1, 3]), "doc", schema, inst) is None
+    assert select_known(avg, BASE, Rewrites(present=[1, 2]), "doc", schema, inst) is None
 
 
 def _cases(seeds=range(1000, 1012)):

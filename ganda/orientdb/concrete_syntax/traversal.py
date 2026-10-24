@@ -59,13 +59,13 @@ from __future__ import annotations
 
 import dataclasses
 
-from ganda.core.data.model import FieldType, Schema
+from ganda.core.data.model import Schema
 from ganda.core.query.ir.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, FIELD_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, Hop, TraversalQuery
-from ganda.orientdb.facade.predicates import fields_of, has_op
+from ganda.orientdb.facade.predicates import fields_of
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
 
-from ganda.orientdb.rules import answer, assumes, works_around
-from ganda.orientdb.rules.catalog import ACCEPTED, MATCH, REFUSED, SQL, TRAVERSE, Strategy
+from ganda.orientdb.rules import assumes, works_around
+from ganda.orientdb.rules.catalog import ACCEPTED, MATCH, SQL, TRAVERSE, Strategy
 from ganda.core.rules.vocabulary import EmptyAggregate, EmptyInputRows
 
 SYNTAXES = {
@@ -122,7 +122,6 @@ def _group(extra: tuple) -> str:
     return " GROUP BY id" + "".join(f", {f}" for f in extra)
 
 
-assumes("accepts.projection.comparison", SQL, REFUSED)
 
 
 # a bare-set projection's `.size() = 0` / `> 0` also covers a source with no link list
@@ -206,23 +205,14 @@ def applicable(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) 
     return False
 
 
-_CI_OPS = tuple(answer("filter.case_insensitive.operators", SQL).split())
-
-
-assumes("projection.keeps_absent_field", SQL, False)
 # IS NULL holds for an absent field as for a null one: a pulled-up predicate meets nulls
-assumes("value.absent_is_null", SQL, True)
 
 
 def can_pull_up(q: TraversalQuery) -> bool:
-    """A source predicate can be lifted over a projection unless it tests
-    definedness (an absent field projects as an explicit null) or compares a `ci`
-    field (a projected value carries no collation: campaign c100, seed 670, an O25
-    face)."""
-    p = q.source_predicate
-    if p is None or has_op(p, ("IS PRESENT", "IS ABSENT")):
-        return False
-    return not any(leaf.case_insensitive and leaf.op in _CI_OPS for leaf in p.leaves())
+    """A question with a source predicate can be pulled up. A projection loses the
+    field's definedness and collation, alike on every data model's pull-up, which is
+    compared with the other pull-ups only."""
+    return q.source_predicate is not None
 
 
 def syntaxes_for(q: TraversalQuery, schema: Schema, data_model: str) -> list:
@@ -326,7 +316,6 @@ def _graph_chain(q: TraversalQuery, schema: Schema, bag: bool, extra: tuple = ()
 
 assumes("match.parallel_edges.rows", MATCH, 2)
 assumes("match.optional.no_path.rows", MATCH, EmptyInputRows.ONE_ROW)
-assumes("accepts.max_depth.parameter", MATCH, REFUSED)
 # the class sits on the root alias only (O45), and a both-hop edge projection ends the
 # pattern at an edge alias
 works_around("O45")
@@ -434,7 +423,6 @@ GRAPH_REACH_SYNTAXES = ("chain", "match", "traverse", "traverse_dfs", "traverse_
 
 # TRAVERSE walks depth-first unless told: the reach forms name BREADTH_FIRST (O44)
 assumes("traverse.default_strategy", TRAVERSE, Strategy.DEPTH_FIRST)
-assumes("accepts.max_depth.parameter", TRAVERSE, REFUSED)
 works_around("O44")
 
 
@@ -607,7 +595,6 @@ def _doc_union(q: TraversalQuery, schema: Schema, extra: tuple = ()) -> str:
 
 
 # LET precedes WHERE
-assumes("accepts.let.after_where", SQL, REFUSED)
 
 
 # a nested LET's `$parent.$current` is the enclosing subquery's row, and `$f[0].v`

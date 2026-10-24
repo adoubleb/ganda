@@ -7,12 +7,9 @@ from __future__ import annotations
 
 from ganda.orientdb.facade.predicates import MIRROR, NO_BIND_OPS, Compound
 from ganda.orientdb.storage.dialect import sql_op
-from ganda.orientdb.rules import assumes
-from ganda.orientdb.rules.catalog import SQL
 
 
-# every pivot is bound, and a bound double compares exactly (a literal one is O12)
-assumes("exact.double.parameter", SQL, True)
+# every pivot is bound, and a bound double compares exactly
 
 
 def render_predicate(p, prefix: str = "") -> str:

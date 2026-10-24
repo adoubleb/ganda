@@ -270,40 +270,6 @@ def _composite_members(schema: Schema, table: str, data_model: str) -> list:
     return [ix for ix in schema.indexes if ix.target == "node" and ix.extra_fields and ix.table in tables and ix.applies_to(data_model)]
 
 
-works_around("O11")
-
-
-def o11_predicate(schema: Schema, instance: Instance, table: str, p, data_model: str) -> bool:
-    """A `<` / `<=` leaf served by a composite index: on its lead field, or on a
-    later field next to an equality on the lead (probed: `f = 1 AND g < 1` through
-    an index on (f, g) returns the record whose g is null too)."""
-    leaves = _leaves(p)
-    eq_fields = {leaf.field for leaf in leaves if leaf.op in ("=", "IN") and leaf.key is None and _plain(leaf)}
-    for leaf in leaves:
-        if leaf.op not in ("<", "<=") or leaf.key is not None or not _plain(leaf):
-            continue
-        served = False
-        for ix in _composite_members(schema, table, data_model):
-            if ix.field == leaf.field:
-                served = True
-            elif leaf.field in ix.extra_fields and ix.field in eq_fields:
-                served = True
-        if served and any(n.values.get(leaf.field) is None for n in instance.nodes_of(table)):
-            return True
-    return False
-
-
-def o11_shape(q: TraversalQuery, schema: Schema, instance: Instance, data_model: str) -> bool:
-    if o11_predicate(schema, instance, q.source_table, q.source_predicate, data_model):
-        return True
-    for h in q.hops:
-        et = schema.edge_type(h.edge_type)
-        tgt = et.to_type if h.direction == "out" else et.from_type
-        if o11_predicate(schema, instance, tgt, h.target_predicate, data_model):
-            return True
-    return False
-
-
 def _pivots(leaf) -> list:
     return leaf.pivot if isinstance(leaf.pivot, list) else [leaf.pivot]
 
@@ -432,15 +398,6 @@ def o27_shape(q: TraversalQuery, schema: Schema) -> bool:
         if o27_predicate(schema, tgt, h.target_predicate):
             return True
     return False
-
-
-works_around("O28")
-
-
-def o28_avg(present: list) -> bool:
-    """Whether `avg()` over these integers divides inexactly (the mean is not
-    integral: integer division truncates it)."""
-    return bool(present) and sum(present) % len(present) != 0
 
 
 works_around("O25")
@@ -697,8 +654,6 @@ def _data_model_known(q: TraversalQuery, schema: Schema, instance: Instance, bas
         return "O8"
     if o10_shape(q, schema, base):
         return "O10"
-    if o11_shape(q, schema, instance, base):
-        return "O11"
     if o36_shape(q, schema, base):
         return "O36"
     if o16_shape(q, schema, base):
@@ -923,20 +878,6 @@ def o31_desc_walk(schema: Schema, table: str, keys: list, directions: list, tx: 
     return any(ix.kind in RANGE_KINDS for ix in _field_indexes(schema, table, keys[0], data_model, edge))
 
 
-works_around("O32")
-
-
-def o32_predicate(schema: Schema, table: str, p, edge: bool = False) -> bool:
-    """A REVERSED leaf (`:p op f`) with a string pivot on a DATETIME / DATE column:
-    the engine converts the RIGHT operand to the left one's type, so the date is
-    compared as its Java `toString()` (`Mon Jan 01 12:34:56 UTC 2024`) and never
-    equals a `yyyy-MM-dd HH:mm:ss` pivot (O32); an epoch pivot compares numerically."""
-    for leaf in _leaves(p):
-        if getattr(leaf, "rev", False) and isinstance(leaf.pivot, str) and _column_type(schema, table, leaf.field, edge) in (FieldType.DATETIME, FieldType.DATE):
-            return True
-    return False
-
-
 _ONE_SIDED = ("<", "<=", ">", ">=")
 
 
@@ -1034,14 +975,10 @@ def node_case_known(table: str, p, schema: Schema, instance: Instance) -> dict:
             known_bugs[data_model] = lst
         elif o5_sibling_filter(schema, table, p, data_model):
             known_bugs[data_model] = "O5"
-        elif o32_predicate(schema, table, p):
-            known_bugs[data_model] = "O32"
         elif o7_predicate(schema, table, p):
             known_bugs[data_model] = "O7"
         elif o10_predicate(schema, table, p, data_model):
             known_bugs[data_model] = "O10"
-        elif o11_predicate(schema, instance, table, p, data_model):
-            known_bugs[data_model] = "O11"
         elif o36_predicate(schema, table, p, data_model):
             known_bugs[data_model] = "O36"
         elif o16_predicate(schema, table, p, data_model):
@@ -1066,8 +1003,6 @@ def edge_case_known(edge_type: str, p, schema: Schema, instance: Instance) -> di
         lst = list_ops_known(schema, edge_type, p, data_model, edge=True)
         if lst:
             known_bugs[data_model] = lst
-        elif o32_predicate(schema, edge_type, p, edge=True):
-            known_bugs[data_model] = "O32"
         elif o7_predicate(schema, edge_type, p, edge=True):
             known_bugs[data_model] = "O7"
         elif o10_predicate(schema, edge_type, p, data_model, edge=True):
@@ -1122,7 +1057,6 @@ def o41_values(values: list, key: str, ftype: FieldType, key2: str = "", values2
 assumes("order.string.order_by", SQL, StringOrder.COLLATION)
 assumes("order.string.order_by", SQL_INDEX, StringOrder.UTF16_CODE_UNIT)
 works_around("O6")
-works_around("O33")
 
 
 # GROUP BY / DISTINCT / max / min over a ci column keep case variants apart
@@ -1131,8 +1065,7 @@ assumes("aggregate.case_insensitive.collates", SQL, False)
 
 def select_shape_known(q, sp, data_model: str, schema: Schema, instance: Instance, present: list) -> "str | None":
     """The findings a SELECT IR concrete syntax's SHAPE is the exact face of, whatever its
-    filter: O28 (`avg` over integers with a non-integral mean), O33 (`count(distinct(
-    f))`), O6 (`max` against the first row of a string ordering: ORDER BY collates)
+    filter: O6 (`max` against the first row of a string ordering: ORDER BY collates)
     and, where the ORDER BY runs over the class and may walk an index, O18 / O23
     (`ordered_keys_known`, `_order_form_o18`; an edge type's own indexes for an
     edge target, the transaction's view of the rows under the door). A subquery
@@ -1155,10 +1088,6 @@ def select_shape_known(q, sp, data_model: str, schema: Schema, instance: Instanc
         if o41_values([n.values.get(q.field) for n in hits(q, instance)], q.field, column(schema, q, q.field).type):
             return "O41"
     if q.kind == "agg":
-        if q.fn == "avg" and o28_avg(present):
-            return "O28"
-        if sp.form == "fn":
-            return "O33"
         if sp.form == "order":
             if column(schema, q, q.field).type is FieldType.STRING:
                 return "O6"
@@ -1273,7 +1202,7 @@ def select_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Ins
     concrete syntax's `IS NOT NULL` conjuncts): through `node_case_known` (the class or
     the base class is the target, and it may be index-served); through `edge_case_known`
     for an edge type (the doc data model's bracket filter: its
-    own O13 / O17); plus O12 for the literal pivots, a join's and the transaction
+    own O13); plus a join's and the transaction
     door's own findings (O39 first there: the read is a `LET $r = (SELECT ...)`),
     and the shape's own findings."""
     from ganda.core.query.ir.select import effective, view
@@ -1286,7 +1215,7 @@ def select_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Ins
     shape_instance = instance
     if q.tx:
         # the filter's findings over the rows the transaction reads (a write may
-        # null a column: O11's null rows; its semi-joins' answers too)
+        # null a column; its semi-joins' answers too)
         instance = view(q, instance)
         eff = predicates.resolve_subs(eff, instance)
     fid = None
@@ -1310,56 +1239,6 @@ def select_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Ins
     return fid or select_shape_known(q, sp, data_model, schema, shape_instance, rewrites.present)
 
 
-# `IS NOT NULL` through an index is a walk of every non-null key (the arithmetic
-# write's own null filter)
-_RANGE_OPS = ("<", "<=", ">", ">=", "BETWEEN", "IS NOT NULL")
-# the writes that move an index key to a value the statement may meet again
-_MOVING_WRITES = ("set", "arith", "merge", "edge_set", "edge_arith")
-
-
-works_around("O37")
-
-
-def o37_write(q, sp, data_model: str, pred, schema: Schema) -> bool:
-    """O37 (`issue-drafts/O37-update-revisits-the-records-it-moves-through-an-index.md`):
-    an UPDATE whose WHERE is served by an SB-tree index walk and whose SET changes a
-    field of that index meets the records it moved again -- `SET f = f + 1 WHERE f >
-    4` never terminates, `f * 2` doubles until the long wraps, `SET f = 100` counts
-    every record twice, a two-sided range walks a record up to its bound, `RETURN
-    BEFORE` lists a record twice. Probed on NOTUNIQUE and UNIQUE indexes, either
-    null setting, on a vertex class and through an edge index; not through a hash
-    index, a scan (a reversed operand), the `nest` target (`id IN (SELECT ...)`
-    chooses the records first) or a transaction. The shape (conservative): a moving
-    write, auto-commit, on the class or a `sub` target, and a plain top-level
-    conjunct served by a range-capable index of the data model that holds the written
-    field -- a range on any of its fields, or any comparison on another field of it.
-    `SET f = null` / `REMOVE f` / a delete move nothing a walk meets (probed)."""
-    if q.op not in _MOVING_WRITES or sp.door == "tx" or sp.target == "nest":
-        return False
-    if q.edge and data_model == "doc":
-        return False
-    for leaf in _conjunct_leaves(pred):
-        if not _plain(leaf) or leaf.key is not None:
-            continue
-        if q.edge:
-            ixs = [ix for ix in schema.indexes if ix.target == "edge" and ix.table == q.edge_type and ix.applies_to(data_model) and leaf.field in ix.all_fields]
-        else:
-            ixs = [ix for ix in schema.indexes if ix.target == "node" and ix.applies_to(data_model) and leaf.field in ix.all_fields and ix.table in _poly_tables(schema, q.table)]
-        for ix in ixs:
-            if ix.kind not in RANGE_KINDS or q.field not in ix.all_fields:
-                continue
-            if leaf.op in _RANGE_OPS or leaf.field != q.field or ix.extra_fields:
-                return True
-    return False
-
-
-def _poly_tables(schema: Schema, table: str) -> set:
-    tables = {table}
-    if schema.base is not None:
-        tables |= {nt.name for nt in schema.node_types} if schema.is_base(table) else {schema.base.name}
-    return tables
-
-
 works_around("O38")
 
 
@@ -1367,8 +1246,8 @@ def write_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Inst
     """The known bug a WRITE IR concrete syntax on `data_model` would hit, or None. The filter
     is judged as a read of the same predicate would be (a finding there chooses the
     wrong records, and the state diverges from the reference): `node_case_known` /
-    `edge_case_known`, the doc data model's bracket filter through its own findings (O13,
-    O17) and O25 (a bracket ignores a `ci` collation); then O37."""
+    `edge_case_known`, the doc data model's bracket filter through its own findings (O13)
+    and O25 (a bracket ignores a `ci` collation)."""
     pred = rewrites.pred(q, sp.filter)
     eff = pred
     if q.extra_notnull:
@@ -1382,8 +1261,6 @@ def write_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Inst
             fid = edge_case_known(q.edge_type, eff, schema, instance).get(data_model)
         elif sp.form == "bracket":
             fid = edge_case_known(q.edge_type, eff, schema, instance).get("doc") or ("O25" if any(leaf.case_insensitive for leaf in _leaves(eff)) else None)
-    if fid is None and o37_write(q, sp, data_model, eff, schema):
-        fid = "O37"
     if fid is None and eff is not None and o39_predicate(eff) and (sp.target == "nest" or (q.op == "delete" and data_model == "rel")):
         # the filter inside `id IN (SELECT ...)` (the nest target, the rel data model's
         # cascade) holds a CONTAINSVALUE leaf: O39's NPE

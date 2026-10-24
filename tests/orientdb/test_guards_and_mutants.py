@@ -151,7 +151,7 @@ def test_o18_withholds_the_order_variant_only_where_the_walk_skips_a_present_val
 
 
 def test_new_type_and_collation_guards():
-    from ganda.orientdb.known_bugs.guards import node_case_known, o11_predicate, o16_predicate, o17_predicate, o20_predicate, o21_predicate, ordered_keys_known
+    from ganda.orientdb.known_bugs.guards import node_case_known, o16_predicate, o17_predicate, o20_predicate, o21_predicate, ordered_keys_known
     from ganda.orientdb.facade.predicates import Compound
 
     inst = build(3, GeneratorConfig())[1]
@@ -176,15 +176,12 @@ def test_new_type_and_collation_guards():
     assert o21_predicate(schema, "n1", Predicate("source", "s", "BETWEEN", "p", ["a", "b"]), "rel") and not o21_predicate(schema, "n1", Predicate("source", "s", "BETWEEN", "p", ["a", "b"]), "doc")
     assert not o21_predicate(schema, "n1", Predicate("source", "s", "=", "p", "a"), "rel")
     assert node_case_known("n1", Predicate("source", "s", "IN", "p", ["a"]), schema, inst) == {"doc": "O21", "rel": "O21"}
-    # O11: `<` on the second field of a composite index next to an equality on its lead
+    # a composite index for the ordered-keys shapes
     inst2 = build(3, GeneratorConfig())[1]
     comp = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f2", FieldType.INT))),), edge_types=(), indexes=(IndexSpec("n1", "f1", extra_fields=("f2",), data_model="both", kind="NOTUNIQUE"),))
     from ganda.core.data.model import NodeRow
 
     rows = Instance(comp, [NodeRow("n1", 0, {"f1": 1}), NodeRow("n1", 1, {"f1": 1, "f2": 0})], [])
-    both = Compound("source", "AND", (Predicate("source", "f1", "=", "p_0", 1), Predicate("source", "f2", "<", "p_1", 1)))
-    assert o11_predicate(comp, rows, "n1", both, "doc")
-    assert not o11_predicate(comp, rows, "n1", Predicate("source", "f2", "<", "p", 1), "doc")
     # O18 / O23 for an ordered-keys shape
     assert ordered_keys_known(comp, rows, "n1", ["f1", "f2"], ["ASC", "ASC"], "doc") == "O18"
     assert ordered_keys_known(comp, rows, "n1", ["f1"], ["DESC"], "doc") == "O18"

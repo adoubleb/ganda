@@ -9,8 +9,7 @@ three independent choices, and every applicable combination is an equivalent tex
                          (`:p > f`), never index-served (probed)
                arith     `(f + :c) op :pc AND f IS NOT NULL` for a leaf, where the
                          arithmetic is exact on every stored value; never index-served
-               literal   the numeric pivots rendered as literals (O12: a double literal
-                         parses as a float32)
+               literal   the numeric pivots rendered as literals
     position   table     `FROM t [WHERE p]` -- the filter may be index-served, an
                          ORDER BY may walk an index
                poly      `FROM N0 WHERE @class = :cls [AND (p)]`, the base class
@@ -70,7 +69,7 @@ from ganda.orientdb.concrete_syntax.support import METHODS  # noqa: F401 -- the 
 from ganda.core.query.ir.select import DOC_EDGE_KINDS, SelectQuery, notnull_fields
 
 from ganda.orientdb.rules import assumes
-from ganda.orientdb.rules.catalog import ACCEPTED, REFUSED, SCRIPT, SQL
+from ganda.orientdb.rules.catalog import SQL
 
 FILTERS = ("plain", "rw", "rev", "arith", "literal")
 POSITIONS = ("table", "poly", "polyin")
@@ -179,10 +178,7 @@ def _where_text(q: SelectQuery, sp: SelectSyntax, rewrites: Rewrites) -> "str | 
     return " AND ".join([f"({pred})" if extra else pred] + extra)
 
 
-assumes("accepts.let.after_where", SQL, REFUSED)
-assumes("accepts.instanceof.parameter", SQL, REFUSED)
 # ... so the base-class positions filter `@class = :cls`
-assumes("accepts.class_filter.parameter", SQL, ACCEPTED)
 
 
 def _source(q: SelectQuery, schema: Schema, sp: SelectSyntax, where: "str | None", let: str = "") -> str:
@@ -220,7 +216,6 @@ def _doc_edge(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrit
 
 
 # the `set` form carries no IS NOT NULL: set() drops nulls
-assumes("aggregate.skips_null", SQL, True)
 
 
 def _agg_text(q: SelectQuery, sp: SelectSyntax, src: str) -> str:
@@ -244,8 +239,6 @@ TX_TIMEOUT = "TIMEOUT 20000 EXCEPTION"
 
 
 # the transaction door answers as the plain statement does (`RETURN $r` after ROLLBACK)
-assumes("equivalent.transaction_door", SCRIPT, True)
-assumes("transaction.own_uncommitted_visible", SCRIPT, True)
 
 
 def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str) -> str:

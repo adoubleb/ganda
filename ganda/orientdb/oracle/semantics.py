@@ -55,9 +55,8 @@ from typing import Any
 from ganda.core.query.ir.predicates import Compound
 from ganda.core.data.neighbours import shift_date
 from ganda.core.engine.provider import Semantics
-from ganda.orientdb.rules import answer, assumes, works_around
+from ganda.orientdb.rules import answer, assumes
 from ganda.orientdb.rules.catalog import SQL
-from ganda.core.rules.vocabulary import Logic, StringOrder
 
 
 
@@ -118,7 +117,6 @@ def canonical_date(v: Any) -> Any:
 
 
 # a comparison orders strings by UTF-16 code unit, keeps -0.0 below 0.0
-assumes("order.string", SQL, StringOrder.UTF16_CODE_UNIT)
 assumes("compare.negative_zero_below_zero", SQL, True)
 
 
@@ -170,28 +168,24 @@ def lt(a: Any, b: Any) -> bool:
 
 
 # what Java's regex `.` does not match: the engine compiles a LIKE pattern into a
-# regex without DOTALL (O42)
+# regex without DOTALL
 _LINE_TERMINATORS = "\n\r\u0085\u2028\u2029"
 _WILD = f"[^{_LINE_TERMINATORS}]"
 
-
-assumes("filter.like.case_sensitive", SQL, False)
-assumes("filter.like.one_character_wildcard", SQL, "?")
-works_around("O42")
 
 
 def like_hit(value: str, pattern: str) -> bool:
     """`LIKE`: case-insensitive on every string (probed 3.2.56: `'a' LIKE 'A%'`
     holds on a plain STRING); `%` any run of characters and `?` one character --
-    but NEITHER across a line terminator (O42, `issue-drafts/upstream/O42-...`: the
-    pattern is a Java regex without DOTALL, so `'a\\nb' LIKE 'a%'` is false). The
+    but NEITHER across a line terminator (the pattern is a Java regex without DOTALL, so `'a\\nb' LIKE 'a%'` is false). The
     generator never builds a pattern from a value holding `%`, `?` or `\\`."""
     value, pattern = value.lower(), pattern.lower()
     rx = "".join(f"{_WILD}*" if c == "%" else _WILD if c == "?" else re.escape(c) for c in pattern)
     return re.fullmatch(rx, value) is not None
 
 
-_CI_OPS = tuple(answer("filter.case_insensitive.operators", SQL).split())
+# the comparisons a ci column makes case-insensitively on a scan (generation only)
+_CI_OPS = ("=", "<>", "<", "<=", ">", ">=")
 
 
 def _convert(v: Any, pivot: Any, ftype: "str | None", ci: bool, op: str):
@@ -388,7 +382,6 @@ def apply_arith(v, sym: str, c, ftype: "str | None"):
     return {"+": v + c, "-": v - c, "*": v * c}[sym]
 
 
-assumes("filter.logic", SQL, Logic.TWO_VALUED)
 
 
 def evaluate(values: dict, p) -> bool:

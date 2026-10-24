@@ -28,7 +28,10 @@ def test_the_catalog_is_well_formed_and_its_checks_name_probe_checks():
 def test_the_defects_are_o1_to_o46_but_the_retired_each_reproduced_by_a_probe_check():
     # O3: the `index:` door is no longer asked; O4: fixed in 3.2.57; O30: the null rows
     # under arithmetic matter only against the plain filter, which is no longer compared
-    retired = {"O3", "O4", "O30"}
+    # O11, O28, O33: they answer alike on every data model (two guards-off campaigns:
+    # 0 failing of 85-258 compared pairs each)
+    # O32: its failing pairs were other defects underneath
+    retired = {"O3", "O4", "O11", "O28", "O29", "O30", "O32", "O33", "O34", "O37", "O42"}
     assert [d.id for d in CATALOG.defects] == [f"O{n}" for n in range(1, 47) if f"O{n}" not in retired]
     assert CATALOG.unreproduced() == []
 
@@ -37,7 +40,7 @@ def test_the_probe_names_what_a_failing_check_checks_and_who_reads_it():
     from ganda.orientdb.rules import read_index
     from ganda.orientdb.scripts import probe_osql
 
-    assert probe_osql.checked_by("C35") == ["accepts.projection.comparison (osql)"]
+    assert probe_osql.checked_by("C333") == ["expand.embedded.wrapped_under_value (osql)"]
     assert probe_osql.checked_by("C148") == ["exact.sum.int32.below (osql)", "O19 (osql)"]
     assert probe_osql.checked_by("C5") == ["no rule"]  # C5 was deleted
     index = read_index()
@@ -65,9 +68,9 @@ def test_the_code_depends_on_what_it_reads():
     changes the generated cases."""
     from ganda.core.rules import mutation
 
-    only = ["projection.keeps_absent_field", "aggregate.sum.integer", "without O18"]
+    only = ["expand.embedded", "aggregate.sum.integer", "without O18"]
     got = {o.label.split(":")[0]: o for o in mutation.check("orientdb", CATALOG, seeds=4, only=only)}
-    assert got["projection.keeps_absent_field (osql)"].caught == "import" and "concrete_syntax/traversal.py" in got["projection.keeps_absent_field (osql)"].detail
+    assert got["expand.embedded.wrapped_under_value (osql)"].caught == "import" and "concrete_syntax/traversal.py" in got["expand.embedded.wrapped_under_value (osql)"].detail
     assert got["without O18 (osql@index)"].caught == "import" and "known_bugs/guards.py" in got["without O18 (osql@index)"].detail
     assert got["aggregate.sum.integer.exact_below (osql)"].caught == "output"
 

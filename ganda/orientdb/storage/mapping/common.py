@@ -57,7 +57,7 @@ from ganda.core.data.model import (
 from ganda.orientdb.storage.dialect import DEFAULT_ID_INDEX, ORIENT_TYPES, UNIQUE_KINDS
 from ganda.orientdb.engine.limits import LIMITS
 from ganda.orientdb.rules import answer, assumes
-from ganda.orientdb.rules.catalog import ACCEPTED, REFUSED, SCRIPT, SQL, SQL_INDEX, BATCH
+from ganda.orientdb.rules.catalog import ACCEPTED, SQL, SQL_INDEX, BATCH
 
 
 
@@ -147,7 +147,6 @@ def id_index_step(table: str, schema: Schema, data_model: str) -> list:
 
 
 # a UNIQUE index keeps an absent field as the key null unless told: metadata is explicit
-assumes("index.unique.default_ignores_nulls", SQL_INDEX, False)
 
 
 # `ignoreNullValues: true` lets a UNIQUE index hold any number of null keys
@@ -220,7 +219,6 @@ def insert_step(table: str, doc: dict, form: WriteForm, vertex: bool = False) ->
     return Sql(f"{verb} SET {_set_clause(doc, params)}", params, capture=doc["id"])
 
 
-assumes("accepts.update.increment", SQL, REFUSED)
 
 
 # `SET f = f + :d`, whose delta must itself be a long
@@ -407,7 +405,6 @@ def _refs_in(value: Any) -> set:
 
 # /batch binds positionally (the connection rewrites named parameters) and keeps a map
 # or list parameter, so every step of a run travels inside it
-assumes("accepts.named_parameter", BATCH, REFUSED)
 assumes("accepts.map_parameter", BATCH, ACCEPTED)
 
 
@@ -526,7 +523,6 @@ def _rename_param(text: str, old: str, new: str) -> str:
     return re.sub(rf":{re.escape(old)}(?![A-Za-z0-9_])", f":{new}", text)
 
 
-assumes("accepts.ddl.in_transaction", SCRIPT, REFUSED)
 
 
 assumes("accepts.rebuild_index.all", SQL, ACCEPTED)

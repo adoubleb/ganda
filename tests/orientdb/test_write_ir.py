@@ -1,5 +1,4 @@
 from ganda.orientdb.facade.generate import GeneratorConfig, build
-from ganda.orientdb.known_bugs.guards import o37_write, write_known
 from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.facade.predicates import Predicate
 from ganda.core.query.generators.write import sample_write, unique_safe
@@ -74,23 +73,6 @@ def test_syntaxes_per_model():
     assert render(ew, WriteSyntax(form="update_edge"), tw, "graph", inst, ea).main[0].startswith("UPDATE EDGE e1 SET w = :wv WHERE w > :p")
     assert not applicable(WriteQuery("set", table="n1", where=None, field="f1", value=1), WriteSyntax(target="nest"), tw, "doc")
     assert not applicable(ew, WriteSyntax(form="rewrite", target="nest"), tw, "doc")
-
-
-def test_o37_guard_names_the_moving_write_through_a_served_range():
-    ix = IndexSpec("n1", "f1", data_model="graph", kind="NOTUNIQUE")
-    schema, inst = _fixture([ix])
-    q = WriteQuery("arith", table="n1", where=_gt("f1", 4), field="f1", value=1)
-    assert o37_write(q, WriteSyntax(), "graph", q.where, schema)
-    assert not o37_write(q, WriteSyntax(), "doc", q.where, schema)  # no index there
-    assert not o37_write(q, WriteSyntax(target="nest"), "graph", q.where, schema)
-    assert not o37_write(q, WriteSyntax(door="tx"), "graph", q.where, schema)
-    assert o37_write(q, WriteSyntax(target="sub"), "graph", q.where, schema)
-    assert not o37_write(WriteQuery("remove", table="n1", where=_gt("f1", 4), field="f1"), WriteSyntax(), "graph", q.where, schema)
-    eq = Predicate("source", "f1", "=", "p", 5, ftype="int")
-    assert not o37_write(WriteQuery("arith", table="n1", where=eq, field="f1", value=1), WriteSyntax(), "graph", eq, schema)
-    # the guard redraws: some concrete syntax of the graph data model stays safe
-    assert write_known(q, WriteSyntax(), WriteRewrites(), "graph", schema, inst) == "O37"
-    assert write_known(q, WriteSyntax(target="nest"), WriteRewrites(), "graph", schema, inst) is None
 
 
 def test_unique_columns_are_written_through_one_record_only():

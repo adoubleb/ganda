@@ -7,13 +7,11 @@ from __future__ import annotations
 import dataclasses
 
 from ganda.core.query.ir.select import TxWrite
-from ganda.core.data.model import FieldType, Instance, NodeRow
+from ganda.core.data.model import FieldType, Instance
 from ganda.orientdb.storage.dialect import sql_op
 from ganda.orientdb.facade import predicates
 from ganda.orientdb.facade.predicates import Compound
 from ganda.core.query.generators.support import bfs_distances, composite_and as _composite_and, draw_tx, tx_binds, tx_rows  # noqa: F401
-from ganda.orientdb.rules import assumes
-from ganda.orientdb.rules.catalog import REFUSED, SQL
 
 
 
@@ -147,7 +145,6 @@ METHODS = {
 
 # --- the transaction door ---------------------------------------------------------------------
 
-assumes("accepts.delete_from.vertex_or_edge_class", SQL, REFUSED)
 
 
 def tx_write(tx: TxWrite, data_model: str) -> str:

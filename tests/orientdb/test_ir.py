@@ -118,7 +118,9 @@ def test_pulled_up_form_and_traverse():
     assert render(q, schema, "rel", "flat", pull_up=True) == "SELECT id, v FROM (SELECT DISTINCT src_id AS id, dst_id AS v FROM e2) WHERE id IN (SELECT id FROM n1 WHERE f1 > :p0)"
     assert applicable(q, schema, "graph", "traverse")
     assert not applicable(TraversalQuery("n1", (Hop("e1", "out"),), "distinct_ids"), schema, "graph", "traverse")  # e1 is self-typed
-    assert not can_pull_up(TraversalQuery("n1", (Hop("e2", "out"),), "ids", None, Predicate("source", "f1", "IS PRESENT", "", None)))
+    # a definedness test pulls up too: every data model's pull-up loses it alike, and the
+    # pull-ups are compared with each other only
+    assert can_pull_up(TraversalQuery("n1", (Hop("e2", "out"),), "ids", None, Predicate("source", "f1", "IS PRESENT", "", None)))
 
 
 def test_both_direction_nexists_and_optional_match():

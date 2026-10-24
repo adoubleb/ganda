@@ -10,13 +10,11 @@ from ganda.core.constants import I32_MAX, I32_MIN
 from ganda.core.data.neighbours import _f32
 from ganda.core.data.model import DATE_TYPES, FieldType
 
-from ganda.orientdb.rules import answer
-from ganda.orientdb.rules.catalog import SQL
 
 ORDERED_OPS = ("=", "<>", ">", ">=", "<", "<=", "IN", "BETWEEN")
 NULL_OPS = ("IS NULL", "IS NOT NULL", "IS PRESENT", "IS ABSENT")
 # a LIKE pattern is built only from a value holding none of these
-LIKE_WILDCARDS = "%" + answer("filter.like.one_character_wildcard", SQL) + "_\\"
+LIKE_WILDCARDS = "%?_\\"
 
 
 def lossy_pivot(ftype: FieldType, v) -> bool:

@@ -54,7 +54,7 @@ from ganda.orientdb.storage.mapping.common import Batch, Script, Sql, resolve_re
 from ganda.core.engine.provider import EngineCrash, EngineError, Server, Session
 from ganda.core.rules.model import ErrorKind
 from ganda.orientdb.rules import CATALOG, assumes
-from ganda.orientdb.rules.catalog import MATCH, REFUSED, SQL
+from ganda.orientdb.rules.catalog import SQL
 
 
 
@@ -126,7 +126,6 @@ def unwrap_script(result: list) -> list:
 
 
 # a SELECT carries TIMEOUT; MATCH (and DELETE) take none
-assumes("accepts.match.timeout", MATCH, REFUSED)
 
 
 class OrientSession(Session):

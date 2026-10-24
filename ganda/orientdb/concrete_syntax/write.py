@@ -37,8 +37,8 @@ EDGE` on the E class and a plain `UPDATE` / `DELETE FROM` of the junction; on th
 data model its answer is not the relationship count, so an edge case compares the graph and
 rel answers and checks all three states (`partial`).
 
-Every UPDATE carries `TIMEOUT <ms> EXCEPTION` (a runaway update is O37; `DELETE`
-takes no TIMEOUT clause, probed).
+Every UPDATE carries `TIMEOUT <ms> EXCEPTION` (an update through an index walk can
+revisit the records it moves and never finish; `DELETE` takes no TIMEOUT clause, probed).
 """
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_
 from ganda.core.query.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
 
 from ganda.orientdb.rules import assumes
-from ganda.orientdb.rules.catalog import REFUSED, SQL
+from ganda.orientdb.rules.catalog import SQL
 
 # a write's filter is the predicate the Instance applies (the doc data model's `eids`
 # form deletes the ids it chose), so its spelling is the plain one
@@ -174,9 +174,6 @@ def _where(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites) -> "str | No
 
 
 # UPDATE ... CONTENT and MERGE take a JSON literal, INCREMENT is refused
-assumes("accepts.update.content.parameter", SQL, REFUSED)
-assumes("accepts.merge.parameter", SQL, REFUSED)
-assumes("accepts.update.increment", SQL, REFUSED)
 
 
 def _change(q: WriteQuery, params: dict) -> str:
@@ -205,7 +202,6 @@ def _returning(q: WriteQuery) -> str:
 
 
 # UPSERT only by id (on another predicate it inserts a record with no id)
-assumes("upsert.other_predicate.keeps_id", SQL, False)
 
 
 def _node_update(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites) -> tuple:
@@ -231,9 +227,7 @@ def _victims(q: WriteQuery, where: "str | None") -> str:
 # DELETE VERTEX cascades its edges, DELETE FROM a vertex class is refused, a doc delete
 # leaves its incoming links (the cascade rewrites them first); DELETE takes no TIMEOUT
 assumes("delete_vertex.cascades_edges", SQL, True)
-assumes("accepts.delete_from.vertex_or_edge_class", SQL, REFUSED)
 assumes("delete.document.keeps_incoming_links", SQL, True)
-assumes("accepts.delete.timeout", SQL, REFUSED)
 
 
 def _node_delete(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_model: str, schema: Schema, instance: Instance) -> Statements:
@@ -274,7 +268,6 @@ def _node_delete(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_m
 
 # `SET e1[<filter>].f = ...` answers its count and changes nothing: a write re-sets the
 # whole list
-assumes("accepts.update.filtered_list_element", SQL, REFUSED)
 
 
 def _doc_rewrites(q: WriteQuery, before: Instance, after: Instance) -> list:

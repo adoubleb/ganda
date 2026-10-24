@@ -24,7 +24,7 @@ from ganda.core.query.generators.registry import all_cases
 from ganda.core.query.generators.write_phase import run_write_phase
 from ganda.core.oracle.oracle import is_empty_value, run_cases
 from ganda.core.engine.provider import EngineCrash, EngineError
-from ganda.core.campaign.reporter import report_bug, report_crash, report_setup_problem
+from ganda.core.campaign.reporter import _jsonable, report_bug, report_crash, report_setup_problem
 from ganda.core.engine.state_check import compare_states
 
 
@@ -59,6 +59,14 @@ class CampaignStats(NamedTuple):
     scale: str = "default"
     state_sample: int = 0  # 0: the stored state was read whole
     cases_partial: int = 0  # cases some data model had no concrete syntax for (compared among the others)
+    # under --no-known-bugs: per defect, the compared pairs it alone marks (one side or
+    # both, no other defect) and those that failed (a mismatch, an error on one side
+    # only, an internal error, duplicate ids) -- a defect whose pairs never fail needs no
+    # guard here; failing pairs two defects mark, and failing pairs no defect marks
+    known_bugs_run: dict = {}
+    known_bugs_exposed: dict = {}
+    failing_pairs_mixed: int = 0
+    failing_pairs_unmarked: int = 0
 
 
 class _Shared:
@@ -68,6 +76,8 @@ class _Shared:
         self.per_generator: dict = {}
         self.per_class: Counter = Counter()
         self.known_bugs: Counter = Counter()
+        self.known_run: Counter = Counter()
+        self.known_exposed: Counter = Counter()
         self.shapes: set = set()
         self.traversal_shapes: set = set()
         self.select_shapes: set = set()
@@ -123,6 +133,8 @@ def run_instance(engine, server, seed: int, cfg: GeneratorConfig, args, shared: 
         if cfg.write_cases:
             results += _write_phase(run, sessions, rng)
         _tally(shared, results)
+        if args.no_known_bugs:
+            _log_failing_pairs(run, results)
         _report_findings(run, results)
     _drop(engine, server, ns)
 
@@ -230,6 +242,14 @@ def _tally_case(shared: _Shared, r) -> None:
     for fid in r.suppressed.values():
         shared.known_bugs[fid] += 1
         t["suppressed"] += 1
+    for a, b, failed in _compared_pairs(r):
+        marks = {case.known_bugs[v] for v in (a, b) if v in case.known_bugs}
+        if len(marks) == 1:
+            (fid,) = marks
+            shared.known_run[fid] += 1
+            shared.known_exposed[fid] += failed
+        elif failed:
+            counters["failing_pairs_mixed" if marks else "failing_pairs_unmarked"] += 1
     counters["timeouts"] += len(r.timeouts)
     if r.plans:
         shared.plan_pairs.add((case.shape, tuple(sorted((s, tuple(p)) for s, p in r.plans.items()))))
@@ -246,6 +266,38 @@ def _tally_case(shared: _Shared, r) -> None:
     if r.internal_error:
         t["internal_errors"] += 1
         counters["internal_errors"] += 1
+
+
+def _compared_pairs(r) -> list:
+    """(a, b, failed) for every pair the result compared: failed on a mismatch, an error
+    on one side only, an internal error or duplicate ids on either side."""
+    from ganda.core.oracle.case import comparable_pairs
+
+    mismatched = {(m.left, m.right) for m in r.mismatches}
+    bad = {v for v, internal in r.internal.items() if internal} | {d.variant for d in r.duplicate_id_rows}
+    out = []
+    for a, b in comparable_pairs(r.case, r.variants):
+        failed = (a, b) in mismatched or bool(r.errors.get(a)) != bool(r.errors.get(b)) or a in bad or b in bad
+        out.append((a, b, failed))
+    return out
+
+
+def _log_failing_pairs(run: _SeedRun, results: list) -> None:
+    """Under --no-known-bugs, every failing compared pair -- the defects marking its
+    sides, both texts, binds, answers and errors -- appended to
+    `<stats dir>/<tag>-failing-pairs.jsonl`, to read which defect explains which pair."""
+    out = []
+    for r in results:
+        for a, b, failed in _compared_pairs(r):
+            if not failed:
+                continue
+            side = lambda v: {"variant": v, "text": r.case.queries.get(v), "known": r.case.known_bugs.get(v), "error": (r.errors.get(v) or "")[:400], "rows": _jsonable(r.rows.get(v, []))[:20]}  # noqa: E731
+            out.append({"seed": run.seed, "generator": r.case.generator_name, "shape": r.case.shape, "binds": _jsonable(r.case.bind_vars), "marks": sorted({r.case.known_bugs[v] for v in (a, b) if v in r.case.known_bugs}), "a": side(a), "b": side(b)})
+    if out:
+        path = os.path.join(run.args.stats_dir, f"{run.args.run_tag}-failing-pairs.jsonl")
+        with run.shared.lock, open(path, "a") as f:
+            for rec in out:
+                f.write(json.dumps(rec, default=repr) + "\n")
 
 
 def _report_findings(run: _SeedRun, results: list) -> None:
@@ -385,6 +437,10 @@ def run_campaign(engine, args) -> "tuple[CampaignStats, object]":
         timeouts=c["timeouts"],
         scale=cfg.scale,
         state_sample=args.state_sample,
+        known_bugs_run=dict(shared.known_run),
+        known_bugs_exposed=dict(shared.known_exposed),
+        failing_pairs_mixed=c["failing_pairs_mixed"],
+        failing_pairs_unmarked=c["failing_pairs_unmarked"],
     )
     return stats, shared.coverage
 
@@ -396,6 +452,9 @@ def print_stats(stats: CampaignStats, dedup_summary: "dict | None" = None, colle
     print(f"cases: {stats.cases}  asserting: {stats.cases_asserting} ({pct:.1f}%)  symmetric errors: {stats.symmetric_errors}  internal errors: {stats.internal_errors}")
     print(f"findings: {stats.findings} new keys, {stats.findings_repeated} repeats  by class: {stats.per_class}")
     print(f"known bugs withheld: {stats.known_bugs_suppressed}")
+    if stats.known_bugs_run:
+        print("known bugs run (--no-known-bugs), pairs one defect alone marks, failing / compared: " + ", ".join(f"{fid} {stats.known_bugs_exposed.get(fid, 0)}/{n}" for fid, n in sorted(stats.known_bugs_run.items(), key=lambda kv: int(kv[0][1:]) if kv[0][1:].isdigit() else 0)))
+        print(f"failing pairs two defects mark: {stats.failing_pairs_mixed}  failing pairs no defect marks: {stats.failing_pairs_unmarked}")
     print(f"distinct shapes: {stats.distinct_shapes}  ir_traversal shape coverage: {stats.traversal_shapes_visited}/{SHAPE_DENOMINATOR}  ir_select coverage: {stats.select_shapes_visited}/{SELECT_COVERAGE_DENOMINATOR}  ir_path coverage: {stats.path_shapes_visited}/{PATH_COVERAGE_DENOMINATOR}  distinct plan pairs: {stats.distinct_plan_pairs}")
     print(f"writes: {stats.writes}  write-state diffs: {stats.write_state_diffs}  ir_write coverage: {stats.write_shapes_visited}/{WRITE_COVERAGE_DENOMINATOR}")
     if stats.scale != "default" or stats.timeouts:
