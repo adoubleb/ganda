@@ -103,9 +103,23 @@ the same seeds.
 
 ## ArangoDB
 
-`ganda/arangodb/RULES.md` holds the engine rules the oracle rests on, each marked
-documented / legacy-probed / probed (`ganda arangodb probe`, fact ids `V` values, `S`
-statement forms, `W` write doors, `L` limits, `T` timeout, `A` findings pinned). Layout
+The engine rules are minimal records in `ganda/arangodb/rules/catalog.py`, as OrientDB's
+and HANA's: the three data models speak AQL, so the subjects are its execution paths (a
+collection scan, the same statement served by a persistent index, the traversal
+operator, the path functions, a stream transaction, the document API); the defects A1,
+A2 (the legacy port's signed-zero pair, kept out of the value pools), A25 (the legacy
+port's too, found again by this port's first campaign with the catalog), A40 and A41
+beside them, and the error classes `engine/connection.py` classifies an errorNum through.
+`rules/checks.py` lists the rules each probe fact (`scripts/probe.py`: `V` values, `S`
+statement forms, `W` write doors, `L` limits, `T` timeout, `A` defects) asserts and the
+defects it reproduces; every rule is checked by a fact and read by code
+(`ganda.arangodb.rules`: `answer` where a renderer branches on an answer -- the string
+order, the traversal's default edge uniqueness, the collect form's aggregates, the LIKE
+line terminators, the arithmetic bound -- `assumes` / `works_around` where it has none).
+A failing fact of a rule fails the probe; a defect that no longer reproduces is recorded
+in `rules/baseline.json` with the build, and `ganda arangodb run` warns when the server is
+another build. `ganda arangodb rules --write` renders `rules/RULES.md`;
+`tests/arangodb/test_rules.py` keeps catalog, checks, probe and file in step. Layout
 mirrors OrientDB's: `storage/dialect.py` (the logical `id` attribute, the percent-encoded
 `_key`, `engine_id` / `logical_id`), `storage/physical_design.py` (persistent indexes, unique
 or sparse; the expanded `f[*]` array index for a LIST field; no signed zero in the
@@ -116,17 +130,45 @@ false` on every update door), `oracle/semantics.py` (the total type order, exact
 point string equality, `LIKE` as an ICU regex), `oracle/pivots.py` (`ordered_ops`: a string
 column takes the equality family only -- ICU collation orders them), `oracle/rewrites.py`,
 `concrete_syntax/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),
-`known_bugs/guards.py` (A40 guarded), `mutation/mutants.py`, `scripts/probe.py`.
+`known_bugs/guards.py` (A25 and A40 guarded), `mutation/mutants.py` (the core's instance mutants,
+three render mutants and three index-path mutants, as OrientDB's), `scripts/probe.py`.
 
 Campaigns run on mousedeer (`ssh mousedeer`, a ControlMaster socket the user opens with
 `ssh -fN mousedeer`; the tree is rsynced to `/home/hakam/ganda/ganda`, the image there is
 `arangodb:3.12.11`, so `export ARANGO_IMAGE=arangodb:3.12.11`); the probe and the unit
 tests run anywhere. The legacy port `../arangoDB` is reference material (its A1..A39
-are in `../arangoDB/issue-drafts/`); this port's findings go under `issues/` (A40 on).
+are in `../arangoDB/issue-drafts/`); this port's findings are pinned by the `A` probe
+facts and the catalog's defects. What the legacy port has and this provider does not --
+the ArangoSearch, geo, MDI and expression template families, the JavaScript door, the
+Python reference leg, the plan-divergence instrument -- stays out: Ganda's mechanism (the
+four IRs rendered per data model, the purely differential oracle) is the one ported to.
+
+## Live verification of the rules catalog (2026-10-24, ArangoDB 3.12.11 on mousedeer)
+
+- `ganda arangodb probe`: 34 facts hold (`rules/baseline.json` records the build); the
+  catalog's 67 rules are all checked by a fact and read by code, its five defects each
+  reproduced by the fact of their id. Writing the facts found three mistakes of the old
+  probe and one of the old rules: `HAS()` answers false for a non-object where `VALUES()`
+  and `ATTRIBUTES()` refuse one (errorNum 1542) -- a constant argument is folded and raises
+  nothing, so the fact asks over a stored attribute, as the renderers do; a composite index
+  TAKES a forced hint on its lead field alone; and S4's expected value was a Python `and`.
+- `run --iterations 3 --seed 1 --workers 2` with every axis on: 709 cases, 0 findings, 0
+  symmetric or internal errors, 0 setup asymmetries, 24 writes, 46 s. Its first run found
+  **A25** again (seed 1, `keys` over a LIST column under `OR(=,=)`): the doc data model's
+  index-served variants answered nothing where the scan twins and the other data models
+  answered four rows; reproduced by hand (`replace-or-with-in` turns the OR into an IN of
+  arrays, which the expanded array index serves from its element keys), guarded at the
+  shape, pinned by the probe.
+- `mutate --trials 2 --seed 1` over the 21 mutants (the three index-path mutants new): see
+  19 of 21 caught, mean rate 0.833. `rel_index_null_keys` 2/2 and `doc_index_desc_walk` 1/2
+  show the index path is seen; `graph_index_range_inclusive` 0/2 had little to corrupt on
+  these seeds (a strict bound turned inclusive changes the answer only where a stored value
+  sits on the pivot: 4 cases on seed 1, none on seed 2), and `graph_stale_edge_update` 0/2
+  needs edge-update churn, as on 2026-10-09.
 
 ## Live verification of ArangoDB (2026-10-09, ArangoDB 3.12.11 on mousedeer)
 
-- `ganda arangodb probe`: 25 facts hold (`RULES.md` lists them with their status); the
+- `ganda arangodb probe`: 25 facts hold (33 since 2026-10-24: V4, S8-S10, W4, W5, A1, A2); the
   value facts V2, V3 and V5 are MIRROR checks of `oracle/semantics.py` against the engine over
   boundary pools, which is how three assumptions fell (numbers compare exactly, `LIKE`
   crosses a newline, two nulls are not ordered).

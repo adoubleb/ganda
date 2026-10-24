@@ -11,9 +11,11 @@ its own database.
 Three error classes:
 - `EngineError`: the server understood the request and rejected it (a parse error, a
   unique-constraint violation). `internal` marks a 5xx the server ANSWERED (an error
-  from inside the engine: a finding on its own); `timeout` marks a query the engine
-  killed at `maxRuntime` (errorNum 1500) or one the transport gave up on while the
-  server still answers (no answer, not a rejection: the oracle leaves it out).
+  from inside the engine: a finding on its own) unless the catalog's error classes
+  (`rules/catalog.py`) read the errorNum as a documented rejection; `timeout` marks a
+  query the engine killed at `maxRuntime`, a cursor gone before its next batch, or a
+  request the transport gave up on while the server still answers (no answer, not a
+  rejection: the oracle leaves it out).
 - `EngineCrash`: the server could not be talked to at all.
 
 The transaction door (`ganda.arangodb.engine.tx`): a door text begins a stream transaction
@@ -31,6 +33,9 @@ import requests
 
 from ganda.core.engine.docker import DockerServer, cleanup_orphans  # noqa: F401
 from ganda.core.engine.provider import EngineCrash, EngineError, Session
+from ganda.core.rules.model import ErrorKind
+from ganda.arangodb.rules import CATALOG, assumes
+from ganda.arangodb.rules.catalog import AQL, AQL_INDEX, REFUSED
 from ganda.arangodb.engine import tx
 from ganda.arangodb.storage.dialect import engine_id, logical_id
 from ganda.arangodb.engine.limits import STREAMING_TRANSACTION_MAX_BYTES
@@ -40,15 +45,9 @@ DEFAULT_PASSWORD = "fuzz"
 DEFAULT_TIMEOUT_MS = 30000
 QUERY_OPTIONS = {"failOnWarning": True}
 _VOLATILE_KEYS = ("_rev",)
-# no answer: a query the engine killed (`maxRuntime`, 1500), or a cursor gone before its
-# next batch was fetched (1600: the query killed meanwhile, or the cursor's time to live
-# over -- a self-join over thousands of records answers millions of ids)
-_TIMEOUT_NUMS = (1500, 1600)
-# how long a cursor waits between two batch fetches
+# how long a cursor waits between two batch fetches (a self-join over thousands of
+# records answers millions of ids; the default time to live is 30 s)
 CURSOR_TTL_S = 3600
-_TIMEOUT_RE = re.compile(r"query killed|timed? ?out", re.I)
-# a 5xx the engine documents as a rejection: a forced index hint the index cannot serve
-_EXPECTED_5XX = (1577,)
 # how many ids one `IN @ids` lookup carries
 _IN_CHUNK = 500
 _BIND_RE = re.compile(r"@(@?[A-Za-z_][A-Za-z0-9_]*)")
@@ -58,6 +57,12 @@ def bind_subset(text: str, binds: dict) -> dict:
     """The bind variables the text names (a superfluous one is errorNum 1552)."""
     names = set(_BIND_RE.findall(text))
     return {k: v for k, v in binds.items() if k in names}
+
+
+assumes("accepts.bind_variable.undeclared", AQL, REFUSED)
+# a forced hint the index cannot serve is HTTP 500 errorNum 1577: a rejection the manual
+# documents, which the catalog's error classes read so, not a fault inside the engine
+assumes("accepts.index_hint.unservable", AQL_INDEX, REFUSED)
 
 
 def _strip(row):
@@ -104,9 +109,11 @@ class ArangoSession(Session):
         if resp.status_code >= 400 or (isinstance(payload, dict) and payload.get("error")):
             message = payload.get("errorMessage", resp.text[:500]) if isinstance(payload, dict) else resp.text[:500]
             num = payload.get("errorNum") if isinstance(payload, dict) else None
-            timeout = num in _TIMEOUT_NUMS or bool(_TIMEOUT_RE.search(str(message)))
-            # a 5xx the server ANSWERED is an internal error, not a dead server
-            raise EngineError(f"{method} {path} rejected ({resp.status_code}, errorNum={num}): {message}", internal=resp.status_code >= 500 and resp.status_code != 503 and num not in _EXPECTED_5XX, status=resp.status_code, timeout=timeout)
+            kind = CATALOG.classify(num or 0, str(message))
+            # a 5xx the server ANSWERED is an internal error, not a dead server -- unless
+            # the catalog reads the errorNum as a timeout or a documented rejection
+            internal = kind is None and resp.status_code >= 500 and resp.status_code != 503
+            raise EngineError(f"{method} {path} rejected ({resp.status_code}, errorNum={num}): {message}", internal=internal, status=resp.status_code, timeout=kind is ErrorKind.TIMEOUT)
         return payload
 
     def _alive(self) -> bool:
@@ -323,6 +330,10 @@ class ArangoServer(DockerServer):
 
     def is_ready(self) -> bool:
         return requests.get(f"{self.base_url}/_api/version", auth=("root", self.password), timeout=1.0).status_code == 200
+
+    def version(self) -> str:
+        """The server's build (`3.12.11`), which a campaign compares with the baseline."""
+        return self.session("_system")._request("GET", "/_api/version", system=True)["version"]
 
     def session(self, database: str) -> ArangoSession:
         return ArangoSession(self.base_url, self.password, database, timeout=max(120.0, self.query_timeout_ms / 1000.0 + 60.0), query_timeout_ms=self.query_timeout_ms)

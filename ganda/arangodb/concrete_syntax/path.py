@@ -26,9 +26,16 @@ from __future__ import annotations
 
 from ganda.core.query.ir.path import PathQuery
 from ganda.core.data.model import Instance, Schema
+from ganda.arangodb.rules import assumes
+from ganda.arangodb.rules.catalog import PATH
 from ganda.arangodb.storage.dialect import engine_id
 
 _DIR = {"OUT": "OUTBOUND", "IN": "INBOUND", "BOTH": "ANY"}
+# the path forms are twins; every one answers one vertex for the start itself and is
+# wrapped to answer nothing for an unreachable goal
+assumes("equivalent.path_forms", PATH, True)
+assumes("shortest_path.same_record.result", PATH, 1)
+assumes("shortest_path.unreachable.result", PATH, 0)
 
 
 def bind_vars(q: PathQuery) -> dict:

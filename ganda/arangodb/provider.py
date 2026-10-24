@@ -2,7 +2,9 @@
 
 Three data models of one ArangoDB server -- embedded link arrays (`doc`), edge
 collections (`graph`) and junction collections (`rel`) -- each asked every question in
-AQL through its own storage path. `RULES.md` lists the engine facts the oracle rests on."""
+AQL through its own storage path. `rules/catalog.py` holds the engine rules the oracle
+rests on (`ganda arangodb rules` renders them), `rules/baseline.json` the build the probe
+last verified."""
 from __future__ import annotations
 
 from ganda.core.engine.provider import Provider
@@ -71,6 +73,18 @@ class ArangoDBProvider(Provider):
         from ganda.arangodb.known_bugs import guards as known_bugs
 
         return known_bugs
+
+    @property
+    def rules(self):
+        from ganda.arangodb.rules import CATALOG
+
+        return CATALOG
+
+    @property
+    def baseline(self):
+        from ganda.arangodb.rules import BASELINE
+
+        return BASELINE
 
     @property
     def mutants(self) -> list:

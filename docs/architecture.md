@@ -190,7 +190,7 @@ contract with nothing engine-specific in the way.
 | Engine | Data models | Status | Engine facts |
 |---|---|---|---|
 | OrientDB | `doc` (embedded links), `graph` (edges), `rel` (junction classes) | Full. Seed-for-seed equal to the legacy `../OrientDB` fuzzer | `ganda/orientdb/RULES.md` |
-| ArangoDB | `doc` (link arrays), `graph` (edge collections), `rel` (junction collections) | Full, verified live on 3.12.11 | `ganda/arangodb/RULES.md` |
+| ArangoDB | `doc` (link arrays), `graph` (edge collections), `rel` (junction collections) | Full, verified live on 3.12.11 | `ganda/arangodb/rules/catalog.py` (rendered: `ganda/arangodb/rules/RULES.md`) |
 | SAP HANA | `doc` (Document Store), `rel` (column tables), `graph` (Property Graph Engine, openCypher), `rdf` (Knowledge Graph Engine, SPARQL) | Full, verified live on HANA Cloud | `ganda/hana/rules/catalog.py` (rendered: `ganda/hana/rules/RULES.md`) |
 | SurrealDB | `doc`, `graph`, `rel` | Skeleton: connection layer only | `ganda/surrealdb/PORTING.md` |
 
@@ -203,9 +203,9 @@ it is suspect.
    question is asked, and again after every write.
 2. **Every engine fact is probed.** Each rule in a provider's `oracle/semantics.py` or
    concrete syntax should come from a live probe (`ganda <engine> probe`) and be listed
-   in that provider's `RULES.md` (HANA, OrientDB: a typed record in `rules/catalog.py`, rendered
-   by `ganda <engine> rules`). When a probe fact fails, the provider changes, never
-   the probe.
+   in that provider's `rules/catalog.py` as a typed record (rendered by `ganda <engine>
+   rules`; a skeleton provider may start with a `RULES.md`). When a probe fact fails, the
+   provider changes, never the probe.
 3. **Randomness is in named streams** (`core/rng.py`). Every consumer draws from
    `stream(seed, name)`, so adding a draw in one place never shifts another. A new axis
    draws from a new *tail* stream behind a probability that defaults to 0. That is what

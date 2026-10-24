@@ -1,7 +1,7 @@
 """AQL text for the abstract predicate tree (`ganda.core.query.ir.predicates`): the engine's
 parameter syntax (`@p1`), its operator forms (`IN_RANGE` for a range, `HAS()` for
 definedness, `@p IN f` for a list membership, `ANY IN` / `ALL IN` for the quantified
-ones, `VALUES()` for a map's values), the semi-join's subquery and the reversed and
+ones, `HAS()` for a map's keys and `VALUES()` for its values), the semi-join's subquery and the reversed and
 arithmetic forms. Identical on every data model: the record is the document variable
 `var` (`n`, `v1`, `ed1`, `CURRENT`), and a field is `var.f`.
 
@@ -14,8 +14,20 @@ from __future__ import annotations
 import re
 
 from ganda.core.query.ir.predicates import MIRROR, NO_BIND_OPS, Compound
+from ganda.arangodb.rules import answer, assumes, works_around
+from ganda.arangodb.rules.catalog import ACCEPTED, AQL, REFUSED
 
 _OPS = {"=": "==", "<>": "!=", "<": "<", "<=": "<=", ">": ">", ">=": ">="}
+# every variable of a query is fresh (a semi-join's are named after the leaf's bind)
+assumes("accepts.variable.redeclared", AQL, REFUSED)
+# `VALUES()` rejects a non-object under failOnWarning (errorNum 1542): the value test
+# answers false for one through a ternary, which evaluates the taken branch only --
+# and never through `n.m || {}`: a filter the optimizer moves into a traversal is
+# evaluated on the start vertex too, where a number under `m` is the number
+assumes("accepts.values.non_object_argument", AQL, REFUSED)
+works_around("A41")
+# `HAS()` answers false for a non-object, so the key test needs no ternary
+_HAS_KEY = "HAS({expr}, @{bind})" if answer("accepts.has.non_object_argument", AQL) is ACCEPTED else "(IS_OBJECT({expr}) ? HAS({expr}, @{bind}) : false)"
 
 
 def render_predicate(p, var: str = "n", noopt: bool = False, schema=None) -> str:
@@ -70,10 +82,7 @@ def render_predicate(p, var: str = "n", noopt: bool = False, schema=None) -> str
     if p.op == "HAS ALL":
         return f"@{p.bind} ALL IN {expr}"
     if p.op == "HAS KEY":
-        # `HAS` and `VALUES` reject a non-object (errorNum 1542 under failOnWarning), so
-        # a null or absent map answers false through a ternary -- NOT `m || {}`: a filter
-        # the optimizer moves into a traversal loses the default (A41)
-        return f"(IS_OBJECT({expr}) ? HAS({expr}, @{p.bind}) : false)"
+        return _HAS_KEY.format(expr=expr, bind=p.bind)
     if p.op in ("VALUES HAS", "HAS VALUE"):
         return f"(IS_OBJECT({expr}) ? @{p.bind} IN VALUES({expr}) : false)"
     return f"{expr} {_OPS[p.op]} @{p.bind}"

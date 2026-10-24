@@ -7,10 +7,11 @@ import math
 from ganda.core.query.generators.support import bfs_distances, composite_and as _composite_and, draw_tx, tx_binds, tx_rows  # noqa: F401
 from ganda.core.query.ir.select import TxWrite
 from ganda.core.data.model import FieldType, Schema
+from ganda.arangodb.rules import assumes
+from ganda.arangodb.rules.catalog import REFUSED, TRANSACTION
 from ganda.arangodb.engine import tx as _tx
+from ganda.arangodb.oracle.semantics import F64_INT_EXACT
 from ganda.arangodb.storage.dialect import document_key
-
-F64_INT_EXACT = 2**53
 
 
 def _bmp(s: str) -> bool:
@@ -108,6 +109,12 @@ def tx_statements(tx: TxWrite, schema: Schema, data_model: str) -> list:
 
 def tx_extra_binds(tx: TxWrite) -> dict:
     return {"txkey": document_key(tx.tid.split("/", 1)[1])} if tx.write == "insert" else {}
+
+
+# the door's question sees the door's own write; a transaction naming a collection the
+# database lacks is refused (the doc data model has no edge collections)
+assumes("transaction.own_uncommitted_visible", TRANSACTION, True)
+assumes("accepts.transaction.collection_absent_from_database", TRANSACTION, REFUSED)
 
 
 def tx_script(tx: TxWrite, schema: Schema, data_model: str, question: str) -> str:
