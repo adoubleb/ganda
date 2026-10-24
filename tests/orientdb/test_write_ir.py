@@ -1,11 +1,11 @@
-from ganda.orientdb.generate import GeneratorConfig, build
-from ganda.orientdb.known_bugs import o37_write, write_known
-from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
-from ganda.orientdb.predicates import Predicate
-from ganda.core.generators.write import sample_write, unique_safe
-from ganda.core.ast.write import COVERAGE_DENOMINATOR, WriteQuery, all_coverage_signatures, answer, apply, coverage_signature, from_params
+from ganda.orientdb.facade.generate import GeneratorConfig, build
+from ganda.orientdb.known_bugs.guards import o37_write, write_known
+from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
+from ganda.orientdb.facade.predicates import Predicate
+from ganda.core.query.generators.write import sample_write, unique_safe
+from ganda.core.query.ir.write import COVERAGE_DENOMINATOR, WriteQuery, all_coverage_signatures, apply, coverage_signature, from_params
 from ganda.orientdb.concrete_syntax.write import WriteSyntax, WriteRewrites, applicable, render
-from ganda.core.generators.write_phase import build_write_case
+from ganda.core.query.generators.write_phase import build_write_case
 
 from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
 
@@ -27,13 +27,11 @@ def _gt(field, v, on="source"):
     return Predicate(on, field, ">", "p", v, ftype="int")
 
 
-def test_apply_and_answer():
+def test_apply():
     schema, inst = _fixture()
     q = WriteQuery("arith", table="n1", where=_gt("f1", 4), field="f1", value=1, sym="+", returning="after")
     after = apply(q, inst)
     assert [n.values.get("f1") for n in after.nodes] == [1, 6, 9, None]
-    assert answer(q, inst) == [{"id": "n1/r1", "v": 6}, {"id": "n1/r2", "v": 9}]
-    assert answer(WriteQuery("arith", table="n1", where=None, field="f1", value=1), inst) == [{"count": 3}]  # the null row is not an operand
     rm = apply(WriteQuery("remove", table="n1", where=_gt("f1", 4), field="f1"), inst)
     assert "f1" not in rm.nodes[1].values and rm.nodes[0].values["f1"] == 1
     nu = apply(WriteQuery("null", table="n1", where=None, field="f2"), inst)
@@ -44,9 +42,8 @@ def test_apply_and_answer():
     # an upsert of a new id inserts the id and the field only
     up = WriteQuery("upsert", table="n1", field="f2", value="z", target_id="n1/w0", new_key="w0")
     assert apply(up, inst).nodes[-1].record_id == "n1/w0" and apply(up, inst).nodes[-1].values == {"f2": "z"}
-    assert answer(up, inst) == [{"count": 1}]
     ed = WriteQuery("edge_delete", edge_type="e1", where=Predicate("edge", "w", ">", "p", 0, ftype="int"))
-    assert [e.record_id for e in apply(ed, inst).edges] == ["e1/e2"] and answer(ed, inst) == [{"count": 2}]
+    assert [e.record_id for e in apply(ed, inst).edges] == ["e1/e2"]
     q2 = from_params(q.to_params())
     assert q2 == q
 
@@ -134,7 +131,7 @@ def test_sampled_writes_are_well_formed_and_deterministic():
 
 
 def test_write_phase_draws_nothing_from_the_read_streams():
-    from ganda.core.generators.registry import all_cases
+    from ganda.core.query.generators.registry import all_cases
 
     schema, inst, rng = build(1003, CFG)
     before = [c.queries for c in all_cases(rng, schema, inst, traversal_cases=5, select_cases=5)]

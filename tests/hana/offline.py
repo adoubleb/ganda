@@ -3,8 +3,8 @@
 the result decoding) over SQLite for the rel and doc data models and over rdflib for the
 rdf data model.
 
-It checks the LOGIC of every rendering against the reference -- a join that loses a
-path, a filter in the wrong place, a SPARQL aggregate over the wrong group -- not HANA's
+It checks the LOGIC of every rendering against the other data models' -- a join that
+loses a path, a filter in the wrong place, a SPARQL aggregate over the wrong group -- not HANA's
 syntax or semantics, which only the live probe (`ganda hana probe`) and a live campaign
 can check. What the translation does:
 
@@ -29,7 +29,7 @@ can check. What the translation does:
   (one relationship per edge variable within a clause, both orientations of an
   undirected edge, a trail for a variable-length path, SUM 0 over nothing, NULL first
   ascending), so the state read back through openCypher and every graph variant are
-  checked against the other data models and the reference; an unlabelled vertex (the
+  checked against the other data models; an unlabelled vertex (the
   base class of the inheritance axis) is the union of the vertex views over the
   attributes they share.
 
@@ -40,15 +40,16 @@ steering itself is compared live only.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import statistics
 from decimal import Decimal
 
-from ganda.core.provider import EngineError, Server
+from ganda.core.engine.provider import EngineError, Server
 from ganda.hana.concrete_syntax import tx as _tx
-from ganda.hana.connection import HanaSession, decode_row, positional, sparql_rows
-from ganda.hana.dialect import GRAPH_TOKEN
+from ganda.hana.engine.connection import HanaSession, decode_row, positional, sparql_rows
+from ganda.hana.storage.dialect import GRAPH_TOKEN
 
 
 # SQLite has no boolean: a boolean is stored and bound as one of two strings no
@@ -85,9 +86,24 @@ def _as_hana(response: str, table: bool) -> str:
     return json.dumps(doc)
 
 
+def hana_avg(values: list):
+    """AVG as HANA SQL answers it: over integers a DECIMAL(25,6) (documented), the exact
+    quotient TRUNCATED to six places (7/128 is 0.054687, probe R20) -- read back as an
+    int when integral; over doubles the double quotient."""
+    total, n = sum(values), len(values)
+    if all(isinstance(v, int) and not isinstance(v, bool) for v in values):
+        if total % n == 0:
+            return total // n
+        from decimal import ROUND_DOWN, Decimal
+
+        q = (Decimal(total) / Decimal(n)).quantize(Decimal("0.000001"), rounding=ROUND_DOWN)
+        return int(q) if q == q.to_integral_value() else float(q)
+    return total / n
+
+
 class _Avg:
-    """AVG as HANA SQL answers it (`semantics.mean`: over integers DECIMAL(25,6), the exact
-    quotient truncated to six places; SQLite's own is a double sum, inexact above 2^53)."""
+    """AVG as HANA SQL answers it (`hana_avg`; SQLite's own is a double sum, inexact
+    above 2^53)."""
 
     def __init__(self):
         self.values = []
@@ -97,9 +113,7 @@ class _Avg:
             self.values.append(v)
 
     def finalize(self):
-        from ganda.hana.semantics import mean
-
-        return mean(self.values) if self.values else None
+        return hana_avg(self.values) if self.values else None
 
 
 class _Median:
@@ -374,6 +388,58 @@ def _with_views(text: str) -> str:
     return out + text[i:]
 
 
+# --- rdf: Oxigraph ---------------------------------------------------------------------------
+
+# Oxigraph follows SPARQL 1.1 18.5.1 to the letter: an unbound (error) argument makes
+# MIN / MAX of its whole group an error, so unbound; HANA skips it (defect A3 in `ganda/hana/rules/`: "MAX and
+# COUNT still skip it"), as rdflib does. The stand-in skips it too: the argument is
+# COALESCEd to a term the ordering puts below every literal for MAX (a blank node) or
+# above it for MIN (a triple term), and an answer holding that term is unbound
+_NONE = {"MAX": "BNODE()", "MIN": "<<( <urn:ganda:none> <urn:ganda:none> <urn:ganda:none> )>>"}
+
+
+def _skip_unbound(text: str) -> str:
+    out, stack, i, n = [], [], 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch in "\"'":  # a string literal, its escapes skipped
+            j = i + 1
+            while text[j] != ch:
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1])
+            i = j + 1
+            continue
+        if text.startswith(("MAX(", "MIN("), i) and not (i and (text[i - 1].isalnum() or text[i - 1] in "_?$:")):
+            stack.append((text[i:i + 3], 0))
+            out.append(text[i:i + 4])
+            i += 4
+            if text.startswith("DISTINCT ", i):
+                out.append("DISTINCT ")
+                i += len("DISTINCT ")
+            out.append("COALESCE(")
+            continue
+        if ch == "(" and stack:
+            stack[-1] = (stack[-1][0], stack[-1][1] + 1)
+        elif ch == ")" and stack:
+            fn, depth = stack[-1]
+            if depth == 0:
+                stack.pop()
+                out.append(f", {_NONE[fn]})")
+            else:
+                stack[-1] = (fn, depth - 1)
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _unbind_none(response: str) -> str:
+    doc = json.loads(response)
+    for b in doc.get("results", {}).get("bindings", []):
+        for var in [v for v, t in b.items() if t.get("type") in ("bnode", "triple")]:
+            del b[var]
+    return json.dumps(doc)
+
+
 # --- the session ------------------------------------------------------------------------------
 
 
@@ -390,18 +456,34 @@ class OfflineSession(HanaSession):
         super().__init__(None, database, data_model, timeout_ms=0)
         self.collections: set = set()
         self.cypher_ws = None  # the graph data model's workspace, for the translator
+        # the answers of the reads since the store last changed, by (text, table): rdflib
+        # is deterministic, and the hinted twins (the hint stripped) and the repeated
+        # reads ask the same text of the same graph many times; cleared by every update
+        # and rollback
+        self._answers: dict = {}
         if data_model == "rdf":
-            import rdflib
-            from rdflib.plugins import sparql as _sparql
+            # the SPARQL engine: rdflib (pure Python, the default) or Oxigraph
+            # (`GANDA_OFFLINE_RDF=oxigraph`, `pip install pyoxigraph`), fed the same
+            # updates the provider sends
+            self.rdf = os.environ.get("GANDA_OFFLINE_RDF", "rdflib")
+            if self.rdf == "oxigraph":
+                import pyoxigraph
 
-            _sparql.SPARQL_LOAD_GRAPHS = False
-            self.ds = rdflib.Dataset()
+                self.ds = pyoxigraph.Store()
+            elif self.rdf == "rdflib":
+                import rdflib
+                from rdflib.plugins import sparql as _sparql
+
+                _sparql.SPARQL_LOAD_GRAPHS = False
+                self.ds = rdflib.Dataset()
+            else:
+                raise ValueError(f"GANDA_OFFLINE_RDF: rdflib or oxigraph, not {self.rdf!r}")
             self.db = None
         else:
             self.db = _sqlite()
 
     def apply_step(self, step) -> None:
-        from ganda.hana.mapping.common import GraphWorkspace
+        from ganda.hana.storage.mapping.common import GraphWorkspace
         from tests.hana import opencypher_sqlite
 
         if isinstance(step, GraphWorkspace):
@@ -416,7 +498,7 @@ class OfflineSession(HanaSession):
 
     def sql(self, text: str, binds=None, rows: bool = True):
         from ganda.hana.concrete_syntax import hints
-        from ganda.hana.connection import unwrap_block
+        from ganda.hana.engine.connection import unwrap_block
 
         # no plan steering and no SQLScript offline: the hinted twin runs as its plain
         # statement, the anonymous block as the statement it wraps
@@ -489,27 +571,48 @@ class OfflineSession(HanaSession):
     def sparql(self, text: str, update: bool = False, table: bool = False):
         text = self._bind_graph(text)
         try:
+            if self.rdf == "oxigraph":
+                return self._oxigraph(text, update, table)
             m = _MARK_STEP.match(text) if update else None
             if m:
                 # rdflib evaluates an EXISTS inside GRAPH in an update's WHERE against
                 # the default graph (it does not in a query): the marked records are
                 # selected by a query, then marked
                 prefixes, graph, where = m.groups()
+                self._answers.clear()
                 rows = self.ds.query(f"{prefixes} SELECT DISTINCT ?n WHERE {where}")
                 for (n,) in rows:
                     self.ds.update(f"INSERT DATA {{ GRAPH {graph} {{ <{n}> <urn:ganda:w> true }} }}")
                 return []
             if update:
+                self._answers.clear()
                 self.ds.update(text)
                 return []
-            result = self.ds.query(text)
-            return sparql_rows(_as_hana(result.serialize(format="json").decode("utf-8"), table))
+            response = self._answers.get((text, table))
+            if response is None:
+                response = _as_hana(self.ds.query(text).serialize(format="json").decode("utf-8"), table)
+                self._answers[(text, table)] = response
+            return sparql_rows(response)
         except Exception as e:  # noqa: BLE001 -- rdflib raises many kinds
-            raise EngineError(f"rdflib: {type(e).__name__}: {e}\n{text[:3000]}") from e
+            raise EngineError(f"{self.rdf}: {type(e).__name__}: {e}\n{text[:3000]}") from e
+
+    def _oxigraph(self, text: str, update: bool, table: bool):
+        from pyoxigraph import QueryResultsFormat
+
+        if update:
+            self._answers.clear()
+            self.ds.update(text)
+            return []
+        response = self._answers.get((text, table))
+        if response is None:
+            answer = self.ds.query(_skip_unbound(text)).serialize(format=QueryResultsFormat.JSON).decode("utf-8")
+            response = _as_hana(_unbind_none(answer), table)
+            self._answers[(text, table)] = response
+        return sparql_rows(response)
 
     def _transaction(self, fn, commit: bool):
         if self.data_model == "rdf":
-            snapshot = list(self.ds.quads((None, None, None, None)))
+            snapshot = list(self.ds) if self.rdf == "oxigraph" else list(self.ds.quads((None, None, None, None)))
             try:
                 out = fn()
             except BaseException:
@@ -528,6 +631,11 @@ class OfflineSession(HanaSession):
         return out
 
     def _restore(self, quads: list) -> None:
+        self._answers.clear()
+        if self.rdf == "oxigraph":
+            self.ds.clear()
+            self.ds.extend(quads)
+            return
         for g in list(self.ds.graphs()):
             self.ds.remove_graph(g)
         for s, p, o, g in quads:

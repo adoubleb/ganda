@@ -10,19 +10,20 @@ from decimal import Decimal
 
 import pytest
 
-from ganda.core.ast.predicates import Compound, Predicate
-from ganda.core.ast.write import apply
-from ganda.core.data_generator import build
-from ganda.core.generators.registry import all_cases
-from ganda.core.generators.write import sample_write
-from ganda.core.model import EdgeTypeSpec, FieldSpec, FieldType, NodeTypeSpec
-from ganda.hana import rewrites
+from ganda.core.query.ir.predicates import Compound, Predicate
+from ganda.core.query.ir.write import apply
+from ganda.core.data.generator import build
+from ganda.core.query.generators.registry import all_cases
+from ganda.core.query.generators.write import sample_write
+from ganda.core.data.model import EdgeTypeSpec, FieldSpec, FieldType, NodeTypeSpec
+from ganda.hana.oracle import rewrites
 from ganda.hana.config import UNSUPPORTED_AXES
-from ganda.hana.connection import decode_column, decode_row, positional, sparql_rows
-from ganda.hana.dialect import list_text, record_iri, sparql_literal, sparql_string
-from ganda.hana.physical_design import BOUNDARY_VALUES
+from ganda.hana.engine.connection import decode_column, decode_row, positional, sparql_rows
+from ganda.hana.storage.dialect import list_text, record_iri, sparql_literal, sparql_string
+from ganda.hana.storage.physical_design import BOUNDARY_VALUES
 from ganda.hana.provider import PROVIDER as E
-from ganda.hana.semantics import UNKNOWN, evaluate, mean, tri
+from ganda.hana.oracle.semantics import UNKNOWN, evaluate, tri
+from tests.hana.offline import hana_avg as mean
 
 CFG = E.config_class(write_form_probability=0.8, churn_edge_update_probability=0.3, clusters_probability=0.3)
 
@@ -79,7 +80,7 @@ def test_sparql_literals():
 
 
 def _leaf(field, op, pivot=None, ftype="int"):
-    return Predicate("source", field, op, "" if op in ("IS NULL", "IS NOT NULL") else f"b{field}", pivot, True, ftype)
+    return Predicate("source", field, op, "" if op in ("IS NULL", "IS NOT NULL") else f"b{field}", pivot, ftype)
 
 
 def test_three_valued_logic():
@@ -90,9 +91,9 @@ def test_three_valued_logic():
     assert tri({}, Compound("source", "AND", (gt, _leaf("g", "IS NOT NULL")))) is False
     assert not evaluate({}, Compound("source", "NOT", (gt,)))
     # membership is two-valued: false over a null list
-    assert evaluate({"l": None}, Compound("source", "NOT", (_leaf("l", "CONTAINS", 1, "list"),)))
+    assert evaluate({"l": None}, Compound("source", "NOT", (_leaf("l", "HAS", 1, "list"),)))
     # a semi-join over a null field is unknown; its values' nulls are ignored
-    sub = Predicate("source", "f", "INSUB", "", [None, 3], True, "int", sub=("n2", "g", None, False))
+    sub = Predicate("source", "f", "INSUB", "", [None, 3], "int", sub=("n2", "g", None, False))
     assert tri({}, sub) is UNKNOWN and tri({"f": 4}, sub) is False and tri({"f": 3}, sub) is True
 
 
@@ -109,8 +110,8 @@ def _random_tree(rng, depth=0):
         return Compound("source", op, kids)
     f = rng.choice(list(fields))
     if fields[f] is FieldType.LIST:
-        op = rng.choice(("CONTAINS", "CONTAINSANY", "CONTAINSALL", "=", "IS NULL"))
-        pivot = {"CONTAINS": rng.randint(0, 3), "=": [rng.randint(0, 3)], "IS NULL": None}.get(op, [rng.randint(0, 3) for _ in range(2)])
+        op = rng.choice(("HAS", "HAS ANY", "HAS ALL", "=", "IS NULL"))
+        pivot = {"HAS": rng.randint(0, 3), "=": [rng.randint(0, 3)], "IS NULL": None}.get(op, [rng.randint(0, 3) for _ in range(2)])
         return _leaf(f, op, pivot, "list")
     op = rng.choice(("=", "<>", "<", "<=", ">", ">=", "IN", "NOT IN", "BETWEEN", "IS NULL", "IS NOT NULL"))
 
@@ -157,7 +158,7 @@ def test_the_arithmetic_rewrite_keeps_every_answer():
 
 
 def test_cross_type_pivots_stay_inside_the_bound_and_render_typed_on_every_data_model():
-    from ganda.hana import pivots
+    from ganda.hana.oracle import pivots
     from ganda.hana.concrete_syntax import document, graph, predicate
 
     rng = random.Random(5)
@@ -166,11 +167,11 @@ def test_cross_type_pivots_stay_inside_the_bound_and_render_typed_on_every_data_
         assert pivots.cross_type(rng, FieldType.INT, v) is v or pivots.cross_type(rng, FieldType.INT, v) == v
     assert "NOT IN" in pivots.ORDERED_OPS
     schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f5", FieldType.FLOAT))),), ())
-    gt = Predicate("source", "f1", ">", "p", 1.5, True, "int")
-    isin = Predicate("source", "f1", "IN", "p", [1.5, 2], True, "int")
-    btw = Predicate("source", "f1", "BETWEEN", "p", [0.5, 2.5], True, "int")
-    rev = Predicate("source", "f1", "<", "p", 1.5, True, "int", rev=True)
-    fint = Predicate("source", "f5", "=", "p", 2, True, "float")
+    gt = Predicate("source", "f1", ">", "p", 1.5, "int")
+    isin = Predicate("source", "f1", "IN", "p", [1.5, 2], "int")
+    btw = Predicate("source", "f1", "BETWEEN", "p", [0.5, 2.5], "int")
+    rev = Predicate("source", "f1", "<", "p", 1.5, "int", rev=True)
+    fint = Predicate("source", "f5", "=", "p", 2, "float")
     # SQL types the parameter by the pivot (a bare `?` would take BIGINT and truncate)
     assert predicate.sql(gt, "t", "n1") == "t.f1 > CAST(:p AS DOUBLE)"
     assert predicate.sql(isin, "t", "n1") == "t.f1 IN (CAST(:p__0 AS DOUBLE), :p__1)"
@@ -183,12 +184,12 @@ def test_cross_type_pivots_stay_inside_the_bound_and_render_typed_on_every_data_
     # pivot on a FLOAT field, written as the double it is (rdflib's IN compares by term)
     assert predicate.sparql_filter(gt, "r") == 'OPTIONAL { ?r p:f1 ?r_f1 } FILTER ((BOUND(?r_f1) && (?r_f1 > "1.5"^^xsd:double)))'
     assert predicate.sparql_filter(fint, "r").endswith('(?r_f5 = "2.0"^^xsd:double)))')
-    assert predicate.sparql_filter(Predicate("source", "f5", "IN", "p", [2, 3.5], True, "float"), "r").endswith('(?r_f5 IN ("2.0"^^xsd:double, "3.5"^^xsd:double))))')
+    assert predicate.sparql_filter(Predicate("source", "f5", "IN", "p", [2, 3.5], "float"), "r").endswith('(?r_f5 IN ("2.0"^^xsd:double, "3.5"^^xsd:double))))')
     # openCypher: both sides doubles, the pivot as TOFLOAT of its text (G36), no parameter
     for leaf, text in ((gt, "(TOFLOAT(t.N1_F1) > TOFLOAT('1.5'))"), (isin, "(TOFLOAT(t.N1_F1) = TOFLOAT('1.5') OR t.N1_F1 = 2)"), (btw, "(TOFLOAT(t.N1_F1) >= TOFLOAT('0.5') AND TOFLOAT(t.N1_F1) <= TOFLOAT('2.5'))"), (rev, "(TOFLOAT('1.5') > TOFLOAT(t.N1_F1))"), (fint, "(t.N1_F5 = TOFLOAT('2'))")):
         params = graph.Params()
         assert graph.cypher_filter(leaf, "t", "n1", schema, params) == text and not params.items
-    # the reference compares exactly across the types
+    # the predicate logic compares exactly across the types
     assert tri({"f1": 2}, gt) is True and tri({"f1": 1}, gt) is False and tri({}, gt) is UNKNOWN and tri({"f5": 2.0}, fint) is True
 
 
@@ -196,7 +197,7 @@ def test_not_in_renders_on_every_data_model_and_rewrites_three_valued():
     from ganda.hana.concrete_syntax import document, graph, predicate
 
     schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT),)),), ())
-    p = Predicate("source", "f1", "NOT IN", "p", [1, 2], True, "int")
+    p = Predicate("source", "f1", "NOT IN", "p", [1, 2], "int")
     assert predicate.sql(p, "t", "n1") == "t.f1 NOT IN :p"
     assert document.doc_pred(p) == '($."f1" <> CAST(:p__0 AS BIGINT) AND $."f1" <> CAST(:p__1 AS BIGINT))'
     assert predicate.sparql_filter(p, "r").endswith('FILTER ((BOUND(?r_f1) && (?r_f1 NOT IN ("1"^^xsd:long, "2"^^xsd:long))))')
@@ -253,7 +254,7 @@ def test_every_plan_case_and_write_renders(seed):
 
 
 def test_the_state_check_reads_a_double_from_its_exact_text():
-    from ganda.hana.connection import HanaSession
+    from ganda.hana.engine.connection import HanaSession
 
     s = HanaSession(None, "db", "rdf")
     s.types = {"e6": {"f1": "float", "l": "list"}, "n1": {"f2": "int"}}
@@ -285,7 +286,7 @@ def test_the_doc_views_ask_containsall_without_a_scalar_subquery():
     from ganda.hana.concrete_syntax.document import NAMES
     from ganda.hana.concrete_syntax.predicate import sql
 
-    p = _leaf("l", "CONTAINSALL", [1, 2], "list")
+    p = _leaf("l", "HAS ALL", [1, 2], "list")
     assert "COUNT(DISTINCT" in sql(p, "t", "n1")
     # over the doc views the count is a correlated scalar subquery over UNNEST (H2)
     text = sql(p, "t", "n1", names=NAMES)
@@ -294,10 +295,10 @@ def test_the_doc_views_ask_containsall_without_a_scalar_subquery():
 
 
 def test_a_doc_traversal_withholds_a_list_membership():
-    from ganda.core.ast.traversal import Hop, TraversalQuery
+    from ganda.core.query.ir.traversal import Hop, TraversalQuery
     from ganda.hana.concrete_syntax import traversal
 
-    member = Predicate("target", "l", "CONTAINS", "bl", 1, True, "list")
+    member = Predicate("target", "l", "HAS", "bl", 1, "list")
     q = TraversalQuery("n1", (Hop("e1", "out", member),), "ids")
     # the Document Store refuses an EXISTS over an element view next to the UNNEST edge
     # views (B6) and crashes on the CONTAINSALL count (H2)
@@ -330,14 +331,14 @@ def test_no_rdf_sum_or_avg_sees_an_unbound_value(seed):
 def test_the_doc_views_ask_a_membership_only_as_a_conjunct():
     from ganda.hana.concrete_syntax.document import views_ask
 
-    member = _leaf("l", "CONTAINS", 1, "list")
+    member = _leaf("l", "HAS", 1, "list")
     other = _leaf("f", ">", 1)
     assert views_ask(member) and views_ask(Compound("source", "AND", (member, other)))
     # under OR or NOT, or inside a semi-join, the Document Store refuses the EXISTS (B6)
     assert not views_ask(Compound("source", "OR", (member, other)))
     assert not views_ask(Compound("source", "NOT", (member,)))
     assert not views_ask(Compound("source", "AND", (other, Compound("source", "OR", (member, other)))))
-    semi = Predicate("source", "f", "INSUB", "", [3], True, "int", sub=("n2", "g", member, False))
+    semi = Predicate("source", "f", "INSUB", "", [3], "int", sub=("n2", "g", member, False))
     assert not views_ask(semi)
     assert views_ask(Compound("source", "OR", (other, _leaf("g", "IS NULL"))))
 
@@ -345,7 +346,7 @@ def test_the_doc_views_ask_a_membership_only_as_a_conjunct():
 def test_h4_withholds_a_doc_sum_over_a_column_that_may_overflow():
     from types import SimpleNamespace as NS
 
-    from ganda.hana.known_bugs import _h4
+    from ganda.hana.known_bugs.guards import _h4
 
     def instance(*values):
         return NS(edges=[NS(type_name="e1", values={"w": v}) for v in values])
@@ -360,7 +361,7 @@ def test_h4_withholds_a_doc_sum_over_a_column_that_may_overflow():
 def test_a_129_that_wraps_an_ordinary_refusal_is_a_rejection():
     from types import SimpleNamespace as NS
 
-    from ganda.hana.connection import _error
+    from ganda.hana.engine.connection import _error
 
     def err(code, text):
         return _error(NS(errorcode=code, errortext=text))
@@ -382,14 +383,14 @@ def test_a_pulled_up_traversal_correlates_a_membership_on_its_own_alias(dm):
     """`predicate.sql` aliases a LIST column's child table `x`; the pulled-up derived table
     must not, or the membership EXISTS correlates the child table with itself
     (`x.owner = x.id`, a column the child table lacks)."""
-    from ganda.core.ast.traversal import Hop, TraversalQuery
+    from ganda.core.query.ir.traversal import Hop, TraversalQuery
     from ganda.hana.concrete_syntax import traversal
 
     schema = E.schema(
         (NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f3", FieldType.LIST))),),
         (EdgeTypeSpec("e1", "n1", "n1", (FieldSpec("w", FieldType.INT),)),),
     )
-    member = Predicate("source", "f3", "CONTAINS", "p0", 1, True, "list")
+    member = Predicate("source", "f3", "HAS", "p0", 1, "list")
     for proj in ("ids", "exists"):
         q = TraversalQuery("n1", (Hop("e1", "out", None),), proj, None, member)
         for syntax in traversal.SYNTAXES[dm]:
@@ -431,7 +432,7 @@ def test_positional_leaves_the_cypher_literal_alone():
 
 def test_opencypher_table_doubles_quotes_and_declares_the_parameters_a_query_uses():
     from ganda.hana.concrete_syntax import graph
-    from ganda.hana.dialect import opencypher_table
+    from ganda.hana.storage.dialect import opencypher_table
 
     assert opencypher_table("MATCH (a:n1) WHERE a.S = 'x' RETURN a.ID AS ID") == "OPENCYPHER_TABLE(GRAPH WORKSPACE gw QUERY 'MATCH (a:n1) WHERE a.S = ''x'' RETURN a.ID AS ID')"
     params = graph.Params()
@@ -444,7 +445,7 @@ def test_opencypher_table_doubles_quotes_and_declares_the_parameters_a_query_use
 def test_graph_attribute_names_have_one_type_across_the_workspace(seed):
     """The constraint the views exist for: an attribute name has one SQL type across the
     vertex tables and across the edge tables."""
-    from ganda.hana.dialect import SQL_TYPES, graph_columns
+    from ganda.hana.storage.dialect import SQL_TYPES, graph_columns
 
     schema, _instance, _rng = build(seed, CFG, E)
     for tables, edge in ((schema.node_types, False), (schema.edge_types, True)):
@@ -458,8 +459,8 @@ def test_graph_attribute_names_have_one_type_across_the_workspace(seed):
 
 @pytest.mark.parametrize("seed", range(1, 4))
 def test_the_graph_plan_is_the_rel_plan_plus_views_and_one_workspace(seed):
-    from ganda.core.setup_plan import plan_from_dict, plan_to_dict
-    from ganda.hana.mapping.common import GraphWorkspace, Sql
+    from ganda.core.engine.setup_plan import plan_from_dict, plan_to_dict
+    from ganda.hana.storage.mapping.common import GraphWorkspace, Sql
 
     schema, instance, _rng = build(seed, CFG, E)
     plan = E.mappers["graph"](instance)
@@ -479,7 +480,7 @@ def test_the_graph_plan_is_the_rel_plan_plus_views_and_one_workspace(seed):
 
 @pytest.mark.parametrize("seed", range(1, 4))
 def test_every_traversal_question_has_a_graph_syntax_and_every_select_a_graph_base(seed):
-    from ganda.core.ast.traversal import from_params
+    from ganda.core.query.ir.traversal import from_params
     from ganda.hana.concrete_syntax import select, traversal
 
     schema, _instance, cases = _cases(seed)
@@ -489,14 +490,14 @@ def test_every_traversal_question_has_a_graph_syntax_and_every_select_a_graph_ba
             assert traversal.syntaxes_for(q, schema, "graph"), c.shape
             assert "graph" in c.queries
         if c.generator_name == "ir_select":
-            from ganda.core.ast.select import from_params as select_params
+            from ganda.core.query.ir.select import from_params as select_params
 
             q = select_params(c.params["select"])
             assert "graph" in select.base_data_models(q) or q.tx
 
 
 def test_pattern_only_where_no_edge_can_repeat_and_undirected_only_for_sets():
-    from ganda.core.ast.traversal import Hop, TraversalQuery
+    from ganda.core.query.ir.traversal import Hop, TraversalQuery
     from ganda.hana.concrete_syntax import traversal
 
     schema = E.schema(
@@ -570,18 +571,18 @@ def test_cypher_filter_mirrors_the_sql_binds_and_refuses_what_has_no_form():
 
     schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f2", FieldType.STRING), FieldSpec("f3", FieldType.LIST), FieldSpec("f4", FieldType.BOOL), FieldSpec("f5", FieldType.FLOAT))),), ())
     leaves = {
-        "cmp": Predicate("source", "f1", ">", "p", 1, True, "int"),
-        "rev": Predicate("source", "f1", "<", "p", 1, True, "int", rev=True),
-        "in": Predicate("source", "f1", "IN", "p", [1, 2], True, "int"),
-        "between": Predicate("source", "f1", "BETWEEN", "p", [1, 2], True, "int"),
-        "null": Predicate("source", "f1", "IS NOT NULL", "", None, True, "int"),
-        "like": Predicate("source", "f2", "LIKE", "p", "ab%", True, "string"),
-        "str": Predicate("source", "f2", "=", "p", "it's", True, "string"),
-        "arith": Predicate("source", "f1", ">=", "p", 3, True, "int", arith=("+", "arc", 2)),
-        "list": Predicate("source", "f3", "=", "p", [1], True, "list"),
-        "fcmp": Predicate("source", "f5", "<=", "p", 1.5, True, "float"),
-        "fin": Predicate("source", "f5", "IN", "p", [1.5, 2.5], True, "float"),
-        "farith": Predicate("source", "f5", ">", "p", 3.0, True, "float", arith=("*", "arc", 2.0)),
+        "cmp": Predicate("source", "f1", ">", "p", 1, "int"),
+        "rev": Predicate("source", "f1", "<", "p", 1, "int", rev=True),
+        "in": Predicate("source", "f1", "IN", "p", [1, 2], "int"),
+        "between": Predicate("source", "f1", "BETWEEN", "p", [1, 2], "int"),
+        "null": Predicate("source", "f1", "IS NOT NULL", "", None, "int"),
+        "like": Predicate("source", "f2", "LIKE", "p", "ab%", "string"),
+        "str": Predicate("source", "f2", "=", "p", "it's", "string"),
+        "arith": Predicate("source", "f1", ">=", "p", 3, "int", arith=("+", "arc", 2)),
+        "list": Predicate("source", "f3", "=", "p", [1], "list"),
+        "fcmp": Predicate("source", "f5", "<=", "p", 1.5, "float"),
+        "fin": Predicate("source", "f5", "IN", "p", [1.5, 2.5], "float"),
+        "farith": Predicate("source", "f5", ">", "p", 3.0, "float", arith=("*", "arc", 2.0)),
     }
     texts = {}
     for name, leaf in leaves.items():
@@ -599,10 +600,10 @@ def test_cypher_filter_mirrors_the_sql_binds_and_refuses_what_has_no_form():
     assert texts["like"] == "t.N1_F2 STARTS WITH 'ab'" and texts["arith"] == "((t.N1_F1 + 2) >= 3)" and texts["list"] == "(t.N1_F3 = '[1]')"
     assert texts["fcmp"] == "(t.N1_F5 <= $p)" and texts["fin"] == "(t.N1_F5 = $p__0 OR t.N1_F5 = $p__1)" and texts["farith"] == "((t.N1_F5 * $arc) > $p)"
     # a string the grammar cannot spell has no native form
-    assert not graph.expressible(Predicate("source", "f2", "=", "p", "a\nb", True, "string"), schema, "n1")
-    for leaf in (Predicate("source", "f3", "CONTAINS", "p", 1, True, "list"), Predicate("source", "f4", "=", "p", True, True, "bool"), Predicate("source", "f2", "=", "p", "x", True, "string", ci=True)):
+    assert not graph.expressible(Predicate("source", "f2", "=", "p", "a\nb", "string"), schema, "n1")
+    for leaf in (Predicate("source", "f3", "HAS", "p", 1, "list"), Predicate("source", "f4", "=", "p", True, "bool"), Predicate("source", "f2", "=", "p", "x", "string", case_insensitive=True)):
         assert not graph.expressible(leaf, schema, "n1")
-    assert not graph.expressible(Predicate("source", "f1", "IN", "p", [], True, "int", sub=("n1", "f1", None, False)), schema, "n1")
+    assert not graph.expressible(Predicate("source", "f1", "IN", "p", [], "int", sub=("n1", "f1", None, False)), schema, "n1")
 
 
 # --- the offline openCypher translator ----------------------------------------------------------
@@ -612,7 +613,7 @@ def _translator_db():
     """A SQLite database with the views of a small schema, and its workspace."""
     import sqlite3
 
-    from ganda.hana.mapping import graph as mapping_graph
+    from ganda.hana.storage.mapping import graph as mapping_graph
     from tests.hana.opencypher_sqlite import Workspace
 
     schema = E.schema(
@@ -697,12 +698,13 @@ def test_translator_filters_ordering_and_parameters():
 @pytest.mark.parametrize("seed", range(1, 4))
 def test_the_graph_model_round_trips_offline_without_rdflib(seed):
     """The graph setup, its state read back through the translated openCypher, and
-    every rel / graph variant of every case against each other and the reference."""
+    every rel / graph variant of every case against each other."""
     import dataclasses
 
-    from ganda.core.oracle import run_cases
-    from ganda.core.state_check import verify_state
+    from ganda.core.oracle.oracle import run_cases
+    from ganda.core.engine.state_check import compare_states
     from tests.hana.offline import OfflineServer
+    from tests.instance_session import InstanceSession
 
     schema, instance, cases = _cases(seed)
     server = OfflineServer()
@@ -710,9 +712,9 @@ def test_the_graph_model_round_trips_offline_without_rdflib(seed):
     for dm in ("rel", "graph"):
         s = server.fresh_session(E.database_name(f"g{seed}", dm))
         s.apply_setup(E.mappers[dm](instance))
-        diff = verify_state(s, dm, instance)
-        assert diff.ok, (dm, diff.problems[:3])
         sessions[dm] = s
+    for dm, diff in compare_states({**sessions, "instance": InstanceSession(instance)}, instance).items():
+        assert diff.ok, (dm, diff.problems[:3])
     from tests.hana.run_offline import _offline
 
     kept = []
@@ -721,7 +723,7 @@ def test_the_graph_model_round_trips_offline_without_rdflib(seed):
         queries = {v: t for v, t in c.queries.items() if v.split(":", 1)[0] in sessions and _offline(v, t, syntaxes.get(v) if isinstance(syntaxes, dict) else None)}
         if "rel" in queries and "graph" in queries:
             kept.append(dataclasses.replace(c, queries=queries, params={**c.params, "partial": True}))
-    results = run_cases(kept, sessions, instance)
+    results = run_cases(kept, sessions)
     bad = [r for r in results if not r.ok]
     assert len(kept) > 100 and not bad, [(r.finding_class, r.case.shape, r.errors, [str(m)[:200] for m in r.mismatches[:1]]) for r in bad[:3]]
 
@@ -747,7 +749,7 @@ def test_every_case_carries_one_hint_profile_per_sql_data_model(seed):
     """A hinted twin: one profile per question, named in the tag, on a SQL statement
     only (never a SPARQL text, never the collection query), the clause closing it."""
     from ganda.hana.concrete_syntax import hints, tx as _tx
-    from ganda.hana.connection import unwrap_block
+    from ganda.hana.engine.connection import unwrap_block
 
     _schema, _instance, cases = _cases(seed)
     seen = 0
@@ -807,6 +809,12 @@ def test_no_variant_repeats_a_text_and_the_hint_reaches_every_rdf_question(seed)
     assert hinted_rdf > 20
 
 
+def test_partial_traversals_are_drawn():
+    """Some seed draws a traversal the doc views cannot ask (a seed's schema decides whether
+    a LIST field is ever filtered on: seed 3 has drawn none since `min_edge_types` became 1)."""
+    assert any(c.generator_name == "ir_traversal" and c.params.get("partial") for seed in range(1, 11) for c in _cases(seed)[2])
+
+
 @pytest.mark.parametrize("seed", range(1, 4))
 def test_a_traversal_the_doc_views_cannot_ask_is_still_asked_of_the_other_data_models(seed):
     """A traversal with a LIST membership (or a whole-list comparison) in a predicate has
@@ -814,12 +822,11 @@ def test_a_traversal_the_doc_views_cannot_ask_is_still_asked_of_the_other_data_m
     still compare -- where it used to be dropped on every data model."""
     _schema, _instance, cases = _cases(seed)
     partial = [c for c in cases if c.generator_name == "ir_traversal" and c.params.get("partial")]
-    assert partial, "no partial traversal case: the LIST predicates of this seed all have a doc form?"
     for c in partial:
         assert not any(v.split(":")[0] == "doc" for v in c.queries), (c.shape, sorted(c.queries))
         assert {v.split(":")[0] for v in c.queries} == {"rel", "graph", "rdf"}, (c.shape, sorted(c.queries))
         # a membership or a whole-list comparison somewhere in the predicates' signatures
-        assert any(any(tok in sig for tok in ("CONTAINS", "=", "<>", "IN")) for sig in c.params["predicates"]), c.params["predicates"]
+        assert any(any(tok in sig for tok in ("HAS", "=", "<>", "IN")) for sig in c.params["predicates"]), c.params["predicates"]
     assert not any(c.params.get("partial") for c in cases if c.generator_name == "ir_traversal" and "doc" in c.queries)
 
 
@@ -850,7 +857,7 @@ def test_the_repeat_twin_and_the_hinted_collection_query(seed):
 
 
 def test_the_inline_position_writes_every_bound_value_as_a_constant():
-    from ganda.hana.connection import inline_binds, sql_literal
+    from ganda.hana.engine.connection import inline_binds, sql_literal
 
     assert sql_literal(5) == "5" and sql_literal(-(2**63)) == "-9223372036854775808" and sql_literal(True) == "TRUE" and sql_literal(None) == "NULL"
     assert sql_literal(0.1) == "0.1E0" and sql_literal(1e-300) == "1e-300" and sql_literal(1.7976931348623157e308) == "1.7976931348623157e+308"
@@ -875,7 +882,7 @@ def test_the_inline_position_writes_every_bound_value_as_a_constant():
 
 def test_the_block_positions_wrap_the_statement_in_a_typed_sqlscript_block():
     from ganda.hana.concrete_syntax import hints
-    from ganda.hana.connection import sqlscript_block, unwrap_block
+    from ganda.hana.engine.connection import sqlscript_block, unwrap_block
 
     text = "SELECT t.id AS id FROM n1 t WHERE t.f1 > :p AND t.f2 IN :q AND t.f3 = :l__json AND t.f4 = :b AND t.f6 IN :e"
     binds = {"p": 1.5, "q": [1, 2], "l": [3], "b": False, "e": []}
@@ -912,11 +919,11 @@ def test_the_block_positions_wrap_the_statement_in_a_typed_sqlscript_block():
 
 
 def test_the_set_operation_form_partitions_a_filter_on_every_sql_path_and_in_sparql():
-    from ganda.core.ast.select import SelectQuery
+    from ganda.core.query.ir.select import SelectQuery
     from ganda.hana.concrete_syntax import select
 
     schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT),)),), ())
-    pred = Predicate("source", "f1", ">", "p", 1, True, "int")
+    pred = Predicate("source", "f1", ">", "p", 1, "int")
     for kind in ("ids", "count"):
         q = SelectQuery("n1", pred, kind)
         rw = select.Rewrites()
@@ -942,8 +949,8 @@ def test_the_set_operation_form_partitions_a_filter_on_every_sql_path_and_in_spa
 
 
 def test_the_graphscript_path_syntax_and_its_workspace():
-    from ganda.hana.dialect import SCHEMA_TOKEN
-    from ganda.hana.mapping import graph as mapping_graph
+    from ganda.hana.storage.dialect import SCHEMA_TOKEN
+    from ganda.hana.storage.mapping import graph as mapping_graph
 
     schema, instance, cases = _cases(1)
     steps = [s.text for s in mapping_graph.script_ddl(schema)]
@@ -1000,7 +1007,7 @@ def test_a_rel_delete_removes_the_rows_before_their_list_children():
 
 
 def test_the_mutant_catalog_corrupts_a_node_value_on_every_data_model():
-    from ganda.hana import mutants
+    from ganda.hana.mutation import mutants
 
     names = [m.name for m in mutants.MUTANTS]
     assert len(names) == len(set(names))
@@ -1014,8 +1021,8 @@ def test_the_mutant_catalog_corrupts_a_node_value_on_every_data_model():
 
 
 def test_a_decoding_failure_is_an_internal_engine_error_not_a_dead_worker():
-    from ganda.core.provider import EngineError
-    from ganda.hana.connection import _error, decoded_rows, decoded_sparql, document_of
+    from ganda.core.engine.provider import EngineError
+    from ganda.hana.engine.connection import _error, decoded_rows, decoded_sparql, document_of
 
     assert decoded_rows(["v__int", "w"], [("7", 1)]) == [{"v": 7, "w": 1}]
     for bad in (lambda: decoded_rows(["v__int"], [("seven",)]), lambda: decoded_rows(["v__json"], [("{not json",)]), lambda: decoded_sparql("{not json"), lambda: document_of({"x": "{not json"})):
@@ -1036,15 +1043,15 @@ def test_a_decoding_failure_is_an_internal_engine_error_not_a_dead_worker():
 def test_the_doc_neg_position_keeps_the_nots_the_store_can_say():
     from ganda.hana.concrete_syntax.document import doc_filter_ok, doc_pred, has_not
 
-    leaf = Predicate("source", "f1", "=", "p", 1, True, "int")
-    tree = Compound("source", "NOT", (Compound("source", "OR", (leaf, Predicate("source", "f2", "IS NULL", "", None, True, "string"))),))
+    leaf = Predicate("source", "f1", "=", "p", 1, "int")
+    tree = Compound("source", "NOT", (Compound("source", "OR", (leaf, Predicate("source", "f2", "IS NULL", "", None, "string"))),))
     assert has_not(tree) and not has_not(leaf) and not has_not(None)
     assert doc_pred(tree) == '($."f1" <> CAST(:p AS BIGINT) AND $."f2" IS NOT NULL)'
     assert doc_pred(tree, keep_not=True) == 'NOT (($."f1" = CAST(:p AS BIGINT) OR $."f2" IS NULL))'
-    member = Compound("source", "NOT", (Predicate("source", "f3", "CONTAINS", "p", 5, True, "list"),))
+    member = Compound("source", "NOT", (Predicate("source", "f3", "HAS", "p", 5, "list"),))
     assert not doc_filter_ok(member) and doc_filter_ok(member, keep_not=True)
     assert doc_pred(member, keep_not=True) == 'NOT (FOR ANY "e" IN $."f3" SATISFIES "e" = CAST(:p AS BIGINT) END)'
-    like = Compound("source", "NOT", (Predicate("source", "f2", "LIKE", "p", "a%", True, "string"),))
+    like = Compound("source", "NOT", (Predicate("source", "f2", "LIKE", "p", "a%", "string"),))
     assert doc_pred(like) == "$.\"f2\" NOT LIKE 'a%'" and doc_pred(like, keep_not=True) == "NOT ($.\"f2\" LIKE 'a%')"
     # the position in the cases: a collection query with a NOT kept, only where the tree has one
     negs = [(c, v, t) for seed in (1, 2, 3) for c in _cases(seed)[2] for v, t in c.queries.items() if v.startswith("doc:") and "neg" in v.split(":", 1)[1].split("+")]
@@ -1057,8 +1064,8 @@ def test_the_custom_key_pool_orders_alike_in_sql_and_sparql():
     """The axis is on because SQL's UTF-16 code-unit order and SPARQL's code-point order
     part only for an astral key against one in U+E000..U+FFFF, which no key style
     draws (`data_generator._custom_key`); the probe's CUSTOM_KEYS cover every style."""
-    from ganda.core.data_generator import _KEY_PUNCT_BASES, _KEY_UNICODE_BASES
-    from ganda.hana.dialect import is_valid_key
+    from ganda.core.data.generator import _KEY_PUNCT_BASES, _KEY_UNICODE_BASES
+    from ganda.hana.storage.dialect import is_valid_key
     from ganda.hana.scripts.probe import CUSTOM_KEYS
 
     keys = [b + "7" for b in _KEY_PUNCT_BASES + _KEY_UNICODE_BASES] + CUSTOM_KEYS
@@ -1077,7 +1084,7 @@ def _poly(seed: int):
 
 @pytest.mark.parametrize("seed", range(1, 4))
 def test_the_base_class_is_a_union_view_a_second_class_triple_and_an_unlabelled_match(seed):
-    from ganda.hana.mapping.common import Sparql, Sql
+    from ganda.hana.storage.mapping.common import Sparql, Sql
 
     cfg, schema, instance, rng = _poly(seed)
     assert schema.base is not None and schema.base.name == "N0"
@@ -1094,7 +1101,7 @@ def test_the_base_class_is_a_union_view_a_second_class_triple_and_an_unlabelled_
     assert any(t.startswith("CREATE VIEW N0 ") for t in graph) and not any("gv_N0" in t for t in graph)
     doc = [s.text for s in E.mappers["doc"](instance) if isinstance(s, Sql)]
     assert not any("N0" in t and t.startswith("CREATE COLLECTION") for t in doc) and not any(" ON N0(" in t for t in doc)
-    from ganda.hana.mapping.common import Transaction
+    from ganda.hana.storage.mapping.common import Transaction
 
     def texts_of(steps):
         for s in steps:
@@ -1175,10 +1182,10 @@ def test_translator_unlabelled_vertex_projects_the_shared_attributes():
 
 
 def test_the_mean_is_hana_sql_avg():
-    """AVG over BIGINT is DECIMAL(25,6): the quotient truncated to six places (R20); the
-    B13 guard withholds an rdf average the triple store's double arithmetic cannot
+    """AVG over BIGINT is DECIMAL(25,6): the quotient truncated to six places (R20), as the
+    offline stand-in answers it; the B13 guard withholds an rdf average the triple store's double arithmetic cannot
     answer as SQL does."""
-    from ganda.hana import known_bugs
+    from ganda.hana.known_bugs import guards as known_bugs
 
     assert mean([7] + [0] * 127) == 0.054687 and mean([-7] + [0] * 127) == -0.054687 and mean([2, 2, 0]) == 1.333333
     assert mean([1, 2]) == 1.5 and mean([2, 4]) == 3 and isinstance(mean([2, 4]), int) and mean([0.5, 1.0]) == 0.75

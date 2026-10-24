@@ -2,14 +2,16 @@
 
 Three data models of one ArangoDB server -- embedded link arrays (`doc`), edge
 collections (`graph`) and junction collections (`rel`) -- each asked every question in
-AQL through its own storage path. `RULES.md` lists the engine facts the oracle rests on."""
+AQL through its own storage path. `rules/catalog.py` holds the engine rules the oracle
+rests on (`ganda arangodb rules` renders them), `rules/baseline.json` the build the probe
+last verified."""
 from __future__ import annotations
 
-from ganda.core.provider import Provider
-from ganda.arangodb import pivots
+from ganda.core.engine.provider import Provider
+from ganda.arangodb.oracle import pivots
 from ganda.arangodb.config import ArangoConfig
-from ganda.arangodb.limits import LIMITS
-from ganda.arangodb.semantics import SEMANTICS
+from ganda.arangodb.engine.limits import LIMITS
+from ganda.arangodb.oracle.semantics import SEMANTICS
 
 
 class ArangoDBProvider(Provider):
@@ -26,13 +28,13 @@ class ArangoDBProvider(Provider):
 
     @property
     def physical_design(self):
-        from ganda.arangodb import physical_design
+        from ganda.arangodb.storage import physical_design
 
         return physical_design
 
     @property
     def mappers(self) -> dict:
-        from ganda.arangodb.mapping import MAPPERS
+        from ganda.arangodb.storage.mapping import MAPPERS
 
         return MAPPERS
 
@@ -62,19 +64,31 @@ class ArangoDBProvider(Provider):
 
     @property
     def rewrites(self):
-        from ganda.arangodb import rewrites
+        from ganda.arangodb.oracle import rewrites
 
         return rewrites
 
     @property
     def known_bugs(self):
-        from ganda.arangodb import known_bugs
+        from ganda.arangodb.known_bugs import guards as known_bugs
 
         return known_bugs
 
     @property
+    def rules(self):
+        from ganda.arangodb.rules import CATALOG
+
+        return CATALOG
+
+    @property
+    def baseline(self):
+        from ganda.arangodb.rules import BASELINE
+
+        return BASELINE
+
+    @property
     def mutants(self) -> list:
-        from ganda.arangodb.mutants import MUTANTS
+        from ganda.arangodb.mutation.mutants import MUTANTS
 
         return MUTANTS
 
@@ -83,25 +97,25 @@ class ArangoDBProvider(Provider):
     def server(self, args=None):
         """A server for the campaign's scale: the profile's query timeout as every
         session's `maxRuntime`."""
-        from ganda.core import scale as _scale
-        from ganda.arangodb.connection import ArangoServer
+        from ganda.core.data import scale as _scale
+        from ganda.arangodb.engine.connection import ArangoServer
 
         profile = _scale.profile(getattr(args, "scale", None) or "default")
         return ArangoServer(query_timeout_ms=getattr(args, "query_timeout_ms", None) or profile.query_timeout_ms)
 
     def database_name(self, namespace: str, data_model: str) -> str:
-        from ganda.arangodb.connection import db_name
+        from ganda.arangodb.engine.connection import db_name
 
         return db_name(namespace, data_model)
 
     def cleanup(self) -> None:
-        from ganda.arangodb.connection import cleanup_orphans
+        from ganda.arangodb.engine.connection import cleanup_orphans
 
         cleanup_orphans()
 
     def may_write(self, case) -> bool:
         """A transaction door script writes, then aborts."""
-        from ganda.arangodb.tx import is_script
+        from ganda.arangodb.engine.tx import is_script
 
         return any(is_script(text) for text in case.queries.values())
 

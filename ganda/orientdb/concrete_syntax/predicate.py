@@ -5,7 +5,8 @@ arithmetic forms. Identical on every data model, the field expression being the 
 own (`f1`, `in.f1`, `$n.f1`) via `prefix`."""
 from __future__ import annotations
 
-from ganda.orientdb.predicates import MIRROR, NO_BIND_OPS, Compound
+from ganda.orientdb.facade.predicates import MIRROR, NO_BIND_OPS, Compound
+from ganda.orientdb.storage.dialect import sql_op
 
 
 def render_predicate(p, prefix: str = "") -> str:
@@ -23,17 +24,17 @@ def render_predicate(p, prefix: str = "") -> str:
     if p.key is not None:
         expr = f"{expr}[:{p.key_bind}]" if p.key_bind else f"{expr}.{p.key}"
     if p.arith is not None:
-        expr = f"({expr} {p.arith[0]} :{p.arith[1]})"
+        expr = f"({expr} {p.arith.sym} :{p.arith.bind})"
     if p.rev:
-        if p.op == "CONTAINS":
+        if p.op == "HAS":
             return f":{p.bind} IN {expr}"
         return f":{p.bind} {MIRROR[p.op]} {expr}"
     if p.op in NO_BIND_OPS:
-        return f"{expr} {p.op}"
+        return f"{expr} {sql_op(p.op)}"
     if p.op == "BETWEEN":
         return f"{expr} BETWEEN :{p.bind}a AND :{p.bind}b"
     if p.op == "LOWER=":
         return f"{expr}.toLowerCase() = :{p.bind}"
-    if p.op == "VALUES CONTAINS":
+    if p.op == "VALUES HAS":
         return f"{expr}.values() CONTAINS :{p.bind}"
-    return f"{expr} {p.op} :{p.bind}"
+    return f"{expr} {sql_op(p.op)} :{p.bind}"

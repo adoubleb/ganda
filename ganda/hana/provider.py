@@ -9,11 +9,11 @@ through `SPARQL_TABLE`). The comparison order puts `graph` next to `rel`: the sa
 bytes read through two engines."""
 from __future__ import annotations
 
-from ganda.core.provider import Provider
-from ganda.hana import pivots
+from ganda.core.engine.provider import Provider
+from ganda.hana.oracle import pivots
 from ganda.hana.config import HanaConfig, refuse_unsupported
-from ganda.hana.limits import LIMITS
-from ganda.hana.semantics import SEMANTICS
+from ganda.hana.engine.limits import LIMITS
+from ganda.hana.oracle.semantics import SEMANTICS
 
 
 class HanaProvider(Provider):
@@ -40,13 +40,13 @@ class HanaProvider(Provider):
 
     @property
     def physical_design(self):
-        from ganda.hana import physical_design
+        from ganda.hana.storage import physical_design
 
         return physical_design
 
     @property
     def mappers(self) -> dict:
-        from ganda.hana.mapping import MAPPERS
+        from ganda.hana.storage.mapping import MAPPERS
 
         return MAPPERS
 
@@ -76,33 +76,39 @@ class HanaProvider(Provider):
 
     @property
     def rewrites(self):
-        from ganda.hana import rewrites
+        from ganda.hana.oracle import rewrites
 
         return rewrites
 
     @property
     def known_bugs(self):
-        from ganda.hana import known_bugs
+        from ganda.hana.known_bugs import guards as known_bugs
 
         return known_bugs
 
     @property
+    def rules(self):
+        from ganda.hana.rules import CATALOG
+
+        return CATALOG
+
+    @property
     def mutants(self) -> list:
-        from ganda.hana.mutants import MUTANTS
+        from ganda.hana.mutation.mutants import MUTANTS
 
         return MUTANTS
 
     # --- the server -----------------------------------------------------------------------
 
     def server(self, args=None):
-        from ganda.core import scale as _scale
-        from ganda.hana.connection import HanaServer
+        from ganda.core.data import scale as _scale
+        from ganda.hana.engine.connection import HanaServer
 
         profile = _scale.profile(getattr(args, "scale", None) or "default")
         return HanaServer(timeout_ms=getattr(args, "query_timeout_ms", None) or profile.query_timeout_ms)
 
     def database_name(self, namespace: str, data_model: str) -> str:
-        from ganda.hana.connection import db_name
+        from ganda.hana.engine.connection import db_name
 
         return db_name(namespace, data_model)
 

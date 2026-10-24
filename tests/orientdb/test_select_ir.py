@@ -1,16 +1,16 @@
 import dataclasses
 import re
 
-from ganda.orientdb.generate import GeneratorConfig, build
-from ganda.orientdb.known_bugs import select_known
-from ganda.core.model import FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
-from ganda.orientdb import predicates
-from ganda.core.case import Comparison, QueryCase
-from ganda.orientdb.predicates import Predicate
+from ganda.orientdb.facade.generate import GeneratorConfig, build
+from ganda.orientdb.known_bugs.guards import select_known
+from ganda.core.data.model import FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
+from ganda.orientdb.facade import predicates
+from ganda.core.oracle.case import QueryCase
+from ganda.orientdb.facade.predicates import Predicate
 from ganda.orientdb.concrete_syntax.select import build_rewrites
-from ganda.core.ast.select import COVERAGE_DENOMINATOR, SelectQuery, all_coverage_signatures, coverage_signature, evaluate, from_params, records
+from ganda.core.query.ir.select import COVERAGE_DENOMINATOR, SelectQuery, all_coverage_signatures, coverage_signature, from_params, records
 from ganda.orientdb.concrete_syntax.select import BASE, SelectSyntax, Rewrites, applicable, render
-from ganda.core.generators.registry import all_cases, reference_for
+from ganda.core.query.generators.registry import all_cases
 
 from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
 
@@ -37,32 +37,6 @@ def _gt(field, v):
     return Predicate("source", field, ">", "p", v, ftype="int")
 
 
-def test_aggregates_over_no_rows_answer_no_row_but_count():
-    schema, inst = _fixture()
-    none = _gt("f1", 100)
-    for fn in ("max", "min", "sum", "avg", "median", "distinct_count", "set", "list"):
-        assert evaluate(SelectQuery("n1", none, "agg", ("f1",), fn=fn), inst) == []
-    assert evaluate(SelectQuery("n1", none, "agg", ("f1",), fn="count"), inst) == [{"v": 0}]
-    assert evaluate(SelectQuery("n1", none, "count"), inst) == [{"v": 0}]
-    # rows that are all null: max is a null row, sum 0
-    nulls = Predicate("source", "f1", "IS NULL", "", None)
-    assert evaluate(SelectQuery("n1", nulls, "agg", ("f1",), fn="max"), inst) == [{"v": None}]
-    assert evaluate(SelectQuery("n1", nulls, "agg", ("f1",), fn="sum"), inst) == [{"v": 0}]
-
-
-def test_filtered_shapes():
-    schema, inst = _fixture()
-    p = _gt("f3", 1)  # r1..r4
-    assert evaluate(SelectQuery("n1", p, "ids"), inst) == [{"id": f"n1/r{i}"} for i in (1, 2, 3, 4)]
-    assert evaluate(SelectQuery("n1", p, "agg", ("f1",), fn="max"), inst) == [{"v": 7}]
-    assert sorted(evaluate(SelectQuery("n1", p, "group", ("f2",), fn="count_star"), inst), key=repr) == sorted([{"k": "B", "v": 1}, {"k": "b", "v": 1}, {"k": None, "v": 1}, {"k": "a", "v": 1}], key=repr)
-    assert evaluate(SelectQuery("n1", p, "group", ("f2",), fn="sum", arg="f1"), inst) == [{"k": "B", "v": 1}, {"k": "b", "v": 0}, {"k": None, "v": 3}, {"k": "a", "v": 7}]
-    # nulls sort first descending; the id tiebreak stays ascending
-    assert evaluate(SelectQuery("n1", p, "page", ("f1",), directions=("DESC",), skip=0, limit=4), inst) == [{"id": "n1/r2"}, {"id": "n1/r4"}, {"id": "n1/r3"}, {"id": "n1/r1"}]
-    assert evaluate(SelectQuery("n1", p, "keys", ("f1",), directions=("ASC",), skip=1), inst) == [{"a": 3}, {"a": 7}, {"a": None}]
-    assert evaluate(SelectQuery("n1", p, "method", ("f1",), fn="{f} + 1"), inst) == {"n1/r1": 2, "n1/r3": 4, "n1/r4": 8}
-
-
 def test_syntax_tags_and_applicability():
     schema, inst = _fixture()
     q = SelectQuery("n1", _gt("f1", 2), "agg", ("f1",), fn="max")
@@ -79,7 +53,9 @@ def test_syntax_tags_and_applicability():
 
 
 def test_order_walk_guards_hold_on_the_class_only():
-    ix = IndexSpec("n1", "f1", data_model="graph", kind="NOTUNIQUE", ignore_nulls=True)
+    # a composite index ignoring nulls skips n1/3 (f1 present, f2 absent), so the order
+    # form's `max` misses it
+    ix = IndexSpec("n1", "f1", extra_fields=("f2",), data_model="graph", kind="NOTUNIQUE", ignore_nulls=True)
     schema, inst = _fixture([ix])
     q = SelectQuery("n1", None, "agg", ("f1",), fn="max")
     rewrites = Rewrites(present=[3, 1, 3, 7])
@@ -89,6 +65,18 @@ def test_order_walk_guards_hold_on_the_class_only():
     keys = SelectQuery("n1", _gt("f3", 0), "keys", ("f1",), directions=("DESC",))
     assert select_known(keys, BASE, Rewrites(), "graph", schema, inst) == "O18"
     assert select_known(keys, SelectSyntax(position="nest"), Rewrites(), "graph", schema, inst) is None
+
+
+def test_o18_needs_a_null_key_on_3_2_57():
+    # a single-field index ignoring nulls: the walk lacks only the null records, which
+    # the order form's `IS NOT NULL` excludes; the keys kind lacks n1/2 (no f1)
+    schema, inst = _fixture([IndexSpec("n1", "f1", data_model="graph", kind="NOTUNIQUE", ignore_nulls=True)])
+    q = SelectQuery("n1", None, "agg", ("f1",), fn="max")
+    assert select_known(q, SelectSyntax(form="order"), Rewrites(present=[3, 1, 3, 7]), "graph", schema, inst) is None
+    keys = SelectQuery("n1", _gt("f3", 0), "keys", ("f1",), directions=("DESC",))
+    assert select_known(keys, BASE, Rewrites(), "graph", schema, inst) == "O18"
+    full = Instance(schema, [n for n in inst.nodes if n.values.get("f1") is not None], [])
+    assert select_known(keys, BASE, Rewrites(), "graph", schema, full) is None
 
 
 def test_scan_target_keeps_only_the_scan_only_bugs():
@@ -155,15 +143,6 @@ def test_every_case_is_well_formed():
                         assert all(f"{s}:{tag}" in c.queries for s in ("doc", "graph", "rel")), data_model
             assert coverage_signature(q) in all_coverage_signatures()
             seen_kinds.add(q.kind)
-            has_ref, expected = reference_for(c, inst)
-            assert has_ref == (c.params["reference"] is not False)
-            if not has_ref:
-                assert q.kind == "page"
-                expected = evaluate(q, inst)
-            if c.comparison in (Comparison.SCALAR_BY_ID, Comparison.MULTISET_BY_ID):
-                assert isinstance(expected, dict)
-            else:
-                assert isinstance(expected, list)
             # a rewrite filter is the same predicate over every record
             for name in ("rw", "rev", "arith"):
                 if name in c.params:

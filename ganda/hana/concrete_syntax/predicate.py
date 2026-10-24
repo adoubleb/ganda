@@ -1,4 +1,4 @@
-"""A predicate tree (`ganda.core.ast.predicates`) as SQL text for the column tables and as
+"""A predicate tree (`ganda.core.query.ir.predicates`) as SQL text for the column tables and as
 a SPARQL filter for the triple store -- the same three-valued question on both
 (`semantics`).
 
@@ -27,8 +27,16 @@ solution's bindings.
 """
 from __future__ import annotations
 
-from ganda.core.ast.predicates import MIRROR, Compound
-from ganda.hana.dialect import child_table, sparql_literal
+from ganda.core.query.ir.predicates import MIRROR, Compound
+from ganda.core.rules.vocabulary import Logic
+from ganda.hana.rules import assumes, works_around
+from ganda.hana.rules.catalog import SPARQL
+from ganda.hana.storage.dialect import child_table, sparql_literal
+
+# the rdf `native` variants rest on SPARQL's error propagation (three-valued as SQL);
+# the never-bound variable is declared by a never-matching OPTIONAL (A6)
+assumes("filter.logic", SPARQL, Logic.KLEENE)
+works_around("A6")
 
 UNKNOWN_VAR = "?ganda_unknown"
 
@@ -84,13 +92,13 @@ def sql(p, alias: str = "", table: str = "", key: str = "id", names: Names = REL
         src = f"(SELECT * FROM {names.table(t2)}) u" if scan else f"{names.table(t2)} u"
         inner = f"u.{g} IS NOT NULL" + (f" AND {sql(q, 'u', t2, 'id', names)}" if q is not None else "")
         return f"{col} IN (SELECT u.{g} FROM {src} WHERE {inner})"
-    if p.op in ("CONTAINS", "CONTAINSANY", "CONTAINSALL"):
+    if p.op in ("HAS", "HAS ANY", "HAS ALL"):
         child = names.child(table, p.field)
         member = f"x.owner = {owner}"
-        if p.op == "CONTAINS":
+        if p.op == "HAS":
             cond = f":{p.bind} = x.v" if p.rev else f"x.v = :{p.bind}"
             return f"EXISTS (SELECT 1 FROM {child} x WHERE {member} AND {cond})"
-        if p.op == "CONTAINSANY":
+        if p.op == "HAS ANY":
             return f"EXISTS (SELECT 1 FROM {child} x WHERE {member} AND x.v IN :{p.bind})"
         if not names.count_membership:
             if not p.pivot:
@@ -99,7 +107,7 @@ def sql(p, alias: str = "", table: str = "", key: str = "id", names: Names = REL
         return f"(SELECT COUNT(DISTINCT x.v) FROM {child} x WHERE {member} AND x.v IN :{p.bind}) = {len(set(p.pivot))}"
     expr = col
     if p.arith is not None:
-        expr = f"({col} {p.arith[0]} :{p.arith[1]})"
+        expr = f"({col} {p.arith.sym} :{p.arith.bind})"
     if p.op in ("IS NULL", "IS NOT NULL"):
         return f"{expr} {p.op}"
     cross = crosses(p)
@@ -127,7 +135,7 @@ def fields_used(p, record: str) -> list:
     semi-join's own class are asked inside their EXISTS)."""
     out: list = []
     for leaf in (p.leaves() if p is not None else []):
-        if leaf.op in ("CONTAINS", "CONTAINSANY", "CONTAINSALL"):
+        if leaf.op in ("HAS", "HAS ANY", "HAS ALL"):
             continue
         if (record, leaf.field) not in out:
             out.append((record, leaf.field))
@@ -175,13 +183,13 @@ def _leaf(p, record: str, regex: bool, native: bool) -> "tuple[str, str | None]"
         t2, g, q, _scan = p.sub
         inner = f"?gu a c:{t2} ; p:{g} ?gu_{g} ." + (f" {optionals(q, 'gu')} FILTER ({filter_expr(q, 'gu', regex, native)})" if q is not None else "") + f" FILTER (?gu_{g} = {v})"
         return f"EXISTS {{ {inner} }}", v
-    if p.op in ("CONTAINS", "CONTAINSANY", "CONTAINSALL"):
+    if p.op in ("HAS", "HAS ANY", "HAS ALL"):
         items = f"?{record} i:{p.field}"
-        if p.op == "CONTAINS":
+        if p.op == "HAS":
             if p.rev:
                 return f"EXISTS {{ {items} ?gx . FILTER ({sparql_literal(p.pivot)} = ?gx) }}", None
             return f"EXISTS {{ {items} {sparql_literal(p.pivot)} }}", None
-        if p.op == "CONTAINSANY":
+        if p.op == "HAS ANY":
             return f"EXISTS {{ {items} ?gx . FILTER (?gx IN ({', '.join(sparql_literal(x) for x in p.pivot)})) }}", None
         return "(" + " && ".join(f"EXISTS {{ {items} {sparql_literal(x)} }}" for x in p.pivot) + ")", None
     if p.op == "IS NULL":
@@ -191,8 +199,8 @@ def _leaf(p, record: str, regex: bool, native: bool) -> "tuple[str, str | None]"
     expr = v
     if p.arith is not None:
         # the constant in the column's own datatype: a double scaled by a double
-        c = float(p.arith[2]) if p.ftype == "float" else p.arith[2]
-        expr = f"({v} {p.arith[0]} {sparql_literal(c)})"
+        c = float(p.arith.value) if p.ftype == "float" else p.arith.value
+        expr = f"({v} {p.arith.sym} {sparql_literal(c)})"
     if p.op == "LIKE":
         return _like(expr, p.pivot, regex), v
     if p.op == "BETWEEN":

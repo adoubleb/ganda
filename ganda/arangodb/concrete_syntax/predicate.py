@@ -1,7 +1,7 @@
-"""AQL text for the abstract predicate tree (`ganda.core.ast.predicates`): the engine's
+"""AQL text for the abstract predicate tree (`ganda.core.query.ir.predicates`): the engine's
 parameter syntax (`@p1`), its operator forms (`IN_RANGE` for a range, `HAS()` for
 definedness, `@p IN f` for a list membership, `ANY IN` / `ALL IN` for the quantified
-ones, `VALUES()` for a map's values), the semi-join's subquery and the reversed and
+ones, `HAS()` for a map's keys and `VALUES()` for its values), the semi-join's subquery and the reversed and
 arithmetic forms. Identical on every data model: the record is the document variable
 `var` (`n`, `v1`, `ed1`, `CURRENT`), and a field is `var.f`.
 
@@ -13,9 +13,21 @@ from __future__ import annotations
 
 import re
 
-from ganda.core.ast.predicates import MIRROR, NO_BIND_OPS, Compound
+from ganda.core.query.ir.predicates import MIRROR, NO_BIND_OPS, Compound
+from ganda.arangodb.rules import answer, assumes, works_around
+from ganda.arangodb.rules.catalog import ACCEPTED, AQL, REFUSED
 
 _OPS = {"=": "==", "<>": "!=", "<": "<", "<=": "<=", ">": ">", ">=": ">="}
+# every variable of a query is fresh (a semi-join's are named after the leaf's bind)
+assumes("accepts.variable.redeclared", AQL, REFUSED)
+# `VALUES()` rejects a non-object under failOnWarning (errorNum 1542): the value test
+# answers false for one through a ternary, which evaluates the taken branch only --
+# and never through `n.m || {}`: a filter the optimizer moves into a traversal is
+# evaluated on the start vertex too, where a number under `m` is the number
+assumes("accepts.values.non_object_argument", AQL, REFUSED)
+works_around("A41")
+# `HAS()` answers false for a non-object, so the key test needs no ternary
+_HAS_KEY = "HAS({expr}, @{bind})" if answer("accepts.has.non_object_argument", AQL) is ACCEPTED else "(IS_OBJECT({expr}) ? HAS({expr}, @{bind}) : false)"
 
 
 def render_predicate(p, var: str = "n", noopt: bool = False, schema=None) -> str:
@@ -40,17 +52,17 @@ def render_predicate(p, var: str = "n", noopt: bool = False, schema=None) -> str
             src = f"(FOR {m} IN {t2} RETURN {m})" if scan else t2
         inner = f"FOR {s} IN {src}" + (f" FILTER {render_predicate(q, s, False, schema)}" if q is not None else "") + f" RETURN {s}.{g}"
         return f"{_wrap(expr, noopt)} IN ({inner})"
-    if p.op == "IS DEFINED":
+    if p.op == "IS PRESENT":
         return f"HAS({var}, '{p.field}')"
-    if p.op == "IS NOT DEFINED":
+    if p.op == "IS ABSENT":
         return f"NOT HAS({var}, '{p.field}')"
     if p.key is not None:
         expr = f"{expr}[@{p.key_bind}]" if p.key_bind else f"{expr}.{p.key}"
     expr = _wrap(expr, noopt)
     if p.arith is not None:
-        expr = f"({expr} {p.arith[0]} @{p.arith[1]})"
+        expr = f"({expr} {p.arith.sym} @{p.arith.bind})"
     if p.rev:
-        if p.op == "CONTAINS":
+        if p.op == "HAS":
             return f"{expr} ANY == @{p.bind}"
         return f"@{p.bind} {_OPS[MIRROR[p.op]]} {expr}"
     if p.op in NO_BIND_OPS:
@@ -63,18 +75,15 @@ def render_predicate(p, var: str = "n", noopt: bool = False, schema=None) -> str
         return f"{expr} IN @{p.bind}"
     if p.op == "NOT IN":
         return f"{expr} NOT IN @{p.bind}"
-    if p.op == "CONTAINS":
+    if p.op == "HAS":
         return f"@{p.bind} IN {expr}"
-    if p.op == "CONTAINSANY":
+    if p.op == "HAS ANY":
         return f"{expr} ANY IN @{p.bind}"
-    if p.op == "CONTAINSALL":
+    if p.op == "HAS ALL":
         return f"@{p.bind} ALL IN {expr}"
-    if p.op == "CONTAINSKEY":
-        # `HAS` and `VALUES` reject a non-object (errorNum 1542 under failOnWarning), so
-        # a null or absent map answers false through a ternary -- NOT `m || {}`: a filter
-        # the optimizer moves into a traversal loses the default (A41)
-        return f"(IS_OBJECT({expr}) ? HAS({expr}, @{p.bind}) : false)"
-    if p.op in ("VALUES CONTAINS", "CONTAINSVALUE"):
+    if p.op == "HAS KEY":
+        return _HAS_KEY.format(expr=expr, bind=p.bind)
+    if p.op in ("VALUES HAS", "HAS VALUE"):
         return f"(IS_OBJECT({expr}) ? @{p.bind} IN VALUES({expr}) : false)"
     return f"{expr} {_OPS[p.op]} @{p.bind}"
 

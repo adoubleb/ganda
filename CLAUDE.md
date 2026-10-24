@@ -14,8 +14,7 @@ that maps the legacy ports' terms to the ones used here. The legacy fuzzers
 ## Commands
 
 ```bash
-pytest tests/ -q                                   # no Docker: core on the fake engine, OrientDB units, parity slice, layering
-python3 scripts/golden_dump.py --check             # full parity with the legacy OrientDB fuzzer (~25 s)
+pytest tests/ -q -n auto                           # no Docker (~20 s); whole offline HANA campaigns: tests.hana.run_offline
 python3 -m ganda list
 python3 -m ganda orientdb probe                    # Docker (or ORIENT_URL / ORIENT_PASSWORD)
 python3 -m ganda orientdb run --iterations 20 --seed 1000 --workers 2
@@ -36,34 +35,35 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
   global engine state.
 - **Engine behaviour never lives in the core.** If a line of core code is only true
   for one engine (what `null + 1` is, where nulls sort, which index kind is unique), it
-  belongs behind a slot of `core/provider.py`. Add the member to the contract's
+  belongs behind a slot of `core/engine/provider.py`. Add the member to the contract's
   docstring, to `tests/test_layering.py`'s slot list and to `tests/fake_engine`.
-- **RNG draw order is frozen.** Every consumer draws from its own named stream
-  (`core/rng.py`). A provider hook is called exactly where the code it replaced drew;
-  a new axis draws from a new tail stream behind a probability that defaults to 0.
-  `scripts/golden_dump.py --check` is the gate: run it after any change to the data
-  generator, an AST, a query generator or OrientDB's concrete syntax, known bugs or
-  semantics. If it fails, `--dump <profile> <seed>` on both trees and diff.
-- **The parity baseline is only re-recorded on purpose** (`--legacy ../OrientDB
-  --write`), when a rename needs a new entry in the script's rename map. A behaviour
-  change that breaks parity is a decision to say out loud, not something to re-record
-  away.
+- **Every consumer draws from its own named stream** (`core/rng.py`), so adding a
+  draw in one place never shifts another; a new axis draws from a new tail stream
+  behind a probability that defaults to 0. Ganda no longer tracks parity with the
+  legacy OrientDB fuzzer: old campaigns are reproduced with `../OrientDB` itself.
 - **Query generator ids are random-stream names** (`ir_traversal`, `ir_select`,
   `ir_path`, `ir_write`): renaming one changes every seed.
-- **A provider module that binds the engine** exists so provider code and tests can
-  call core functions without naming it: `ganda/orientdb/predicates.py`,
-  `generate.py`, `ganda.orientdb.Schema`. Core code never uses these.
+- **A provider facade binds the engine** so provider code and tests can call core
+  functions without naming it: `ganda/orientdb/facade/` (`predicates.py`,
+  `generate.py`) and `ganda.orientdb.Schema`. Core code never uses these.
+- **Provider layout** (OrientDB, ArangoDB, HANA alike): `provider.py` and `config.py`
+  at the top; `engine/` (connection, limits), `storage/` (dialect, physical design,
+  `mapping/`), `oracle/` (semantics, pivots, rewrites), `concrete_syntax/`,
+  `known_bugs/` (`guards.py`), `mutation/` (`mutants.py`), `scripts/`.
 - **Use conventional names** (the README glossary). New concepts get the textbook term.
-- **Engine limits are the provider's, in its `limits` slot** (`core/limits.py`,
-  `ganda/orientdb/limits.py`: every number documented or probed). The large-data axes
+- **Engine limits are the provider's, in its `limits` slot** (`core/data/limits.py`,
+  `ganda/orientdb/engine/limits.py`: every number documented or probed). The large-data axes
   (`large_row_probability`, `binary_probability`, `statements_per_request`) and the
-  `large` scale profile (`core/scale.py`) stay inside them; the core never hard-codes
+  `large` scale profile (`core/data/scale.py`) stay inside them; the core never hard-codes
   a size an engine would reject. A new axis of the kind draws from a tail stream and
-  defaults to off; a new dataclass field that the legacy tree lacks goes into
-  `scripts/golden_dump.py`'s `GANDA_ONLY_FIELDS` so parity still hashes the behaviour.
-- **At the large scale the reference leg is off by design** (the profile's
-  `reference=False`; `--reference` turns it back on): the oracle is the pairwise
-  comparison of the data models, the state check samples (`--state-sample`), a
+  defaults to off.
+- **The oracle is purely differential.** No answer is predicted from the Instance: a
+  case compares its variants pair by pair, and the state check compares the data
+  models' stored states with each other (the one off the consensus has the problem;
+  a tie names every one). A fault every data model shares is out of reach by design.
+  The IRs walk the Instance only to steer generation (filters that keep records,
+  writes that match some, exact sums, `write.apply` for later draws).
+- **At the large scale** the state check samples (`--state-sample`), a
   timeout is no answer (`CaseResult.timeouts`; at the default scale it stays the
   error asymmetry it was, the finding seed 1010 has always carried), and bundles are
   slim. A `BINARY`
@@ -73,11 +73,25 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
 
 ## OrientDB
 
-`ganda/orientdb/RULES.md` holds the engine rules that keep the oracle sound (each one
-probed live). Layout: `dialect.py` (vocabulary), `physical_design.py`, `config.py`,
-`limits.py` (what the engine can hold), `connection.py`, `mapping/`, `semantics.py`, `pivots.py`, `rewrites.py`,
+The engine rules are minimal records in `ganda/orientdb/rules/catalog.py`, as HANA's (the
+subjects are OrientDB SQL's execution paths: a scan, an index-served statement, MATCH,
+TRAVERSE, the script / transaction door, /batch, the `index:` door); the defects O1..O46
+(but O4) beside them; `rules/checks.py` lists the rules each probe check (C1..C330 in
+`scripts/probe_osql.py`) asserts and the defects it reproduces (every defect has a check
+whose expected answer is the defect's). A failing check prints the rule that no
+longer holds, or the defect that no longer reproduces, and the code reading it. A rule
+that changed (or a failing check of nothing in the catalog) fails the probe; a defect
+that no longer reproduces is a bug fixed, which only costs coverage (its guard withholds
+what the build answers right), so it is recorded, not failed: a probe run in which every
+check of a rule holds writes `rules/baseline.json` (the server's build, the checks that
+held, the defects fixed there with the checks that stopped reproducing them) and
+re-renders `RULES.md`, whose defects table then shows each defect on that build.
+`ganda orientdb run` warns at startup when the server is another build than the
+baseline's. `ganda orientdb rules --write` renders
+`ganda/orientdb/rules/RULES.md`; `tests/orientdb/test_rules.py` keeps them in step. Layout: `storage/dialect.py` (vocabulary), `storage/physical_design.py`, `config.py`,
+`engine/limits.py` (what the engine can hold), `engine/connection.py`, `storage/mapping/`, `oracle/semantics.py`, `oracle/pivots.py`, `oracle/rewrites.py`,
 `concrete_syntax/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),
-`known_bugs.py` (O1..O45 guarded; O46 documented, no guard) with `java_hash.py`, `mutants.py`, `coverage.py` (JaCoCo),
+`known_bugs/guards.py` (most of O1..O46; O4 retired, fixed in 3.2.57; O3, O22, O24, O29, O30, O34, O42, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `engine/coverage.py` (JaCoCo),
 
 `scripts/` (`probe_osql.py`, `coverage_report.py`).
 
@@ -85,36 +99,77 @@ Adding a concrete syntax: a choice in the catalog of its module (`SYNTAXES` and
 `_RENDERERS` for a traversal; an axis of `SelectSyntax`), what it admits in
 `applicable`, its text in `render`, and its judgement in `known_bugs`. Then `pytest`,
 the probe if a new fact is relied on, a campaign, and the mutation benchmark A/B over
-the same seeds. A new syntax changes the cases, so parity with the legacy tree ends
-there on purpose: record that in the commit.
+the same seeds.
 
 ## ArangoDB
 
-`ganda/arangodb/RULES.md` holds the engine rules the oracle rests on, each marked
-documented / legacy-probed / probed (`ganda arangodb probe`, fact ids `V` values, `S`
-statement forms, `W` write doors, `L` limits, `T` timeout, `A` findings pinned). Layout
-mirrors OrientDB's: `dialect.py` (the logical `id` attribute, the percent-encoded
-`_key`, `engine_id` / `logical_id`), `physical_design.py` (persistent indexes, unique
+The engine rules are minimal records in `ganda/arangodb/rules/catalog.py`, as OrientDB's
+and HANA's: the three data models speak AQL, so the subjects are its execution paths (a
+collection scan, the same statement served by a persistent index, the traversal
+operator, the path functions, a stream transaction, the document API); the defects A1,
+A2 (the legacy port's signed-zero pair, kept out of the value pools), A25 (the legacy
+port's too, found again by this port's first campaign with the catalog), A40 and A41
+beside them, and the error classes `engine/connection.py` classifies an errorNum through.
+`rules/checks.py` lists the rules each probe fact (`scripts/probe.py`: `V` values, `S`
+statement forms, `W` write doors, `L` limits, `T` timeout, `A` defects) asserts and the
+defects it reproduces; every rule is checked by a fact and read by code
+(`ganda.arangodb.rules`: `answer` where a renderer branches on an answer -- the string
+order, the traversal's default edge uniqueness, the collect form's aggregates, the LIKE
+line terminators, the arithmetic bound -- `assumes` / `works_around` where it has none).
+A failing fact of a rule fails the probe; a defect that no longer reproduces is recorded
+in `rules/baseline.json` with the build, and `ganda arangodb run` warns when the server is
+another build. `ganda arangodb rules --write` renders `rules/RULES.md`;
+`tests/arangodb/test_rules.py` keeps catalog, checks, probe and file in step. Layout
+mirrors OrientDB's: `storage/dialect.py` (the logical `id` attribute, the percent-encoded
+`_key`, `engine_id` / `logical_id`), `storage/physical_design.py` (persistent indexes, unique
 or sparse; the expanded `f[*]` array index for a LIST field; no signed zero in the
-pools), `config.py`, `limits.py`, `connection.py` (the cursor API, `bind_subset`, stream
-transactions, `maxRuntime` as the timeout), `tx.py` (the transaction door's script
-text), `mapping/` (bulk inserts chunked under half the request bound, `mergeObjects:
-false` on every update door), `semantics.py` (the total type order, exact numbers, code
-point string equality, `LIKE` as an ICU regex), `pivots.py` (`ordered_ops`: a string
-column takes the equality family only -- ICU collation has no reference), `rewrites.py`,
+pools), `config.py`, `engine/limits.py`, `engine/connection.py` (the cursor API, `bind_subset`, stream
+transactions, `maxRuntime` as the timeout), `engine/tx.py` (the transaction door's script
+text), `storage/mapping/` (bulk inserts chunked under half the request bound, `mergeObjects:
+false` on every update door), `oracle/semantics.py` (the total type order, exact numbers, code
+point string equality, `LIKE` as an ICU regex), `oracle/pivots.py` (`ordered_ops`: a string
+column takes the equality family only -- ICU collation orders them), `oracle/rewrites.py`,
 `concrete_syntax/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),
-`known_bugs.py` (A40 guarded), `mutants.py`, `scripts/probe.py`.
+`known_bugs/guards.py` (A25 and A40 guarded), `mutation/mutants.py` (the core's instance mutants,
+three render mutants and three index-path mutants, as OrientDB's), `scripts/probe.py`.
 
 Campaigns run on mousedeer (`ssh mousedeer`, a ControlMaster socket the user opens with
 `ssh -fN mousedeer`; the tree is rsynced to `/home/hakam/ganda/ganda`, the image there is
 `arangodb:3.12.11`, so `export ARANGO_IMAGE=arangodb:3.12.11`); the probe and the unit
 tests run anywhere. The legacy port `../arangoDB` is reference material (its A1..A39
-are in `../arangoDB/issue-drafts/`); this port's findings go under `issues/` (A40 on).
+are in `../arangoDB/issue-drafts/`); this port's findings are pinned by the `A` probe
+facts and the catalog's defects. What the legacy port has and this provider does not --
+the ArangoSearch, geo, MDI and expression template families, the JavaScript door, the
+Python reference leg, the plan-divergence instrument -- stays out: Ganda's mechanism (the
+four IRs rendered per data model, the purely differential oracle) is the one ported to.
+
+## Live verification of the rules catalog (2026-10-24, ArangoDB 3.12.11 on mousedeer)
+
+- `ganda arangodb probe`: 34 facts hold (`rules/baseline.json` records the build); the
+  catalog's 67 rules are all checked by a fact and read by code, its five defects each
+  reproduced by the fact of their id. Writing the facts found three mistakes of the old
+  probe and one of the old rules: `HAS()` answers false for a non-object where `VALUES()`
+  and `ATTRIBUTES()` refuse one (errorNum 1542) -- a constant argument is folded and raises
+  nothing, so the fact asks over a stored attribute, as the renderers do; a composite index
+  TAKES a forced hint on its lead field alone; and S4's expected value was a Python `and`.
+- `run --iterations 3 --seed 1 --workers 2` with every axis on: 709 cases, 0 findings, 0
+  symmetric or internal errors, 0 setup asymmetries, 24 writes, 46 s. Its first run found
+  **A25** again (seed 1, `keys` over a LIST column under `OR(=,=)`): the doc data model's
+  index-served variants answered nothing where the scan twins and the other data models
+  answered four rows; reproduced by hand (`replace-or-with-in` turns the OR into an IN of
+  arrays, which the expanded array index serves from its element keys), guarded at the
+  shape, pinned by the probe.
+- `mutate --trials 2 --seed 1` over the 21 mutants (the three index-path mutants new): see
+  19 of 21 caught, mean rate 0.833. `rel_index_null_keys` 2/2 and `doc_index_desc_walk` 1/2
+  show the index path is seen; `graph_index_range_inclusive` 0/2 had little to corrupt on
+  these seeds (a strict bound turned inclusive changes the answer only where a stored value
+  sits on the pivot: 4 cases on seed 1, none on seed 2), and `graph_stale_edge_update` 0/2
+  needs edge-update churn, as on 2026-10-09.
 
 ## Live verification of ArangoDB (2026-10-09, ArangoDB 3.12.11 on mousedeer)
 
-- `ganda arangodb probe`: 25 facts hold (`RULES.md` lists them with their status); the
-  value facts V2, V3 and V5 are MIRROR checks of `semantics.py` against the engine over
+- `ganda arangodb probe`: 25 facts hold (33 since 2026-10-24: V4, S8-S10, W4, W5, A1, A2); the
+  value facts V2, V3 and V5 are MIRROR checks of `oracle/semantics.py` against the engine over
   boundary pools, which is how three assumptions fell (numbers compare exactly, `LIKE`
   crosses a newline, two nulls are not ordered).
 - `run --iterations 3 --seed 1` at the default scale with every axis on: 707 cases, 0
@@ -142,10 +197,22 @@ are in `../arangoDB/issue-drafts/`); this port's findings go under `issues/` (A4
 
 ## SAP HANA
 
-`ganda/hana/HANDOFF.md` is the guide (setup, the order of live work, where each probe
-fact lives in the code); `ganda/hana/RULES.md` lists the engine facts with their status
-(documented, assumed, probed). Data models `doc` (JSON Document Store), `rel` (column
-tables), `graph` (Property Graph Engine: a GRAPH WORKSPACE over views of rel-shaped
+The engine rules are minimal records in `ganda/hana/rules/catalog.py` (`ganda/core/rules/`):
+`Rule(question, subject, answer)`, the question's kind saying what the fuzzer does with
+it (compare, ask, equivalent, exact); the defects A1-A10 and the error classes beside
+them. `rules/checks.py` lists the rules each probe fact's check asserts; the rest are
+unchecked. The code reads the rules through `ganda.hana.rules` (`ganda/core/rules/lookup.py`):
+`answer` / `refused` / `alike` where it branches on an answer (the switches of
+`concrete_syntax/graph.py` and the offline translator, `select._cypher_asks`, the pivot
+and sum bounds, `connection._error`), and `assumes(question, subject, expected)` /
+`works_around(defect)` where it has no branch for another answer (a changed catalog then
+fails the import). `ganda hana rules --write` renders `ganda/hana/rules/RULES.md` with
+who checks and who reads each rule, and `tests/hana/test_rules.py` keeps the catalog, the
+checks, the probe, the error classification and the rendered file in step. HANA runs
+live only from hana-fuzzer (the instance accepts that host; a Python 3.12 venv made with
+`uv` beside the checkout). Data models
+`doc` (JSON Document Store), `rel` (column tables), `graph` (Property Graph Engine: a
+GRAPH WORKSPACE over views of rel-shaped
 tables, openCypher through `OPENCYPHER_TABLE`; added 2026-10-11, its 32 `G*` probe facts
 run live the same day) and `rdf` (Knowledge Graph Engine, SPARQL). The provider attaches
 to a HANA Cloud instance (`HANA_HOST`, `HANA_PORT`, `HANA_USER`, `HANA_PASSWORD`); there
@@ -154,15 +221,16 @@ is no container.
 The graph data model has two syntax families (`concrete_syntax/graph.py`): rel's SQL
 over `g_` CTEs that read every table through the engine (the views family: full
 coverage), and native openCypher where the language states the question. What the probe
-fixed (RULES.md "The graph data model"): a heterogeneous workspace takes ONE MATCH clause
-of one-edge comma-separated patterns, and a relationship binds once in it, so a native
-multi-hop is asked only over pairwise distinct edge types (the reference's walk semantics
-has no other native form); cypher's ORDER BY puts NULL last ascending (HANA SQL: first),
+fixed (`accepts.match.second_clause`, `match.edge_binding`, `order.nulls.asc` in the
+catalog): a heterogeneous workspace takes ONE MATCH clause of one-edge comma-separated
+patterns, and a relationship binds once in it, so a native
+multi-hop is asked only over pairwise distinct edge types (the other data models' walk
+semantics has no other native form); cypher's ORDER BY puts NULL last ascending (HANA SQL: first),
 so native `page` / `keys` are not asked; parameters bind bare only; an undirected
 self-loop matches once; SUM over nothing answered NULL (the docs say 0: every native sum
 carries its COUNT and SQL decides). The switches in `graph.py` are named after the facts.
 
-Added 2026-10-12 (each with a RULES.md section and probe facts): plan steering
+Added 2026-10-12 (each with catalog rules and probe facts): plan steering
 (`concrete_syntax/hints.py`: every SQL text asked once more under one of sixteen `WITH
 HINT (...)` profiles -- HEX off or on, ESX, OLAP, the join engine, row vs column operators, the
 optimizer levels, the rewrites off, HEX's disk operators and join kinds, no indexes,
@@ -181,16 +249,16 @@ exact) and **A9** (two OPENCYPHER_TABLE calls in one statement type the second c
 parameters in the wrong order when they mix a string and a number): the graph renderings
 now bind DOUBLE pivots only and inline every other pivot as a constant, and the `literal`
 variant is gone. Also found: HANA SQL's `AVG(BIGINT)` is `DECIMAL(25,6)` TRUNCATED to six
-places (the reference follows it) while the triple store's AVG computes in double (B13,
+places while the triple store's AVG computes in double (B13,
 guarded in `known_bugs`); a BOOLEAN is refused inside COUNT and in a comparison (B14).
 
 The oracle on HANA runs with two provider options the core added 2026-10-12 and the
-other providers keep off (so the OrientDB parity baseline stands): `partial_traversals`
+other providers keep off: `partial_traversals`
 (a traversal the doc views cannot ask stays a partial case instead of being dropped
 everywhere) and `compare_despite_errors` (the variants that answered are compared when
 another one errored; the finding key names the mismatching pairs and the error's code
 through `error_signature`). Cross-type numeric pivots and `NOT IN` are drawn
-(`hana/pivots.py`), each typed per data model (RULES.md "Values"); no variant repeats
+(`hana/oracle/pivots.py`), each typed per data model (`exact.cross_type_numeric_pivot.below`); no variant repeats
 another's text on its data model; a decoding failure is an internal `EngineError`.
 More engine paths per question (track 2, 2026-10-12): `rel:again` (the base text a second
 time), the profile `plan_cache`, the hinted collection query, `rel:inline` (constants in the
@@ -210,11 +278,11 @@ over a group with an unbound value once the predicate has held a second datatype
 in the store), **H4** (a SUM over collection views overflows on rows a JOIN excludes),
 **H5** (`BETWEEN ? AND ?` over a collection field types its parameters BIGINT) and **H6**
 (a legal SPARQL FILTER / BIND over a variable bound nowhere is refused); the provider works
-around them and withholds H4's shape (`known_bugs.py`). `ganda/hana/findings/README.md`
+around them and withholds H4's shape (`known_bugs/guards.py`). `ganda/hana/findings/README.md`
 sorts every live observation into A (engine bug), B (quirk or documented) and C (provider
 bug), each B with a verdict checked against SAP's docs. HANA reports EVERY SPARQL refusal
 (a syntax error too) as code 129, so a 129 carrying an ordinary refusal is a rejection, not
-an internal error (`connection.REJECTION_129`).
+an internal error (the error classes in `rules/catalog.py`).
 
 If the instance is reached through an SSH tunnel to a bastion, set `HANA_SNI_HOSTNAME` to
 the real hostname (HANA Cloud routes TLS by SNI) and leave `disableCloudRedirect` on (its
@@ -225,6 +293,7 @@ a direct address. `connection.connect()` retries a lost connect (`HANA_CONNECT_R
 pytest tests/hana tests/test_layering.py -q        # no server (test_offline needs rdflib)
 python3 -m tests.hana.run_offline --seeds 1 10     # whole campaigns on SQLite + rdflib through the real session code
 python3 -m ganda hana doctor
+python3 -m ganda hana rules                        # the engine rules as tables; --write renders ganda/hana/rules/RULES.md
 python3 -m ganda hana probe                        # 141 facts (R/D/K 2026-10-10, G 2026-10-11, P and the 2026-10-12 facts); `probe K5 D` for a subset
 ```
 
@@ -249,10 +318,8 @@ offline, never an error). The provider bugs of campaign-20261009-095838
 `bugs/<tag>-<seed>-<generator>-<shape>/` holds `README.md`, `queries.json` (the
 engine, every variant's text, bind variables, rows, mismatches), one
 `<data model>_setup.json` plan each, `instance.json` and `repro.py` (which calls
-`ganda.core.replay`). Read `failing_pairs` first: a same-database pair
-(`graph/graph:match`) is a within-engine inconsistency with no cross-model confound; an
-empty list with `reference_mismatches` means every database agreed and only the
-reference disagreed, so check the provider's semantics before blaming the engine.
+`ganda.core.campaign.replay`). Read `failing_pairs` first: a same-database pair
+(`graph/graph:match`) is a within-engine inconsistency with no cross-model confound.
 `internal_error` is a raw exception from inside the engine and is a finding on its own.
 A triaged finding is written up under `issues/` (`O46-...md`: the version, a minimal
 reproduction, expected and actual, the analysis down to the engine's source, the scope,
@@ -282,9 +349,11 @@ Not run: the full 21-mutant benchmark at 8 trials, and long campaigns.
 `orientdb:latest` is now 3.2.57, and FOUR pre-existing facts changed on it: the probe's
 O4 check (an equality through a DICTIONARY index answers every record) and three O18
 checks (a DESC walk of an index that ignores nulls answers rows) now fail, in the legacy
-tree's probe as well -- the engine, not the port. The O4 / O18 guards therefore withhold
-variants 3.2.57 answers correctly; re-probe and decide whether to retire them or pin the
-image. Everything else below held.
+tree's probe as well -- the engine, not the port. Since 2026-10-24 the probe targets
+3.2.57 (`rules/baseline.json`): O4 is retired (fixed), and O18 is narrowed -- 3.2.57's DESC
+walk no longer answers nothing but lacks the null-key records as the ASC walk does, so
+the guard withholds a walk in either direction only where a record has a null key.
+Everything else below held.
 
 - `ganda orientdb probe`: every other fact holds, the new "large data" section included
   (BINARY round trip and its scan-vs-index equality, the 10240-byte index key, a 4 MB
@@ -304,7 +373,7 @@ image. Everything else below held.
   minutes, 64 cases (95 % asserting), 4 writes, 0 findings, 3 timeouts, 935 s in all.
   Offline the same seed builds in 3.7 s and renders each plan in under a second; the
   10k-row seed 2 draws its 52 cases in 1.9 s (45 s before the `IN` index in
-  `semantics.py`, and minutes before `sums_exactly` learned to count paths).
+  `oracle/semantics.py`, and minutes before `sums_exactly` learned to count paths).
 
 
 

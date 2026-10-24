@@ -1,4 +1,4 @@
-"""The concrete syntax catalog of the select AST: HOW a `SelectQuery` is asked in AQL. A
+"""The concrete syntax catalog of the select IR: HOW a `SelectQuery` is asked in AQL. A
 syntax is three independent choices, and every applicable combination is an equivalent
 text:
 
@@ -53,17 +53,35 @@ import itertools
 import random
 from dataclasses import dataclass, field
 
-from ganda.core.ast.predicates import MIRROR, Predicate, reverse
-from ganda.core.ast.select import SelectQuery
-from ganda.core.model import FieldType, Instance, Schema
-from ganda.arangodb import rewrites as _rewrites
+from ganda.core.query.ir.predicates import MIRROR, Predicate, reverse
+from ganda.core.query.ir.select import SelectQuery
+from ganda.core.data.model import FieldType, Instance, Schema
+from ganda.core.rules.vocabulary import EmptyInputRows
+from ganda.arangodb.rules import answer, assumes
+from ganda.arangodb.rules.catalog import AQL, AQL_INDEX, REFUSED, TRANSACTION
+from ganda.arangodb.oracle import rewrites as _rewrites
 from ganda.arangodb.concrete_syntax.predicate import render_predicate as render_pred
-from ganda.arangodb.concrete_syntax.support import METHODS, method_fn, tx_extra_binds, tx_script  # noqa: F401
+from ganda.arangodb.concrete_syntax.support import METHODS, tx_extra_binds, tx_script  # noqa: F401
 
 FILTERS = ("plain", "rw", "rev", "arith", "noopt")
 POSITIONS = ("table", "scan", "nest", "noindex", "hint", "poly", "polyin")
 FORMS = ("base", "collect", "order", "set", "fn", "jscan", "jrev")
 _FN = {"max": "MAX", "min": "MIN", "sum": "SUM", "avg": "AVERAGE", "median": "MEDIAN"}
+# the positions and forms are twins the oracle compares
+assumes("equivalent.noopt", AQL, True)
+assumes("equivalent.subquery_target", AQL, True)
+assumes("equivalent.collect_forms", AQL, True)
+assumes("equivalent.polymorphic_forms", AQL, True)
+assumes("equivalent.disable_index", AQL_INDEX, True)
+assumes("equivalent.index_hint", AQL_INDEX, True)
+assumes("equivalent.transaction_door", TRANSACTION, True)
+# every aggregate reads present values: COUNT_DISTINCT counts a null, MAX / MIN skip it
+assumes("aggregate.count_distinct.counts_null", AQL, True)
+assumes("aggregate.max_min.skips_null", AQL, True)
+# a keyless COLLECT AGGREGATE over no rows answers ONE row, whose SUM is null where the
+# function form's `SUM([])` is 0: the collect form takes the aggregates the two agree on
+assumes("aggregate.ungrouped.empty_input.rows", AQL, EmptyInputRows.ONE_ROW)
+_COLLECT_AGGREGATES = ("max", "min", "count", "avg") + (("sum",) if answer("aggregate.collect.sum.empty_input", AQL) is answer("aggregate.sum.empty_input", AQL) else ())
 _HINT_OPS = ("=", "IN", "<", "<=", ">", ">=")
 _BIG = 1_000_000_000
 
@@ -132,7 +150,7 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
         return False
     if sp.form in ("set", "fn") and not (q.kind == "agg" and q.fn == "distinct_count"):
         return False
-    if sp.form == "collect" and not (q.kind in ("count", "group", "distinct") or (q.kind == "agg" and q.fn in ("max", "min", "count", "avg"))):
+    if sp.form == "collect" and not (q.kind in ("count", "group", "distinct") or (q.kind == "agg" and q.fn in _COLLECT_AGGREGATES)):
         return False
     if sp.position == "hint":
         return q.where is not None and sp.filter in ("plain", "rev") and data_model in rewrites.door
@@ -320,6 +338,11 @@ def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites,
 # --- the rewrites of one question ------------------------------------------------
 
 
+# a forced hint the index cannot serve is refused (errorNum 1577): the hint door names
+# an index for a leaf it can serve only
+assumes("accepts.index_hint.unservable", AQL_INDEX, REFUSED)
+
+
 def _door(p, q: SelectQuery, schema: Schema, data_model: str) -> "str | None":
     """The index of `data_model` on the question's class that leads on the filter's
     field, for a leaf the index can serve: an equality, a membership or a bound (never
@@ -327,7 +350,7 @@ def _door(p, q: SelectQuery, schema: Schema, data_model: str) -> "str | None":
     if not isinstance(p, Predicate) or p.key is not None or p.sub is not None or p.op not in _HINT_OPS or p.ftype in ("list", "map") or q.edge:
         return None
     for ix in schema.indexes:
-        if ix.target == "node" and ix.table == q.table and ix.field == p.field and ix.by is None and not ix.extra_fields and ix.applies_to(data_model):
+        if ix.target == "node" and ix.table == q.table and ix.field == p.field and ix.option("by") is None and not ix.extra_fields and ix.applies_to(data_model):
             # a sparse index holds no null key, and a null satisfies `<` / `<=` under the
             # total order: the planner refuses the hint there (errorNum 1577); so does
             # a composite index under a condition on its lead field alone
@@ -338,7 +361,7 @@ def _door(p, q: SelectQuery, schema: Schema, data_model: str) -> "str | None":
 
 
 def build_rewrites(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> Rewrites:
-    from ganda.core.ast.select import present_values, records, view
+    from ganda.core.query.ir.select import present_values, records, view
 
     rewrites = Rewrites(present=present_values(q, instance) if q.kind == "agg" else [])
     p = q.where

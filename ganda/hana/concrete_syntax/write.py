@@ -1,4 +1,4 @@
-"""The concrete syntax catalog of the write AST: HOW each SAP HANA data model issues a
+"""The concrete syntax catalog of the write IR: HOW each SAP HANA data model issues a
 `WriteQuery`. A write runs once per database, so each data model draws its own
 syntax; the answers and the resulting states are compared with each other and with the
 Instance after the write.
@@ -48,14 +48,16 @@ import json
 import random
 from dataclasses import dataclass, field
 
-from ganda.core.ast.predicates import reverse
-from ganda.core.ast.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
-from ganda.core.data_generator import BASE_CLASS
-from ganda.core.model import FieldType, Instance, Schema
-from ganda.hana import rewrites as _rewrites
+from ganda.core.query.ir.predicates import reverse
+from ganda.core.query.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
+from ganda.core.data.generator import BASE_CLASS
+from ganda.core.data.model import FieldType, Instance, Schema
+from ganda.hana.oracle import rewrites as _rewrites
 from ganda.hana.concrete_syntax import document
 from ganda.hana.concrete_syntax.predicate import sparql_filter, sql
-from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT, child_table, list_text, record_iri, sparql_literal, sparql_string
+from ganda.hana.rules import assumes
+from ganda.hana.rules.catalog import COLLECTION, REFUSED, SQL
+from ganda.hana.storage.dialect import GRAPH_TOKEN, PREFIX_TEXT, child_table, list_text, record_iri, sparql_literal, sparql_string
 
 FILTERS = ("plain", "rw", "rev", "ar")
 TARGETS = ("table", "nest", "merge")
@@ -315,6 +317,11 @@ def _link_arrays(q: WriteQuery, schema: Schema, after: Instance, sources: dict, 
     return steps
 
 
+# a doc write sets constants only (an arithmetic write reads, shifts and writes back), and
+# issues SET and UNSET as two statements
+assumes("accepts.update.set_expression", COLLECTION, REFUSED)
+assumes("accepts.update.set_unset_without_comma", COLLECTION, REFUSED)
+
 def _doc(q: WriteQuery, sp: WriteSyntax, pred, schema: Schema, before: Instance, after: Instance) -> Statements:
     """`table`: one UPDATE / DELETE with the filter (where the statement's filter
     language states it); `nest`: the records chosen first by a collection SELECT (the
@@ -439,7 +446,7 @@ def _rdf(q: WriteQuery, sp: WriteSyntax, pred, schema: Schema) -> Statements:
         cls, idp = f"c:{q.table}", "p:id"
     f = q.field
     if q.op == "upsert":
-        from ganda.hana.mapping.rdf import class_triples
+        from ganda.hana.storage.mapping.rdf import class_triples
 
         st.steps.append(Step(f"{PREFIX_TEXT} SELECT (1 AS ?v) WHERE {{ BIND (1 AS ?one) }}", role="count_rows"))
         n = record_iri(q.target_id)
@@ -536,6 +543,9 @@ def build_rewrites(q: WriteQuery, rng: random.Random, schema: Schema, instance: 
             rewrites.ar = _rewrites.arithmetic(p, rng, "ar", ftype, stored)
     return rewrites
 
+
+assumes("statement.write.answers_row_count", SQL, True)
+assumes("statement.write.answers_row_count", COLLECTION, True)
 
 def execute(session, st: Statements) -> list:
     """Run one data model's statements (in one transaction for the tx door); the

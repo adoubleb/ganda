@@ -1,6 +1,6 @@
 """Run campaigns of the SAP HANA provider against the offline stand-in (`offline.py`):
 `python3 -m tests.hana.run_offline --seeds 1 20` from the project root. Every case's
-answers are compared pair by pair and with the reference, as a live campaign does."""
+answers are compared pair by pair, as a live campaign does."""
 from __future__ import annotations
 
 import argparse
@@ -8,11 +8,11 @@ import collections
 import random
 import traceback
 
-from ganda.core.data_generator import build
-from ganda.core.generators.registry import all_cases
-from ganda.core.generators.write_phase import run_write_phase
-from ganda.core.oracle import run_cases
-from ganda.core.state_check import verify_state
+from ganda.core.data.generator import build
+from ganda.core.query.generators.registry import all_cases
+from ganda.core.query.generators.write_phase import run_write_phase
+from ganda.core.oracle.oracle import run_cases
+from ganda.core.engine.state_check import compare_states
 from ganda.hana.provider import PROVIDER as E
 from tests.hana.offline import OfflineServer
 
@@ -58,11 +58,11 @@ def offline_cases(cases: list) -> list:
 
 
 def _offline_run_case(case, *args, **kw):
-    from ganda.core.oracle import run_case
+    from ganda.core.oracle.oracle import run_case
 
     cases = offline_cases([case])
     if not cases:
-        from ganda.core.oracle import CaseResult
+        from ganda.core.oracle.oracle import CaseResult
 
         return CaseResult(case=case, ok=True)
     return run_case(cases[0], *args, **kw)
@@ -76,17 +76,17 @@ def run_seed(seed: int, cfg, writes: bool = True) -> dict:
     for dm in E.data_models:
         s = server.fresh_session(E.database_name(f"s{seed}", dm))
         s.apply_setup(E.mappers[dm](instance))
-        d = verify_state(s, dm, instance)
+        sessions[dm] = s
+    for dm, d in compare_states(sessions, instance).items():
         if not d.ok:
             report["state"][dm] = d.problems[:5]
-        sessions[dm] = s
     if report["state"]:
         return report
     cases = offline_cases(all_cases(rng, schema, instance, cfg=cfg))
-    report["results"] = run_cases(cases, sessions, instance)
+    report["results"] = run_cases(cases, sessions)
     if writes and cfg.write_cases:
         # the write phase's read-backs are filtered as the read cases are
-        from ganda.core.generators import write_phase
+        from ganda.core.query.generators import write_phase
 
         write_phase.run_case = _offline_run_case
         wp = run_write_phase(sessions, instance, rng.for_generator("ir_write"), cfg.write_cases)
@@ -137,9 +137,6 @@ def main(argv=None) -> int:
                     print(f"   MISMATCH {m.pair} id={m.record_id}: {str(m.left_raw)[:200]} vs {str(m.right_raw)[:200]}")
                     print(f"     {m.left}: {res.case.queries.get(m.left, '')[:700]}")
                     print(f"     {m.right}: {res.case.queries.get(m.right, '')[:700]}")
-                for m in res.reference_mismatches[:2]:
-                    print(f"   REF {m.variant} id={m.record_id}: got {str(m.got)[:200]} expected {str(m.expected)[:200]}")
-                    print(f"     {res.case.queries.get(m.variant, '')[:900]}")
     print(dict(counts))
     return 0 if set(counts) <= {"cases"} else 1
 

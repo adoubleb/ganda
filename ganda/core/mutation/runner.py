@@ -5,8 +5,8 @@ category. The report (`mutation_reports/<tag>.json`) is the evidence a change to
 query supply did not lose discrimination: compare catch rates over the SAME mutant set
 and seeds, never the headline mean across sets of different size.
 
-`--no-semantics` scores pure cross-model detection (the reference leg switched off),
-which is the mode that isolates what the pairing itself sees.
+The oracle is the pairwise comparison of the data models and their variants, so a
+mutant is caught only where some variant still answers right.
 """
 from __future__ import annotations
 
@@ -18,13 +18,13 @@ import sys
 import time
 from collections import defaultdict
 
-from ganda.core import scale as _scale
-from ganda.core.config import add_config_arguments, config_from_args
-from ganda.core.data_generator import build, limits_of
-from ganda.core.generators.write_phase import run_write_phase
-from ganda.core.provider import EngineCrash, EngineError
-from ganda.core.oracle import run_case
-from ganda.core.generators.registry import all_cases
+from ganda.core.data import scale as _scale
+from ganda.core.campaign.config import add_config_arguments, config_from_args
+from ganda.core.data.generator import build, limits_of
+from ganda.core.query.generators.write_phase import run_write_phase
+from ganda.core.engine.provider import EngineCrash, EngineError
+from ganda.core.oracle.oracle import run_case
+from ganda.core.query.generators.registry import all_cases
 
 
 def _setup(engine, server, ns: str, instance, mutant) -> dict:
@@ -53,7 +53,7 @@ def _write_results(sessions, instance, rng, cfg, args) -> list:
     which says nothing about the write supply."""
     if not cfg.write_cases:
         return []
-    return run_write_phase(sessions, instance, rng.for_generator("ir_write"), cfg.write_cases, verify=False, reference=not args.no_reference).results
+    return run_write_phase(sessions, instance, rng.for_generator("ir_write"), cfg.write_cases, verify=False).results
 
 
 def run_benchmark(engine, args) -> dict:
@@ -62,7 +62,7 @@ def run_benchmark(engine, args) -> dict:
     by_name = {m.name: m for m in engine.mutants}
     mutants = [by_name[n] for n in args.mutants] if args.mutants else list(engine.mutants)
     seeds = list(range(args.seed, args.seed + args.trials))
-    report: dict = {"engine": engine.name, "tag": args.tag, "trials": args.trials, "seed": args.seed, "no_reference": args.no_reference, "config": dataclasses.asdict(cfg), "mutants": {}}
+    report: dict = {"engine": engine.name, "tag": args.tag, "trials": args.trials, "seed": args.seed, "config": dataclasses.asdict(cfg), "mutants": {}}
     start = time.time()
     ns = f"mut{os.getpid()}"
     with engine.server(None) as server:
@@ -77,7 +77,7 @@ def run_benchmark(engine, args) -> dict:
                 _drop(engine, server, ns)
                 continue
             cases = all_cases(rng, schema, instance, cfg=cfg)
-            bad = [c.generator_name for c in cases if not run_case(c, sessions, None if args.no_reference else instance).ok]
+            bad = [c.generator_name for c in cases if not run_case(c, sessions).ok]
             bad += [r.case.generator_name for r in _write_results(sessions, instance, rng, cfg, args) if not r.ok]
             clean[seed] = not bad
             if bad:
@@ -101,7 +101,7 @@ def run_benchmark(engine, args) -> dict:
                         case = mutant.rewrite_case(case)
                     if mutant.rewrite_case_schema is not None:
                         case = mutant.rewrite_case_schema(case, schema)
-                    r = run_case(case, sessions, None if args.no_reference else instance)
+                    r = run_case(case, sessions)
                     if not r.ok:
                         caught_by[case.generator_name] += 1
                         hit = True
@@ -125,7 +125,6 @@ def add_arguments(ap: argparse.ArgumentParser, engine) -> None:
     ap.add_argument("--trials", type=int, default=10)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--tag", default="mutation")
-    ap.add_argument("--no-reference", action="store_true")
     ap.add_argument("--mutants", nargs="*")
     ap.add_argument("--out-dir", default="mutation_reports")
     add_config_arguments(ap, engine.config_class)

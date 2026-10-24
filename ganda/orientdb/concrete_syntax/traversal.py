@@ -59,10 +59,14 @@ from __future__ import annotations
 
 import dataclasses
 
-from ganda.core.model import FieldType, Schema
-from ganda.core.ast.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, FIELD_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, Hop, TraversalQuery
-from ganda.orientdb.predicates import fields_of, has_op
+from ganda.core.data.model import FieldType, Schema
+from ganda.core.query.ir.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, FIELD_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, Hop, TraversalQuery
+from ganda.orientdb.facade.predicates import fields_of, has_op
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
+
+from ganda.orientdb.rules import answer, assumes, works_around
+from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+from ganda.core.rules.vocabulary import EmptyInputRows
 
 SYNTAXES = {
     "graph": ("chain", "match", "match_opt", "edgescan", "bag", "traverse", "traverse_dfs", "traverse_e"),
@@ -116,12 +120,20 @@ def _group(extra: tuple) -> str:
     return " GROUP BY id" + "".join(f", {f}" for f in extra)
 
 
+assumes("accepts.projection.comparison", SQL, REFUSED)
+
+
 def _set_filter(expr: str, q: TraversalQuery) -> str:
     """The WHERE condition of a bare-set projection over collection `expr`."""
     return f"{expr}.size() > 0" if q.projection == "exists" else f"{expr}.size() = 0"
 
 
 # --- applicability ----------------------------------------------------------------------------
+
+
+# an embedded document expands under `value`; no MATCH negative pattern is rendered (O22)
+assumes("expand.embedded.wrapped_under_value", SQL, True)
+works_around("O22")
 
 
 def applicable(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) -> bool:
@@ -182,7 +194,10 @@ def applicable(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) 
     return False
 
 
-_CI_OPS = ("=", "<>", "<", "<=", ">", ">=")
+_CI_OPS = tuple(answer("filter.case_insensitive.operators", SQL).split())
+
+
+assumes("projection.keeps_absent_field", SQL, False)
 
 
 def can_pull_up(q: TraversalQuery) -> bool:
@@ -191,9 +206,9 @@ def can_pull_up(q: TraversalQuery) -> bool:
     field (a projected value carries no collation: campaign c100, seed 670, an O25
     face)."""
     p = q.source_predicate
-    if p is None or has_op(p, ("IS DEFINED", "IS NOT DEFINED")):
+    if p is None or has_op(p, ("IS PRESENT", "IS ABSENT")):
         return False
-    return not any(leaf.ci and leaf.op in _CI_OPS for leaf in p.leaves())
+    return not any(leaf.case_insensitive and leaf.op in _CI_OPS for leaf in p.leaves())
 
 
 def syntaxes_for(q: TraversalQuery, schema: Schema, data_model: str) -> list:
@@ -281,6 +296,11 @@ def _graph_expr(q: TraversalQuery, hops: tuple, bag: bool = False, edge_final: b
     return ".".join(_graph_hop(h, bag, edge_final and k == n - 1) for k, h in enumerate(hops))
 
 
+# out() / both() answer a multiset: parallel edges twice, a self-loop twice under both()
+assumes("match.parallel_edges.rows", SQL, 2)
+assumes("match.undirected.self_loop.rows", SQL, 2)
+
+
 def _graph_chain(q: TraversalQuery, schema: Schema, bag: bool, extra: tuple = ()) -> str:
     expr = _graph_expr(q, q.hops, bag, q.edge_projection)
     src = q.source_table
@@ -288,6 +308,12 @@ def _graph_chain(q: TraversalQuery, schema: Schema, bag: bool, extra: tuple = ()
         return f"SELECT id{_cols(extra)} FROM {src}{_where(_sp(q), _set_filter(expr, q))}"
     proj, tail = _projected(expr, q, extra=extra)
     return f"SELECT id{_cols(extra)}, {proj} AS v FROM {src}{_where(_sp(q))}{tail}"
+
+
+assumes("match.parallel_edges.rows", MATCH, 2)
+assumes("match.optional.no_path.rows", MATCH, EmptyInputRows.ONE_ROW)
+assumes("accepts.max_depth.parameter", MATCH, REFUSED)
+works_around("O45")
 
 
 def _graph_match(q: TraversalQuery, schema: Schema, extra: tuple = (), optional: bool = False) -> str:
@@ -383,6 +409,12 @@ def _graph_reach_traverse(q: TraversalQuery, extra: tuple, strategy: str = "", f
 
 
 GRAPH_REACH_SYNTAXES = ("chain", "match", "traverse", "traverse_dfs", "traverse_e")
+
+
+# TRAVERSE walks depth-first unless told: the reach forms name BREADTH_FIRST (O44)
+assumes("traverse.default_strategy", TRAVERSE, Strategy.DEPTH_FIRST)
+assumes("accepts.max_depth.parameter", TRAVERSE, REFUSED)
+works_around("O44")
 
 
 def _graph_reach(q: TraversalQuery, syntax: str, extra: tuple) -> str:
@@ -547,6 +579,11 @@ def _doc_union(q: TraversalQuery, schema: Schema, extra: tuple = ()) -> str:
 
 
 # --- rel ------------------------------------------------------------------------------------
+
+
+# LET precedes WHERE, and `$parent.$current` reaches one level up
+assumes("accepts.let.after_where", SQL, REFUSED)
+assumes("accepts.parent.two_levels_up", SQL, REFUSED)
 
 
 def _rel_sub(q: TraversalQuery, schema: Schema, k: int, cur_ref: str, direction: "str | None" = None) -> str:

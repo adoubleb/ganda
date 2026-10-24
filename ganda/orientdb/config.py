@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
-from ganda.core.data_generator import GeneratorConfig
+from ganda.core.data.generator import GeneratorConfig
 
 
 @dataclass

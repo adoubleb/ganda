@@ -1,42 +1,12 @@
-"""Campaigns of the SAP HANA provider against the offline stand-in (`offline.py`: SQLite
-for rel and doc, rdflib for rdf), through the provider's own session code: every case
-must agree pair by pair and with the reference, every setup and write must leave the
-Instance's state. Needs rdflib (`pip install rdflib`); `python3 -m
-tests.hana.run_offline --seeds 1 20` runs more seeds and prints what disagrees."""
+"""The offline SAP HANA stand-in (`offline.py`: SQLite for rel and doc, rdflib for rdf).
+Its whole campaigns are not run here (minutes each, rdflib's SPARQL): `python3 -m
+tests.hana.run_offline --seeds 1 20` runs them through the provider's own session code
+and prints what disagrees. Needs rdflib (`pip install rdflib`)."""
 from __future__ import annotations
 
 import pytest
 
 rdflib = pytest.importorskip("rdflib")
-
-from tests.hana.run_offline import run_seed  # noqa: E402
-from ganda.hana.provider import PROVIDER as E  # noqa: E402
-
-CFG = E.config_class(write_form_probability=0.8, churn_edge_update_probability=0.3, clusters_probability=0.3)
-
-
-@pytest.mark.parametrize("seed", [1, 2, 3])
-def test_an_offline_campaign_agrees_with_itself_and_the_reference(seed):
-    r = run_seed(seed, CFG)
-    assert not r["state"], r["state"]
-    assert not r.get("write_diffs"), (r.get("write_stopped"), r.get("write_diffs"))
-    bad = [(x.finding_class, x.case.generator_name, x.case.shape, x.failing_pairs[:4]) for x in r["results"] if not x.ok]
-    assert not bad, bad[:5]
-    assert len(r["results"]) > 100
-
-
-@pytest.mark.parametrize("seed", [1, 2])
-def test_an_offline_campaign_with_the_base_class_and_custom_keys(seed):
-    """The inheritance axis (a base class on four data models: a UNION ALL view, the
-    views' union, a second class triple, the unlabelled MATCH; writes on it per
-    subclass) and custom keys, through every variant and every write."""
-    cfg = CFG.with_(inheritance_probability=1.0, custom_key_probability=1.0)
-    r = run_seed(seed, cfg)
-    assert not r["state"], r["state"]
-    assert not r.get("write_diffs"), (r.get("write_stopped"), r.get("write_diffs"))
-    bad = [(x.finding_class, x.case.generator_name, x.case.shape, x.failing_pairs[:4]) for x in r["results"] if not x.ok]
-    assert not bad, bad[:5]
-    assert any(x.case.params.get("table") == "N0" for x in r["results"])
 
 
 def test_rdflib_quirks_the_offline_runner_works_around():

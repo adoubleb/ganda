@@ -25,8 +25,8 @@ import shutil
 import subprocess
 import sys
 
-from ganda.orientdb.connection import DEFAULT_IMAGE
-from ganda.orientdb.coverage import AGENT_EXCLUDES, JACOCO_VERSION
+from ganda.orientdb.engine.connection import DEFAULT_IMAGE
+from ganda.orientdb.engine.coverage import AGENT_EXCLUDES, JACOCO_VERSION
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # the jars copied out of the image and the HTML reports land under the working directory

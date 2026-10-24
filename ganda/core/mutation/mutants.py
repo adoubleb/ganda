@@ -9,8 +9,8 @@ everything else alone, and counting how often a case catches it.
 The mutants here corrupt the INSTANCE one data model is materialized from, so they
 apply to every engine with the standard `doc` / `graph` / `rel` data models. A provider
 appends its own (a corruption of its query text, an index path) in `Provider.mutants`.
-Categories: structural, attribute, churn, oracle-blind (every data model alike: only
-the reference sees it).
+Categories: structural, attribute, churn. A corruption every data model shares is not
+in the catalog: the oracle is differential, so nothing can see it.
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ import dataclasses
 from dataclasses import dataclass
 from typing import Callable
 
-from ganda.core.model import EdgeDelete, EdgeRow, EdgeUpdate, FieldType, Instance, NodeDelete, NodeUpdate
+from ganda.core.data.model import EdgeDelete, EdgeRow, EdgeUpdate, FieldType, Instance, NodeDelete, NodeUpdate
 
 
 @dataclass(frozen=True)
@@ -30,8 +30,6 @@ class Mutant:
     instance_for_data_model: dict = dataclasses.field(default_factory=dict)
     # function(case) -> case applied to every case (renderer-level corruption)
     rewrite_case: "Callable | None" = None
-    # the data models whose plan is replaced by the plan of the corrupted instance
-    reference_only: bool = False
     # function(case, schema) -> case: a renderer-level corruption that needs the
     # schema (which fields an index of the data model covers)
     rewrite_case_schema: "Callable | None" = None
@@ -170,5 +168,4 @@ INSTANCE_MUTANTS = [
     Mutant("rel_edge_delete_skipped", "churn", "the relational data model never removes churned edges", {"rel": _skip_edge_deletes}),
     Mutant("graph_stale_edge_update", "churn", "the graph data model never applies the EdgeUpdate churn (needs --churn-edge-update-probability)", {"graph": _skip_edge_updates}),
     Mutant("doc_dangling_after_node_delete", "churn", "the doc data model leaves links to a deleted node", {"doc": _dangling_after_node_delete}),
-    Mutant("all_sides_drop_edge", "oracle-blind", "every data model loses the first edge (only the reference sees it)", {"doc": _drop_first_edge, "graph": _drop_first_edge, "rel": _drop_first_edge}, reference_only=True),
 ]

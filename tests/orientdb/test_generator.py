@@ -1,10 +1,10 @@
 import dataclasses
 from collections import Counter
 
-from ganda.orientdb.generate import GeneratorConfig, build, initial_node_values, write_order_states
+from ganda.orientdb.facade.generate import GeneratorConfig, build, initial_node_values, write_order_states
 
-from ganda.core.model import FieldType, NodeDelete, NodeUpdate
-from ganda.orientdb.dialect import is_valid_key
+from ganda.core.data.model import FieldType, NodeDelete, NodeUpdate
+from ganda.orientdb.storage.dialect import is_valid_key
 
 
 def test_build_is_deterministic():
@@ -122,8 +122,8 @@ def test_inheritance_axis_is_a_tail_axis():
 
 
 def test_inheritance_ddl_and_cases():
-    from ganda.orientdb.mapping import MAPPERS
-    from ganda.core.generators.registry import all_cases, reference_for
+    from ganda.orientdb.storage.mapping import MAPPERS
+    from ganda.core.query.generators.registry import all_cases
 
     found_poly = False
     for seed in range(1, 12):
@@ -135,8 +135,6 @@ def test_inheritance_ddl_and_cases():
             assert all(f"EXTENDS N0" in t for t in texts if t.startswith("CREATE CLASS n"))
             assert not any(t.startswith("CREATE PROPERTY n") and t.endswith(".id STRING") for t in texts)
         for c in all_cases(rng, schema, inst, traversal_cases=0, select_cases=30):
-            has, ref = reference_for(c, inst)
-            assert has or c.params.get("reference") is False
             if c.params.get("table") == "N0":
                 found_poly = True
     assert found_poly
@@ -146,7 +144,7 @@ def test_new_axes_are_tail_axes():
     import struct
     from decimal import Decimal
 
-    from ganda.core.model import EdgeUpdate
+    from ganda.core.data.model import EdgeUpdate
 
     base = build(31, GeneratorConfig())[1]
     tail = build(31, GeneratorConfig(narrow_type_probability=1.0, collate_probability=1.0, clusters_probability=1.0, list_index_probability=1.0, churn_edge_update_probability=0.5, write_form_probability=1.0))[1]
@@ -156,10 +154,10 @@ def test_new_axes_are_tail_axes():
     types = {f.type for nt in schema.node_types for f in nt.fields}
     assert FieldType.INT not in types and FieldType.FLOAT not in types
     for nt in schema.node_types:
-        assert nt.clusters in (2, 3)
+        assert nt.option("clusters") in (2, 3)
         for f in nt.fields:
             if f.type is FieldType.STRING:
-                assert f.ci
+                assert f.case_insensitive
             if f.type is FieldType.LIST:
                 assert schema.node_indexes(nt.name, f.name, "doc") or schema.node_indexes(nt.name, f.name, "graph") or schema.node_indexes(nt.name, f.name, "rel")
     for n in tail.nodes:
@@ -186,7 +184,7 @@ def test_new_axes_are_tail_axes():
 
 
 def test_new_axes_ddl_and_churn():
-    from ganda.orientdb.mapping import MAPPERS
+    from ganda.orientdb.storage.mapping import MAPPERS
 
     schema, inst, _ = build(32, GeneratorConfig(narrow_type_probability=1.0, collate_probability=1.0, clusters_probability=1.0, churn_edge_update_probability=0.5, write_form_probability=0.0))
     for data_model, mapper in MAPPERS.items():
@@ -203,8 +201,8 @@ def test_new_axes_ddl_and_churn():
 def test_date_and_map_axes():
     import datetime as _dt
 
-    from ganda.orientdb.mapping import MAPPERS
-    from ganda.core.generators.registry import all_cases, reference_for
+    from ganda.orientdb.storage.mapping import MAPPERS
+    from ganda.core.query.generators.registry import all_cases
 
     base = build(41, GeneratorConfig())[1]
     tail = build(41, GeneratorConfig(date_map_probability=1.0, list_index_probability=1.0))[1]
@@ -223,7 +221,7 @@ def test_date_and_map_axes():
                 assert set(v) <= {"k1", "k2", "k3", "k4"}
     # a seed whose schema holds a LIST field, now a map with an index on it
     mapped = next(build(seed, GeneratorConfig(date_map_probability=1.0, list_index_probability=1.0))[1] for seed in range(41, 80) if any(f.type is FieldType.LIST for nt in build(seed, GeneratorConfig())[0].node_types for f in nt.fields))
-    assert any(ix.by in ("KEY", "VALUE") for ix in mapped.schema.indexes)
+    assert any(ix.option("by") in ("KEY", "VALUE") for ix in mapped.schema.indexes)
     ddl = []
     for data_model, mapper in MAPPERS.items():
         texts = [s.command for s in mapper(tail) if hasattr(s, "command")]
@@ -237,8 +235,6 @@ def test_date_and_map_axes():
     for seed in range(41, 47):
         schema, inst, rng = build(seed, GeneratorConfig(date_map_probability=0.7, list_index_probability=1.0, index_probability=0.6, inheritance_probability=0.5))
         for c in all_cases(rng, schema, inst, select_cases=30):
-            has, ref = reference_for(c, inst)
-            assert has or c.params.get("reference") is False, c.generator_name
             seen |= {s_.split(":", 1)[1] for s_ in c.queries if ":" in s_}
     assert {"index", "poly", "polyin"} <= seen
 
@@ -271,7 +267,7 @@ def test_binary_columns_hold_base64_values_and_carry_no_index():
 
 
 def test_the_incremental_collision_check_matches_the_state_walk():
-    from ganda.core.data_generator import _collides, index_key
+    from ganda.core.data.generator import _collides, index_key
 
     def by_states(instance, ix) -> bool:
         fields = ix.all_fields

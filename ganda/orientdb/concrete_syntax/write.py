@@ -47,11 +47,14 @@ import random
 import re
 from dataclasses import dataclass, field
 
-from ganda.core.model import Instance, Schema
-from ganda.orientdb import predicates
-from ganda.orientdb.predicates import Predicate
+from ganda.core.data.model import Instance, Schema
+from ganda.orientdb.facade import predicates
+from ganda.orientdb.facade.predicates import Predicate
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
-from ganda.core.ast.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
+from ganda.core.query.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
+
+from ganda.orientdb.rules import answer, assumes, works_around
+from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
 
 FILTERS = ("plain", "rw", "rev", "ar")
 TARGETS = ("table", "nest", "sub")
@@ -164,6 +167,12 @@ def _where(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites) -> "str | No
     return text
 
 
+# UPDATE ... CONTENT and MERGE take a JSON literal, INCREMENT is refused
+assumes("accepts.update.content.parameter", SQL, REFUSED)
+assumes("accepts.merge.parameter", SQL, REFUSED)
+assumes("accepts.update.increment", SQL, REFUSED)
+
+
 def _change(q: WriteQuery, params: dict) -> str:
     op = q.op.removeprefix("edge_")
     f = q.field
@@ -189,6 +198,10 @@ def _returning(q: WriteQuery) -> str:
     return f" RETURN {q.returning.upper()} $current.id AS id, $current.{q.field} AS v"
 
 
+# UPSERT only by id (on another predicate it inserts a record with no id)
+assumes("upsert.other_predicate.keeps_id", SQL, False)
+
+
 def _node_update(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites) -> tuple:
     params: dict = {}
     change = _change(q, params)
@@ -207,6 +220,14 @@ def _node_update(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites) -> tup
 
 def _victims(q: WriteQuery, where: "str | None") -> str:
     return f"(SELECT id FROM {q.table}" + (f" WHERE {where}" if where else "") + ")"
+
+
+# DELETE VERTEX cascades its edges, DELETE FROM a vertex class is refused, a doc delete
+# leaves its incoming links (the cascade rewrites them first); DELETE takes no TIMEOUT
+assumes("delete_vertex.cascades_edges", SQL, True)
+assumes("accepts.delete_from.vertex_or_edge_class", SQL, REFUSED)
+assumes("delete.document.keeps_incoming_links", SQL, True)
+assumes("accepts.delete.timeout", SQL, REFUSED)
 
 
 def _node_delete(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_model: str, schema: Schema, instance: Instance) -> Statements:
@@ -245,11 +266,14 @@ def _node_delete(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_m
     return st
 
 
+assumes("accepts.update.embedded_list_element", SQL, REFUSED)
+
+
 def _doc_rewrites(q: WriteQuery, before: Instance, after: Instance) -> list:
     """Each source holding a matched relationship re-sets its whole list, by id, to
     the list the Instance after the write holds (targets as `Ref`s the connection layer
     resolves to this database's RIDs)."""
-    from ganda.orientdb.mapping.document import link_entry
+    from ganda.orientdb.storage.mapping.document import link_entry
 
     et = before.schema.edge_type(q.edge_type)
     sources = sorted({e.from_record for e in edge_hits(q, before)})
@@ -320,10 +344,14 @@ def build_rewrites(q: WriteQuery, rng: random.Random, schema: Schema, instance: 
     return rewrites
 
 
+assumes("statement.write.answers_row_count", SQL, True)
+assumes("statement.atomic", SQL, False)
+
+
 def execute(session, st) -> list:
     """Run one data model's statements; the compared statement's answer."""
-    from ganda.orientdb.connection import unwrap_script
-    from ganda.orientdb.mapping.common import resolve_refs
+    from ganda.orientdb.engine.connection import unwrap_script
+    from ganda.orientdb.storage.mapping.common import resolve_refs
 
     if st.door == "tx":
         if not st.prelude and not st.main:

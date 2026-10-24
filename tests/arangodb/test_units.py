@@ -10,21 +10,22 @@ import re
 
 import pytest
 
-from ganda.core.ast.predicates import Compound, Predicate
-from ganda.core.ast.write import apply
-from ganda.core.data_generator import build
-from ganda.core.generators.registry import all_cases
-from ganda.core.generators.write import sample_write
-from ganda.core.model import FieldType
-from ganda.core.setup_plan import plan_from_dict, plan_to_dict
-from ganda.core.state_check import verify_state
-from ganda.arangodb import rewrites
-from ganda.arangodb.connection import bind_subset
-from ganda.arangodb.dialect import ARANGO_KEY_RE, document_key, engine_id, logical_id
-from ganda.arangodb.mapping.common import Aql, CreateCollection, CreateIndex, DocumentApi, Insert, Transaction, chunks
+from ganda.core.query.ir.predicates import Compound, Predicate
+from ganda.core.query.ir.write import apply
+from ganda.core.data.generator import build
+from ganda.core.query.generators.registry import all_cases
+from ganda.core.query.generators.write import sample_write
+from ganda.core.data.model import FieldType
+from ganda.core.engine.setup_plan import plan_from_dict, plan_to_dict
+from ganda.core.engine.state_check import compare_states
+from tests.instance_session import InstanceSession
+from ganda.arangodb.oracle import rewrites
+from ganda.arangodb.engine.connection import bind_subset
+from ganda.arangodb.storage.dialect import ARANGO_KEY_RE, document_key, engine_id, logical_id
+from ganda.arangodb.storage.mapping.common import Aql, CreateCollection, CreateIndex, DocumentApi, Insert, Transaction, chunks
 from ganda.arangodb.provider import PROVIDER as E
-from ganda.arangodb.semantics import aql_key, eq, evaluate, like_hit, lt, predicate_hit
-from ganda.arangodb import tx
+from ganda.arangodb.oracle.semantics import aql_key, eq, evaluate, like_hit, lt, predicate_hit
+from ganda.arangodb.engine import tx
 
 CFG = E.config_class(custom_key_probability=0.3, inheritance_probability=0.5, narrow_type_probability=0.3, date_map_probability=0.5, collate_probability=0.4, list_index_probability=0.5, churn_edge_update_probability=0.2, write_form_probability=0.8, traversal_cases=6, select_cases=16, path_cases=2, write_cases=3)
 SEEDS = (1, 2, 3, 4)
@@ -65,8 +66,8 @@ def test_the_total_type_order():
     assert predicate_hit(False, None, "<>", 5) and not predicate_hit(False, None, "=", 5)
     assert predicate_hit(True, None, "IN", [1, None]) and not predicate_hit(True, 2, "IN", [1, None])
     assert not predicate_hit(False, None, "BETWEEN", [1, 5]) and predicate_hit(True, 3, "BETWEEN", [1, 5])
-    assert predicate_hit(True, [1, 2], "CONTAINSALL", [1]) and not predicate_hit(True, None, "CONTAINS", 1)
-    assert predicate_hit(True, {"k1": 2}, "CONTAINSKEY", "k1") and predicate_hit(True, {"k1": 2}, "VALUES CONTAINS", 2)
+    assert predicate_hit(True, [1, 2], "HAS ALL", [1]) and not predicate_hit(True, None, "HAS", 1)
+    assert predicate_hit(True, {"k1": 2}, "HAS KEY", "k1") and predicate_hit(True, {"k1": 2}, "VALUES HAS", 2)
     assert predicate_hit(True, {"k1": 2}, ">", 1, key="k1") and predicate_hit(True, {"k2": 2}, "<", 1, key="k1")
 
 
@@ -78,7 +79,7 @@ def test_like_is_case_sensitive_and_crosses_a_newline_but_not_a_paragraph_separa
 
 
 def _leaf(field, op, pivot=None, ftype="int"):
-    return Predicate("source", field, op, "" if op in ("IS NULL", "IS NOT NULL", "IS DEFINED", "IS NOT DEFINED") else f"b{field}", pivot, True, ftype)
+    return Predicate("source", field, op, "" if op in ("IS NULL", "IS NOT NULL", "IS PRESENT", "IS ABSENT") else f"b{field}", pivot, ftype)
 
 
 def _random_tree(rng, depth=0):
@@ -89,13 +90,13 @@ def _random_tree(rng, depth=0):
         return Compound("source", op, kids)
     f = rng.choice(list(fields))
     if fields[f] is FieldType.LIST:
-        op = rng.choice(("CONTAINS", "CONTAINSANY", "CONTAINSALL", "=", "IS NULL"))
-        pivot = {"CONTAINS": rng.randint(0, 3), "=": [rng.randint(0, 3)], "IS NULL": None}.get(op, [rng.randint(0, 3) for _ in range(2)])
+        op = rng.choice(("HAS", "HAS ANY", "HAS ALL", "=", "IS NULL"))
+        pivot = {"HAS": rng.randint(0, 3), "=": [rng.randint(0, 3)], "IS NULL": None}.get(op, [rng.randint(0, 3) for _ in range(2)])
         return _leaf(f, op, pivot, "list")
     if fields[f] is FieldType.MAP:
-        op = rng.choice(("CONTAINSKEY", "VALUES CONTAINS", "IS NOT NULL"))
-        return _leaf(f, op, {"CONTAINSKEY": rng.choice(("k1", "k2")), "VALUES CONTAINS": rng.randint(0, 3)}.get(op), "map")
-    op = rng.choice(("=", "<>", "<", "<=", ">", ">=", "IN", "BETWEEN", "IS NULL", "IS NOT NULL", "IS DEFINED", "IS NOT DEFINED"))
+        op = rng.choice(("HAS KEY", "VALUES HAS", "IS NOT NULL"))
+        return _leaf(f, op, {"HAS KEY": rng.choice(("k1", "k2")), "VALUES HAS": rng.randint(0, 3)}.get(op), "map")
+    op = rng.choice(("=", "<>", "<", "<=", ">", ">=", "IN", "BETWEEN", "IS NULL", "IS NOT NULL", "IS PRESENT", "IS ABSENT"))
     pivot = {"IN": [rng.randint(0, 3), rng.randint(0, 3)], "BETWEEN": sorted([rng.randint(0, 3), rng.randint(0, 3)])}.get(op, rng.randint(0, 3) if not op.startswith("IS") else None)
     return _leaf(f, op, pivot)
 
@@ -246,7 +247,7 @@ class _Store:
 
 
 class _Session:
-    """`state_check.verify_state`'s view of a `_Store`."""
+    """`state_check.compare_states`'s view of a `_Store`."""
 
     def __init__(self, store: _Store):
         self.store = store
@@ -279,6 +280,7 @@ BULK_CFG = dataclasses.replace(CFG, statements_per_request=7, write_form_probabi
 @pytest.mark.parametrize("cfg", [CFG, BULK_CFG], ids=["plain", "bulk"])
 def test_every_plan_round_trips_and_replays_to_the_instance(seed, cfg):
     schema, instance, _rng = build(seed, cfg, E)
+    sessions = {"instance": InstanceSession(instance)}
     for data_model in E.data_models:
         plan = E.mappers[data_model](instance)
         if cfg is BULK_CFG:
@@ -289,10 +291,11 @@ def test_every_plan_round_trips_and_replays_to_the_instance(seed, cfg):
         store = _Store()
         for s in plan:
             store.step(s)
-        diff = verify_state(_Session(store), data_model, instance)
-        assert diff.ok, (data_model, diff.problems[:5])
+        sessions[data_model] = _Session(store)
         # the cancelled junk left nothing behind
         assert not any("junk" in k for coll in store.colls.values() for k in coll)
+    for data_model, diff in compare_states(sessions, instance).items():
+        assert diff.ok, (data_model, diff.problems[:5])
 
 
 def _flat(plan) -> list:
@@ -303,7 +306,7 @@ def _flat(plan) -> list:
 
 
 def test_folding_keeps_each_documents_statement_order_and_bounds_a_transaction():
-    from ganda.arangodb.mapping.common import fold_steps, transaction_groups
+    from ganda.arangodb.storage.mapping.common import fold_steps, transaction_groups
 
     steps = [Aql("UPDATE @key WITH @doc IN n1 OPTIONS {keepNull: false, mergeObjects: false}", {"key": "r1", "doc": {"a": None}}), Aql("UPDATE @key WITH @doc IN n1 OPTIONS {mergeObjects: false}", {"key": "r1", "doc": {"b": 1}}), Aql("UPDATE @key WITH @doc IN n1 OPTIONS {keepNull: false, mergeObjects: false}", {"key": "r2", "doc": {"a": None}}), Aql("UPDATE @key WITH @doc IN n1 OPTIONS {mergeObjects: false}", {"key": "r2", "doc": {"b": 2}}), Aql("UPDATE @key WITH @doc IN n1 OPTIONS {mergeObjects: false}", {"key": "r2", "doc": {"e1": []}}), Aql("REMOVE @key IN n1", {"key": "r3"}), Aql("REMOVE @key IN n1", {"key": "r4"})]
     folded = fold_steps(steps, 10)
@@ -386,11 +389,11 @@ def test_every_select_variant_form_fits_its_kind(seed):
 
 
 def test_a40_guard_fires_on_a_membership_under_not_over_a_null_list():
-    from ganda.core.model import NodeRow
-    from ganda.arangodb.known_bugs import a40_shape, membership_under_not
+    from ganda.core.data.model import NodeRow
+    from ganda.arangodb.known_bugs.guards import a40_shape, membership_under_not
 
-    contains = Predicate("source", "l", "CONTAINS", "p", 1, True, "list")
-    other = Predicate("source", "a", "=", "q", 1, True, "int")
+    contains = Predicate("source", "l", "HAS", "p", 1, "list")
+    other = Predicate("source", "a", "=", "q", 1, "int")
     assert membership_under_not(Compound("source", "NOT", (contains,))) == {"l"}
     assert membership_under_not(Compound("source", "OR", (other, Compound("source", "NOT", (contains,))))) == {"l"}
     assert membership_under_not(Compound("source", "NOT", (Compound("source", "AND", (other, contains)),))) == {"l"}
@@ -400,3 +403,116 @@ def test_a40_guard_fires_on_a_membership_under_not_over_a_null_list():
     assert a40_shape(Compound("source", "NOT", (contains,)), rows)
     assert not a40_shape(Compound("source", "NOT", (contains,)), rows[:1])
     assert not a40_shape(contains, rows)
+
+
+# --- the mutation catalog -------------------------------------------------------------------------
+
+
+def test_every_mutant_corrupts_something():
+    from ganda.arangodb.mutation.mutants import MUTANTS
+
+    assert len({m.name for m in MUTANTS}) == len(MUTANTS)
+    cfg = dataclasses.replace(CFG, index_probability=0.9, composite_index_probability=0.5, churn_update_probability=0.5, churn_delete_probability=0.4, churn_node_delete_probability=0.4)
+    changed = {m.name: False for m in MUTANTS}
+    for seed in SEEDS:
+        schema, inst, rng = build(seed, cfg, E)
+        for m in MUTANTS:
+            for fn in m.instance_for_data_model.values():
+                out = fn(inst)
+                changed[m.name] |= out.edges != inst.edges or out.nodes != inst.nodes or out.churn != inst.churn
+        if not any(m.rewrite_case or m.rewrite_case_schema for m in MUTANTS):
+            continue
+        for case in all_cases(rng, schema, inst, cfg=cfg):
+            for m in MUTANTS:
+                if m.rewrite_case is not None:
+                    changed[m.name] |= m.rewrite_case(case).queries != case.queries
+                if m.rewrite_case_schema is not None:
+                    changed[m.name] |= m.rewrite_case_schema(case, schema).queries != case.queries
+    assert all(changed.values()), [n for n, c in changed.items() if not c]
+
+
+def test_index_mutants_leave_the_scan_twins_alone():
+    from ganda.arangodb.mutation.mutants import _desc_as_asc, _inclusive_range, _index_served, _null_keys
+
+    assert _inclusive_range("FOR n IN n1 FILTER n.f > @p RETURN {id: n.id}", ["f"]) == "FOR n IN n1 FILTER n.f >= @p RETURN {id: n.id}"
+    assert _inclusive_range("FOR n IN n1 FILTER n.g > @p RETURN {id: n.id}", ["f"]) == "FOR n IN n1 FILTER n.g > @p RETURN {id: n.id}"
+    assert _null_keys("FOR n IN n1 FILTER n.f == @p RETURN {id: n.id}", ["f"]) == "FOR n IN n1 FILTER (n.f == @p OR n.f == null) RETURN {id: n.id}"
+    assert _null_keys("FOR n IN n1 FILTER n.f IN @p RETURN 1", ["f"]) == "FOR n IN n1 FILTER (n.f IN @p OR n.f == null) RETURN 1"
+    assert _desc_as_asc("FOR n IN n1 FILTER n.f != null SORT n.f DESC LIMIT 1 RETURN {v: n.f}", ["f"]) == "FOR n IN n1 FILTER n.f != null SORT n.f ASC LIMIT 1 RETURN {v: n.f}"
+    assert _index_served("FOR n IN n1 FILTER n.f > @p RETURN 1")
+    assert not _index_served("FOR n IN n1 FILTER NOOPT(n.f) > @p RETURN 1")
+    assert not _index_served("FOR n IN n1 OPTIONS {disableIndex: true} FILTER n.f > @p RETURN 1")
+    assert not _index_served(tx.script({"write": ["n1"], "read": ["n1"]}, ["FOR x IN n1 REMOVE x IN n1"], "FOR n IN n1 FILTER n.f > @p RETURN 1"))
+
+
+# --- the rules the generators read ----------------------------------------------------------------
+
+
+def test_a_string_column_draws_the_equality_family_only_because_its_order_is_collation():
+    from ganda.arangodb.oracle.pivots import EQUALITY_OPS, ORDERED_OPS, ordered_ops
+
+    assert ordered_ops(FieldType.STRING) == EQUALITY_OPS and ordered_ops(FieldType.BINARY) == EQUALITY_OPS
+    assert ordered_ops(FieldType.INT) == ORDERED_OPS and ordered_ops(FieldType.DATE) == ORDERED_OPS
+
+
+def test_the_deep_traversal_asks_every_walk_and_the_collect_form_skips_sum():
+    from ganda.arangodb.concrete_syntax.select import _COLLECT_AGGREGATES
+    from ganda.arangodb.concrete_syntax.traversal import _DEEP_OPTIONS
+
+    assert _DEEP_OPTIONS == " OPTIONS {uniqueEdges: 'none'}"
+    assert "sum" not in _COLLECT_AGGREGATES and "max" in _COLLECT_AGGREGATES
+
+
+# --- the known bug A25 ---------------------------------------------------------------------------
+
+
+def test_a25_guard_fires_on_an_or_of_two_list_equalities_over_an_array_index():
+    from ganda.core.data.model import EdgeTypeSpec, FieldSpec, IndexSpec, NodeTypeSpec
+    from ganda.arangodb.known_bugs.guards import a25_shape, or_of_list_equalities
+
+    eq1 = Predicate("source", "l", "=", "p_0", [1], "list")
+    eq2 = Predicate("source", "l", "=", "p_1", [66], "list")
+    same = Predicate("source", "l", "=", "p_1", [1], "list")
+    other = Predicate("source", "a", "=", "q", 1, "int")
+    both = Compound("source", "OR", (eq1, eq2))
+    assert or_of_list_equalities(both) == {"l"}
+    assert or_of_list_equalities(Compound("source", "OR", (eq1, dataclasses.replace(eq2, rev=True)))) == {"l"}
+    assert or_of_list_equalities(Compound("source", "AND", (both, other))) == {"l"}
+    assert or_of_list_equalities(Compound("source", "OR", (eq1, eq2, Predicate("source", "l", "=", "p_2", [1, 2], "list")))) == {"l"}
+    assert or_of_list_equalities(Predicate("source", "l", "IN", "p", [[1], [66]], "list")) == {"l"}
+    # safe: one equality, the same value twice, a mixed OR, an OR under a NOT, a wider OR, a one-element IN
+    assert or_of_list_equalities(eq1) == set()
+    assert or_of_list_equalities(Compound("source", "OR", (eq1, same))) == set()
+    assert or_of_list_equalities(Compound("source", "OR", (eq1, eq2, other))) == set()
+    assert or_of_list_equalities(Compound("source", "NOT", (both,))) == set()
+    assert or_of_list_equalities(Compound("source", "OR", (both, other))) == set()
+    assert or_of_list_equalities(Predicate("source", "l", "IN", "p", [[1]], "list")) == set()
+    # the data model holding the array index is the one withheld
+    schema = E.schema(
+        node_types=(NodeTypeSpec("n1", (FieldSpec("l", FieldType.LIST), FieldSpec("a", FieldType.INT))),),
+        edge_types=(EdgeTypeSpec("e1", "n1", "n1", (FieldSpec("w", FieldType.LIST),)),),
+        indexes=(IndexSpec("n1", "l", data_model="doc", kind="persistent"), IndexSpec("e1", "w", data_model="both", target="edge", kind="persistent")),
+    )
+    assert a25_shape(both, schema, "n1", "doc") and not a25_shape(both, schema, "n1", "graph") and not a25_shape(both, schema, "n1", "rel")
+    assert not a25_shape(eq1, schema, "n1", "doc")
+    edge_or = Compound("edge", "OR", (Predicate("edge", "w", "=", "p_0", [1], "list"), Predicate("edge", "w", "=", "p_1", [2], "list")))
+    assert a25_shape(edge_or, schema, "e1", "graph", edge=True) and a25_shape(edge_or, schema, "e1", "rel", edge=True) and not a25_shape(edge_or, schema, "e1", "doc", edge=True)
+
+
+def test_a25_withholds_the_index_servable_select_variants_only():
+    from ganda.arangodb.concrete_syntax.select import Rewrites, SelectSyntax
+    from ganda.arangodb.known_bugs.guards import select_known
+    from ganda.core.data.model import EdgeTypeSpec, FieldSpec, IndexSpec, NodeTypeSpec, NodeRow
+    from ganda.core.query.ir.select import SelectQuery
+
+    schema = E.schema(node_types=(NodeTypeSpec("n1", (FieldSpec("l", FieldType.LIST),)),), edge_types=(EdgeTypeSpec("e1", "n1", "n1", ()),), indexes=(IndexSpec("n1", "l", data_model="doc", kind="persistent"),))
+    both = Compound("source", "OR", (Predicate("source", "l", "=", "p_0", [1], "list"), Predicate("source", "l", "=", "p_1", [66], "list")))
+    q = SelectQuery("n1", both, "ids", ())
+    inst = build(1, CFG, E)[1]
+    inst = dataclasses.replace(inst, schema=schema, nodes=[NodeRow("n1", 0, {"l": [1]}), NodeRow("n1", 1, {"l": [66]})], edges=[], churn=[])
+    rw = Rewrites()
+    assert select_known(q, SelectSyntax(), rw, "doc", schema, inst) == "A25"
+    assert select_known(q, SelectSyntax(position="nest"), rw, "doc", schema, inst) == "A25"
+    assert select_known(q, SelectSyntax(filter="noopt"), rw, "doc", schema, inst) is None
+    assert select_known(q, SelectSyntax(position="noindex"), rw, "doc", schema, inst) is None
+    assert select_known(q, SelectSyntax(), rw, "graph", schema, inst) is None

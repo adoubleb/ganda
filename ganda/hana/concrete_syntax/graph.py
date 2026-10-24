@@ -20,7 +20,7 @@ Two families of concrete syntax, both reaching the engine:
   (`cypher_filter`), the aggregate, the ordering -- and SQL only wraps what the
   language lacks (a start with no path, COUNT DISTINCT, NOT EXISTS, MIN over levels).
 
-The language is a subset (RULES.md, G*): ONE MATCH clause (a heterogeneous workspace,
+The language is a subset (`rules/catalog.py`, the G facts): ONE MATCH clause (a heterogeneous workspace,
 which every campaign's is, takes no second one: probed G8) of comma-separated patterns
 and one RETURN; no incoming arrow (a hop in is the pattern reversed), no OPTIONAL
 MATCH, UNION, WITH or IN; comparisons, IS NULL, CONTAINS / STARTS WITH / ENDS WITH over
@@ -50,42 +50,42 @@ needs no decode suffix except a LIST's `__JSON`; aliases are uppercase so a SQL 
 reads them unquoted and the session lowercases them.
 
 The module constants named after probe facts (`WALK_ACROSS_CLAUSES`, ...) hold the
-documented behaviour until the fact is probed (RULES.md); each selects a rendering.
+probed behaviour (its fact's answer in `rules/catalog.py`); each selects a rendering.
 """
 from __future__ import annotations
 
 import re
 
-from ganda.core.ast.predicates import MIRROR, Compound
-from ganda.core.model import FieldType, Schema
+from ganda.core.query.ir.predicates import MIRROR, Compound
+from ganda.core.data.model import FieldType, Schema
 from ganda.hana.concrete_syntax.predicate import Names
-from ganda.hana.dialect import SQL_TYPES, child_table, graph_attr, graph_columns, graph_label, list_text, opencypher_table, param_expr
+from ganda.hana.rules import alike, answer, assumes, refused, works_around
+from ganda.hana.rules.catalog import OPENCYPHER, REFUSED, SQL, SQL_GRAPH
+from ganda.hana.storage.dialect import SQL_TYPES, child_table, graph_attr, graph_columns, graph_label, list_text, opencypher_table, param_expr
 
-# --- probe-selected switches (the fact in RULES.md; the default is the documented answer) -----
+# --- the switches, read from the engine rules (`rules/catalog.py`) -------------------------------
 
-# G8 (probed 2026-10-11): a heterogeneous workspace -- every campaign's -- takes ONE
-# MATCH clause ("For heterogeneous graphs only one match clause is allowed"), so a
-# relationship binds once across the hops: no walk semantics across clauses
-WALK_ACROSS_CLAUSES = False
-# G10 (probed 2026-10-11): a BOOLEAN attribute in WHERE is refused (projected only)
-BOOL_FILTERS = False
-# G5 (probed 2026-10-11): ORDER BY ASC puts NULL LAST, unlike HANA SQL's default
-NULLS_LIKE_SQL = False
-# G6: strings order by code unit, as HANA SQL does
-STRING_ORDER_NATIVE = True
-# G4: an aggregate-only RETURN over no match answers one row (COUNT 0, MAX NULL)
-AGG_EMPTY_ROW = True
-# G12: OPENCYPHER_TABLE sees the transaction's own uncommitted writes
-TX_VISIBLE = True
-# G1: a correlated scalar subquery over a `g_` CTE answers (no H2-like crash)
-SCALAR_OK = True
-# G19: an OPENCYPHER_TABLE nested inside IN (...) / NOT IN (...) answers
-NESTED_TABLE_FN_OK = True
-# G9: variable-length paths `[*k..k]` run (the path `range` and the reach forms)
-VARLEN_OK = True
-# G2 (probed 2026-10-11): parameters are bound bare (`:p`, typed by the engine); a CAST
-# in the PARAMETERS clause is refused ("parameter initialization with values")
-TYPED_PARAMS = False
+# a native multi-hop where an edge could bind twice: only if openCypher takes a second
+# MATCH clause (a heterogeneous workspace takes one, and one clause binds an edge once)
+WALK_ACROSS_CLAUSES = not refused("match.second_clause", OPENCYPHER)
+# a BOOLEAN attribute in WHERE (else a boolean leaf is asked through the views)
+BOOL_FILTERS = not refused("where.boolean_attribute", OPENCYPHER)
+# a native ordering over a nullable field: only where openCypher places NULL as SQL does
+NULLS_LIKE_SQL = alike("order.nulls.asc", OPENCYPHER, SQL) and alike("order.nulls.desc", OPENCYPHER, SQL)
+# a native ordering over a string field: only where openCypher orders strings as SQL does
+STRING_ORDER_NATIVE = alike("order.string", OPENCYPHER, SQL)
+# an aggregate-only RETURN over no match answers one row, as SQL's does
+AGG_EMPTY_ROW = alike("aggregate.ungrouped.empty_input.rows", OPENCYPHER, SQL)
+# OPENCYPHER_TABLE sees the transaction's own uncommitted writes (the transaction door)
+TX_VISIBLE = answer("transaction.own_uncommitted_visible", OPENCYPHER)
+# a correlated scalar subquery over a `g_` CTE (the views family's aggregates and reach counts)
+SCALAR_OK = not refused("opencypher_table.in_correlated_scalar_subquery", SQL_GRAPH)
+# an OPENCYPHER_TABLE nested inside IN (...) / NOT IN (...)
+NESTED_TABLE_FN_OK = not refused("opencypher_table.in_in_subquery", SQL_GRAPH) and not refused("opencypher_table.in_not_in_subquery", SQL_GRAPH)
+# variable-length paths `[*k..k]` (the path `range` and the reach forms)
+VARLEN_OK = not refused("path.variable_length", OPENCYPHER)
+# parameters bound through a CAST in the PARAMETERS clause (else bound bare)
+TYPED_PARAMS = not refused("parameters.cast", OPENCYPHER)
 
 
 # --- the views family ----------------------------------------------------------------------
@@ -200,6 +200,14 @@ def cypher_string(s: str) -> str:
     return "'" + "".join(out) + "'"
 
 
+# integer and string constants inline exactly; a double constant does not (A8), and one
+# OPENCYPHER_TABLE call binds parameters of one type (A9)
+assumes("exact.constant.integer", OPENCYPHER, True)
+assumes("exact.constant.string", OPENCYPHER, True)
+assumes("exact.constant.double", OPENCYPHER, False)
+works_around("A8")
+works_around("A9")
+
 def literal(value, ftype: "str | None" = None) -> str:
     """A constant inlined in a cypher text: an integer as its digits (exact, G30), a
     string or a LIST's canonical text as a string constant (G34). A double has NO
@@ -247,6 +255,10 @@ def crosses(p) -> bool:
     return any(_crosses_value(p.ftype, v) for v in pv)
 
 
+assumes("accepts.expression.is_not_null", OPENCYPHER, REFUSED)
+assumes("accepts.contains.parameter", OPENCYPHER, REFUSED)
+assumes("accepts.compare.bigint_attribute_with_float", OPENCYPHER, REFUSED)
+
 def cypher_filter(p, var: str, table: str, schema: Schema, params: "Params | None") -> str:
     """The cypher text of a tree over the record variable `var` of class or edge type
     `table`. Three-valued logic is the engine's own (a comparison with NULL is NULL,
@@ -264,9 +276,9 @@ def cypher_filter(p, var: str, table: str, schema: Schema, params: "Params | Non
         if p.op == "NOT":
             return f"NOT ({cypher_filter(p.children[0], var, table, schema, params)})"
         return "(" + f" {p.op} ".join(cypher_filter(c, var, table, schema, params) for c in p.children) + ")"
-    if p.sub is not None or p.ci or p.key is not None:
+    if p.sub is not None or p.case_insensitive or p.key is not None:
         raise Unsupported(f"no cypher form of {p.signature}")
-    if p.op in ("CONTAINS", "CONTAINSANY", "CONTAINSALL"):
+    if p.op in ("HAS", "HAS ANY", "HAS ALL"):
         raise Unsupported("a LIST membership has no cypher form")
     if p.ftype == "bool" and not BOOL_FILTERS:
         raise Unsupported("a BOOLEAN attribute is projected only")
@@ -339,6 +351,8 @@ def expressible(p, schema: Schema, table: str) -> bool:
 
 # --- the native family: one table's filtered projection -----------------------------------------
 
+
+assumes("match.unlabelled_vertex.spans_all_tables", OPENCYPHER, True)
 
 def vertex(schema: Schema, table: str, var: str) -> str:
     """`(t:n1)` for a class; `(t)` for the base class of the inheritance axis: an

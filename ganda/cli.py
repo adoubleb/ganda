@@ -6,6 +6,7 @@
     ganda orientdb probe                    re-check the engine facts the provider rests on
     ganda orientdb doctor                   start a server and answer one query per data model
     ganda orientdb limits                   what the engine can hold, and the large profile on it
+    ganda hana rules [--write]              the engine rules as tables (ganda/<engine>/rules/RULES.md)
     ganda orientdb run --scale large        the storage-engine stress mode (large tables,
                                             documents, graphs, strings and binaries)
 
@@ -14,15 +15,14 @@
 Connection settings come from the environment, or from `ganda/<engine>/.env`
 Example at `ganda/<engine>/.env.example`
 If env variables are left unset, GANDA pulls the latest Docker image from the provider
-
 """
 from __future__ import annotations
 
 import argparse
 import sys
 
-from ganda.core import envfile
-from ganda.core.provider import EngineCrash
+from ganda.core.engine import envfile
+from ganda.core.engine.provider import EngineCrash
 from ganda.registry import PROVIDERS, provider
 
 
@@ -42,12 +42,12 @@ def _doctor(engine, args) -> int:
 
 
 def _limits(engine) -> int:
-    """The engine's declared limits (`ganda.core.limits`) and what the `large` scale
+    """The engine's declared limits (`ganda.core.data.limits`) and what the `large` scale
     profile makes of them on this engine."""
     import dataclasses
 
-    from ganda.core import scale as _scale
-    from ganda.core.data_generator import limits_of
+    from ganda.core.data import scale as _scale
+    from ganda.core.data.generator import limits_of
 
     limits = limits_of(engine)
     note = "" if engine.limits is not None else "  (the conservative set: this provider declares none yet)"
@@ -61,7 +61,30 @@ def _limits(engine) -> int:
         if getattr(large, f.name) != getattr(defaults, f.name):
             print(f"  --{f.name.replace('_', '-'):28s} {getattr(large, f.name)!s:>12}   (default {getattr(defaults, f.name)})")
     p = _scale.profile("large")
-    print(f"  reference leg {'on' if p.reference else 'off'}; stored state checked by counts and a sample of {p.state_sample} per class; query timeout {p.query_timeout_ms} ms; bundles carry the shape of the data, values cut to {p.max_bundle_value_chars} chars")
+    print(f"  stored state checked by counts and a sample of {p.state_sample} per class; query timeout {p.query_timeout_ms} ms; bundles carry the shape of the data, values cut to {p.max_bundle_value_chars} chars")
+    return 0
+
+
+def _rules(engine, write: bool) -> int:
+    """The engine's rule catalog as Markdown tables (`ganda.core.rules.render`); with
+    `write`, into `ganda/<engine>/rules/RULES.md`."""
+    import pathlib
+
+    from ganda.core.rules.render import render
+
+    if engine.rules is None:
+        print(f"{engine.name} has no rule catalog yet")
+        return 0
+    import importlib
+
+    module = importlib.import_module(f"ganda.{engine.name}.rules")
+    text = module.rendered() if hasattr(module, "rendered") else render(engine.rules)
+    if not write:
+        print(text)
+        return 0
+    path = pathlib.Path(__file__).resolve().parent / engine.name / "rules" / "RULES.md"
+    path.write_text(text)
+    print(f"wrote {path}")
     return 0
 
 
@@ -86,7 +109,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog=f"ganda {engine.name}", description=f"{engine.title}: multi-model metamorphic fuzzing")
     sub = ap.add_subparsers(dest="command", required=True)
 
-    from ganda.core import campaign
+    from ganda.core.campaign import run as campaign
     from ganda.core.mutation import runner as mutation
 
     run = sub.add_parser("run", help="a campaign: generate, materialize, query, compare")
@@ -100,6 +123,9 @@ def main(argv=None) -> int:
     probe.set_defaults(handler=lambda a: engine.probe(a.facts))
     sub.add_parser("doctor", help="start a server and answer one query per data model").set_defaults(handler=lambda a: _doctor(engine, a))
     sub.add_parser("limits", help="what the engine can hold, and what the large scale profile does on it").set_defaults(handler=lambda a: _limits(engine))
+    rules = sub.add_parser("rules", help="the engine rules as tables: each answer with its basis and evidence, the divergences, the defects, the error classes")
+    rules.add_argument("--write", action="store_true", help="write ganda/<engine>/rules/RULES.md instead of printing")
+    rules.set_defaults(handler=lambda a: _rules(engine, a.write))
 
     args = ap.parse_args(argv[1:])
     try:

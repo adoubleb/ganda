@@ -7,7 +7,7 @@ On a high level, each fuzzing round randomly generates a Python object represent
 
 Using user-supplied translators, each model under test materializes the object in the DBMS as a single database. 
 
-For each fuzzing round, multiple query ASTs are generated from four query IR generators. DBMS specific provider classes provide translator methods to translate the ASTs into concrete queries.
+For each fuzzing round, multiple query IRs are generated from four query IR generators. DBMS specific provider classes provide translator methods to translate the IRs into concrete queries.
 
 Ganda then runs the queries on the DBMS under test and results are normalized. Normalized results are compared and any difference between normalized results suggests a bug. The query and the setup is then logged for a human (or LLM ◡̈) review.
 
@@ -23,7 +23,7 @@ variables in /<engine>/.env
 pip install -e ".[dev]"          # or run from this directory with python3 -m ganda
 
 ganda list                                             # list the engines GANDA supports
-pytest tests/ -q                                       # test that GANDA is running correctly
+pytest tests/ -q -n auto                               # test that GANDA is running correctly
 
 ## Before fuzzing OrientDB with GANDA
 ganda orientdb --help # to see list of all commands

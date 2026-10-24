@@ -5,7 +5,7 @@ provider's mapping and concrete syntax will read these.
 """
 from __future__ import annotations
 
-from ganda.core.model import FieldType
+from ganda.core.data.model import FieldType
 
 # FieldType -> the `DEFINE FIELD ... TYPE` name
 SURREAL_TYPES = {

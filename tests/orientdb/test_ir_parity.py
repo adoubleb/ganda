@@ -1,24 +1,26 @@
 """The select and path IRs' reach: the semi-join leaf, the `join` kind,
 edge-type targets, the transaction door, the stratified deck, the path IR and the
 index-level mutants."""
+import dataclasses
 import random
 from collections import Counter
 
-from ganda.orientdb.generate import GeneratorConfig, build
-from ganda.orientdb.known_bugs import select_known
-from ganda.core.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
-from ganda.orientdb.mutants import MUTANTS_BY_NAME
-from ganda.orientdb import predicates
-from ganda.core.case import Comparison, QueryCase
-from ganda.core.ast.path import PathQuery, evaluate as evaluate_path
+from ganda.orientdb.facade.generate import GeneratorConfig, build
+from ganda.orientdb.known_bugs.guards import select_known
+from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
+from ganda.orientdb.mutation.mutants import MUTANTS_BY_NAME
+from ganda.orientdb.facade import predicates
+from ganda.core.oracle.case import Comparison, QueryCase
+from ganda.core.query.ir.path import PathQuery
 from ganda.orientdb.concrete_syntax.path import render_all
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render
-from ganda.orientdb.predicates import Compound, Predicate
-from ganda.core.generators.select import KIND_WEIGHTS, build_case, strata
-from ganda.core.ast.select import KINDS, SelectQuery, evaluate, tx_instance
+from ganda.orientdb.facade.predicates import Compound, Predicate
+from ganda.core.query.generators.select import KIND_WEIGHTS, build_case, strata
+from ganda.core.query.ir.enums import SelectKind
+from ganda.core.query.ir.select import SelectQuery, TxWrite, tx_instance
 from ganda.orientdb.concrete_syntax.select import BASE, SelectSyntax, Rewrites, applicable, render as render_select
 from ganda.orientdb.concrete_syntax.support import tx_write
-from ganda.core.generators.registry import all_cases
+from ganda.core.query.generators.registry import all_cases
 
 from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider
 
@@ -52,7 +54,7 @@ def _fixture(indexes=(), edge_indexes=()):
 
 
 def _insub(q=None, scan=False, pivot=None):
-    return Predicate("source", "f1", "INSUB", "", pivot if pivot is not None else [], True, "int", False, sub=("n2", "g1", q, scan))
+    return Predicate("source", "f1", "INSUB", "", pivot if pivot is not None else [], "int", False, sub=("n2", "g1", q, scan))
 
 
 # --- the semi-join leaf -----------------------------------------------------------------------
@@ -77,7 +79,7 @@ def test_insub_renders_evaluates_and_round_trips():
 
 
 def test_insub_guards():
-    ix = IndexSpec("n1", "f1", data_model="graph")
+    ix = IndexSpec("n1", "f1", data_model="graph", kind="NOTUNIQUE")
     schema, inst = _fixture([ix])
     null_listed = predicates.resolve_subs(_insub(), inst)  # [2, 7, None]
     q = SelectQuery("n1", null_listed, "ids")
@@ -86,7 +88,7 @@ def test_insub_guards():
     assert select_known(q, SelectSyntax(position="scan"), Rewrites(), "graph", schema, inst) is None
     assert select_known(q, BASE, Rewrites(), "doc", schema, inst) is None
     # O39: a CONTAINSVALUE in the inner predicate, on every data model and position
-    cv = Predicate("source", "g1", "CONTAINSVALUE", "ps", 2**40, ftype="map")
+    cv = Predicate("source", "g1", "HAS VALUE", "ps", 2**40, ftype="map")
     q39 = SelectQuery("n1", _insub(cv, pivot=[]), "ids")
     assert {select_known(q39, sp, Rewrites(), s, schema, inst) for s in ("doc", "rel") for sp in (BASE, SelectSyntax(position="scan"))} == {"O39"}
 
@@ -94,15 +96,8 @@ def test_insub_guards():
 # --- the join kind ----------------------------------------------------------------------------
 
 
-def test_join_reference_keeps_the_outer_records_only():
-    schema, inst = _fixture()
-    # a filter keeps the outer records only; the LET still reads the whole class
-    kept = SelectQuery("n1", Predicate("source", "f2", "IS NOT NULL", "", None), "join", ("f1",), fn="<=", arg="count")
-    assert evaluate(kept, inst) == {"n1/r0": 1, "n1/r1": 3, "n1/r3": 1}
-
-
 def test_join_syntaxes_and_o1():
-    ix = IndexSpec("n1", "f2", data_model="rel")
+    ix = IndexSpec("n1", "f2", data_model="rel", kind="NOTUNIQUE")
     schema, inst = _fixture([ix])
     where = Predicate("source", "f2", "=", "p", "a", ftype="string")
     q = SelectQuery("n1", where, "join", ("f1",), fn="<", arg="ids")
@@ -120,11 +115,10 @@ def test_join_syntaxes_and_o1():
 # --- edge-type targets ------------------------------------------------------------------------
 
 
-def test_edge_target_reference_and_doc_syntax():
+def test_edge_target_doc_syntax():
     schema, inst = _fixture()
     p = Predicate("edge", "w", ">", "p", 2, ftype="int")
     q = SelectQuery("e1", p, "ids", edge=True)
-    assert evaluate(q, inst) == [{"id": "e1/e1"}]
     t = Rewrites(rw=predicates.rewrite(p, random.Random(1), "q"))
     assert render_select(q, schema, BASE, t, "graph") == "SELECT eid AS id FROM e1 WHERE w > :p"
     assert render_select(q, schema, BASE, t, "doc") == "SELECT v AS id FROM (SELECT v FROM (SELECT e1[w > :p].eid AS v FROM n1 UNWIND v) WHERE v IS NOT NULL)"
@@ -143,14 +137,13 @@ def test_edge_target_reference_and_doc_syntax():
 def test_tx_view_render_and_o31():
     ix = IndexSpec("n1", "f1", data_model="graph", kind="NOTUNIQUE")
     schema, inst = _fixture([ix])
-    tx = {"table": "n1", "write": "insert", "field": "f1", "tid": "n1/tx0", "tv": 5, "remove": False}
+    tx = TxWrite("n1", "insert", "f1", "n1/tx0", 5)
     assert [n.record_id for n in tx_instance(inst, tx).nodes_of("n1")][-1] == "n1/tx0"
     where = Predicate("source", "f1", ">", "p", 1, ftype="int")
     q = SelectQuery("n1", where, "count", tx=tx)
-    assert evaluate(q, inst) == [{"v": 3}]
     text = render_select(q, schema, BASE, Rewrites(), "graph")
     assert text == "BEGIN; CREATE VERTEX n1 SET id = :tid, f1 = :tv; LET $r = (SELECT count(*) AS v FROM n1 WHERE f1 > :p TIMEOUT 20000 EXCEPTION); ROLLBACK; RETURN $r"
-    assert tx_write(tx, "rel").startswith("INSERT INTO n1") and tx_write(dict(tx, write="delete"), "graph") == "DELETE VERTEX n1 WHERE id = :tid"
+    assert tx_write(tx, "rel").startswith("INSERT INTO n1") and tx_write(dataclasses.replace(tx, write="delete"), "graph") == "DELETE VERTEX n1 WHERE id = :tid"
     # O31 through the graph data model's SB-tree index; a subquery target and the other sides are right
     assert select_known(q, BASE, Rewrites(), "graph", schema, inst) == "O31"
     assert select_known(q, SelectSyntax(position="scan"), Rewrites(), "graph", schema, inst) is None
@@ -164,7 +157,7 @@ def test_deck_weights_and_supply():
     schema, inst = _fixture()
     deck = Counter(strata(schema, inst))
     assert deck[("n1", False, "ids")] == KIND_WEIGHTS["ids"] and deck[("e1", True, "ids")] == 1
-    assert ("e1", True, "join") not in deck and {k for (_t, _e, k) in deck} == set(KINDS)
+    assert ("e1", True, "join") not in deck and {k for (_t, _e, k) in deck} == set(SelectKind)
     kinds, edge, tx, insub = Counter(), 0, 0, 0
     for seed in range(1000, 1008):
         schema, inst, rng = build(seed, CFG)
@@ -174,13 +167,13 @@ def test_deck_weights_and_supply():
             edge += s["edge"]
             tx += bool(s["tx"])
             insub += bool(predicates.subqueries(Predicate.from_dict(s["where"])))
-    assert set(kinds) == set(KINDS) and edge and tx and insub
+    assert set(kinds) == set(SelectKind) and edge and tx and insub
 
 
 def test_walk_tier_orders_every_indexed_class_both_ways():
     ix = IndexSpec("n1", "f1", data_model="doc", kind="NOTUNIQUE")
     schema, inst = _fixture([ix])
-    from ganda.core.generators.select import generate_select_cases
+    from ganda.core.query.generators.select import generate_select_cases
 
     cases = generate_select_cases(random.Random(3), schema, inst, per_instance=6)
     walks = [c.params["select"] for c in cases if c.params["select"]["kind"] == "keys" and c.params["select"]["where"] is None]
@@ -191,7 +184,7 @@ def test_tier_lists_every_edge_type_whole_and_filtered():
     # the tier is six questions here: n1, n2, e1 twice, n1's two walks
     ix = IndexSpec("n1", "f1", data_model="doc", kind="NOTUNIQUE")
     schema, inst = _fixture([ix])
-    from ganda.core.generators.select import generate_select_cases
+    from ganda.core.query.generators.select import generate_select_cases
 
     for seed in range(8):
         cases = generate_select_cases(random.Random(seed), schema, inst, per_instance=6)
@@ -212,7 +205,6 @@ def _chain():
 def test_path_answers_and_syntaxes():
     schema, inst = _chain()
     q = PathQuery("n1/r0", "n1", "n1/r3", "n1", "OUT", "e1", 3)
-    assert evaluate_path(q, inst) == [{"v": 4}]
     queries, known_bugs = render_all(q, schema, inst)
     assert {"doc", "graph", "rel", "rel:inline", "rel:asc", "doc:deep", "graph:unbounded"} <= set(queries)
     assert known_bugs == {"graph": "O35", "rel:asc": "O40"}
@@ -220,7 +212,7 @@ def test_path_answers_and_syntaxes():
     assert queries["rel:inline"].index("SELECT 3 AS d") < queries["rel:inline"].index("SELECT 0 AS d")
     # beyond the bound: no row, and no unbounded form
     near = PathQuery("n1/r0", "n1", "n1/r3", "n1", "OUT", "e1", 2)
-    assert evaluate_path(near, inst) == [] and "graph:unbounded" not in render_all(near, schema, inst)[0]
+    assert "graph:unbounded" not in render_all(near, schema, inst)[0]
     # IN: no doc data model; BOTH or every type: no rel data model
     assert "doc" not in render_all(PathQuery("n1/r3", "n1", "n1/r0", "n1", "IN", "e1", 3), schema, inst)[0]
     assert "rel" not in render_all(PathQuery("n1/r0", "n1", "n1/r3", "n1", "BOTH", "e1", 3), schema, inst)[0]
@@ -269,7 +261,7 @@ def test_poly_join_over_a_sibling_list_field_is_o5():
 
 
 def test_mixed_compare_matrix_and_the_decimal_sibling():
-    from ganda.orientdb.known_bugs import mixed_compare_throws
+    from ganda.orientdb.known_bugs.guards import mixed_compare_throws
 
     D, L, I, T, B = FieldType.DECIMAL, FieldType.INT, FieldType.INT32, FieldType.DATETIME, FieldType.BOOL
     assert mixed_compare_throws(D, L, "=") and not mixed_compare_throws(D, I, "=")
@@ -291,7 +283,7 @@ def test_mixed_compare_matrix_and_the_decimal_sibling():
 
 
 def test_o17_covers_a_map_entry_between():
-    from ganda.orientdb.known_bugs import o17_predicate
+    from ganda.orientdb.known_bugs.guards import o17_predicate
 
     schema = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("m", FieldType.MAP),)),), edge_types=())
     lossy = Predicate("source", "m", "BETWEEN", "p", [-54, -49.5], ftype="int", key="k3")
@@ -302,14 +294,14 @@ def test_o17_covers_a_map_entry_between():
 def test_scan_verdict_is_not_masked_by_an_index_finding():
     # a semi-join with a null answered value (O14 where served) next to a reversed
     # date leaf with a string pivot (O32 on every data model): the scan side is O32
-    ix = IndexSpec("n1", "f2", data_model="graph")
+    ix = IndexSpec("n1", "f2", data_model="graph", kind="NOTUNIQUE")
     schema = Schema(
         node_types=(NodeTypeSpec("n1", (FieldSpec("f2", FieldType.STRING), FieldSpec("d", FieldType.DATETIME))), NodeTypeSpec("n2", (FieldSpec("g", FieldType.STRING),))),
         edge_types=(),
         indexes=(ix,),
     )
     inst = Instance(schema, [NodeRow("n1", 0, {"f2": "a", "d": "2020-01-01 00:00:00"}), NodeRow("n2", 0, {})], [])
-    sub = Predicate("source", "f2", "INSUB", "", [None], True, "string", sub=("n2", "g", None, False))
+    sub = Predicate("source", "f2", "INSUB", "", [None], "string", sub=("n2", "g", None, False))
     rev = Predicate("source", "d", "<", "p_1", "2021-01-01 00:00:00", ftype="datetime", rev=True)
     q = SelectQuery("n1", Compound("source", "AND", (sub, rev)), "ids")
     assert select_known(q, BASE, Rewrites(), "graph", schema, inst) == "O14"

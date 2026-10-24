@@ -1,4 +1,4 @@
-"""The path AST (`ir_path`): the vertex count of a shortest path between two records
+"""The path IR (`ir_path`): the vertex count of a shortest path between two records
 within a depth bound, through every engine path each SAP HANA data model has.
 
 The answer is one row `{v: d + 1}` for the distance `d`, or no row when the goal is out
@@ -42,12 +42,14 @@ from __future__ import annotations
 
 import json
 
-from ganda.core.ast.path import PathQuery
-from ganda.core.model import Instance, Schema
+from ganda.core.query.ir.path import PathQuery
+from ganda.core.data.model import Instance, Schema
 from ganda.hana.concrete_syntax import document, graph, hints
 from ganda.hana.concrete_syntax.predicate import REL, Names
 from ganda.hana.concrete_syntax.traversal import sparql_table
-from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT, record_iri
+from ganda.hana.rules import assumes
+from ganda.hana.rules.catalog import GRAPHSCRIPT, REFUSED, SQL_DOC
+from ganda.hana.storage.dialect import GRAPH_TOKEN, PREFIX_TEXT, record_iri
 
 ID = "NVARCHAR(256)"
 
@@ -146,6 +148,8 @@ def _cypher_levels(q: PathQuery, schema: Schema, syntax: str) -> str:
     return f"SELECT z.v AS v FROM (SELECT MIN(lv.d) + 1 AS v FROM ({union}) lv) z WHERE z.v IS NOT NULL"
 
 
+assumes("accepts.subgraph.vertex_outside.lookup", GRAPHSCRIPT, REFUSED)
+
 def _graphscript(q: PathQuery) -> str:
     """GraphScript's `Shortest_Path` (probe G35) through a SQLScript block: the procedure
     of `mapping.graph` answers the path's vertices, counted here (`d + 1`), kept within
@@ -170,6 +174,8 @@ def _graphscript(q: PathQuery) -> str:
     )
     return f"DO ({header}) BEGIN {body} END"
 
+
+assumes("accepts.subquery.nested_unnest_view", SQL_DOC, REFUSED)
 
 def render_all(q: PathQuery, schema: Schema, instance: Instance) -> "tuple[dict, dict]":
     queries = {

@@ -1,4 +1,4 @@
-"""The concrete syntax catalog of the select AST: HOW each SAP HANA data model asks a
+"""The concrete syntax catalog of the select IR: HOW each SAP HANA data model asks a
 `SelectQuery`. A concrete syntax is three independent choices; every applicable
 combination is an equivalent text.
 
@@ -70,16 +70,18 @@ import itertools
 import random
 from dataclasses import dataclass, field
 
-from ganda.core.ast.predicates import MIRROR, Predicate, fields_of
-from ganda.core.ast.select import SelectQuery, column, notnull_fields
-from ganda.core.data_generator import BASE_CLASS
-from ganda.core.model import FieldType, Instance, Schema
-from ganda.hana import rewrites as _rewrites
+from ganda.core.query.ir.predicates import MIRROR, Predicate, fields_of
+from ganda.core.query.ir.select import SelectQuery, column, notnull_fields
+from ganda.core.data.generator import BASE_CLASS
+from ganda.core.data.model import FieldType, Instance, Schema
+from ganda.hana.oracle import rewrites as _rewrites
 from ganda.hana.concrete_syntax import document, graph, hints, tx as _tx
-from ganda.hana.concrete_syntax.methods import METHODS, method_fn, result_type, sparql_text, sql_text  # noqa: F401
+from ganda.hana.concrete_syntax.methods import METHODS, result_type, sparql_text, sql_text  # noqa: F401
 from ganda.hana.concrete_syntax.predicate import REL, Names, filter_expr, optionals, sparql_filter, sql
 from ganda.hana.concrete_syntax.traversal import agg_proj, guarded, sparql_table
-from ganda.hana.dialect import GRAPH_TOKEN, PREFIX_TEXT
+from ganda.hana.rules import assumes, refused, works_around
+from ganda.hana.rules.catalog import COLLECTION, OPENCYPHER, REFUSED, SPARQL, SQL, SQL_DOC, SQLSCRIPT, MedianResult
+from ganda.hana.storage.dialect import GRAPH_TOKEN, PREFIX_TEXT
 
 FILTERS = ("plain", "rw", "rev", "arith")
 POSITIONS = ("table", "scan", "nest", "view", "from", "table_fn", "native", "match", "neg", "again", "inline", "block", "block_ni")
@@ -153,6 +155,19 @@ def all_syntaxes(hint: str = "") -> list:
 # --- what the doc data model's collection query can ask ---------------------------------------
 
 
+# the twin forms of a question, a mismatch between which is a finding: the set-operation
+# form `tlp`, the collection filter's NOT kept as written (`neg`), `FROM <g>` (`from`), the
+# SQLScript block (`block`), constants written into the text (`inline`)
+assumes("equivalent.set_operation_partition", SQL, True)
+assumes("equivalent.set_operation_partition", SQL_DOC, True)
+assumes("equivalent.not_kept_as_written", COLLECTION, True)
+assumes("equivalent.from_graph_clause", SPARQL, True)
+assumes("equivalent.anonymous_block", SQLSCRIPT, True)
+assumes("exact.constant.double", SQL, True)
+assumes("exact.constant.integer", SQL, True)
+assumes("exact.constant.string", SQL, True)
+assumes("exact.constant.boolean", SQL, True)
+
 def collection_asks(q: SelectQuery, schema: Schema, pred, keep_not: bool = False) -> bool:
     """Whether the document store asks the question itself: no semi-join, no join, no
     method, no median, and a filter whose leaves it renders (with `keep_not`, its NOTs
@@ -167,6 +182,8 @@ def collection_asks(q: SelectQuery, schema: Schema, pred, keep_not: bool = False
     return document.doc_filter_ok(pred, keep_not)
 
 
+assumes("accepts.aggregate.max_min.string_field", COLLECTION, REFUSED)
+
 def _string_extremum(q: SelectQuery, schema: "Schema | None") -> bool:
     """A MAX / MIN over a string: the collection query takes them over numbers only ("max
     supports only numeric values", an error code 129); the views answer it in SQL. Without
@@ -177,6 +194,8 @@ def _string_extremum(q: SelectQuery, schema: "Schema | None") -> bool:
     return schema is None or _ftype(schema, q, q.field if q.kind == "agg" else q.arg) is FieldType.STRING
 
 
+assumes("accepts.subquery.nested_unnest_view", SQL_DOC, REFUSED)
+
 def _views_ask(q: SelectQuery, pred) -> bool:
     if not document.views_ask(pred):
         return False
@@ -185,7 +204,7 @@ def _views_ask(q: SelectQuery, pred) -> bool:
     # list); the Document Store refuses that doubly-nested UNNEST view inside a subquery
     # ("unsupported form of subquery with UNNEST"). A node's single-UNNEST element view
     # is fine. The collection's own FOR ANY filter covers the edge shape.
-    if q.edge and pred is not None and any(leaf.op in ("CONTAINS", "CONTAINSANY", "CONTAINSALL") for leaf in pred.leaves()):
+    if q.edge and pred is not None and any(leaf.op in ("HAS", "HAS ANY", "HAS ALL") for leaf in pred.leaves()):
         return False
     return True
 
@@ -348,11 +367,11 @@ def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites,
     if data_model == "rel":
         text = _sql(q, schema, sp, pred, REL)
         if inline:
-            from ganda.hana.connection import inline_binds
+            from ganda.hana.engine.connection import inline_binds
 
             text = inline_binds(text, pred.bind_vars)
         if block:
-            from ganda.hana.connection import sqlscript_block
+            from ganda.hana.engine.connection import sqlscript_block
 
             # the question's profile hints the inner SELECT; NO_INLINE sits on the assignment
             if sp.hint:
@@ -414,6 +433,10 @@ def _sparql_proj(ftype: "FieldType | None", var: str, alias: str) -> str:
 
 # --- SQL (rel, and the doc data model's views) -------------------------------------------------
 
+
+# the median: HANA SQL's MEDIAN rounds an even count of integers, PERCENTILE_CONT(0.5) interpolates
+assumes("aggregate.median_function.integer.result", SQL, MedianResult.ROUNDED_HALF_AWAY_FROM_ZERO)
+assumes("aggregate.percentile_cont_half.integer.result", SQL, MedianResult.INTERPOLATED)
 
 def _sql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, names: Names, source: "str | None" = None) -> str:
     """The SQL text over the relation `names` gives the target (`source` instead: a
@@ -495,6 +518,8 @@ def _sql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, names: Names, s
         return f"SELECT t.id AS id, m.id AS v {frm} JOIN {inner} m ON {cond}{after}"
     raise ValueError(kind)
 
+
+assumes("accepts.offset.without_limit", SQL, REFUSED)
 
 def _limit(q: SelectQuery) -> str:
     if q.limit:
@@ -615,30 +640,39 @@ def _cypher_asks(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred) -> bool
             return False
         return nulls_excluded or graph.NULLS_LIKE_SQL
 
-    # a BOOLEAN attribute is projected only (G10): never inside COUNT (G33), never compared
+    def countable(f: str) -> bool:
+        return not (boolean(f) and refused("count.boolean_attribute", OPENCYPHER))
+
+    def extremum(f: str) -> bool:
+        return numeric(f) or not refused("aggregate.max_min_sum.non_numeric", OPENCYPHER)
+
     if q.kind == "agg":
-        if q.fn in ("avg", "median"):
+        if (q.fn == "avg" and refused("aggregate.avg", OPENCYPHER)) or (q.fn == "median" and refused("aggregate.median", OPENCYPHER)):
             return False
         if q.fn == "distinct_count":
+            # the native text counts over a DISTINCT, never COUNT(DISTINCT ...)
+            assumes("accepts.aggregate.count_distinct", OPENCYPHER, REFUSED)
             return sp.form == "fn"
         if q.fn in ("max", "min"):
             # the `order` form filters the nulls out first, so their placement is moot
-            return orderable(q.field, nulls_excluded=True) if sp.form == "order" else numeric(q.field)
+            return orderable(q.field, nulls_excluded=True) if sp.form == "order" else extremum(q.field)
         if q.fn == "sum":
             return numeric(q.field)
         if q.fn == "count":
-            return not boolean(q.field)
+            return countable(q.field)
         return True
     if q.kind == "group":
         if q.fn == "count_star":
             return True
-        return (q.fn == "count" and not boolean(q.arg)) or numeric(q.arg)
+        return (q.fn == "count" and countable(q.arg)) or numeric(q.arg)
     if q.kind in ("page", "keys"):
         return all(orderable(f) for f in q.fields)
     if q.kind == "join":
-        return not boolean(q.field)
+        return not (boolean(q.field) and refused("compare.boolean_attributes", OPENCYPHER))
     return True
 
+
+assumes("accepts.skip.without_limit", OPENCYPHER, REFUSED)
 
 def _cypher_limit(limit: int, skip: int) -> str:
     """`LIMIT n [SKIP m]`: the grammar puts SKIP after LIMIT, so a skip alone rides on
@@ -736,6 +770,11 @@ def _cypher_select(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred) -> st
 # --- SPARQL -----------------------------------------------------------------------------------
 
 
+assumes("accepts.aggregate.median.without_group_by", SPARQL, REFUSED)
+assumes("equivalent.set_operation_partition", SPARQL, True)
+works_around("A3")
+works_around("A10")
+
 def _sparql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, position: str) -> str:
     cls, idp = (f"c:{q.table}", "p:eid") if q.edge else (f"c:{q.table}", "p:id")
     head = f"?n a {cls} ; {idp} ?id ."
@@ -815,7 +854,7 @@ def _sparql(q: SelectQuery, schema: Schema, sp: SelectSyntax, pred, position: st
                 item = agg_proj(guarded(fn, "?w"), FieldType.FLOAT if q.fn == "avg" else ft, "v")
             # SUM / AVG over the records holding a value: once a predicate IRI has held a
             # second datatype anywhere in the store, HANA answers unbound for a group with an
-            # unbound value in it (H3, RULES.md); a null is skipped by the aggregate anyway
+            # unbound value in it (defect A3, `rules/catalog.py`); a null is skipped by the aggregate anyway
             value = f"?n p:{f} ?w ." if q.fn in ("sum", "avg") else opt(f, "?w")
             select, body = f"SELECT {item}", f"{records} {value}"
     elif kind == "group":
@@ -885,14 +924,14 @@ def _graph_wrap(select: str, body: str, tail: str, position: str) -> str:
 
 
 def build_rewrites(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> Rewrites:
-    from ganda.core.ast.select import present_values, records, view
+    from ganda.core.query.ir.select import present_values, records, view
 
     rewrites = Rewrites(present=present_values(q, instance) if q.kind == "agg" else [], hint=rng.choice(hints.NAMES))
     p = q.where
     if p is None:
         return rewrites
     rewrites.rw = _rewrites.rewrite(p, rng, "q")
-    from ganda.core.ast.predicates import reverse
+    from ganda.core.query.ir.predicates import reverse
 
     rewrites.rev = reverse(p)
     if isinstance(p, Predicate) and p.sub is None:
@@ -925,4 +964,4 @@ def rewrite_params(rewrites: Rewrites) -> dict:
     return params
 
 
-__all__ = ["BASE", "METHODS", "method_fn", "fields_of"]
+__all__ = ["BASE", "METHODS", "fields_of"]

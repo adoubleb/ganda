@@ -82,4 +82,4 @@ probe (G27, 2026-10-11) met the same error over a view of a hash-partitioned tab
 ## What the provider does
 Nothing: a campaign's workspace has one view per node class and per edge type (`mapping/graph.py`),
 two or more edge tables always (`GeneratorConfig.min_edge_types = 2`), so it is heterogeneous.
-Recorded in `RULES.md`, "The graph data model".
+Recorded in `ganda/hana/rules/catalog.py` (defect A7).

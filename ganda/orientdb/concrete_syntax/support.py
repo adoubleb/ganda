@@ -6,12 +6,15 @@ from __future__ import annotations
 
 import dataclasses
 
-from ganda.core.model import FieldType, Instance, NodeRow, Schema
-from ganda.orientdb.dialect import HASH_KINDS
-from ganda.orientdb import predicates
-from ganda.orientdb.predicates import Compound, Predicate
-from ganda.core.generators.support import bfs_distances, composite_and as _composite_and, draw_tx, tx_binds, tx_rows  # noqa: F401
-from ganda.orientdb.semantics import decimal_of, negate_key, order_key, orient_key  # noqa: F401
+from ganda.core.query.ir.select import TxWrite
+from ganda.core.data.model import FieldType, Instance, NodeRow, Schema
+from ganda.orientdb.storage.dialect import HASH_KINDS, sql_op
+from ganda.orientdb.facade import predicates
+from ganda.orientdb.facade.predicates import Compound, Predicate
+from ganda.core.query.generators.support import bfs_distances, composite_and as _composite_and, draw_tx, tx_binds, tx_rows  # noqa: F401
+from ganda.orientdb.rules import answer, assumes, works_around
+from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+
 
 
 def _hits(instance: Instance, table: str, p) -> list:
@@ -37,13 +40,13 @@ def literal_pred(p) -> "str | None":
     if p.key is not None or p.op in predicates.MAP_OPS or p.sub is not None:
         return None
     if p.op in predicates.NO_BIND_OPS:
-        return f"{p.field} {p.op}"
+        return f"{p.field} {sql_op(p.op)}"
     pivots = p.pivot if isinstance(p.pivot, list) else [p.pivot]
     if p.op == "LIKE" or any(isinstance(v, str) or isinstance(v, list) or v is None for v in pivots):
         return None
     if p.op == "BETWEEN":
         return f"{p.field} BETWEEN {_literal(p.pivot[0])} AND {_literal(p.pivot[1])}"
-    return f"{p.field} {p.op} {_literal(p.pivot)}"
+    return f"{p.field} {sql_op(p.op)} {_literal(p.pivot)}"
 
 
 
@@ -54,6 +57,13 @@ def literal_pred(p) -> "str | None":
 SCAN_SIDE_FINDINGS = ("O7", "O17", "O27", "O32")
 
 
+# the `index:` door answers as an index-served lookup, takes no record filter, and is
+# asked `=`, IN and BETWEEN only (a range through it is O3)
+assumes("equivalent.index_door", INDEX_DOOR, True)
+assumes("accepts.record_filter", INDEX_DOOR, REFUSED)
+works_around("O3")
+
+
 def index_door(p, table: str, schema: Schema, data_model: str) -> "tuple[str, dict, object] | None":
     """`SELECT rid.id AS id FROM index:<name> WHERE key ...` for a leaf `=` / `IN` /
     `BETWEEN` on a field the table itself indexes on `data_model` (a base-class index
@@ -61,7 +71,7 @@ def index_door(p, table: str, schema: Schema, data_model: str) -> "tuple[str, di
     [a, b]` for an AND of equalities over a composite index's fields (a prefix of
     them too). A range through the door is O3's ClassCastException, a BETWEEN through
     a hash index an O5 501: neither is emitted."""
-    own = [ix for ix in schema.indexes if ix.target == "node" and ix.table == table and ix.applies_to(data_model) and ix.by is None]
+    own = [ix for ix in schema.indexes if ix.target == "node" and ix.table == table and ix.applies_to(data_model) and ix.option("by") is None]
     if isinstance(p, Predicate):
         if p.key is not None or p.op not in ("=", "IN", "BETWEEN") or p.ftype in ("list", "map"):
             return None
@@ -78,7 +88,7 @@ def index_door(p, table: str, schema: Schema, data_model: str) -> "tuple[str, di
                 if ix.kind in HASH_KINDS:
                     continue
                 return f"SELECT rid.id AS id FROM index:{ix.name()} WHERE key BETWEEN :{p.bind}a AND :{p.bind}b", {}, ix
-            return f"SELECT rid.id AS id FROM index:{ix.name()} WHERE key {p.op} :{p.bind}", {}, ix
+            return f"SELECT rid.id AS id FROM index:{ix.name()} WHERE key {sql_op(p.op)} :{p.bind}", {}, ix
         return None
     if isinstance(p, Compound) and p.op == "AND" and all(isinstance(c, Predicate) and c.op == "=" and c.key is None for c in p.children):
         by_field = {c.field: c for c in p.children}
@@ -101,139 +111,114 @@ def door_complete(ix, table: str, p, instance: Instance) -> bool:
     return not any(any(n.values.get(g) is None for g in ix.all_fields) for n in _hits(instance, table, p))
 
 
-# Methods with an exact Python mirror over PRESENT values (the query filters
-# `IS NOT NULL`). Casing mirrors are only trusted over ASCII (Java's default-locale
-# toUpperCase and Python's upper agree there; `reference_ok` withholds the rest).
-def _epoch_ms(v: str) -> int:
-    import datetime as _dt
-
-    return int((_dt.datetime.strptime(v, "%Y-%m-%d %H:%M:%S") - _dt.datetime(1970, 1, 1)).total_seconds()) * 1000
-
-
-def _shift(v: str, seconds: int) -> str:
-    import datetime as _dt
-
-    return (_dt.datetime.strptime(v, "%Y-%m-%d %H:%M:%S") + _dt.timedelta(seconds=seconds)).strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _java_div(a: int, b: int) -> int:
-    q = abs(a) // abs(b)
-    return q if (a >= 0) == (b >= 0) else -q
-
-
-def _java_mod(a: int, b: int) -> int:
-    return a - _java_div(a, b) * b
-
-
+# Methods, each with a guard on the PRESENT values it is asked over (the query filters
+# `IS NOT NULL`). Casing is asked over ASCII only (Java's default-locale toUpperCase is
+# locale-dependent beyond it).
 METHODS = {
     FieldType.STRING: [
-        ("{f}.toUpperCase()", lambda s: s.upper(), lambda s: s.isascii()),
-        ("{f}.toLowerCase()", lambda s: s.lower(), lambda s: s.isascii()),
-        ("{f}.length()", lambda s: len(s.encode("utf-16-be")) // 2, lambda s: True),
-        ("{f}.trim()", lambda s: s.strip(" \t\n\r\x0b\x0c"), lambda s: s.isascii()),
-        ("{f}.append('x')", lambda s: s + "x", lambda s: True),
-        ("{f}.prefix('x')", lambda s: "x" + s, lambda s: True),
-        ("{f}.left(1)", lambda s: s[:1], lambda s: all(ord(c) < 0x10000 for c in s)),
-        ("{f}.indexOf('a')", lambda s: s.encode("utf-16-be").find("a".encode("utf-16-be")) // 2 if "a" in s else -1, lambda s: True),
-        ("{f}.replace('a', 'b')", lambda s: s.replace("a", "b"), lambda s: True),
+        ("{f}.toUpperCase()", lambda s: s.isascii()),
+        ("{f}.toLowerCase()", lambda s: s.isascii()),
+        ("{f}.length()", lambda s: True),
+        ("{f}.trim()", lambda s: s.isascii()),
+        ("{f}.append('x')", lambda s: True),
+        ("{f}.prefix('x')", lambda s: True),
+        ("{f}.left(1)", lambda s: all(ord(c) < 0x10000 for c in s)),
+        ("{f}.indexOf('a')", lambda s: True),
+        ("{f}.replace('a', 'b')", lambda s: True),
     ],
     FieldType.INT: [
-        ("{f}.asString()", lambda v: str(v), lambda v: True),
-        ("{f} + 1", lambda v: v + 1, lambda v: v < 2**63 - 1),
-        ("{f} - 1", lambda v: v - 1, lambda v: v > -(2**63)),
-        ("{f} * 2", lambda v: v * 2, lambda v: abs(v) < 2**62),
-        ("{f} / 2", lambda v: v // 2 if v % 2 == 0 else v / 2, lambda v: abs(v) < 2**53),
-        ("{f} % 3", lambda v: _java_mod(v, 3), lambda v: True),
-        ("math_abs({f})", lambda v: abs(v), lambda v: v > -(2**63)),
-        ("{f}.asLong()", lambda v: v, lambda v: True),
+        ("{f}.asString()", lambda v: True),
+        ("{f} + 1", lambda v: v < 2**63 - 1),
+        ("{f} - 1", lambda v: v > -(2**63)),
+        ("{f} * 2", lambda v: abs(v) < 2**62),
+        ("{f} / 2", lambda v: abs(v) < 2**53),
+        ("{f} % 3", lambda v: True),
+        ("math_abs({f})", lambda v: v > -(2**63)),
+        ("{f}.asLong()", lambda v: True),
     ],
     FieldType.FLOAT: [
-        ("{f} * 2", lambda v: v * 2, lambda v: abs(v) < 8e307),
-        ("{f} + 0", lambda v: v + 0, lambda v: True),
-        ("math_abs({f})", lambda v: abs(v), lambda v: True),
-        ("{f}.asLong()", lambda v: int(v), lambda v: abs(v) < 2**62),
+        ("{f} * 2", lambda v: abs(v) < 8e307),
+        ("{f} + 0", lambda v: True),
+        ("math_abs({f})", lambda v: True),
+        ("{f}.asLong()", lambda v: abs(v) < 2**62),
     ],
     FieldType.BOOL: [
-        ("{f}.asString()", lambda v: "true" if v else "false", lambda v: True),
+        ("{f}.asString()", lambda v: True),
     ],
     FieldType.LIST: [
-        ("{f}.size()", lambda v: len(v), lambda v: True),
-        ("{f}.asSet().size()", lambda v: len(set(v)), lambda v: True),
+        ("{f}.size()", lambda v: True),
+        ("{f}.asSet().size()", lambda v: True),
     ],
     # INTEGER arithmetic (probed): `+` / `-` promote to a long on overflow, `*` WRAPS
     # in 32 bits and `math_abs(-2^31)` is -2^31 (Java), so those are mirrored only
     # where no wrap can happen
     FieldType.INT32: [
-        ("{f}.asString()", lambda v: str(v), lambda v: True),
-        ("{f} + 1", lambda v: v + 1, lambda v: True),
-        ("{f} - 1", lambda v: v - 1, lambda v: True),
-        ("{f} * 2", lambda v: v * 2, lambda v: abs(v) < 2**30),
-        ("{f} / 2", lambda v: v // 2 if v % 2 == 0 else v / 2, lambda v: True),
-        ("{f} % 3", lambda v: _java_mod(v, 3), lambda v: True),
-        ("math_abs({f})", lambda v: abs(v), lambda v: v > -(2**31)),
-        ("{f}.asLong()", lambda v: v, lambda v: True),
+        ("{f}.asString()", lambda v: True),
+        ("{f} + 1", lambda v: True),
+        ("{f} - 1", lambda v: True),
+        ("{f} * 2", lambda v: abs(v) < 2**30),
+        ("{f} / 2", lambda v: True),
+        ("{f} % 3", lambda v: True),
+        ("math_abs({f})", lambda v: v > -(2**31)),
+        ("{f}.asLong()", lambda v: True),
     ],
     # FLOAT: exact for the dyadic values the generator stores; `Float.toString`
     # matches Python's repr only without an exponent (1e-3 <= |v| < 1e7)
     FieldType.FLOAT32: [
-        ("{f} * 2", lambda v: v * 2, lambda v: abs(v) < 2**20),
-        ("{f} + 0", lambda v: v + 0, lambda v: True),
-        ("math_abs({f})", lambda v: abs(v), lambda v: True),
-        ("{f}.asLong()", lambda v: int(v), lambda v: abs(v) < 2**62),
-        ("{f}.asString()", lambda v: repr(v), lambda v: v == 0 or 1e-3 <= abs(v) < 1e7),
+        ("{f} * 2", lambda v: abs(v) < 2**20),
+        ("{f} + 0", lambda v: True),
+        ("math_abs({f})", lambda v: True),
+        ("{f}.asLong()", lambda v: abs(v) < 2**62),
+        ("{f}.asString()", lambda v: v == 0 or 1e-3 <= abs(v) < 1e7),
     ],
     # a DATETIME / DATE: its epoch milliseconds, its formatted parts (Java's
     # SimpleDateFormat patterns on the UTC value), a day of arithmetic
     FieldType.DATETIME: [
-        ("{f}.asLong()", lambda v: _epoch_ms(v), lambda v: True),
-        ("{f}.format('yyyy-MM-dd')", lambda v: v[:10], lambda v: True),
-        ("{f}.format('yyyy')", lambda v: v[:4], lambda v: True),
-        ("{f}.format('HH:mm:ss')", lambda v: v[11:], lambda v: True),
-        ("{f}.format('yyyy-MM-dd HH:mm:ss')", lambda v: v, lambda v: True),
-        ("{f} + 86400000", lambda v: _shift(v, 86400), lambda v: v < "9999-12-31"),
-        ("{f}.asDate().format('yyyy-MM-dd HH:mm:ss')", lambda v: v[:10] + " 00:00:00", lambda v: True),
+        ("{f}.asLong()", lambda v: True),
+        ("{f}.format('yyyy-MM-dd')", lambda v: True),
+        ("{f}.format('yyyy')", lambda v: True),
+        ("{f}.format('HH:mm:ss')", lambda v: True),
+        ("{f}.format('yyyy-MM-dd HH:mm:ss')", lambda v: True),
+        ("{f} + 86400000", lambda v: v < "9999-12-31"),
+        ("{f}.asDate().format('yyyy-MM-dd HH:mm:ss')", lambda v: True),
     ],
     FieldType.DATE: [
-        ("{f}.asLong()", lambda v: _epoch_ms(v), lambda v: True),
-        ("{f}.format('yyyy-MM-dd')", lambda v: v[:10], lambda v: True),
-        ("{f}.format('yyyy')", lambda v: v[:4], lambda v: True),
-        ("{f} + 86400000", lambda v: _shift(v, 86400), lambda v: v < "9999-12-31"),
+        ("{f}.asLong()", lambda v: True),
+        ("{f}.format('yyyy-MM-dd')", lambda v: True),
+        ("{f}.format('yyyy')", lambda v: True),
+        ("{f} + 86400000", lambda v: v < "9999-12-31"),
     ],
     FieldType.MAP: [
-        ("{f}.size()", lambda v: len(v), lambda v: True),
-        ("{f}.keys().size()", lambda v: len(v), lambda v: True),
-        ("{f}.values().size()", lambda v: len(v), lambda v: True),
+        ("{f}.size()", lambda v: True),
+        ("{f}.keys().size()", lambda v: True),
+        ("{f}.values().size()", lambda v: True),
     ],
     # DECIMAL: BigDecimal arithmetic, read back as the double of its decimal string;
     # `math_abs` has no BigDecimal overload (rejected, probed) so it is not mirrored
     FieldType.DECIMAL: [
-        ("{f} * 2", lambda v: float(decimal_of(v) * 2), lambda v: abs(v) < 1e15),
-        ("{f} + 0", lambda v: v, lambda v: True),
-        ("{f} - 1", lambda v: float(decimal_of(v) - 1), lambda v: abs(v) < 1e15),
-        ("{f}.asLong()", lambda v: int(v), lambda v: abs(v) < 2**62),
-        ("{f}.asString()", lambda v: str(decimal_of(v)), lambda v: v != 0 and 1e-3 <= abs(v) < 1e7),
+        ("{f} * 2", lambda v: abs(v) < 1e15),
+        ("{f} + 0", lambda v: True),
+        ("{f} - 1", lambda v: abs(v) < 1e15),
+        ("{f}.asLong()", lambda v: abs(v) < 2**62),
+        ("{f}.asString()", lambda v: v != 0 and 1e-3 <= abs(v) < 1e7),
     ],
 }
 
 
-def method_fn(template: str, ftype: FieldType):
-    for t, fn, _ in METHODS[ftype]:
-        if t == template:
-            return fn
-    raise KeyError(template)
-
-
 # --- the transaction door ---------------------------------------------------------------------
 
-def tx_write(tx: dict, data_model: str) -> str:
+assumes("accepts.delete_from.vertex_or_edge_class", SQL, REFUSED)
+
+
+def tx_write(tx: TxWrite, data_model: str) -> str:
     """The write's text on `data_model`: a vertex is created and deleted through `CREATE
     VERTEX` / `DELETE VERTEX` (a `DELETE FROM` a vertex class is refused)."""
-    t, f = tx["table"], tx["field"]
-    if tx["write"] == "delete":
+    t, f = tx.table, tx.field
+    if tx.write == "delete":
         return f"DELETE VERTEX {t} WHERE id = :tid" if data_model == "graph" else f"DELETE FROM {t} WHERE id = :tid"
-    if tx["write"] == "insert":
+    if tx.write == "insert":
         return ("CREATE VERTEX" if data_model == "graph" else "INSERT INTO") + f" {t} SET id = :tid, {f} = :tv"
-    if tx["remove"]:
+    if tx.remove:
         return f"UPDATE {t} REMOVE {f} WHERE id = :tid"
     return f"UPDATE {t} SET {f} = :tv WHERE id = :tid"
 

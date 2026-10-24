@@ -47,10 +47,35 @@ from __future__ import annotations
 
 import dataclasses
 
-from ganda.core.ast.predicates import fields_of, has_op
-from ganda.core.ast.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, Hop, TraversalQuery
-from ganda.core.model import Schema
+from ganda.core.query.ir.predicates import fields_of, has_op
+from ganda.core.query.ir.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, Hop, TraversalQuery
+from ganda.core.data.model import Schema
+from ganda.core.rules.vocabulary import EmptyAggregate, PathMode
+from ganda.arangodb.rules import answer, assumes
+from ganda.arangodb.rules.catalog import AQL, TRAVERSAL
 from ganda.arangodb.concrete_syntax.predicate import render_predicate as render_pred
+
+# the syntaxes of one data model are twins the oracle compares
+assumes("equivalent.edge_scan", TRAVERSAL, True)
+assumes("equivalent.deep_traversal", TRAVERSAL, True)
+assumes("equivalent.both_as_union", TRAVERSAL, True)
+assumes("equivalent.reach_bfs_global", TRAVERSAL, True)
+assumes("equivalent.link_array_forms", AQL, True)
+assumes("equivalent.junction_forms", AQL, True)
+assumes("equivalent.flat_collect", AQL, True)
+assumes("equivalent.pull_up", AQL, True)
+# one row per edge on every path: a parallel pair twice, a self-loop once per direction,
+# twice under `ANY` -- as `UNION` of the two legs, which keeps duplicates
+assumes("match.parallel_edges.rows", AQL, 2)
+assumes("match.parallel_edges.rows", TRAVERSAL, 2)
+assumes("match.undirected.self_loop.rows", AQL, 2)
+assumes("match.undirected.self_loop.rows", TRAVERSAL, 2)
+# an aggregate over no path is null, over paths the present values' (the filter `!= null`)
+assumes("aggregate.max.empty_input", AQL, EmptyAggregate.NULL)
+assumes("aggregate.max_min.skips_null", AQL, True)
+# a `k..k` traversal enumerates every WALK of k edges only under `uniqueEdges: 'none'`:
+# the operator's default forbids an edge twice on one path (a trail)
+_DEEP_OPTIONS = "" if answer("path.variable_length.mode", TRAVERSAL) is PathMode.WALK else " OPTIONS {uniqueEdges: 'none'}"
 
 SYNTAXES = {
     "graph": ("trav", "escan", "deep", "flat"),
@@ -103,11 +128,15 @@ def applicable(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) 
     return True
 
 
+# an absent attribute projects as an explicit null
+assumes("projection.keeps_absent_field", AQL, False)
+
+
 def can_pull_up(q: TraversalQuery) -> bool:
     """A source predicate can be lifted over a projection unless it tests definedness
     (an absent attribute projects as an explicit null)."""
     p = q.source_predicate
-    return p is not None and not has_op(p, ("IS DEFINED", "IS NOT DEFINED"))
+    return p is not None and not has_op(p, ("IS PRESENT", "IS ABSENT"))
 
 
 def syntaxes_for(q: TraversalQuery, schema: Schema, data_model: str) -> list:
@@ -166,7 +195,7 @@ def _deep(q: TraversalQuery, schema: Schema) -> "tuple[str, str, str]":
         p = h.predicate
         if p is not None:
             conds.append(_pred(f"dp.edges[{k}]" if p.on == "edge" else f"dp.vertices[{k + 1}]", p))
-    body = f"FOR dv, de, dp IN {n}..{n} {_DIR[q.hops[0].direction]} n {', '.join(colls)} OPTIONS {{uniqueEdges: 'none'}}{''.join(conds)}"
+    body = f"FOR dv, de, dp IN {n}..{n} {_DIR[q.hops[0].direction]} n {', '.join(colls)}{_DEEP_OPTIONS}{''.join(conds)}"
     return body, "dv", "de"
 
 

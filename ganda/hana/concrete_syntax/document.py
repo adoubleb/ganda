@@ -38,11 +38,16 @@ from __future__ import annotations
 
 import re
 
-from ganda.core.ast.predicates import MIRROR, Compound
-from ganda.core.model import FieldType, Schema
+from ganda.core.query.ir.predicates import MIRROR, Compound
+from ganda.core.data.model import FieldType, Schema
+from ganda.core.rules.vocabulary import Logic, Truth
+from ganda.hana.rules import assumes, works_around
+from ganda.hana.rules.catalog import ACCEPTED, COLLECTION, REFUSED, SQL_DOC
 from ganda.hana.concrete_syntax.predicate import Names
 
 
+
+works_around("A2")
 
 class _DocNames(Names):
     prefix = "v_"
@@ -92,6 +97,8 @@ def projection(ftype: FieldType, expr: str, alias: str) -> str:
 # --- the views --------------------------------------------------------------------------------
 
 
+works_around("A5")
+
 def sql_cast(ftype: FieldType, col: str) -> str:
     """A projected field (the collection's text) as its SQL type, in SQL: a number by
     TO_BIGINT / TO_DOUBLE of its text, a boolean by its text, a string by TO_NVARCHAR.
@@ -108,6 +115,8 @@ def sql_cast(ftype: FieldType, col: str) -> str:
         return f"TO_NVARCHAR({col}) AS {col}"
     return col
 
+
+assumes("accepts.query.boolean_constant", COLLECTION, REFUSED)
 
 def view_definition(schema: Schema, name: str) -> str:
     """The SQL of one view (`v_n1`, `v_n1__f3`, `v_e1`, `v_e1__f`).
@@ -182,7 +191,7 @@ def asks_membership(p) -> bool:
     if p is None:
         return False
     for leaf in p.leaves():
-        if leaf.op in ("CONTAINS", "CONTAINSANY", "CONTAINSALL"):
+        if leaf.op in ("HAS", "HAS ANY", "HAS ALL"):
             return True
         if leaf.sub is not None and asks_membership(leaf.sub[2]):
             return True
@@ -192,7 +201,7 @@ def asks_membership(p) -> bool:
 def _membership_conjunct(p) -> bool:
     """Whether every LIST membership of a tree is a positive conjunct of it: under AND
     only, never under OR or NOT, and never inside a semi-join's subquery."""
-    from ganda.core.ast.predicates import Compound
+    from ganda.core.query.ir.predicates import Compound
 
     if isinstance(p, Compound):
         if p.op == "AND":
@@ -200,6 +209,11 @@ def _membership_conjunct(p) -> bool:
         return not asks_membership(p)
     return p.sub is None or not asks_membership(p.sub[2])
 
+
+assumes("accepts.exists.unnest_element_view.positive_conjunct", SQL_DOC, ACCEPTED)
+assumes("accepts.exists.unnest_element_view.under_or", SQL_DOC, REFUSED)
+assumes("accepts.exists.unnest_element_view.under_not", SQL_DOC, REFUSED)
+assumes("accepts.exists.unnest_element_view.in_semi_join", SQL_DOC, REFUSED)
 
 def views_ask(p) -> bool:
     """Whether SQL over the views asks a filter. Not a whole-LIST comparison (the views
@@ -231,12 +245,17 @@ def _bool_literal(v) -> str:
     return f"TO_JSON_BOOLEAN({'TRUE' if v else 'FALSE'})"
 
 
+assumes("accepts.like.parameter", COLLECTION, REFUSED)
+
 def _sql_string(v: str) -> str:
     """An NVARCHAR literal (the quote doubled). The collection filter's LIKE takes only a
     constant string on its right-hand side (or TO_NVARCHAR / UPPER / LOWER of one), never
     a parameter, so a LIKE pattern is inlined rather than bound."""
     return "'" + str(v).replace("'", "''") + "'"
 
+
+assumes("accepts.filter.bare_parameter", COLLECTION, REFUSED)
+assumes("accepts.filter.in_list_parameter", COLLECTION, REFUSED)
 
 def _param(ftype: "str | None", bind: str, value) -> str:
     """A pivot as the document store takes it: cast to the type it compares as."""
@@ -267,6 +286,9 @@ class Unsupported(ValueError):
 _COMPLEMENT = {"=": "<>", "<>": "=", "<": ">=", ">=": "<", ">": "<=", "<=": ">", "IS NULL": "IS NOT NULL", "IS NOT NULL": "IS NULL"}
 
 
+assumes("filter.logic", COLLECTION, Logic.KLEENE)
+assumes("filter.membership.absent_list", COLLECTION, Truth.FALSE)
+
 def doc_pred(p, alias: str = "", negate: bool = False, keep_not: bool = False) -> str:
     """A tree as the document store's own WHERE over the documents of a collection (or,
     with `alias`, over an unnested element), in the documented filter language: a path
@@ -289,12 +311,12 @@ def doc_pred(p, alias: str = "", negate: bool = False, keep_not: bool = False) -
     if p.sub is not None or p.arith is not None or p.rev:
         raise Unsupported(p.signature)
     col = path(p.field, alias)
-    if p.op in ("CONTAINS", "CONTAINSANY", "CONTAINSALL"):
+    if p.op in ("HAS", "HAS ANY", "HAS ALL"):
         if negate:
             raise Unsupported("a negated membership")
-        if p.op == "CONTAINS":
+        if p.op == "HAS":
             return f'FOR ANY "e" IN {col} SATISFIES "e" = {_param("int", p.bind, p.pivot)} END'
-        if p.op == "CONTAINSANY":
+        if p.op == "HAS ANY":
             alts = " OR ".join(f'"e" = {_param("int", f"{p.bind}__{k}", v)}' for k, v in enumerate(p.pivot))
             return f'FOR ANY "e" IN {col} SATISFIES ({alts}) END'
         return "(" + " AND ".join(f'FOR ANY "e" IN {col} SATISFIES "e" = {_param("int", f"{p.bind}__{k}", v)} END' for k, v in enumerate(p.pivot)) + ")"

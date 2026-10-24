@@ -1,4 +1,4 @@
-"""The concrete syntax catalog of the write AST: HOW each data model issues a
+"""The concrete syntax catalog of the write IR: HOW each data model issues a
 `WriteQuery` in AQL. A write runs ONCE per database, so a case carries no variants:
 each data model draws its own syntax, and the three answers and the three resulting
 states are compared against each other and against the Instance with the write
@@ -42,13 +42,25 @@ import random
 import re
 from dataclasses import dataclass, field
 
-from ganda.core.ast.predicates import Predicate, reverse
-from ganda.core.ast.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
-from ganda.core.data_generator import BASE_CLASS
-from ganda.core.model import Instance, Schema
-from ganda.arangodb import rewrites as _rewrites
+from ganda.core.query.ir.predicates import Predicate, reverse
+from ganda.core.query.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
+from ganda.core.data.generator import BASE_CLASS
+from ganda.core.data.model import Instance, Schema
+from ganda.arangodb.rules import assumes
+from ganda.arangodb.rules.catalog import AQL
+from ganda.arangodb.oracle import rewrites as _rewrites
 from ganda.arangodb.concrete_syntax.predicate import render_predicate as render_pred
-from ganda.arangodb.dialect import document_key
+from ganda.arangodb.storage.dialect import document_key
+
+# a data-modification statement answers no count: the write runs as a subquery whose
+# rows are counted (`_counted`)
+assumes("statement.write.answers_row_count", AQL, False)
+# UPDATE merges a map value key by key and keeps a null unless told otherwise: every
+# update door carries `mergeObjects: false`, a remove `keepNull: false`
+assumes("update.map_value.merged_by_default", AQL, True)
+assumes("update.null.kept_by_default", AQL, True)
+# removing a vertex removes no edge: every data model cascades explicitly (`_node_delete`)
+assumes("delete_vertex.cascades_edges", AQL, False)
 
 FILTERS = ("plain", "rw", "rev", "ar")
 TARGETS = ("table", "nest", "sub")
@@ -242,7 +254,7 @@ def _node_delete(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_m
 def _doc_rewrites(q: WriteQuery, before: Instance, after: Instance) -> list:
     """Each source holding a matched relationship re-sets its whole array to the one
     the Instance after the write holds."""
-    from ganda.arangodb.mapping.document import link_object
+    from ganda.arangodb.storage.mapping.document import link_object
 
     et = before.schema.edge_type(q.edge_type)
     sources = sorted({e.from_record for e in edge_hits(q, before)})

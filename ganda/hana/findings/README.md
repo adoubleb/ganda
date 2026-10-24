@@ -70,10 +70,10 @@ file. Listed so you can see what was NOT a HANA issue.
 
 | id | what the provider did wrong | fixed in |
 |----|------------------------------|----------|
-| **C1** | `ganda hana probe <id>` filtered out all facts: the CLI didn't pass the fact filter, so `probe.main` saw `['hana','probe']`. | `ganda/cli.py`, `ganda/*/provider.py`, `ganda/core/provider.py` |
+| **C1** | `ganda hana probe <id>` filtered out all facts: the CLI didn't pass the fact filter, so `probe.main` saw `['hana','probe']`. | `ganda/cli.py`, `ganda/*/provider.py`, `ganda/core/engine/provider.py` |
 | **C2** | Several probe facts tested SQL forms the provider never emits (combined SET/UNSET, a single-scope CASE, field-referencing arithmetic, bare-quoted paths) — probe bugs, not engine facts. | `ganda/hana/scripts/probe.py` |
 | **C3** | Case-query value projections through `SPARQL_TABLE`/`rdf:table` lacked decode-suffix aliases, so ints came back as strings (B8 is the engine side; this is the provider not adapting). | `ganda/hana/concrete_syntax/select.py`, `traversal.py` |
-| **C4** | The state check re-read an rdf double from `STR(?o)` only when the text "looked float"; `STR` prints `%.17g`, so 2^53 came back `9007199254740992` and the rounded term (`9.0072e+15`) was kept. Every seed holding 2^53 in a float field failed its state check and ran no case (campaign-20261009-095838: 14 of 16 seeds). | `ganda/hana/connection.py` (`_exact`) |
+| **C4** | The state check re-read an rdf double from `STR(?o)` only when the text "looked float"; `STR` prints `%.17g`, so 2^53 came back `9007199254740992` and the rounded term (`9.0072e+15`) was kept. Every seed holding 2^53 in a float field failed its state check and ran no case (campaign-20261009-095838: 14 of 16 seeds). | `ganda/hana/engine/connection.py` (`_exact`) |
 | **C5** | C3 was incomplete: booleans (`"0"` / `"1"`), group keys and values, method answers and int `max` / `min` / `sum` reached `rdf:table_fn` without a decode suffix; all 10 mismatches of campaign-20261009-095838. The rule behind it (B8, corrected): SPARQL_TABLE types a column after the datatypes its predicate holds across the graph. | `concrete_syntax/select.py`, `traversal.py` (`agg_proj`, `_rdf_proj`) |
 | **C6** | The rdf sum guard `IF(COUNT(?w) > 0, SUM(?w), ?ganda_unknown)` names a bare variable in a grouped SELECT, which SPARQL 1.1 forbids (`[129] Non GROUP BY variable in SELECT`): every rdf variant of a traversal or grouped select over `sum` failed. Now `... , MAX(?w))`, unbound over no value. | `concrete_syntax/traversal.py` (`guarded`), `select.py` |
 | **C7** | The doc write's read-back `WHERE $."id" IN (?, ?)` left its markers uncast ("please specify the types for parameter"). | `concrete_syntax/write.py`, `connection.py` (`run_statements`) |
@@ -97,7 +97,7 @@ file. Listed so you can see what was NOT a HANA issue.
   re-probed live: B9 and B10 moved to A (A5, A6); B1, B4, B5 and B8 kept B with corrected claims.
 - Code 129 ("transaction rolled back by an internal error") is how the triple store reports EVERY
   refusal (a syntax error too), and how the Document Store reports a string MAX: it marks no
-  internal failure there (`connection.REJECTION_129`).
+  internal failure there (the error classes in `ganda/hana/rules/catalog.py`).
 - The campaign's own bug bundles (`bugs/`) are the raw evidence (every variant's text, binds,
   rows, mismatches); this folder distils them into runnable, minimal repros.
 - `TRANSCRIPT.txt` is a captured run of every repro here. `campaign-round4-clean-stats.json` is the

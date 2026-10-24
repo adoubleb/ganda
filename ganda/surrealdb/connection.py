@@ -16,8 +16,8 @@ import os
 
 import requests
 
-from ganda.core.docker import DockerServer, cleanup_orphans  # noqa: F401
-from ganda.core.provider import EngineCrash, EngineError, Session
+from ganda.core.engine.docker import DockerServer, cleanup_orphans  # noqa: F401
+from ganda.core.engine.provider import EngineCrash, EngineError, Session
 
 NAMESPACE = "ganda"
 
