@@ -57,6 +57,12 @@ def demoted_kind(kind: str) -> str:
 assumes("compare.negative_zero_below_zero", SQL, True)
 
 
+# the pools' doubles (-0.0, subnormals) and strings (NFC and NFD apart) round-trip
+# exactly, so a UNIQUE index keys them as `index_key_value` does
+assumes("value.double.exact_round_trip", SQL, True)
+assumes("value.string.exact_round_trip", SQL, True)
+
+
 def index_key_value(v, ci: bool = False):
     """A value as an index keys it, hashable."""
     if isinstance(v, bool):

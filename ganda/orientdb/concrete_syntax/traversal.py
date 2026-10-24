@@ -65,8 +65,8 @@ from ganda.orientdb.facade.predicates import fields_of, has_op
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
 
 from ganda.orientdb.rules import answer, assumes, works_around
-from ganda.orientdb.rules.catalog import MATCH, REFUSED, SQL, TRAVERSE, Strategy
-from ganda.core.rules.vocabulary import EmptyInputRows
+from ganda.orientdb.rules.catalog import ACCEPTED, MATCH, REFUSED, SQL, TRAVERSE, Strategy
+from ganda.core.rules.vocabulary import EmptyAggregate, EmptyInputRows
 
 SYNTAXES = {
     "graph": ("chain", "match", "match_opt", "edgescan", "bag", "traverse", "traverse_dfs", "traverse_e"),
@@ -78,6 +78,8 @@ DEFAULT_SYNTAX = {"graph": "chain", "doc": "path", "rel": "let"}
 # query's scope -- the ones O1 applies to when the outer query is index-served
 # (`traverse` roots its TRAVERSE at `$parent.$current`: campaign c60b, seeds 414, 428
 # and 443, a null root under every index kind).
+# a correlated LET reads the enclosing record under a scan
+assumes("equivalent.correlated_let", SQL, True)
 CORRELATED = {("doc", "let_expand"), ("doc", "inpath"), ("doc", "union"), ("rel", "let"), ("graph", "traverse"), ("graph", "traverse_dfs"), ("graph", "traverse_e")}
 # Concrete syntaxes that put a target predicate in a BRACKET filter or behind a dotted link
 # (`in.f`), where a property's `ci` collation is ignored (O25); `edgescan` renders the
@@ -123,6 +125,10 @@ def _group(extra: tuple) -> str:
 assumes("accepts.projection.comparison", SQL, REFUSED)
 
 
+# a bare-set projection's `.size() = 0` / `> 0` also covers a source with no link list
+assumes("value.absent_list.size", SQL, 0)
+
+
 def _set_filter(expr: str, q: TraversalQuery) -> str:
     """The WHERE condition of a bare-set projection over collection `expr`."""
     return f"{expr}.size() > 0" if q.projection == "exists" else f"{expr}.size() = 0"
@@ -134,6 +140,12 @@ def _set_filter(expr: str, q: TraversalQuery) -> str:
 # an embedded document expands under `value`; no MATCH negative pattern is rendered (O22)
 assumes("expand.embedded.wrapped_under_value", SQL, True)
 works_around("O22")
+
+
+# rel:flat folds max / min, and a start record with no path answers null there
+assumes("aggregate.max.empty_input", SQL, EmptyAggregate.NULL)
+# a multi-hop doc:path maps field access element-wise through the link lists
+assumes("path.link_list.maps_field_access", SQL, True)
 
 
 def applicable(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) -> bool:
@@ -198,6 +210,8 @@ _CI_OPS = tuple(answer("filter.case_insensitive.operators", SQL).split())
 
 
 assumes("projection.keeps_absent_field", SQL, False)
+# IS NULL holds for an absent field as for a null one: a pulled-up predicate meets nulls
+assumes("value.absent_is_null", SQL, True)
 
 
 def can_pull_up(q: TraversalQuery) -> bool:
@@ -313,7 +327,11 @@ def _graph_chain(q: TraversalQuery, schema: Schema, bag: bool, extra: tuple = ()
 assumes("match.parallel_edges.rows", MATCH, 2)
 assumes("match.optional.no_path.rows", MATCH, EmptyInputRows.ONE_ROW)
 assumes("accepts.max_depth.parameter", MATCH, REFUSED)
+# the class sits on the root alias only (O45), and a both-hop edge projection ends the
+# pattern at an edge alias
 works_around("O45")
+assumes("match.classless_alias.is_root", MATCH, False)
+assumes("accepts.match.end_at_edge_alias", MATCH, ACCEPTED)
 
 
 def _graph_match(q: TraversalQuery, schema: Schema, extra: tuple = (), optional: bool = False) -> str:
@@ -374,6 +392,9 @@ def _graph_edgescan(q: TraversalQuery, schema: Schema, extra: tuple = ()) -> str
     # inline, not `LET $a = (...), $b = (...), $c = unionall($a, $b)`: that form
     # answers nothing when the parts carry a nested correlated LET (O26)
     return f"SELECT expand(unionall(({a}), ({b})))"
+
+
+assumes("equivalent.unionall_inline", SQL, True)
 
 
 # --- the variable-depth (reach) forms --------------------------------------------------------
@@ -560,6 +581,10 @@ def _doc_inpath(q: TraversalQuery, schema: Schema, extra: tuple = ()) -> str:
     return f"SELECT id{_cols(extra)}, {proj} AS v FROM {tgt} {let}{_where(_sp(q))}{tail}"
 
 
+# `unionall` takes an absent link list as an empty one
+assumes("unionall.absent_operand.empty", SQL, True)
+
+
 def _doc_union(q: TraversalQuery, schema: Schema, extra: tuple = ()) -> str:
     """The `both` direction: the outgoing path over the record's own list, unioned
     with the incoming subquery (`unionall` tolerates an absent list, probed)."""
@@ -583,6 +608,12 @@ def _doc_union(q: TraversalQuery, schema: Schema, extra: tuple = ()) -> str:
 
 # LET precedes WHERE
 assumes("accepts.let.after_where", SQL, REFUSED)
+
+
+# a nested LET's `$parent.$current` is the enclosing subquery's row, and `$f[0].v`
+# keeps the projection flat (an aggregate over a list of lists is O5)
+assumes("let.nested.parent_is_enclosing_query", SQL, True)
+assumes("equivalent.let_first_element", SQL, True)
 
 
 def _rel_sub(q: TraversalQuery, schema: Schema, k: int, cur_ref: str, direction: "str | None" = None) -> str:
@@ -723,6 +754,10 @@ def _reach_renderer(data_model: str, syntax: str):
     if data_model == "doc":
         return lambda q, s, x: _doc_reach(q, x)
     return lambda q, s, x: _rel_reach(q, x)
+
+
+# the pull-up asks the correlated syntax inside a scanned FROM subquery (O1)
+assumes("equivalent.pulled_up", SQL, True)
 
 
 def render(q: TraversalQuery, schema: Schema, data_model: str, syntax: str, pull_up: bool = False) -> str:

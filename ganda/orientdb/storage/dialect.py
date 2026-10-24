@@ -23,7 +23,8 @@ from __future__ import annotations
 import re
 
 from ganda.core.data.model import FieldType
-from ganda.orientdb.rules import works_around
+from ganda.orientdb.rules import assumes, works_around
+from ganda.orientdb.rules.catalog import SQL
 
 # The declared property type of each FieldType (`CREATE PROPERTY t.f <type>`).
 #
@@ -58,6 +59,8 @@ from ganda.orientdb.rules import works_around
 # a BINARY column is never compared or indexed (O46)
 works_around("O34")
 works_around("O46")
+# every write door stores a base64 BINARY as the same text
+assumes("value.binary.base64_round_trip", SQL, True)
 
 ORIENT_TYPES = {
     FieldType.INT: "LONG",

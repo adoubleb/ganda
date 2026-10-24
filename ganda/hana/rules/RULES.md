@@ -150,14 +150,14 @@
 
 ## error classes
 
-| class | codes | message marks |
-|---|---|---|
-| connection-lost | -10821, -10807, -10806, -10709, -10108 |  |
-| timeout | 613 |  |
-| timeout | any | `timeout` and `abort` (any case) |
-| rejection | 129 | `generic. Error -`; `Unsupported functionality`; `supports only` |
-| internal | 2, 3, 129, 2048 |  |
-| internal | any | `internal error`; `assertion`; `must not reach here` (any case) |
-| rejection | any |  |
+| class | codes | message marks | checked by |
+|---|---|---|---|
+| connection-lost | -10821, -10807, -10806, -10709, -10108 |  | unchecked |
+| timeout | 613 |  | unchecked |
+| timeout | any | `timeout` and `abort` (any case) | unchecked |
+| rejection | 129 | `generic. Error -`; `Unsupported functionality`; `supports only` | unchecked |
+| internal | 2, 3, 129, 2048 |  | unchecked |
+| internal | any | `internal error`; `assertion`; `must not reach here` (any case) | unchecked |
+| rejection | any |  | unchecked |
 
 100 rules (7 IR definitions): 53 checked by a probe fact, 40 unchecked; 93 read by code, 0 unread; 10 defects (0 reproduced by a probe fact); 7 error classes

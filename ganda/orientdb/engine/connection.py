@@ -52,8 +52,9 @@ import requests
 
 from ganda.orientdb.storage.mapping.common import Batch, Script, Sql, resolve_refs
 from ganda.core.engine.provider import EngineCrash, EngineError, Server, Session
-from ganda.orientdb.rules import assumes
-from ganda.orientdb.rules.catalog import MATCH, REFUSED
+from ganda.core.rules.model import ErrorKind
+from ganda.orientdb.rules import CATALOG, assumes
+from ganda.orientdb.rules.catalog import MATCH, REFUSED, SQL
 
 
 
@@ -72,9 +73,9 @@ CONTAINER_LABEL = "orientdb-fuzzer=true"
 DEFAULT_TIMEOUT_MS = 30000
 # the JVM heap at the large scale (`ORIENTDB_OPTS_MEMORY`; the image's default is 2 GB)
 LARGE_SCALE_MEMORY = "-Xms1G -Xmx3G"
-# how many ids one `IN :ids` lookup carries
+# how many ids one `IN :ids` lookup carries, the most the engine resolves in one
 _IN_CHUNK = 500
-_TIMEOUT_RE = re.compile(r"OTimeoutException|OCommandInterruptedException")
+assumes("exact.in_list.ids.max", SQL, _IN_CHUNK)
 
 # A rejection body that is a raw Java exception rather than one of OrientDB's own
 # command/validation exceptions: the request reached code that did not expect it.
@@ -83,6 +84,10 @@ _INTERNAL_RE = re.compile(
     r"|java\.util\.(ConcurrentModification|NoSuchElement)"
 )
 _ORIENT_EXPECTED_RE = re.compile(r"OCommandSQLParsingException|OCommandExecutionException|OValidationException|ORecordDuplicatedException|OConcurrentModificationException|ORecordNotFoundException|OTimeoutException|OCommandInterruptedException|OSchemaException|OIndexException|OConfigurationException|ODatabaseException|OSecurityException")
+
+
+# the doc data model's relationship count is `sum(e.size())`: an absent list adds 0
+assumes("value.absent_list.size", SQL, 0)
 
 
 def classify_error(status: int, content: str) -> bool:
@@ -163,7 +168,7 @@ class OrientSession(Session):
             content = resp.text[:2000]
             if isinstance(payload, dict) and payload.get("errors"):
                 content = "; ".join(str(e.get("content", e)) for e in payload["errors"])
-            raise OrientError(f"{method} {path} rejected ({resp.status_code}): {content[:1500]}", internal=classify_error(resp.status_code, content), status=resp.status_code, timeout=bool(_TIMEOUT_RE.search(content)))
+            raise OrientError(f"{method} {path} rejected ({resp.status_code}): {content[:1500]}", internal=classify_error(resp.status_code, content), status=resp.status_code, timeout=CATALOG.classify(resp.status_code, content) is ErrorKind.TIMEOUT)
         return payload
 
     def _alive(self) -> bool:

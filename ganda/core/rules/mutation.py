@@ -4,7 +4,9 @@ One mutant per alternative answer of a rule (`alternatives`) and one per defect
 removed. A mutant runs in a fresh interpreter (`python -m ganda.core.rules.mutation`)
 where `Catalog` is built with the change, then every module the read index scans is
 imported -- an `assumes` / `works_around` that no longer matches fails there -- and the
-setup plans, read cases and write steps of a few seeds are generated with no engine.
+setup plans, read cases and write steps of a few seeds are generated with no engine
+(with the engine limits the core sizes large data by). A record read only at run time
+-- by the connection, say -- is beyond it.
 The mutant is CAUGHT by the import or by a change in that output, and SURVIVES
 otherwise: the record is read by nothing that decides anything over those seeds."""
 from __future__ import annotations
@@ -96,7 +98,8 @@ def _modules(engine: str) -> list:
 
 def _generated(engine_name: str, seeds: int) -> str:
     """A digest of what a campaign would send over `seeds` seeds in two configurations:
-    the setup plans, the read cases and the write steps (applied to the Instance)."""
+    the setup plans, the read cases and the write steps (applied to the Instance), and
+    the engine limits the core sizes large data by (`Provider.limits`)."""
     from ganda.core.data.generator import build
     from ganda.core.query.generators.registry import all_cases
     from ganda.core.query.generators.write import sample_write
@@ -106,7 +109,7 @@ def _generated(engine_name: str, seeds: int) -> str:
     engine = importlib.import_module(f"ganda.{engine_name}").PROVIDER
     config = engine.config_class
     names = {f.name for f in dataclasses.fields(config)}
-    digest = hashlib.sha256()
+    digest = hashlib.sha256(repr(engine.limits).encode())
 
     def case(c) -> dict:
         return {"q": c.queries, "b": c.bind_vars, "k": c.known_bugs, "o": c.variant_options, "p": bool(c.params.get("partial"))}

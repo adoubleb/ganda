@@ -35,6 +35,11 @@ from ganda.orientdb.storage.mapping.common import (
     node_update_steps,
 )
 from ganda.core.data.model import EdgeUpdate, Instance, NodeDelete
+from ganda.orientdb.rules import assumes
+from ganda.orientdb.rules.catalog import SQL
+
+# a link list travels as RID strings in a parameter, which the engine stores as LINKs
+assumes("parameter.rid_string.becomes_link", SQL, True)
 
 
 def link_entry(edge, values: "dict | None" = None) -> dict:

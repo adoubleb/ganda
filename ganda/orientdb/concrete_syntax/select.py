@@ -70,7 +70,7 @@ from ganda.orientdb.concrete_syntax.support import METHODS  # noqa: F401 -- the 
 from ganda.core.query.ir.select import DOC_EDGE_KINDS, SelectQuery, notnull_fields
 
 from ganda.orientdb.rules import assumes
-from ganda.orientdb.rules.catalog import REFUSED, SCRIPT, SQL
+from ganda.orientdb.rules.catalog import ACCEPTED, REFUSED, SCRIPT, SQL
 
 FILTERS = ("plain", "rw", "rev", "arith", "literal")
 POSITIONS = ("table", "poly", "polyin")
@@ -181,6 +181,8 @@ def _where_text(q: SelectQuery, sp: SelectSyntax, rewrites: Rewrites) -> "str | 
 
 assumes("accepts.let.after_where", SQL, REFUSED)
 assumes("accepts.instanceof.parameter", SQL, REFUSED)
+# ... so the base-class positions filter `@class = :cls`
+assumes("accepts.class_filter.parameter", SQL, ACCEPTED)
 
 
 def _source(q: SelectQuery, schema: Schema, sp: SelectSyntax, where: "str | None", let: str = "") -> str:
@@ -201,6 +203,9 @@ def _join_let(q: SelectQuery, sp: SelectSyntax) -> str:
     return f"LET $m = (SELECT id FROM {q.table} WHERE {cond})"
 
 
+assumes("unwind.bracket_projection.row_per_element", SQL, True)
+
+
 def _doc_edge(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites) -> str:
     """The doc data model's relationship records: the embedded link documents of the
     source class, filtered by a bracket filter and unwound one row per link (an
@@ -212,6 +217,10 @@ def _doc_edge(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrit
     if q.kind == "count":
         return f"SELECT count(*) AS v FROM ({inner})"
     return f"SELECT v AS id FROM ({inner})"
+
+
+# the `set` form carries no IS NOT NULL: set() drops nulls
+assumes("aggregate.skips_null", SQL, True)
 
 
 def _agg_text(q: SelectQuery, sp: SelectSyntax, src: str) -> str:

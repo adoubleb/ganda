@@ -358,6 +358,9 @@ def predicate_hit(present: bool, v: Any, op: str, pivot: Any, ftype: "str | None
     raise ValueError(op)
 
 
+assumes("exact.sum.decimal", SQL, True)
+
+
 def sum_is_exact(values: list, ftype: "str | None" = "int") -> bool:
     """Every partial sum in every order stays in the engine's arithmetic: ints with an
     absolute total below 2^62 (half the long range, so no interleaving of signs can

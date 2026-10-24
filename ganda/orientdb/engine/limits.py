@@ -6,11 +6,13 @@ configuration, which the connection layer starts the container with.
 from __future__ import annotations
 
 from ganda.core.data.limits import StorageLimits
+from ganda.orientdb.rules import answer
+from ganda.orientdb.rules.catalog import SCRIPT, SQL, SQL_INDEX
 
 # `network.http.maxLength`, the largest request body the REST server reads (its default
 # is 1 MB); `connection.OrientServer` starts the container with this value, and a server
 # attached through ORIENT_URL must be started with it for large data
-HTTP_MAX_LENGTH = 64 * 1024 * 1024
+HTTP_MAX_LENGTH = answer("exact.request.bytes.max", SQL)
 
 LIMITS = StorageLimits(
     # a Java String; the record bound below is what binds a value in practice
@@ -37,10 +39,10 @@ LIMITS = StorageLimits(
     # (`OTooBigIndexKeyException`), the key being the value's UTF-8 form plus 16 bytes
     # of overhead: 10224 ASCII characters, 3408 three-byte ones, 2556 four-byte ones; a
     # hash index has no key size bound
-    max_index_key_bytes=10240,
+    max_index_key_bytes=answer("exact.index_key.bytes.max", SQL_INDEX),
     # configured: `network.http.maxLength` above
     max_request_bytes=HTTP_MAX_LENGTH,
     # probed: scripts and batches of 500 statements run in 0.1 s; no documented bound,
     # a script's variables live in one context
-    max_statements_per_request=2000,
+    max_statements_per_request=answer("exact.statements.per_request.max", SCRIPT),
 )

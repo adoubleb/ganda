@@ -16,7 +16,7 @@ from ganda.core.data.model import DATE_TYPES, FieldType
 from ganda.orientdb.oracle.pivots import lossy_pivot
 from ganda.orientdb.oracle.semantics import apply_arith
 from ganda.orientdb.rules import assumes, works_around
-from ganda.orientdb.rules.catalog import SQL
+from ganda.orientdb.rules.catalog import ACCEPTED, SQL
 from ganda.core.rules.vocabulary import Logic
 
 
@@ -72,6 +72,12 @@ _ARITH_CHOICES = {
 }
 
 
+# `(t + :c)` shifts a date by milliseconds; a plain range drops the null rows, so the
+# rewrites' `IS NOT NULL` keeps them alike
+assumes("arithmetic.date_plus_number.shifts_milliseconds", SQL, True)
+assumes("filter.null.range_holds", SQL, False)
+
+
 def arithmetic(p, rng: random.Random, bind: str, ftype: FieldType, values: list):
     """An equivalent concrete syntax of the leaf `f op :p` as `(f <sym> :c) op' :pc AND f IS
     NOT NULL` (`... OR f IS NULL` for `<>`) -- the pivot shifted the same way, the
@@ -116,6 +122,10 @@ def arithmetic(p, rng: random.Random, bind: str, ftype: FieldType, values: list)
 # a negated range adds IS NOT NULL: the logic is two-valued
 assumes("filter.logic", SQL, Logic.TWO_VALUED)
 assumes("compare.negative_zero_below_zero", SQL, True)
+
+
+# `m[:k] op :p`, the parameter-keyed map entry
+assumes("accepts.map_entry.parameter_key", SQL, ACCEPTED)
 
 
 def rewrite(p, rng: random.Random, bind: str):

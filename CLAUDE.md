@@ -83,8 +83,8 @@ removed 2026-10-24). A pair differs in data model or in spelling (`rw`, `rev`, `
 The engine rules are minimal records in `ganda/orientdb/rules/catalog.py`, as HANA's (the
 subjects are OrientDB SQL's execution paths: a scan, an index-served statement, MATCH,
 TRAVERSE, the script / transaction door, /batch); the defects O1..O46 (but O3, O4)
-beside them; `rules/checks.py` lists the rules each probe check (C1..C338 in
-`scripts/probe_osql.py`) asserts and the defects it reproduces (every defect has a check
+beside them; `rules/checks.py` lists the rules each probe check (223 of them, ids up to C338
+in `scripts/probe_osql.py`, never reused) asserts and the defects it reproduces (every defect has a check
 whose expected answer is the defect's). A failing check prints the rule that no
 longer holds, or the defect that no longer reproduces, and the code reading it. A rule
 that changed (or a failing check of nothing in the catalog) fails the probe; a defect

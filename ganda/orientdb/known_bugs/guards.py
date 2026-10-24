@@ -196,7 +196,7 @@ from ganda.core.oracle.case import QueryCase
 from ganda.core.query.ir.traversal import REACH_PROJECTIONS, TraversalQuery
 from ganda.orientdb.facade.predicates import lossy_pivot, Compound, Predicate
 from ganda.orientdb.concrete_syntax.traversal import BRACKET, CORRELATED
-from ganda.core.rules.vocabulary import StringOrder
+from ganda.core.rules.vocabulary import NullPlacement, StringOrder
 from ganda.orientdb.rules import assumes, works_around
 from ganda.orientdb.rules.catalog import SQL, SQL_INDEX
 
@@ -238,6 +238,10 @@ def _any_indexed(schema: Schema, table: str, p, data_model: str, edge: bool = Fa
 
 
 works_around("O1")
+
+
+# a correlated LET under a GROUP BY on an indexed column answers (O1 needs the filter)
+assumes("equivalent.correlated_let.indexed_group_by", SQL_INDEX, True)
 
 
 def o1_shape(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) -> bool:
@@ -631,6 +635,13 @@ def o25_shape(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) -
 
 works_around("O18")
 works_around("O23")
+
+
+# a walk of an index that keeps nulls places them as a sort does
+assumes("order.nulls.asc", SQL, NullPlacement.LAST)
+assumes("order.nulls.asc", SQL_INDEX, NullPlacement.LAST)
+assumes("order.nulls.desc", SQL, NullPlacement.FIRST)
+assumes("order.nulls.desc", SQL_INDEX, NullPlacement.FIRST)
 
 
 def ordered_keys_known(schema: Schema, instance: Instance, table: str, keys: list, directions: list, data_model: str, edge: bool = False) -> "str | None":
@@ -1282,6 +1293,10 @@ assumes("order.string.order_by", SQL, StringOrder.COLLATION)
 assumes("order.string.order_by", SQL_INDEX, StringOrder.UTF16_CODE_UNIT)
 works_around("O6")
 works_around("O33")
+
+
+# GROUP BY / DISTINCT / max / min over a ci column keep case variants apart
+assumes("aggregate.case_insensitive.collates", SQL, False)
 
 
 def select_shape_known(q, sp, data_model: str, schema: Schema, instance: Instance, present: list) -> "str | None":

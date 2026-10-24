@@ -56,7 +56,7 @@ from ganda.core.data.model import (
 )
 from ganda.orientdb.storage.dialect import DEFAULT_ID_INDEX, ORIENT_TYPES, UNIQUE_KINDS
 from ganda.orientdb.engine.limits import LIMITS
-from ganda.orientdb.rules import assumes
+from ganda.orientdb.rules import answer, assumes
 from ganda.orientdb.rules.catalog import ACCEPTED, REFUSED, SCRIPT, SQL, SQL_INDEX, BATCH
 
 
@@ -123,6 +123,9 @@ SetupPlan = list
 
 # --- DDL ----------------------------------------------------------------------------------
 
+assumes("accepts.create_class.clusters", SQL, ACCEPTED)
+
+
 def class_steps(name: str, fields: tuple, superclass: "str | None" = None, extra_properties: "list | None" = None, declare_id: bool = True, abstract: bool = False, clusters: int = 1) -> list:
     steps = [Sql(f"CREATE CLASS {name}" + (f" EXTENDS {superclass}" if superclass else "") + (f" CLUSTERS {clusters}" if clusters > 1 else "") + (" ABSTRACT" if abstract else ""))]
     if declare_id:
@@ -145,6 +148,10 @@ def id_index_step(table: str, schema: Schema, data_model: str) -> list:
 
 # a UNIQUE index keeps an absent field as the key null unless told: metadata is explicit
 assumes("index.unique.default_ignores_nulls", SQL_INDEX, False)
+
+
+# `ignoreNullValues: true` lets a UNIQUE index hold any number of null keys
+assumes("index.unique.ignore_nulls.accepts_null_keys", SQL_INDEX, True)
 
 
 def index_step(ix: IndexSpec) -> Sql:
@@ -216,6 +223,11 @@ def insert_step(table: str, doc: dict, form: WriteForm, vertex: bool = False) ->
 assumes("accepts.update.increment", SQL, REFUSED)
 
 
+# `SET f = f + :d`, whose delta must itself be a long
+assumes("accepts.update.arithmetic_parameter", SQL, ACCEPTED)
+_LONG_BELOW = answer("exact.parameter.long.below", SQL)
+
+
 def _arith_set_clause(table: str, schema: Schema, initial: dict, final: dict, params: dict) -> str:
     """`f = f + :d` for every integer field present before and after (the delta keeps
     the sum a long: both values are of the column's type), `g = :v` for the rest."""
@@ -227,7 +239,7 @@ def _arith_set_clause(table: str, schema: Schema, initial: dict, final: dict, pa
             ftype = schema.field(table, k).type
         except KeyError:
             ftype = None
-        if ftype in INT_TYPES and isinstance(old, int) and not isinstance(old, bool) and isinstance(v, int) and not isinstance(v, bool) and -(2**63) <= v - old < 2**63:
+        if ftype in INT_TYPES and isinstance(old, int) and not isinstance(old, bool) and isinstance(v, int) and not isinstance(v, bool) and -_LONG_BELOW <= v - old < _LONG_BELOW:
             # the delta travels as a JSON integer, which must itself be a long
             # (campaign c100, seed 605: a delta of 2^63 + 24 was rejected at parsing)
             params[pname] = v - old
@@ -278,6 +290,10 @@ def node_update_steps(instance: Instance, form: WriteForm, extras: "dict | None"
         else:
             steps.append(Sql(f"UPDATE {t} SET {_set_clause(final, params)} WHERE id = :id", params))
     return steps
+
+
+# `UPDATE EDGE ... CONTENT` keeps the edge's endpoints
+assumes("update_edge.content.keeps_endpoints", SQL, True)
 
 
 def edge_update_steps(instance: Instance, form: WriteForm, verb: str) -> list:
@@ -511,6 +527,9 @@ def _rename_param(text: str, old: str, new: str) -> str:
 
 
 assumes("accepts.ddl.in_transaction", SCRIPT, REFUSED)
+
+
+assumes("accepts.rebuild_index.all", SQL, ACCEPTED)
 
 
 def finalize(ddl: list, data: list, tail: list, instance: Instance, data_model: str, form: WriteForm, vertex: bool = False) -> list:

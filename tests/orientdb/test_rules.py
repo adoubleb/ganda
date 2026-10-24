@@ -14,9 +14,11 @@ def _probe_ids() -> list:
     return [n.args[0].value for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "check"]
 
 
-def test_every_probe_check_has_its_own_id():
+def test_every_probe_check_has_its_own_id_and_checks_something():
+    # ids are never reused: a deleted check leaves a gap
     ids = _probe_ids()
-    assert len(ids) == len(set(ids)) and all(i == f"C{n}" for n, i in enumerate(sorted(ids, key=lambda i: int(i[1:])), 1))
+    assert len(ids) == len(set(ids)) and all(i.startswith("C") and i[1:].isdigit() for i in ids)
+    assert set(ids) == set(CATALOG.checks), "every probe check checks a rule, a defect or an error class"
 
 
 def test_the_catalog_is_well_formed_and_its_checks_name_probe_checks():
@@ -35,11 +37,11 @@ def test_the_probe_names_what_a_failing_check_checks_and_who_reads_it():
 
     assert probe_osql.checked_by("C35") == ["accepts.projection.comparison (osql)"]
     assert probe_osql.checked_by("C148") == ["exact.sum.int32.below (osql)", "O19 (osql)"]
-    assert probe_osql.checked_by("C1") == ["no rule"]
+    assert probe_osql.checked_by("C5") == ["no rule"]  # C5 was deleted
     index = read_index()
     (o18,) = probe_osql.consequences("C122", index)
     assert o18.startswith("O18 (osql@index) no longer reproduces: read by known_bugs/guards.py:")
-    assert probe_osql.consequences("C1", index) == ["checks no rule"]
+    assert probe_osql.consequences("C5", index) == ["checks no rule"]
 
 
 def test_a_fixed_defect_does_not_block_the_baseline_and_a_changed_rule_does(monkeypatch):

@@ -4,7 +4,7 @@ from ganda.core.query.ir.path import PathQuery, distance
 from ganda.core.data.model import Instance, Schema
 
 from ganda.orientdb.rules import assumes, works_around
-from ganda.orientdb.rules.catalog import REFUSED, SQL, TRAVERSE
+from ganda.orientdb.rules.catalog import MATCH, REFUSED, SQL, TRAVERSE
 from ganda.core.rules.vocabulary import EmptyInputRows
 
 _FN = {"OUT": "out", "IN": "in", "BOTH": "both"}
@@ -51,6 +51,13 @@ def _graph_unbounded(q: PathQuery, n: int) -> dict:
         "graph:unbounded": f"SELECT v FROM (SELECT shortestPath({_start(q)}, {end}, :dir, {et_arg}).size() AS v) WHERE v > 0",
         "graph:deep": f"SELECT min($depth) + 1 AS v FROM (TRAVERSE {fn}({et_fn}) FROM {_start(q)} MAXDEPTH {n} STRATEGY BREADTH_FIRST) WHERE id = :b",
     }
+
+
+# MAXDEPTH k / maxDepth k / `while ($depth < k)` reach k hops, and an embedded link
+# document adds no depth to the doc data model's TRAVERSE
+assumes("max_depth.reaches_bound", TRAVERSE, True)
+assumes("max_depth.reaches_bound", MATCH, True)
+assumes("traverse.embedded_document.adds_depth", TRAVERSE, False)
 
 
 def _doc(q: PathQuery, schema: Schema, depth: int) -> str:

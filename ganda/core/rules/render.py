@@ -99,8 +99,8 @@ def render(catalog: Catalog, read_by: "dict | None" = None, strip: str = "", bas
         lines += _table(header, rows) + [""]
     if catalog.errors:
         lines += ["## error classes", ""]
-        rows = [[e.kind.value, ", ".join(str(c) for c in sorted(e.codes)) or "any", (" and " if e.all_marks else "; ").join(f"`{m}`" for m in e.marks) + (" (any case)" if e.marks and e.ignore_case else "")] for e in catalog.errors]
-        lines += _table(["class", "codes", "message marks"], rows) + [""]
+        rows = [[e.kind.value, ", ".join(str(c) for c in sorted(e.codes)) or "any", (" and " if e.all_marks else "; ").join(f"`{m}`" for m in e.marks) + (" (any case)" if e.marks and e.ignore_case else ""), ", ".join(catalog.checked_by(e)) or "unchecked"] for e in catalog.errors]
+        lines += _table(["class", "codes", "message marks", "checked by"], rows) + [""]
     ir = sum(1 for r in catalog.rules if r.subject is IR)
     unchecked = len(catalog.unchecked())
     summary = f"{len(catalog.rules)} rules ({ir} IR definitions): {len(catalog.rules) - ir - unchecked} checked by a probe fact, {unchecked} unchecked"

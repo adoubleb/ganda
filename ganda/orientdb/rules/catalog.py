@@ -8,8 +8,14 @@ from __future__ import annotations
 
 import enum
 
-from ganda.core.rules.model import Defect, Kind, Question, Rule, Verdict
+from ganda.core.rules.model import Defect, ErrorClass, ErrorKind, Kind, Question, Rule, Verdict
 from ganda.core.rules.vocabulary import (
+    ABSENT_IS_NULL,
+    DOUBLE_EXACT_ROUND_TRIP,
+    MAX_EMPTY,
+    NULLS_ASC,
+    NULLS_DESC,
+    SKIPS_NULL,
     FILTER_LOGIC,
     LIKE_CASE_SENSITIVE,
     OWN_UNCOMMITTED_VISIBLE,
@@ -19,8 +25,10 @@ from ganda.core.rules.vocabulary import (
     UNDIRECTED_SELF_LOOP_ROWS,
     UNGROUPED_EMPTY_ROWS,
     WRITE_ROW_COUNT,
+    EmptyAggregate,
     EmptyInputRows,
     Logic,
+    NullPlacement,
     StringOrder,
 )
 
@@ -72,6 +80,27 @@ UPSERT_OTHER_PREDICATE_KEEPS_ID = Question("upsert.other_predicate.keeps_id", bo
 DELETE_FROM_DOC_KEEPS_LINKS = Question("delete.document.keeps_incoming_links", bool, COMPARE)
 STATEMENT_ATOMIC = Question("statement.atomic", bool, COMPARE)
 INT32_SUM_EXACT_BELOW = exact("sum.int32.below", int)
+STRING_EXACT_ROUND_TRIP = Question("value.string.exact_round_trip", bool, COMPARE)
+BINARY_ROUND_TRIP = Question("value.binary.base64_round_trip", bool, COMPARE)
+ABSENT_LIST_SIZE = Question("value.absent_list.size", int, COMPARE)
+NULL_RANGE_HOLDS = Question("filter.null.range_holds", bool, COMPARE)
+CI_AGGREGATES_COLLATE = Question("aggregate.case_insensitive.collates", bool, COMPARE)
+NESTED_LET_PARENT = Question("let.nested.parent_is_enclosing_query", bool, COMPARE)
+LINK_LIST_FIELD_ACCESS = Question("path.link_list.maps_field_access", bool, COMPARE)
+UNIQUE_IGNORE_NULLS_ACCEPTS_NULLS = Question("index.unique.ignore_nulls.accepts_null_keys", bool, COMPARE)
+CLASSLESS_ALIAS_ROOT = Question("match.classless_alias.is_root", bool, COMPARE)
+RID_STRING_LINK = Question("parameter.rid_string.becomes_link", bool, COMPARE)
+UNIONALL_ABSENT_EMPTY = Question("unionall.absent_operand.empty", bool, COMPARE)
+UPDATE_EDGE_KEEPS_ENDPOINTS = Question("update_edge.content.keeps_endpoints", bool, COMPARE)
+DATE_PLUS_NUMBER_MS = Question("arithmetic.date_plus_number.shifts_milliseconds", bool, COMPARE)
+MAX_DEPTH_REACHES_BOUND = Question("max_depth.reaches_bound", bool, COMPARE)
+UNWIND_ROW_PER_ELEMENT = Question("unwind.bracket_projection.row_per_element", bool, COMPARE)
+EMBEDDED_ADDS_DEPTH = Question("traverse.embedded_document.adds_depth", bool, COMPARE)
+LONG_PARAMETER_BELOW = exact("parameter.long.below", int)
+INDEX_KEY_MAX_BYTES = exact("index_key.bytes.max", int)
+REQUEST_MAX_BYTES = exact("request.bytes.max", int)
+STATEMENTS_PER_REQUEST = exact("statements.per_request.max", int)
+IN_LIST_IDS = exact("in_list.ids.max", int)
 
 # --- compare: paths answering differently are not compared where the question is exercised ----
 COMPARE_RULES = (
@@ -100,6 +129,31 @@ COMPARE_RULES = (
     Rule(STATEMENT_ATOMIC, SQL, False),
     Rule(WRITE_ROW_COUNT, SQL, True),
     Rule(OWN_UNCOMMITTED_VISIBLE, SCRIPT, True),
+    Rule(DOUBLE_EXACT_ROUND_TRIP, SQL, True),
+    Rule(STRING_EXACT_ROUND_TRIP, SQL, True),
+    Rule(BINARY_ROUND_TRIP, SQL, True),
+    Rule(ABSENT_IS_NULL, SQL, True),
+    Rule(ABSENT_LIST_SIZE, SQL, 0),
+    Rule(NULL_RANGE_HOLDS, SQL, False),
+    Rule(NULLS_ASC, SQL, NullPlacement.LAST),
+    Rule(NULLS_ASC, SQL_INDEX, NullPlacement.LAST),
+    Rule(NULLS_DESC, SQL, NullPlacement.FIRST),
+    Rule(NULLS_DESC, SQL_INDEX, NullPlacement.FIRST),
+    Rule(MAX_EMPTY, SQL, EmptyAggregate.NULL),
+    Rule(SKIPS_NULL, SQL, True),
+    Rule(CI_AGGREGATES_COLLATE, SQL, False),
+    Rule(NESTED_LET_PARENT, SQL, True),
+    Rule(LINK_LIST_FIELD_ACCESS, SQL, True),
+    Rule(UNIQUE_IGNORE_NULLS_ACCEPTS_NULLS, SQL_INDEX, True),
+    Rule(CLASSLESS_ALIAS_ROOT, MATCH, False),
+    Rule(RID_STRING_LINK, SQL, True),
+    Rule(UNIONALL_ABSENT_EMPTY, SQL, True),
+    Rule(UPDATE_EDGE_KEEPS_ENDPOINTS, SQL, True),
+    Rule(DATE_PLUS_NUMBER_MS, SQL, True),
+    Rule(MAX_DEPTH_REACHES_BOUND, TRAVERSE, True),
+    Rule(MAX_DEPTH_REACHES_BOUND, MATCH, True),
+    Rule(UNWIND_ROW_PER_ELEMENT, SQL, True),
+    Rule(EMBEDDED_ADDS_DEPTH, TRAVERSE, False),
 )
 
 # --- ask: a construct a path refuses is not rendered --------------------------------------------
@@ -110,6 +164,12 @@ ASK_RULES = (
     Rule(accepts("update.content.parameter"), SQL, REFUSED),
     Rule(accepts("merge.parameter"), SQL, REFUSED),
     Rule(accepts("update.filtered_list_element"), SQL, REFUSED),
+    Rule(accepts("update.arithmetic_parameter"), SQL, ACCEPTED),
+    Rule(accepts("map_entry.parameter_key"), SQL, ACCEPTED),
+    Rule(accepts("class_filter.parameter"), SQL, ACCEPTED),
+    Rule(accepts("create_class.clusters"), SQL, ACCEPTED),
+    Rule(accepts("rebuild_index.all"), SQL, ACCEPTED),
+    Rule(accepts("match.end_at_edge_alias"), MATCH, ACCEPTED),
     Rule(accepts("delete.timeout"), SQL, REFUSED),
     Rule(accepts("delete_from.vertex_or_edge_class"), SQL, REFUSED),
     Rule(accepts("instanceof.parameter"), SQL, REFUSED),
@@ -124,12 +184,24 @@ ASK_RULES = (
 # --- equivalent: twin forms answer alike, so a mismatch between them is a finding ----------------
 EQUIVALENT_RULES = (
     Rule(equivalent("transaction_door"), SCRIPT, True),
+    Rule(equivalent("correlated_let"), SQL, True),
+    Rule(equivalent("correlated_let.indexed_group_by"), SQL_INDEX, True),
+    Rule(equivalent("pulled_up"), SQL, True),
+    Rule(equivalent("let_first_element"), SQL, True),
+    Rule(equivalent("unionall_inline"), SQL, True),
 )
 
 # --- exact: where a value compares exactly ------------------------------------------------------
 EXACT_RULES = (
     Rule(SUM_EXACT_BELOW, SQL, 2**63),
     Rule(INT32_SUM_EXACT_BELOW, SQL, 2**31),
+    Rule(exact("sum.decimal"), SQL, True),
+    Rule(exact("double.parameter"), SQL, True),
+    Rule(LONG_PARAMETER_BELOW, SQL, 2**63),
+    Rule(INDEX_KEY_MAX_BYTES, SQL_INDEX, 10240),
+    Rule(REQUEST_MAX_BYTES, SQL, 64 * 1024 * 1024),
+    Rule(STATEMENTS_PER_REQUEST, SCRIPT, 500),
+    Rule(IN_LIST_IDS, SQL, 500),
 )
 
 # no IR definition: the code compares no subject's answer with the core IR's
@@ -182,4 +254,5 @@ DEFECTS = (
     Defect("O46", SQL),
 )
 
-ERRORS = ()
+# a fired `TIMEOUT ... EXCEPTION` is no answer, never a rejection
+ERRORS = (ErrorClass(ErrorKind.TIMEOUT, marks=("OTimeoutException", "OCommandInterruptedException")),)

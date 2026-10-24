@@ -4,8 +4,8 @@ only what an engine's languages answer alike.
 A `Rule` is one subject's (a language, optionally on a data model) answer to one
 `Question`; the question's `Kind` says what the fuzzer does with the answers. A
 `Defect` names an engine bug the known-bug guards withhold. An `ErrorClass` is one entry
-of the ordered error classification. A probe fact CHECKS rules, and reproduces defects
-(`Catalog.checks`): a rule no fact checks is unchecked, and the rendering says so; a
+of the ordered error classification. A probe fact CHECKS rules and error classes, and
+reproduces defects (`Catalog.checks`): a rule no fact checks is unchecked, and the rendering says so; a
 fact reproducing a defect that fails says the defect is gone."""
 from __future__ import annotations
 
@@ -90,7 +90,7 @@ class Catalog:
     rules: "tuple[Rule, ...]"
     defects: "tuple[Defect, ...]" = ()
     errors: "tuple[ErrorClass, ...]" = ()
-    checks: "dict" = dataclasses.field(default_factory=dict)  # {probe fact id: (Rule | Defect, ...)}
+    checks: "dict" = dataclasses.field(default_factory=dict)  # {probe fact id: (Rule | Defect | ErrorClass, ...)}
 
     def answer(self, question: Question, subject):
         for r in self.rules:
@@ -113,7 +113,7 @@ class Catalog:
                 out.append((q, rules))
         return out
 
-    def checked_by(self, item: "Rule | Defect") -> "list[str]":
+    def checked_by(self, item: "Rule | Defect | ErrorClass") -> "list[str]":
         return [fid for fid, items in self.checks.items() if item in items]
 
     def unchecked(self) -> "list[Rule]":
@@ -181,6 +181,10 @@ def validate(catalog: Catalog, fact_ids: "set | None" = None) -> "list[str]":
             if isinstance(r, Defect):
                 if r not in defects:
                     bad.append(f"check {fid}: {r.id} / {r.subject} is no defect of the catalog")
+                continue
+            if isinstance(r, ErrorClass):
+                if r not in catalog.errors:
+                    bad.append(f"check {fid}: the {r.kind} error class is not the catalog's")
                 continue
             if r not in rules:
                 bad.append(f"check {fid}: {r.question.name} / {r.subject} is no rule of the catalog")
