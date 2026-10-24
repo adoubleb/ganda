@@ -104,9 +104,10 @@ baseline: 3.12.11, every check of a rule held
 |---|---|---|---|---|
 | A1 | aql | A1 | reproduces | storage/physical_design.py:48 |
 | A2 | aql | A2 | reproduces | storage/physical_design.py:49 |
-| A25 | aql@index | A25 | reproduces | known_bugs/guards.py:38 |
-| A40 | aql | A40 | reproduces | known_bugs/guards.py:36 |
+| A25 | aql@index | A25 | reproduces | known_bugs/guards.py:49 |
+| A40 | aql | A40 | reproduces | known_bugs/guards.py:47 |
 | A41 | traversal | A41 | reproduces | concrete_syntax/predicate.py:28 |
+| A42 | aql | A42 | reproduces | known_bugs/guards.py:51 |
 
 ## error classes
 
@@ -116,4 +117,4 @@ baseline: 3.12.11, every check of a rule held
 | timeout | any | `query killed`; `timed out`; `time out`; `timeout` (any case) |
 | rejection | 1577 |  |
 
-67 rules (6 IR definitions): 61 checked by a probe fact, 0 unchecked; 61 read by code, 0 unread; 5 defects (5 reproduced by a probe fact); 3 error classes
+67 rules (6 IR definitions): 61 checked by a probe fact, 0 unchecked; 61 read by code, 0 unread; 6 defects (6 reproduced by a probe fact); 3 error classes

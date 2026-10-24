@@ -488,6 +488,20 @@ def a41(s):
     _eq(s.aql("FOR n IN n1 FILTER n.id == 'n1/r2' RETURN {id: n.id, v: (FOR v1, ed1 IN 1..1 OUTBOUND n e1 FILTER @p IN VALUES(v1.m || {}) RETURN v1.id)}", {"p": 1}, timeout_ms=0), [{"id": "n1/r2", "v": []}], "a start lacking the attribute")
 
 
+@fact("A42", "LIKE with a wildcard over a stored string of 200 000 code points fails the query (errorNum 1543, 'invalid regex value': the wildcard is spelled (.|[\\r\\n])*, one backtracking frame per character) where ==, CONTAINS, STARTS_WITH and LENGTH answer; over 100 000 it answers")
+def a42(s):
+    _fixture(s)
+    s.aql("INSERT {_key: 'ms', id: 'n1/ms', s: REPEAT('a', 100000)} INTO n1", timeout_ms=0)
+    s.aql("INSERT {_key: 'ls', id: 'n1/ls', s: REPEAT('a', 200000)} INTO n1", timeout_ms=0)
+    _eq(_one(s, "FOR n IN n1 FILTER n._key == 'ms' RETURN [n.s LIKE '%', n.s LIKE '%m%', n.s LIKE 'a%', n.s LIKE '%a', n.s LIKE 'm%']"), [True, False, True, True, False], "100 000 code points")
+    for pat in ("%", "%m%", "a%", "%a"):
+        e = _rejected(s, "FOR n IN n1 FILTER n._key == 'ls' RETURN n.s LIKE @p", {"p": pat})
+        assert e is not None and "1543" in str(e), f"LIKE {pat!r} over 200 000 code points answered: {e}"
+    _eq(_one(s, "FOR n IN n1 FILTER n._key == 'ls' RETURN [n.s LIKE 'm%', n.s == REPEAT('a', 200000), CONTAINS(n.s, 'm'), STARTS_WITH(n.s, 'a'), LENGTH(n.s)]"), [False, True, False, True, 200000], "the wildcard failing at its first character, and the other string operators")
+    e = _rejected(s, "FOR n IN n1 FILTER n._key == 'ls' RETURN REGEX_TEST(n.s, @r)", {"r": "^(.|[\\r\\n])*m(.|[\\r\\n])*$"})
+    assert e is not None and "1543" in str(e), f"the wildcard's own regex answered: {e}"
+
+
 # --- T: the timeout --------------------------------------------------------------------------------
 
 

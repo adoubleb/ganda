@@ -108,8 +108,9 @@ and HANA's: the three data models speak AQL, so the subjects are its execution p
 collection scan, the same statement served by a persistent index, the traversal
 operator, the path functions, a stream transaction, the document API); the defects A1,
 A2 (the legacy port's signed-zero pair, kept out of the value pools), A25 (the legacy
-port's too, found again by this port's first campaign with the catalog), A40 and A41
-beside them, and the error classes `engine/connection.py` classifies an errorNum through.
+port's too, found again by this port's first campaign with the catalog), A40, A41 and
+A42 (`LIKE`'s wildcard over a grown string, found by the large-scale campaign of
+2026-10-24) beside them, and the error classes `engine/connection.py` classifies an errorNum through.
 `rules/checks.py` lists the rules each probe fact (`scripts/probe.py`: `V` values, `S`
 statement forms, `W` write doors, `L` limits, `T` timeout, `A` defects) asserts and the
 defects it reproduces; every rule is checked by a fact and read by code
@@ -130,7 +131,7 @@ false` on every update door), `oracle/semantics.py` (the total type order, exact
 point string equality, `LIKE` as an ICU regex), `oracle/pivots.py` (`ordered_ops`: a string
 column takes the equality family only -- ICU collation orders them), `oracle/rewrites.py`,
 `concrete_syntax/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),
-`known_bugs/guards.py` (A25 and A40 guarded), `mutation/mutants.py` (the core's instance mutants,
+`known_bugs/guards.py` (A25, A40 and A42 guarded), `mutation/mutants.py` (the core's instance mutants,
 three render mutants and three index-path mutants, as OrientDB's), `scripts/probe.py`.
 
 Campaigns run on mousedeer (`ssh mousedeer`, a ControlMaster socket the user opens with
@@ -165,6 +166,31 @@ four IRs rendered per data model, the purely differential oracle) is the one por
   these seeds (a strict bound turned inclusive changes the answer only where a stored value
   sits on the pivot: 4 cases on seed 1, none on seed 2), and `graph_stale_edge_update` 0/2
   needs edge-update churn, as on 2026-10-09.
+
+## Live verification at the large scale (2026-10-24, ArangoDB 3.12.11 on mousedeer)
+
+- `run --scale large --iterations 4 --seed 5 --workers 4` with every axis on, the first
+  large-scale run with the rules catalog (seeds 5-8; 1-4 ran on 2026-10-09): 4 instances,
+  256 cases, 91.0 % asserting, 0 symmetric or internal errors, 0 setup asymmetries, 0
+  state leaks, 16 writes, 0 write-state diffs, 16 timeouts (left out of the comparison),
+  A40 withheld on 39 variants, 3588 s on one server shared by the four workers. Its one
+  bundle (seed 6, an error asymmetry) found **A42**: `n.f11 LIKE '%m%'` over a string
+  column of the source class holding a grown value was rejected on every variant with
+  errorNum 1543, "in function 'LIKE()': invalid regex value" -- every variant but the doc
+  data model's pulled-up form, which filters only the start records with a path, and the
+  grown record had none. Reproduced by hand on a disposable server: a `LIKE` whose pattern
+  holds a `%` fails from 199 999 code points of the stored value (124 999 under two
+  wildcards, `%m%`; the count is per code point, an emoji the same as an `a`), while a
+  pattern failing at its first character answers false and `==`, `CONTAINS`,
+  `STARTS_WITH`, `LENGTH` and `<` answer over the same value; `REGEX_TEST` with
+  `^(.|[\r\n])*m(.|[\r\n])*$`, which is how ArangoDB spells the wildcard, fails
+  identically -- one ICU backtracking frame per character into the matcher's stack limit,
+  reported as an invalid regex. Pinned by the probe fact A42 and `rules/catalog.py`;
+  `known_bugs/guards.py` withholds every variant (the pulled-up ones too) of a question
+  whose predicate holds a `LIKE` with a `%` over a column where a record it reads stores
+  `LIKE_WILDCARD_MAX_CHARS` (100 000) code points or more.
+- `ganda arangodb probe`: 35 facts hold (A42 new); regenerating seed 6's cases from the
+  bundle's configuration marks that case A42 on every variant.
 
 ## Live verification of ArangoDB (2026-10-09, ArangoDB 3.12.11 on mousedeer)
 

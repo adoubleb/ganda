@@ -20,7 +20,13 @@ rewrite -- while the constant form is true; withheld by `known_bugs/guards.py`) 
 **A41** (`optimize-traversals` evaluates a vertex filter it moved into the traversal on
 the start vertex too, so a function the start's attribute type rejects fails the whole
 query -- `VALUES()` refuses a non-object where `HAS()` answers false; avoided by
-`concrete_syntax/predicate.py`'s `IS_OBJECT` ternary). The legacy
+`concrete_syntax/predicate.py`'s `IS_OBJECT` ternary); **A42** (found by the large-scale
+campaign of 2026-10-24, seed 6: `LIKE` with a wildcard over a stored string of 125 000
+code points or more fails the query -- errorNum 1543, "invalid regex value": the `%` is
+spelled `(.|[\\r\\n])*`, which backtracks one frame per character into ICU's stack
+limit -- where `==`, `CONTAINS`, `STARTS_WITH` and `LENGTH` over the same value answer;
+withheld by `known_bugs/guards.py` where a column the LIKE reads holds such a value, the
+large scale's grown strings). The legacy
 port's other findings (`../arangoDB/issue-drafts/`, A3..A39) are outside this surface
 (ArangoSearch views, MDI and geo indexes, the JavaScript door) or unreachable by
 construction: no ordered comparison on a string column (A9, A14, A34: `order.string` is
@@ -191,6 +197,7 @@ DEFECTS = (
     Defect("A25", AQL_INDEX),
     Defect("A40", AQL),
     Defect("A41", TRAVERSAL),
+    Defect("A42", AQL),
 )
 
 # The classification of an errorNum and its message; the HTTP status decides what the

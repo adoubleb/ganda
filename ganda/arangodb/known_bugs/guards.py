@@ -24,6 +24,17 @@ equality, a NOT over the OR and a one-element IN answer the rows. The guard with
 index-servable variants of the data models holding the index, at a select's filter, a
 write's loop and a traversal's source or hop predicate alike (every one is a FILTER the
 optimizer may serve).
+
+**A42** (found by the large-scale campaign of 2026-10-24, seed 6, and pinned by the
+probe fact A42): `LIKE` with a wildcard over a stored string of 125 000 code points or
+more fails the query with errorNum 1543, "invalid regex value" -- the `%` is spelled
+`(.|[\\r\\n])*`, a backtracking frame per character, and ICU's stack limit is reached
+part-way through the value (at 199 999 code points under one wildcard, 124 999 under
+two) -- where `==`, `CONTAINS`, `STARTS_WITH` and `LENGTH` answer. A `_` loops over
+nothing and an exact pattern has no wildcard: neither fails. The guard withholds every
+variant of a question whose predicate holds a LIKE with a `%` over a column where a
+record the question reads stores `LIKE_WILDCARD_MAX_CHARS` code points or more (the
+large scale's grown strings): the pulled-up forms too, which filter the same value.
 """
 from __future__ import annotations
 
@@ -36,7 +47,12 @@ A40 = "A40"
 works_around("A40")
 A25 = "A25"
 works_around("A25")
+A42 = "A42"
+works_around("A42")
 _MEMBERSHIP = ("HAS", "HAS ANY", "HAS ALL")
+# the measured first failing lengths, 124 999 code points under two wildcards and
+# 199 999 under one, rounded down (Ganda's patterns hold at most two)
+LIKE_WILDCARD_MAX_CHARS = 100_000
 
 
 def membership_under_not(p, under: bool = False) -> set:
@@ -60,6 +76,33 @@ def _has_null(rows, fields: set) -> bool:
 def a40_shape(p, rows) -> bool:
     fields = membership_under_not(p)
     return bool(fields) and _has_null(rows, fields)
+
+
+# --- A42 ------------------------------------------------------------------------------------------
+
+
+def like_wildcard_fields(p) -> set:
+    """The fields a LIKE leaf tests with a `%` wildcard, anywhere in the tree (a `_`
+    loops over nothing, an exact pattern has no wildcard)."""
+    if p is None:
+        return set()
+    if isinstance(p, Compound):
+        out: set = set()
+        for c in p.children:
+            out |= like_wildcard_fields(c)
+        return out
+    if isinstance(p, Predicate) and p.op == "LIKE" and isinstance(p.pivot, str) and "%" in p.pivot:
+        return {p.field}
+    return set()
+
+
+def _has_long_string(rows, fields: set) -> bool:
+    return any(isinstance(v, str) and len(v) >= LIKE_WILDCARD_MAX_CHARS for r in rows for f in fields for v in (r.values.get(f),))
+
+
+def a42_shape(p, rows) -> bool:
+    fields = like_wildcard_fields(p)
+    return bool(fields) and _has_long_string(rows, fields)
 
 
 # --- A25 ------------------------------------------------------------------------------------------
@@ -114,7 +157,8 @@ def mark_known_bugs(case, q, schema, instance):
     """A traversal case: the A40 shape in a source, hop or target predicate withholds
     every variant (every data model renders the same predicate); the A25 shape withholds
     the variants of the data models holding the array index -- but a pulled-up variant
-    for a source predicate, which filters a projection, never a collection."""
+    for a source predicate, which filters a projection, never a collection; the A42
+    shape withholds every variant, the pulled-up ones too (they filter the same value)."""
     marks: dict = {}
     pulled_up = set(case.params.get("pulled_up", ()))
 
@@ -126,6 +170,8 @@ def mark_known_bugs(case, q, schema, instance):
     def judge(p, rows, table: str, edge: bool, skip=()):
         if a40_shape(p, rows):
             mark(A40, set(schema.engine.data_models), skip)
+        if a42_shape(p, rows):
+            mark(A42, set(schema.engine.data_models))
         hit = [dm for dm in schema.engine.data_models if a25_shape(p, schema, table, dm, edge)]
         if hit:
             mark(A25, set(hit), skip)
@@ -151,6 +197,8 @@ def select_known(q, syntax, rewrites, data_model, schema, instance):
     rows = instance.edges_of(q.table) if q.edge else instance.nodes_of(q.table)
     if a40_shape(pred, rows):
         return A40
+    if a42_shape(pred, rows):
+        return A42
     if _index_servable(syntax) and a25_shape(pred, schema, q.table, data_model, q.edge):
         return A25
     return None
@@ -161,6 +209,8 @@ def write_known(q, syntax, rewrites, data_model, schema, instance):
     rows = instance.edges_of(q.edge_type) if q.edge else instance.nodes_of(q.table)
     if a40_shape(pred, rows):
         return A40
+    if a42_shape(pred, rows):
+        return A42
     if a25_shape(pred, schema, q.edge_type if q.edge else q.table, data_model, q.edge):
         return A25
     return None

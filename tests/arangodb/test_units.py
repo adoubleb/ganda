@@ -405,6 +405,49 @@ def test_a40_guard_fires_on_a_membership_under_not_over_a_null_list():
     assert not a40_shape(contains, rows)
 
 
+# --- the known bug A42 ---------------------------------------------------------------------------
+
+
+def test_a42_guard_fires_on_a_like_wildcard_over_a_long_stored_string():
+    from ganda.core.data.model import NodeRow
+    from ganda.arangodb.known_bugs.guards import LIKE_WILDCARD_MAX_CHARS, a42_shape, like_wildcard_fields
+
+    infix = Predicate("source", "s", "LIKE", "p", "%m%", "string")
+    exact = Predicate("source", "s", "LIKE", "p", "abc", "string")
+    other = Predicate("source", "a", "=", "q", 1, "int")
+    assert like_wildcard_fields(infix) == {"s"}
+    assert like_wildcard_fields(Compound("source", "NOT", (Compound("source", "AND", (other, infix)),))) == {"s"}
+    assert like_wildcard_fields(exact) == set() and like_wildcard_fields(other) == set() and like_wildcard_fields(None) == set()
+    long, short = NodeRow("n1", 0, {"s": "\U0001F600" * LIKE_WILDCARD_MAX_CHARS}), NodeRow("n1", 1, {"s": "a" * (LIKE_WILDCARD_MAX_CHARS - 1)})
+    assert a42_shape(infix, [short, long])
+    assert not a42_shape(infix, [short])  # under the bound
+    assert not a42_shape(exact, [long])  # no wildcard
+    assert not a42_shape(Predicate("source", "t", "LIKE", "p", "%m%", "string"), [long])  # another column
+    assert not a42_shape(infix, [NodeRow("n1", 2, {"s": None}), NodeRow("n1", 3, {})])
+
+
+def test_a42_withholds_every_select_variant_and_a_traversals_pulled_up_form():
+    from ganda.arangodb.concrete_syntax.select import Rewrites, SelectSyntax
+    from ganda.arangodb.known_bugs.guards import LIKE_WILDCARD_MAX_CHARS, mark_known_bugs, select_known
+    from ganda.core.data.model import EdgeTypeSpec, FieldSpec, NodeTypeSpec, NodeRow
+    from ganda.core.oracle.case import Comparison, QueryCase
+    from ganda.core.query.ir.select import SelectQuery
+    from ganda.core.query.ir.traversal import Hop, TraversalQuery
+
+    schema = E.schema(node_types=(NodeTypeSpec("n1", (FieldSpec("s", FieldType.STRING),)),), edge_types=(EdgeTypeSpec("e1", "n1", "n1", ()),))
+    like = Predicate("source", "s", "LIKE", "p_0", "ab%", "string")
+    inst = build(1, CFG, E)[1]
+    inst = dataclasses.replace(inst, schema=schema, nodes=[NodeRow("n1", 0, {"s": "a" * LIKE_WILDCARD_MAX_CHARS}), NodeRow("n1", 1, {"s": "ab"})], edges=[], churn=[])
+    q = SelectQuery("n1", like, "ids", ())
+    rw = Rewrites()
+    for sp in (SelectSyntax(), SelectSyntax(filter="noopt"), SelectSyntax(position="noindex"), SelectSyntax(position="nest")):
+        assert select_known(q, sp, rw, "doc", schema, inst) == "A42"
+    assert select_known(SelectQuery("n1", Predicate("source", "s", "LIKE", "p_0", "ab", "string"), "ids", ()), SelectSyntax(), rw, "doc", schema, inst) is None
+    tq = TraversalQuery("n1", (Hop("e1", "out"),), "ids", source_predicate=like)
+    case = QueryCase("ir_traversal", "", Comparison.SCALAR_BY_ID, {"doc": "w", "doc:pull_up": "x", "graph": "y", "rel": "z"}, {}, {"pulled_up": ["doc:pull_up"]}, shape="s")
+    assert mark_known_bugs(case, tq, schema, inst).known_bugs == {"doc": "A42", "doc:pull_up": "A42", "graph": "A42", "rel": "A42"}
+
+
 # --- the mutation catalog -------------------------------------------------------------------------
 
 

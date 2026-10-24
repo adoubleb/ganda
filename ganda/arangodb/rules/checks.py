@@ -103,4 +103,5 @@ CHECKS = {
     "A25": (_DEFECT["A25"],),
     "A40": (_DEFECT["A40"],),
     "A41": (_DEFECT["A41"],),
+    "A42": (_DEFECT["A42"],),
 }
