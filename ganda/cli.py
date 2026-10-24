@@ -7,6 +7,7 @@
     ganda orientdb doctor                   start a server and answer one query per data model
     ganda orientdb limits                   what the engine can hold, and the large profile on it
     ganda hana rules [--write]              the engine rules as tables (ganda/<engine>/rules/RULES.md)
+    ganda orientdb rules --mutate           does the code depend on every rule and defect (the catalog mutation check)
     ganda orientdb run --scale large        the storage-engine stress mode (large tables,
                                             documents, graphs, strings and binaries)
 
@@ -65,9 +66,10 @@ def _limits(engine) -> int:
     return 0
 
 
-def _rules(engine, write: bool) -> int:
+def _rules(engine, write: bool, mutate: bool = False, seeds: int = 20, only: "list | None" = None) -> int:
     """The engine's rule catalog as Markdown tables (`ganda.core.rules.render`); with
-    `write`, into `ganda/<engine>/rules/RULES.md`."""
+    `write`, into `ganda/<engine>/rules/RULES.md`; with `mutate`, the catalog mutation
+    check (`ganda.core.rules.mutation`), non-zero when a mutant survives."""
     import pathlib
 
     from ganda.core.rules.render import render
@@ -75,6 +77,12 @@ def _rules(engine, write: bool) -> int:
     if engine.rules is None:
         print(f"{engine.name} has no rule catalog yet")
         return 0
+    if mutate:
+        from ganda.core.rules import mutation
+
+        outcomes = mutation.check(engine.name, engine.rules, seeds=seeds, only=only)
+        print(mutation.report(outcomes, seeds))
+        return 1 if any(o.caught in ("", "error") for o in outcomes) else 0
     import importlib
 
     module = importlib.import_module(f"ganda.{engine.name}.rules")
@@ -125,7 +133,10 @@ def main(argv=None) -> int:
     sub.add_parser("limits", help="what the engine can hold, and what the large scale profile does on it").set_defaults(handler=lambda a: _limits(engine))
     rules = sub.add_parser("rules", help="the engine rules as tables: each answer with its basis and evidence, the divergences, the defects, the error classes")
     rules.add_argument("--write", action="store_true", help="write ganda/<engine>/rules/RULES.md instead of printing")
-    rules.set_defaults(handler=lambda a: _rules(engine, a.write))
+    rules.add_argument("--mutate", action="store_true", help="the catalog mutation check: change each rule's answer, drop each defect, and report the mutants nothing catches")
+    rules.add_argument("--seeds", type=int, default=20, help="with --mutate: the seeds generated per mutant, in two configurations (default: %(default)s)")
+    rules.add_argument("--only", nargs="*", help="with --mutate: only the mutants whose label starts with one of these")
+    rules.set_defaults(handler=lambda a: _rules(engine, a.write, a.mutate, a.seeds, a.only))
 
     args = ap.parse_args(argv[1:])
     try:

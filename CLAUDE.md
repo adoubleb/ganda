@@ -19,6 +19,7 @@ python3 -m ganda list
 python3 -m ganda orientdb probe                    # Docker (or ORIENT_URL / ORIENT_PASSWORD)
 python3 -m ganda orientdb run --iterations 20 --seed 1000 --workers 2
 python3 -m ganda orientdb mutate --trials 8 --seed 1 --tag before-change
+python3 -m ganda orientdb rules --mutate           # does the code depend on every rule and defect (no server, ~25 s)
 python3 -m ganda surrealdb doctor
 python3 -m ganda arangodb probe                    # Docker (or ARANGO_URL / ARANGO_PASSWORD); ARANGO_IMAGE picks the image
 python3 -m ganda arangodb run --scale large --iterations 4 --seed 1 --workers 4   # ArangoDB at the large scale
@@ -87,7 +88,12 @@ check of a rule holds writes `rules/baseline.json` (the server's build, the chec
 held, the defects fixed there with the checks that stopped reproducing them) and
 re-renders `RULES.md`, whose defects table then shows each defect on that build.
 `ganda orientdb run` warns at startup when the server is another build than the
-baseline's. `ganda orientdb rules --write` renders
+baseline's. `ganda orientdb rules --mutate` (`ganda/core/rules/mutation.py`) checks that
+the code depends on every record: each rule given another answer, each defect removed,
+in a fresh interpreter -- caught when an import fails (`assumes`, `works_around`) or the
+generated setup plans and cases of 20 seeds change; a survivor is a record nothing
+decides on. The catalog holds no IR definition (the code compares no subject with the
+IR). `ganda orientdb rules --write` renders
 `ganda/orientdb/rules/RULES.md`; `tests/orientdb/test_rules.py` keeps them in step. Layout: `storage/dialect.py` (vocabulary), `storage/physical_design.py`, `config.py`,
 `engine/limits.py` (what the engine can hold), `engine/connection.py`, `storage/mapping/`, `oracle/semantics.py`, `oracle/pivots.py`, `oracle/rewrites.py`,
 `concrete_syntax/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),

@@ -8,23 +8,18 @@ baseline: 3.2.57, every check of a rule held
 
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
-| filter.logic | ir | kleene | definition | unread |
-| filter.logic | osql | two-valued | C9 | oracle/rewrites.py:117, oracle/semantics.py:392 |
-| match.undirected.self_loop.rows | ir | 2 | definition | unread |
-| match.undirected.self_loop.rows | osql | 2 | C127, C193 | concrete_syntax/traversal.py:301 |
-| match.parallel_edges.rows | ir | 2 | definition | unread |
-| match.parallel_edges.rows | osql | 2 | C126 | concrete_syntax/traversal.py:300 |
-| match.parallel_edges.rows | match | 2 | C128 | concrete_syntax/traversal.py:313 |
-| transaction.own_uncommitted_visible | ir | true | definition | unread |
-| transaction.own_uncommitted_visible | script | true | C144, C268 | concrete_syntax/select.py:261 |
 | order.string | osql | utf-16-code-unit | C17, C18 | oracle/semantics.py:125 |
 | order.string.order_by | osql | collation | C19, C26, C27 | known_bugs/guards.py:1341 |
 | order.string.order_by | osql@index | utf-16-code-unit | C24, C25 | known_bugs/guards.py:1342 |
 | compare.negative_zero_below_zero | osql | true | C15 | oracle/rewrites.py:118, oracle/semantics.py:126, storage/physical_design.py:57 |
+| filter.logic | osql | two-valued | C9 | oracle/rewrites.py:117, oracle/semantics.py:392 |
 | filter.like.case_sensitive | osql | false | C171 | oracle/semantics.py:182 |
 | filter.like.one_character_wildcard | osql | `?` | C172 | oracle/pivots.py:19, oracle/semantics.py:183 |
 | filter.case_insensitive.operators | osql | `= <> < <= > >=` | C331 | concrete_syntax/traversal.py:197, oracle/semantics.py:198 |
 | aggregate.ungrouped.empty_input.rows | osql | no-row | C267, C285 | concrete_syntax/path.py:25 |
+| match.undirected.self_loop.rows | osql | 2 | C127, C193 | concrete_syntax/traversal.py:301 |
+| match.parallel_edges.rows | osql | 2 | C126 | concrete_syntax/traversal.py:300 |
+| match.parallel_edges.rows | match | 2 | C128 | concrete_syntax/traversal.py:313 |
 | traverse.default_strategy | traverse | depth-first | C282 | concrete_syntax/traversal.py:415 |
 | match.optional.no_path.rows | match | one-row | C191 | concrete_syntax/traversal.py:314 |
 | projection.keeps_absent_field | osql | false | C332 | concrete_syntax/traversal.py:200 |
@@ -37,6 +32,7 @@ baseline: 3.2.57, every check of a rule held
 | delete.document.keeps_incoming_links | osql | true | C301 | concrete_syntax/write.py:229 |
 | statement.atomic | osql | false | C297 | concrete_syntax/write.py:350 |
 | statement.write.answers_row_count | osql | true | C291 | concrete_syntax/write.py:349 |
+| transaction.own_uncommitted_visible | script | true | C144, C268 | concrete_syntax/select.py:261 |
 
 ## ask
 
@@ -78,7 +74,6 @@ baseline: 3.2.57, every check of a rule held
 
 | question | answers |
 |---|---|
-| filter.logic | ir: kleene; osql: two-valued |
 | order.string.order_by | osql: collation; osql@index: utf-16-code-unit |
 
 ## defects
@@ -131,4 +126,4 @@ baseline: 3.2.57, every check of a rule held
 | O45 | match | C132, C133, C138, C141 | reproduces | concrete_syntax/traversal.py:316 |
 | O46 | osql | C322 | reproduces | storage/dialect.py:60 |
 
-50 rules (4 IR definitions): 46 checked by a probe fact, 0 unchecked; 46 read by code, 0 unread; 45 defects (45 reproduced by a probe fact); 0 error classes
+46 rules (0 IR definitions): 46 checked by a probe fact, 0 unchecked; 46 read by code, 0 unread; 45 defects (45 reproduced by a probe fact); 0 error classes

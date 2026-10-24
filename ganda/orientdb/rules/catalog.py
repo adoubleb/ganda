@@ -11,7 +11,6 @@ import enum
 from ganda.core.rules.model import Defect, ErrorClass, ErrorKind, Kind, Question, Rule, Verdict
 from ganda.core.rules.vocabulary import (
     FILTER_LOGIC,
-    IR_RULES,
     LIKE_CASE_SENSITIVE,
     OWN_UNCOMMITTED_VISIBLE,
     PARALLEL_EDGE_ROWS,
@@ -137,9 +136,8 @@ EXACT_RULES = (
     Rule(INT32_SUM_EXACT_BELOW, SQL, 2**31),
 )
 
-_SUBJECT_RULES = COMPARE_RULES + ASK_RULES + EQUIVALENT_RULES + EXACT_RULES
-# the core IR's definitions of the compare questions this engine answers
-RULES = tuple(r for r in IR_RULES if r.question in {s.question for s in _SUBJECT_RULES}) + _SUBJECT_RULES
+# no IR definition: the code compares no subject's answer with the core IR's
+RULES = COMPARE_RULES + ASK_RULES + EQUIVALENT_RULES + EXACT_RULES
 
 DEFECTS = (
     Defect("O1", SQL_INDEX),

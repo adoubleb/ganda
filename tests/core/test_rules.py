@@ -96,3 +96,17 @@ def test_render_shows_the_baseline_and_each_defect_on_it():
     assert "baseline: 1.0, every check of a rule held; not run there: X5" in text
     assert "| D1 | a | X1 | reproduces |" in text and "| D2 | a | X2, X3 | fixed: X2 |" in text and "| D3 | b | X4 | fixed |" in text
     assert "baseline: none" in render(c, baseline={})
+
+
+def test_mutation_alternatives_cover_each_domain():
+    from ganda.core.rules.mutation import alternatives, mutants
+
+    first = Rule(NULLS_ASC, Subj.A, NullPlacement.FIRST)
+    assert alternatives(first) == [m for m in NullPlacement if m is not NullPlacement.FIRST]
+    assert alternatives(Rule(Question("value.flag", bool, Kind.COMPARE), Subj.A, True)) == [False]
+    assert alternatives(Rule(Question("match.rows", int, Kind.COMPARE), Subj.A, 2)) == [3]
+    assert alternatives(Rule(Question("exact.below", int, Kind.EXACT), Subj.A, 2**62)) == [2**31]
+    assert alternatives(Rule(Question("filter.ops", str, Kind.COMPARE), Subj.A, "= <>")) == ["="]
+    assert alternatives(Rule(Question("filter.wildcard", str, Kind.COMPARE), Subj.A, "?")) == ["@"]
+    labels = [label for _, label in mutants(_catalog(first, defects=(Defect("D1", Subj.A),)))]
+    assert labels == [f"order.nulls.asc (a): first -> {m.value}" for m in NullPlacement if m is not NullPlacement.FIRST] + ["without D1 (a)"]
