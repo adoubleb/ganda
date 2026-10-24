@@ -234,9 +234,6 @@ def main() -> int:
         check("C118", "O16: a hash index truncates the equality key too", col(s, "SELECT id AS v FROM c1 WHERE f1 = :p", {"p": 5.5}), ["c"])
 
         print("--- unique indexes and null keys")
-        s.sql("CREATE CLASS u1"); s.sql("CREATE PROPERTY u1.f LONG"); s.sql("CREATE PROPERTY u1.g STRING"); s.sql("CREATE INDEX u1_f ON u1 (f) UNIQUE")
-        s.sql("INSERT INTO u1 SET g = 'a'")
-        err(s, "INSERT INTO u1 SET g = 'b'")
         s.sql("CREATE CLASS u2"); s.sql("CREATE PROPERTY u2.f LONG"); s.sql("CREATE PROPERTY u2.g STRING"); s.sql("CREATE INDEX u2_f ON u2 (f) UNIQUE METADATA {ignoreNullValues: true}")
         s.sql("INSERT INTO u2 SET g = 'a'")
         check("C121", "... with ignoreNullValues: true it accepts any number of them", err(s, "INSERT INTO u2 SET g = 'b'"), "ok")
@@ -257,7 +254,6 @@ def main() -> int:
         check("C127", "both() yields a self-loop twice (3 out + 1 in)", col(s, "SELECT both('ge').id.size() AS v FROM g1 WHERE id = 'g1/a'"), [4])
         check("C128", "MATCH keeps path multiplicity", len(rows(s, "MATCH {class: g1, as: x, where: (id = 'g1/a')} .out('ge') {as: y} RETURN y.id AS v")), 3)
         check("C130", "DELETE VERTEX cascades its edges", (s.sql("DELETE VERTEX g1 WHERE id = 'g1/b'"), col(s, "SELECT count(*) AS v FROM ge"))[1], [1])
-        err(s, "DELETE FROM g1 WHERE id = 'g1/a'")
 
         print("--- MATCH walked backwards drops the edge class (O45)")
         for q in ["CREATE CLASS ma EXTENDS V", "CREATE PROPERTY ma.id STRING", "CREATE PROPERTY ma.f LONG", "CREATE CLASS mb EXTENDS V", "CREATE PROPERTY mb.id STRING", "CREATE PROPERTY mb.f LONG",
@@ -282,7 +278,6 @@ def main() -> int:
         check("C141", "O45: ... and now the mirrored pattern drops the class", sorted(col(s, "MATCH {class: mb, as: b}.inE('mx'){as: e}.outV(){class: ma, as: a} RETURN e.eid AS v")), ["x1", "y1", "y2"])
 
         print("--- writes")
-        err(s, "UPDATE d1 CONTENT :doc WHERE id = 'd1/r0'", {"doc": {"id": "d1/r0"}})
         check("C143", "a RID string inside a parameter becomes a LINK in an embedded document", col(s, "UPDATE d1 SET e1 = :l WHERE id = 'd1/r0'", {"l": [{"target": a, "w": 1}]}) and col(s, "SELECT e1.target.id AS v FROM d1"), [["g1/a"]])
 
         print("--- narrow numeric types: INTEGER (O16 wrap, O17, O19, O24), FLOAT (O16 rounding), DECIMAL (O20)")
@@ -328,7 +323,6 @@ def main() -> int:
         check("C177", "O25: ... a dotted link field too", col(s, "SELECT out.id AS v FROM ce WHERE in.s = :p", {"p": "ab"}), [])
         check("C179", "O25: ... a projected ci value compared in an enclosing query is case-sensitive too", col(s, "SELECT id AS v FROM (SELECT id, s FROM cv) WHERE s = :p", {"p": "A"}), ["r1"])
         s.sql("CREATE INDEX cv_s ON cv (s) NOTUNIQUE METADATA {ignoreNullValues: true}")
-        err(s, "CREATE INDEX cv_su ON cv (s) UNIQUE METADATA {ignoreNullValues: true}")
 
         print("--- list indexes (O7 faces), MATCH NOT (O22), optional, both, unionall")
         s.sql("CREATE CLASS li"); s.sql("CREATE PROPERTY li.id STRING"); s.sql("CREATE PROPERTY li.f EMBEDDEDLIST LONG")
@@ -366,7 +360,6 @@ def main() -> int:
         check("C207", "O23: ... and LAST descending", col(s, "SELECT id AS v FROM ob ORDER BY f DESC, g DESC"), ["r6", "r4", "r0", "r2", "r1", "r3", "r5"])
         s.sql("DROP INDEX ob_fg"); s.sql("CREATE INDEX ob_f ON ob (f) NOTUNIQUE METADATA {ignoreNullValues: false}")
         check("C209", "a single-field index that keeps nulls orders right", (col(s, "SELECT id AS v FROM ob ORDER BY f ASC")[-2:], col(s, "SELECT id AS v FROM ob ORDER BY f DESC")[:2]), (["r3", "r5"], ["r3", "r5"]))
-        err(s, "UPDATE ob INCREMENT f = 1 WHERE id = 'r0'")
         check("C211", "an arithmetic UPDATE (f = f + :d) maintains the index", (s.sql("UPDATE ob SET f = f + :d WHERE id = 'r0'", {"d": 10}), col(s, "SELECT id AS v FROM ob WHERE f = 11"))[1], ["r0"])
         check("C212", "UPDATE EDGE CONTENT keeps the endpoints", (s.sql("UPDATE EDGE ce CONTENT {\"w\": 8} WHERE out.id = 'r0' AND in.id = 'r4'"), col(s, "SELECT in.id AS v FROM ce WHERE w = 8"))[1], ["r4"])
         check("C213", "CREATE CLASS ... EXTENDS V CLUSTERS 3 is accepted", err(s, "CREATE CLASS cl3 EXTENDS V CLUSTERS 3"), "ok")
@@ -384,7 +377,6 @@ def main() -> int:
             s.sql("INSERT INTO dt SET id = :id, t = :t, d = :d", {"id": i, "t": t, "d": d})
         check("C221", "O27: an ISO 'T' pivot is compared as the date's midnight", col(s, "SELECT id AS v FROM dt WHERE t = :p", {"p": "2024-01-01T12:34:56"}), ["a"])
         check("C222", "O27: ... so is a pivot without seconds", col(s, "SELECT id AS v FROM dt WHERE t = :p", {"p": "2024-01-01 12:34"}), ["a"])
-        err(s, "INSERT INTO dt SET id = 'w', t = :p", {"p": "2024-01-01T12:34:56"})
         s.sql("CREATE CLASS mp"); s.sql("CREATE PROPERTY mp.id STRING"); s.sql("CREATE PROPERTY mp.m EMBEDDEDMAP LONG")
         for i, m in (("a", {"k1": 1, "k2": 2}), ("b", {"k2": 5, "k3": 2**40}), ("c", {})):
             s.sql("INSERT INTO mp SET id = :id, m = :m", {"id": i, "m": m})
@@ -396,8 +388,6 @@ def main() -> int:
         check("C233", "O5: ... a BETWEEN through a hash index's door is a 501", err(s, "SELECT rid.id AS v FROM index:c1_f1h WHERE key BETWEEN :a AND :b", {"a": 0, "b": 5}), "internal:unsupported")
         check("C234", "O16: ... the door converts a double key like an index lookup", col(s, "SELECT rid.id AS v FROM index:c1_f1h WHERE key = :p", {"p": 5.5}), ["c"])
         s.sql("CREATE INDEX c2_bsh ON c2 (b, f) NOTUNIQUE_HASH_INDEX METADATA {ignoreNullValues: true}")
-        s.sql("CREATE CLASS P0 ABSTRACT"); s.sql("CREATE PROPERTY P0.id STRING"); s.sql("CREATE PROPERTY P0.b1 LONG"); s.sql("CREATE CLASS p1 EXTENDS P0"); s.sql("CREATE CLASS p2 EXTENDS P0"); s.sql("CREATE INDEX P0_b1 ON P0 (b1) NOTUNIQUE METADATA {ignoreNullValues: true}")
-        s.sql("INSERT INTO p1 SET id = 'p1/r0', b1 = 10"); s.sql("INSERT INTO p1 SET id = 'p1/r1', b1 = 20"); s.sql("INSERT INTO p2 SET id = 'p2/r0', b1 = 10")
 
         print("--- round 5: CONTAINSALL (O7 / O10 faces), the transaction door (O31), shortestPath maxDepth (O35)")
         s.sql("INSERT INTO n1 SET id = 'n1/dup', f1 = 1")
@@ -420,8 +410,6 @@ def main() -> int:
             out = s.script(f"BEGIN; {write}; LET $r = ({read}); ROLLBACK; RETURN $r", params)
             return sorted(r["id"] for r in out[0]["value"])
 
-        (txr("UPDATE tx SET f = -100 WHERE id = 'c'", "SELECT id FROM tx WHERE f = -100"), col(s, "SELECT f AS v FROM tx WHERE id = 'c'"))
-        (txr("UPDATE tx SET f = -100 WHERE id = 'c'", "SELECT id FROM tx WHERE f IN [-100, -7]"), txr("UPDATE tx SET f = -100 WHERE id = 'c'", "SELECT id FROM tx WHERE f > -200 AND f < 0"), txr("UPDATE tx SET f = -100 WHERE id = 'c'", "SELECT id FROM tx WHERE f BETWEEN -200 AND 0"), [r["id"] for r in s.script("BEGIN; UPDATE tx SET f = -100 WHERE id = 'c'; LET $r = (SELECT id FROM tx ORDER BY f); ROLLBACK; RETURN $r")[0]["value"]][:2], txr("UPDATE tx SET f = -100 WHERE id = 'c'", "SELECT id FROM (SELECT FROM tx) WHERE f < 0"))
         check("C270", "O31: a ONE-SIDED range through the index misses the changed key inside the transaction", (txr("UPDATE tx SET f = -100 WHERE id = 'c'", "SELECT id FROM tx WHERE f < 0"), txr("UPDATE tx SET f = 1000 WHERE id = 'c'", "SELECT id FROM tx WHERE f > 99")), (["b"], ["d"]))
         check("C271", "O31: ... finds it only when the bound IS the key, and returns a changed record whose new key does NOT satisfy the range", (txr("UPDATE tx SET f = -100 WHERE id = 'c'", "SELECT id FROM tx WHERE f <= -100"), txr("UPDATE tx SET f = 1000 WHERE id = 'c'", "SELECT id FROM tx WHERE f < 6")), (["c"], ["a", "b", "c"]))
         check("C272", "O31: ... misses a record the transaction inserted, on the unique id index too; a scan and reversed operands are right", (txr("INSERT INTO tx SET id = 'z', f = -100", "SELECT id FROM tx WHERE f < 0"), txr("INSERT INTO tx SET id = 'z', f = -100", "SELECT id FROM tx WHERE id > 'c'"), txr("INSERT INTO tx SET id = 'z', f = -100", "SELECT id FROM tx WHERE :p > f", {"p": 0})), (["b"], ["d"], ["b", "z"]))
@@ -432,7 +420,6 @@ def main() -> int:
         check("C273", "O18: an ASC ORDER BY walked from a COMPOSITE index that ignores nulls skips a record whose OTHER component is null (min through ORDER BY ... LIMIT 1 is wrong; campaign c100e, seed 1049)", (col(s, "SELECT min(f) AS v FROM cw"), col(s, "SELECT f AS v FROM cw WHERE f IS NOT NULL ORDER BY f ASC LIMIT 1"), col(s, "SELECT f AS v FROM cw ORDER BY f ASC, id ASC")), ([-5], [1], [-5, 1, 7, None]))
         s.sql("DROP INDEX cw_fg"); s.sql("CREATE INDEX cw_fg ON cw (f, g) NOTUNIQUE METADATA {ignoreNullValues: false}")
         check("C274", "O23: ... with nulls kept, the walk answers every record (null keys first ascending)", col(s, "SELECT f AS v FROM cw ORDER BY f ASC"), [None, -5, 1, 7])
-        (col(s, "SELECT id AS v FROM tx WHERE f BETWEEN 6 AND 4"), txr("UPDATE tx SET id = 'c' WHERE id = 'c'", "SELECT id FROM tx WHERE f BETWEEN 6 AND 4"))
         for name, write in (("an update of the column", "UPDATE tx SET f = 9 WHERE id = 'c'"), ("an insert", "INSERT INTO tx SET id = 'z', f = 2"), ("a delete", "DELETE FROM tx WHERE id = 'a'")):
             try:
                 s.script(f"BEGIN; {write}; LET $r = (SELECT id FROM tx WHERE f >= 6 AND f <= 4); ROLLBACK; RETURN $r")
@@ -440,14 +427,11 @@ def main() -> int:
             except OrientError as e:
                 got = "internal:other" if e.internal and "fromKey" in str(e) else "?"
             check("C276", f"O31: ... after {name}: the reversed range is the IllegalArgumentException", got, "internal:other")
-        (txr("DELETE FROM tx WHERE id = 'b'", "SELECT id FROM tx WHERE f < 0"), [r["id"] for r in s.script("BEGIN; UPDATE tx SET f = -100 WHERE id = 'c'; COMMIT; LET $r = (SELECT id FROM tx WHERE f < 0 ORDER BY id); RETURN $r")[0]["value"]])
-        s.sql("UPDATE tx SET f = 5 WHERE id = 'c'")
         for q in ["CREATE CLASS sv EXTENDS V", "CREATE PROPERTY sv.id STRING", "CREATE INDEX sv_id ON sv (id) UNIQUE METADATA {ignoreNullValues: true}", "CREATE CLASS se EXTENDS E"]:
             s.sql(q)
         srid = {v: s.sql_raw("CREATE VERTEX sv SET id = :id", {"id": v})[0]["@rid"] for v in "abcd"}
         for x, y in (("a", "b"), ("b", "c"), ("c", "d")):
             s.sql("CREATE EDGE se FROM :a TO :b", {"a": srid[x], "b": srid[y]})
-        (s.script("BEGIN; DELETE EDGE se FROM (SELECT FROM sv WHERE id = 'a') TO (SELECT FROM sv WHERE id = 'b'); LET $r = (SELECT out('se').id AS v FROM sv WHERE id = 'a'); ROLLBACK; RETURN $r")[0]["value"][0]["v"], s.script("BEGIN; CREATE EDGE se FROM (SELECT FROM sv WHERE id = 'a') TO (SELECT FROM sv WHERE id = 'd'); LET $r = (MATCH {class: sv, as: a, where: (id = 'a')}.out('se'){as: b} RETURN b.id AS v); ROLLBACK; RETURN $r")[0]["value"], col(s, "SELECT out('se').id AS v FROM sv WHERE id = 'a'"))
         SP = "SELECT shortestPath((SELECT FROM sv WHERE id = :a), (SELECT FROM sv WHERE id = :b), 'OUT', 'se'{o}).size() AS v"
         check("C279", "shortestPath() answers the path's vertex count, 0 when unreachable, 1 for the same record; a subquery names each end", (col(s, SP.format(o=""), {"a": "a", "b": "c"}), col(s, SP.format(o=""), {"a": "c", "b": "a"}), col(s, SP.format(o=""), {"a": "a", "b": "a"})), ([3], [0], [1]))
         check("C280", "O35: shortestPath's maxDepth k finds paths of at most k - 1 hops", (col(s, SP.format(o=", :o"), {"a": "a", "b": "c", "o": {"maxDepth": 2}}), col(s, SP.format(o=", :o"), {"a": "a", "b": "c", "o": {"maxDepth": 3}})), ([0], [3]))
@@ -491,8 +475,6 @@ def main() -> int:
         wreset()
         check("C297", "a UNIQUE index is checked per row and a failed UPDATE keeps what it wrote (no statement atomicity outside a transaction)", (err(s, "UPDATE wt SET u = 99 WHERE f > 4" + TW), sorted(r["u"] for r in rows(s, "SELECT u FROM wt WHERE u = 99"))), ("rejected", [99]))
         wreset()
-        (rows(s, "UPDATE wt SET f = 3 UPSERT WHERE id = 'wnew'" + TW), col(s, "SELECT f AS v FROM wt WHERE id = 'wnew'"), rows(s, "UPDATE wt SET u = 42 UPSERT WHERE f = 1000" + TW), col(s, "SELECT id AS v FROM wt WHERE u = 42"))
-        err(s, "DELETE FROM wt WHERE f > 100 TIMEOUT 1000 EXCEPTION")
         check("C300", "O39: CONTAINSVALUE inside a subquery consumed as a value (IN, NOT IN, LET) is a NullPointerException; as a FROM target, and CONTAINSKEY / values() CONTAINS there, are fine", (err(s, "SELECT id FROM wt WHERE id IN (SELECT id FROM wt WHERE m CONTAINSVALUE :p)", {"p": 2**40}), err(s, "SELECT id, $a.size() AS v FROM wt LET $a = (SELECT id FROM wt WHERE m CONTAINSVALUE :p)", {"p": 2**40}), col(s, "SELECT id AS v FROM (SELECT FROM wt WHERE m CONTAINSVALUE :p)", {"p": 2**40}), col(s, "SELECT id AS v FROM wt WHERE id IN (SELECT id FROM wt WHERE m.values() CONTAINS :p)", {"p": 2**40})), ("internal:NPE", "internal:NPE", ["w1"], ["w1"]))
         for q in ["CREATE CLASS wd", "CREATE PROPERTY wd.id STRING", "CREATE PROPERTY wd.w LONG", "CREATE PROPERTY wd.e1 EMBEDDEDLIST"]:
             s.sql(q)
@@ -506,11 +488,6 @@ def main() -> int:
         check("C301", "a link list is rewritten through a bracket filter, the links stay typed; DELETE FROM leaves a LINK dangling (target.id null)", (rows(s, "UPDATE wd SET e1 = e1[target.id NOT IN :g] WHERE e1 CONTAINS (target.id IN :g)" + TW, {"g": ["d1"]}), col(s, "SELECT e1.target.id AS v FROM wd WHERE id = 'd0'"), (dreset(), rows(s, "DELETE FROM wd WHERE id = 'd1'"))[1], col(s, "SELECT e1.target.id AS v FROM wd WHERE id = 'd0'")), ([{"count": 1}], [["d2"]], [{"count": 1}], [[None, "d2"]]))
         dreset()
         check("C302", "O38: in a transaction, a list rewritten through a filter that dereferences its LINKs and a delete of a dropped link's target fail at COMMIT (auto-commit and an attribute filter are fine)", (err_script(s, "BEGIN; UPDATE wd SET e1 = e1[target.id <> 'd1'] WHERE id = 'd0'; DELETE FROM wd WHERE id = 'd1'; COMMIT;"), (dreset(), s.script("BEGIN; UPDATE wd SET e1 = e1[w > 4] WHERE id = 'd0'; DELETE FROM wd WHERE id = 'd1'; COMMIT;"))[1]), ("rejected", [{"operation": "commit"}]))
-        for q in ["CREATE CLASS wv EXTENDS V", "CREATE PROPERTY wv.id STRING", "CREATE CLASS we EXTENDS E"]:
-            s.sql(q)
-        wv = [s.sql_raw("CREATE VERTEX wv SET id = :id", {"id": x})[0]["@rid"] for x in ("a", "b")]
-        s.sql("CREATE EDGE we FROM :a TO :b", {"a": wv[0], "b": wv[1]})
-        (err(s, "DELETE FROM wv"), err(s, "DELETE FROM we"))
 
         print("--- the select and path IRs (join, semi-join, edge targets, the transaction door, paths)")
         for q in ["CREATE CLASS QZ0 ABSTRACT", "CREATE PROPERTY QZ0.id STRING", "CREATE CLASS qzn EXTENDS QZ0", "CREATE PROPERTY qzn.f LONG", "CREATE PROPERTY qzn.g STRING",
@@ -557,7 +534,6 @@ def main() -> int:
         def unwrap(r):
             return [{k: v for k, v in x.items() if not k.startswith("@")} for x in r[0]["value"]] if r and "value" in r[0] else r
 
-        (sorted(tx("UPDATE qzn SET f = 9 WHERE id = 'p0'", "SELECT f AS k, count(*) AS v FROM qzn GROUP BY f"), key=repr),                sorted(r["v"] for r in tx("DELETE FROM qzn WHERE id = 'p0'", "SELECT v FROM (SELECT set(f) AS v FROM qzn UNWIND v) WHERE v IS NOT NULL")),                tx("INSERT INTO qzn SET id = 'tx0', f = 3", "SELECT count(*) AS v FROM (SELECT DISTINCT f FROM qzn WHERE f IS NOT NULL)"),                tx("INSERT INTO qzn SET id = 'tx0', f = 3", "SELECT id FROM qzn ORDER BY f DESC, id ASC SKIP 3 LIMIT 2"),                sorted(r["id"] for r in tx("INSERT INTO qzn SET id = 'tx0', f = 2", "SELECT rid.id AS id FROM index:qzn_f WHERE key = 2")))
         check("C312", "O31 under every kind: `max` / `count` / a projection through a one-sided range an SB-tree index serves miss or invert the written records",
               (tx("UPDATE qzn SET f = 9 WHERE id = 'p0'", "SELECT max(f) AS v FROM qzn WHERE f > 1"), tx("INSERT INTO qzn SET id = 'tx0', f = 3", "SELECT count(*) AS v FROM qzn WHERE f > 2"),
                tx("UPDATE qzn SET f = 9 WHERE id = 'p0'", "SELECT max(f) AS v FROM (SELECT FROM qzn) WHERE f > 1")),
