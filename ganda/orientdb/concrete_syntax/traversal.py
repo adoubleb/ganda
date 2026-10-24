@@ -581,9 +581,8 @@ def _doc_union(q: TraversalQuery, schema: Schema, extra: tuple = ()) -> str:
 # --- rel ------------------------------------------------------------------------------------
 
 
-# LET precedes WHERE, and `$parent.$current` reaches one level up
+# LET precedes WHERE
 assumes("accepts.let.after_where", SQL, REFUSED)
-assumes("accepts.parent.two_levels_up", SQL, REFUSED)
 
 
 def _rel_sub(q: TraversalQuery, schema: Schema, k: int, cur_ref: str, direction: "str | None" = None) -> str:

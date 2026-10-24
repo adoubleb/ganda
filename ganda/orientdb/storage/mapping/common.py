@@ -57,7 +57,7 @@ from ganda.core.data.model import (
 from ganda.orientdb.storage.dialect import DEFAULT_ID_INDEX, ORIENT_TYPES, UNIQUE_KINDS
 from ganda.orientdb.engine.limits import LIMITS
 from ganda.orientdb.rules import answer, assumes, works_around
-from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+from ganda.orientdb.rules.catalog import ACCEPTED, MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
 
 
 
@@ -389,13 +389,10 @@ def _refs_in(value: Any) -> set:
     return set()
 
 
-# /batch binds positionally and stringifies a map: a step with one runs outside it
+# /batch binds positionally (the connection rewrites named parameters) and keeps a map
+# or list parameter, so every step of a run travels inside it
 assumes("accepts.named_parameter", BATCH, REFUSED)
-assumes("accepts.map_parameter", BATCH, REFUSED)
-
-
-def _has_complex_param(step: Sql) -> bool:
-    return any(isinstance(v, (dict, list)) for v in step.params.values())
+assumes("accepts.map_parameter", BATCH, ACCEPTED)
 
 
 def _groups(data: list) -> list:
@@ -454,24 +451,6 @@ def _chunks(run: list, size: int):
         yield chunk
 
 
-def _batched(run: list) -> list:
-    """The run as `/batch` requests, a step carrying a map or list parameter running as
-    a plain command between two batches."""
-    out: list = []
-    batchable: list = []
-    for step in run:
-        if _has_complex_param(step):
-            if batchable:
-                out.append(Batch(batchable, transaction=True))
-                batchable = []
-            out.append(step)
-        else:
-            batchable.append(step)
-    if batchable:
-        out.append(Batch(batchable, transaction=True))
-    return out
-
-
 def _script(run: list, transactional: bool) -> Script:
     """The run as one script: `BEGIN; ...; COMMIT;` when `transactional`, else the
     statements as they are (each auto-committed, the plain door's bulk form); every
@@ -498,9 +477,8 @@ def wrap_data(data: list, form: WriteForm) -> list:
     """The data steps through the form's transaction door: plain commands, `/batch`
     requests with `transaction: true`, or `BEGIN ... COMMIT` scripts. A run of steps
     is folded only up to the first step whose `Ref` points at a record the same run
-    inserts (`_groups`). The batch door takes positional parameters only and turns a
-    map or list parameter into its `toString()` (probed: `{x=1}`), so a step carrying
-    one runs as a plain command between two batches. A script or batch answers with
+    inserts (`_groups`). The batch door takes positional parameters only (the
+    connection rewrites them). A script or batch answers with
     the LAST command's result only, so captures inside one are re-read by the connection layer
     (`Script.captures` / the batch steps' `capture`).
 
@@ -519,7 +497,7 @@ def wrap_data(data: list, form: WriteForm) -> list:
             continue
         for chunk in _chunks(run, form.chunk_size):
             if form.transaction == "batch":
-                out.extend(_batched(chunk))
+                out.append(Batch(chunk, transaction=True))
             else:
                 out.append(_script(chunk, transactional=form.transaction == "script"))
     return out

@@ -66,11 +66,11 @@ def test_groups_split_before_a_ref_to_a_record_captured_in_the_run():
     assert [len(r) for r in runs] == [2, 2]
 
 
-def test_batch_form_keeps_complex_params_outside_the_batch():
-    steps = [Sql("A", {"x": 1}), Sql("B", {"l": [1, 2]}), Sql("C", {"y": 2})]
-    out = wrap_data(steps, WriteForm(transaction="batch"))
-    kinds = [type(s).__name__ for s in out]
-    assert kinds == ["Batch", "Sql", "Batch"]
+def test_batch_form_folds_complex_params_into_the_batch():
+    # /batch keeps a map or list parameter (probe C337)
+    steps = [Sql("A", {"x": 1}), Sql("B", {"l": [1, 2]}), Sql("C", {"m": {"y": 2}})]
+    (batch,) = wrap_data(steps, WriteForm(transaction="batch"))
+    assert isinstance(batch, Batch) and batch.steps == steps
 
 
 def test_script_form_renames_parameters_per_statement():
@@ -111,7 +111,7 @@ def test_chunked_doors_fold_every_run_into_bounded_requests():
     tx = wrap_data(steps, WriteForm(transaction="script", chunk_size=5))
     assert all(isinstance(s, Script) and s.text.startswith("BEGIN;") and "COMMIT;" in s.text for s in tx) and [_statements(s) for s in tx] == [5, 5, 2, 3]
     batched = wrap_data(steps, WriteForm(transaction="batch", chunk_size=5))
-    assert [len(s.steps) for s in batched if isinstance(s, Batch)] == [5, 5, 2] and sum(isinstance(s, Sql) for s in batched) == 3  # the list parameters run plainly
+    assert all(isinstance(s, Batch) for s in batched) and [len(s.steps) for s in batched] == [5, 5, 2, 3]
     assert wrap_data(steps, WriteForm(transaction="none")) == steps  # no chunk size: the plain door is untouched
     assert len(wrap_data(steps, WriteForm(transaction="script"))) == 2  # one script per run, as before
     # the request budget splits a run too: a step too big for it travels alone

@@ -1,6 +1,6 @@
-"""Which rules each probe check (`scripts/probe_osql.py`, ids C1..C330) checks, and which
+"""Which rules each probe check (`scripts/probe_osql.py`, ids C1..C338) checks, and which
 defects it reproduces: a check is listed against a rule only where it asserts that rule's
-answer (C31 and C73 assert nothing: an empty class, no matching record), against a defect
+answer (C31 asserts nothing: an empty class), against a defect
 only where its expected answer is the defect's (not the controls beside it)."""
 from __future__ import annotations
 
@@ -20,9 +20,14 @@ from ganda.core.rules.vocabulary import (
     StringOrder,
 )
 from ganda.orientdb.rules.catalog import (
+    ABSENT_SURVIVES_PROJECTION,
+    ACCEPTED,
+    BATCH,
+    CI_OPERATORS,
     DEFECTS,
     DELETE_FROM_DOC_KEEPS_LINKS,
     DELETE_VERTEX_CASCADES,
+    EXPAND_WRAPS_EMBEDDED,
     INDEX_DOOR,
     INT32_SUM_EXACT_BELOW,
     LIKE_ONE_CHARACTER,
@@ -98,6 +103,14 @@ _RULE_CHECKS = {
     "C301": (Rule(DELETE_FROM_DOC_KEEPS_LINKS, SQL, True),),
     "C303": (Rule(accepts("delete_from.vertex_or_edge_class"), SQL, REFUSED),),
     "C311": (TRANSACTION_DOOR,),
+    "C331": (Rule(CI_OPERATORS, SQL, "= <> < <= > >="),),
+    "C332": (Rule(ABSENT_SURVIVES_PROJECTION, SQL, False),),
+    "C333": (Rule(EXPAND_WRAPS_EMBEDDED, SQL, True),),
+    "C334": (Rule(accepts("merge.parameter"), SQL, REFUSED),),
+    "C335": (Rule(accepts("ddl.in_transaction"), SCRIPT, REFUSED),),
+    "C336": (Rule(accepts("named_parameter"), BATCH, REFUSED),),
+    "C337": (Rule(accepts("map_parameter"), BATCH, ACCEPTED),),
+    "C338": (Rule(accepts("update.filtered_list_element"), SQL, REFUSED),),
 }
 
 REPRODUCED_BY = {

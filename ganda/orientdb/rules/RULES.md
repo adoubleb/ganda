@@ -23,20 +23,20 @@ baseline: 3.2.57, every check of a rule held
 | compare.negative_zero_below_zero | osql | true | C15 | oracle/rewrites.py:114, oracle/semantics.py:126, storage/physical_design.py:57 |
 | filter.like.case_sensitive | osql | false | C171 | oracle/semantics.py:182 |
 | filter.like.one_character_wildcard | osql | `?` | C172 | oracle/pivots.py:19, oracle/semantics.py:183 |
-| filter.case_insensitive.operators | osql | `= <> < <= > >=` | unchecked | concrete_syntax/traversal.py:197, oracle/semantics.py:198 |
+| filter.case_insensitive.operators | osql | `= <> < <= > >=` | C331 | concrete_syntax/traversal.py:197, oracle/semantics.py:198 |
 | aggregate.ungrouped.empty_input.rows | osql | no-row | C267, C285 | concrete_syntax/path.py:25 |
 | traverse.default_strategy | traverse | depth-first | C282 | concrete_syntax/traversal.py:415 |
 | match.optional.no_path.rows | match | one-row | C191 | concrete_syntax/traversal.py:314 |
-| projection.keeps_absent_field | osql | false | unchecked | concrete_syntax/traversal.py:200 |
-| expand.embedded.wrapped_under_value | osql | true | unchecked | concrete_syntax/traversal.py:135 |
+| projection.keeps_absent_field | osql | false | C332 | concrete_syntax/traversal.py:200 |
+| expand.embedded.wrapped_under_value | osql | true | C333 | concrete_syntax/traversal.py:135 |
 | index.unique.default_ignores_nulls | osql@index | false | C120 | storage/mapping/common.py:147 |
 | delete_vertex.cascades_edges | osql | true | C130 | concrete_syntax/write.py:227 |
 | shortest_path.unreachable.result | osql | 0 | C279 | concrete_syntax/path.py:23 |
 | shortest_path.same_record.result | osql | 1 | C279 | concrete_syntax/path.py:24 |
 | upsert.other_predicate.keeps_id | osql | false | C298 | concrete_syntax/write.py:202 |
 | delete.document.keeps_incoming_links | osql | true | C301 | concrete_syntax/write.py:229 |
-| statement.atomic | osql | false | C297 | concrete_syntax/write.py:348 |
-| statement.write.answers_row_count | osql | true | C291 | concrete_syntax/write.py:347 |
+| statement.atomic | osql | false | C297 | concrete_syntax/write.py:350 |
+| statement.write.answers_row_count | osql | true | C291 | concrete_syntax/write.py:349 |
 
 ## ask
 
@@ -44,20 +44,19 @@ baseline: 3.2.57, every check of a rule held
 |---|---|---|---|---|
 | accepts.projection.comparison | osql | refused | C35 | concrete_syntax/traversal.py:123 |
 | accepts.let.after_where | osql | refused | C36 | concrete_syntax/select.py:199, concrete_syntax/traversal.py:585 |
-| accepts.parent.two_levels_up | osql | refused | unchecked | concrete_syntax/traversal.py:586 |
 | accepts.update.increment | osql | refused | C210 | concrete_syntax/write.py:173, storage/mapping/common.py:216 |
 | accepts.update.content.parameter | osql | refused | C142 | concrete_syntax/write.py:171 |
-| accepts.merge.parameter | osql | refused | unchecked | concrete_syntax/write.py:172 |
-| accepts.update.embedded_list_element | osql | refused | unchecked | concrete_syntax/write.py:269 |
+| accepts.merge.parameter | osql | refused | C334 | concrete_syntax/write.py:172 |
+| accepts.update.filtered_list_element | osql | refused | C338 | concrete_syntax/write.py:271 |
 | accepts.delete.timeout | osql | refused | C299 | concrete_syntax/write.py:230 |
 | accepts.delete_from.vertex_or_edge_class | osql | refused | C131, C303 | concrete_syntax/support.py:210, concrete_syntax/write.py:228 |
 | accepts.instanceof.parameter | osql | refused | C238 | concrete_syntax/select.py:200 |
 | accepts.match.timeout | match | refused | C129 | engine/connection.py:123 |
 | accepts.max_depth.parameter | match | refused | C284 | concrete_syntax/traversal.py:315 |
 | accepts.max_depth.parameter | traverse | refused | C284 | concrete_syntax/path.py:26, concrete_syntax/traversal.py:416 |
-| accepts.ddl.in_transaction | script | refused | unchecked | storage/mapping/common.py:535 |
-| accepts.named_parameter | batch | refused | unchecked | storage/mapping/common.py:393 |
-| accepts.map_parameter | batch | refused | unchecked | storage/mapping/common.py:394 |
+| accepts.ddl.in_transaction | script | refused | C335 | storage/mapping/common.py:513 |
+| accepts.named_parameter | batch | refused | C336 | storage/mapping/common.py:394 |
+| accepts.map_parameter | batch | accepted | C337 | storage/mapping/common.py:395 |
 | accepts.record_filter | index-door | refused | C236 | concrete_syntax/support.py:63 |
 
 ## equivalent
@@ -132,4 +131,4 @@ baseline: 3.2.57, every check of a rule held
 | O45 | match | C132, C133, C138, C141 | reproduces | concrete_syntax/traversal.py:316 |
 | O46 | osql | C322 | reproduces | unread |
 
-51 rules (4 IR definitions): 38 checked by a probe fact, 9 unchecked; 47 read by code, 0 unread; 45 defects (45 reproduced by a probe fact); 0 error classes
+50 rules (4 IR definitions): 46 checked by a probe fact, 0 unchecked; 46 read by code, 0 unread; 45 defects (45 reproduced by a probe fact); 0 error classes

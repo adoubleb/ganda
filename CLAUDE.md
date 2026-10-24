@@ -76,7 +76,7 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
 The engine rules are minimal records in `ganda/orientdb/rules/catalog.py`, as HANA's (the
 subjects are OrientDB SQL's execution paths: a scan, an index-served statement, MATCH,
 TRAVERSE, the script / transaction door, /batch, the `index:` door); the defects O1..O46
-(but O4) beside them; `rules/checks.py` lists the rules each probe check (C1..C330 in
+(but O4) beside them; `rules/checks.py` lists the rules each probe check (C1..C338 in
 `scripts/probe_osql.py`) asserts and the defects it reproduces (every defect has a check
 whose expected answer is the defect's). A failing check prints the rule that no
 longer holds, or the defect that no longer reproduces, and the code reading it. A rule

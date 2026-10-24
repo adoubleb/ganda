@@ -20,6 +20,7 @@ import sys
 from ganda.core.rules.model import Defect
 from ganda.orientdb.engine.connection import OrientError, OrientServer  # noqa: E402
 from ganda.orientdb.engine.limits import HTTP_MAX_LENGTH  # noqa: E402
+from ganda.orientdb.storage.mapping.common import Sql  # noqa: E402
 
 DB = "fz_probe_osql"
 ran: list = []
@@ -64,6 +65,16 @@ def _last_error(session, sql, params=None) -> str:
 def err_script(session, text, params=None) -> str:
     try:
         session.script(text, params)
+        return "ok"
+    except OrientError as e:
+        return "internal" if e.internal else "rejected"
+
+
+def err_batch(session, command: str, params) -> str:
+    """One command through `/batch` as sent, its parameters unrewritten (`OrientSession.batch`
+    turns named ones positional)."""
+    try:
+        session._request("POST", f"/batch/{session.db}", {"transaction": True, "operations": [{"type": "cmd", "language": "sql", "command": command, "parameters": params}]})
         return "ok"
     except OrientError as e:
         return "internal" if e.internal else "rejected"
@@ -198,7 +209,7 @@ def main() -> int:
         check("C70", "O1 (not O2): ... where the scan answers", col(s, "SELECT count(*) AS v FROM (SELECT id FROM n1 LET $x = (SELECT dst_id FROM j1 WHERE src_id = $parent.$current.id) WHERE f3 = 'a' AND $x.size() > 0)"), [1])
         check("C71", "aggregate over a list of lists is a ClassCastException (O5)", err(s, "SELECT id, max($h.v) AS v FROM n1 LET $h = (SELECT $f.v AS v FROM j1 LET $f = (SELECT f1 AS v FROM n1 WHERE id = $parent.$current.dst_id) WHERE src_id = $parent.$current.id) WHERE f3 = 'a' GROUP BY id"), "internal:ClassCast")
         check("C72", "[0] on a one-record lookup keeps the projection flat", col(s, "SELECT src_id AS id, $f[0].v AS v FROM j1 LET $f = (SELECT f1 AS v FROM n1 WHERE id = $parent.$current.dst_id) WHERE w = 4"), [2**53])
-        check("C73", "nested LETs reference the immediate parent only ($parent.$parent is null)", col(s, "SELECT id, $h.v AS v FROM n1 LET $h = (SELECT $t.v AS v FROM j1 LET $t = (SELECT dst_id AS v FROM j1 WHERE src_id = $parent.$parent.$current.id) WHERE src_id = $parent.$current.id) WHERE id = 'zzz'"), [])
+        check("C73", "nested LETs: $parent.$parent.$current reaches two levels up (the outer record, not the junction row; the outer query scans, O1 aside)", col(s, "SELECT id, $h.v AS v FROM n1 LET $h = (SELECT $t.v AS v FROM j1 LET $t = (SELECT dst_id AS v FROM j1 WHERE src_id = $parent.$parent.$current.id) WHERE src_id = $parent.$current.id) WHERE f3 = 'B'"), [[["n1/r2"]]])
 
         print("--- indexes")
         check("C74", "O3: index: query with an int literal on a LONG index is a ClassCastException", err(s, "SELECT key FROM index:n1_f1 WHERE key > 5"), "internal:ClassCast")
@@ -868,6 +879,30 @@ def main() -> int:
                 return "timeout" if e.timeout else "rejected"
 
         check("C330", "a `TIMEOUT ... EXCEPTION` that fires is OTimeoutException, classified as a timeout (no answer), never as a rejection", timed_out() in ("answered", "timeout"), True)
+
+        print("--- what the renderers and the mapping assume")
+        for q in ["CREATE CLASS cio", "CREATE PROPERTY cio.id STRING", "CREATE PROPERTY cio.s STRING", "ALTER PROPERTY cio.s COLLATE ci",
+                  "CREATE CLASS abp", "CREATE PROPERTY abp.id STRING", "CREATE PROPERTY abp.f LONG",
+                  "CREATE CLASS exw", "CREATE PROPERTY exw.id STRING", "CREATE PROPERTY exw.e1 EMBEDDEDLIST"]:
+            s.sql(q)
+        for v in ("a", "B"):
+            s.sql("INSERT INTO cio SET id = :v, s = :v", {"v": v})
+        ci_ops = {op: col(s, f"SELECT id AS v FROM cio WHERE s {op} :p ORDER BY id", {"p": p}) for op, p in (("=", "A"), ("<>", "A"), ("<", "b"), ("<=", "A"), (">", "A"), (">=", "b"))}
+        check("C331", "on a ci column every comparison operator compares case-insensitively on a scan", ci_ops, {"=": ["a"], "<>": ["B"], "<": ["a"], "<=": ["a"], ">": ["B"], ">=": ["B"]})
+        s.sql("INSERT INTO abp SET id = 'x', f = 1"); s.sql("INSERT INTO abp SET id = 'y'")
+        check("C332", "a projection turns an absent field into an explicit null (IS NOT DEFINED holds on the class only)", (col(s, "SELECT id AS v FROM (SELECT id, f FROM abp) WHERE f IS NOT DEFINED"), col(s, "SELECT id AS v FROM abp WHERE f IS NOT DEFINED")), ([], ["y"]))
+        s.sql("INSERT INTO exw SET id = 'r', e1 = [{'w': 1, 'k': 'p'}, {'w': 2, 'k': 'q'}]")
+        check("C333", "expand() of an embedded list answers each document under `value`", rows(s, "SELECT expand(e1) FROM exw WHERE id = 'r'"), [{"value": {"w": 1, "k": "p"}}, {"value": {"w": 2, "k": "q"}}])
+        check("C334", "UPDATE MERGE takes no bind parameter (a JSON literal it does)", (err(s, "UPDATE exw MERGE :doc WHERE id = 'r'", {"doc": {"z": 1}}), err(s, "UPDATE exw MERGE {\"z\": 1} WHERE id = 'r'")), ("rejected", "ok"))
+        check("C335", "a schema change inside a transaction is rejected", err_script(s, "BEGIN; CREATE CLASS txddl; COMMIT;"), "rejected")
+        check("C336", "/batch takes no named parameter (a ClassCastException); a positional one it does", (err_batch(s, "INSERT INTO abp SET id = 'n', f = :f", {"f": 5}), err_batch(s, "INSERT INTO abp SET id = 'p', f = ?", [6])), ("internal", "ok"))
+        m, lst, docs = {"x": 1, "y": "z"}, [1, 2**40], [{"k": 1, "n": {"q": 2}}]
+        s.batch([Sql("INSERT INTO exw SET id = :id, m = :m, l = :l, e1 = :e", {"id": "b", "m": m, "l": lst, "e": docs})])
+        check("C337", "/batch keeps a map, a list and nested documents bound as parameters", rows(s, "SELECT m, l, e1 FROM exw WHERE id = 'b'"), [{"m": m, "l": lst, "e1": docs}])
+        s.sql("INSERT INTO exw SET id = 'u', e1 = [{'w': 1, 't': 'a'}, {'w': 2, 't': 'b'}]")
+        filtered = (rows(s, "UPDATE exw SET e1[t = 'b'].w = 7 WHERE id = 'u'"), col(s, "SELECT e1.w AS v FROM exw WHERE id = 'u'"))
+        indexed = (rows(s, "UPDATE exw SET e1[1].w = 8 WHERE id = 'u'"), col(s, "SELECT e1.w AS v FROM exw WHERE id = 'u'"))
+        check("C338", "an UPDATE of a FILTERED embedded-list element answers its count and changes nothing; by position it updates", (filtered, indexed), (([{"count": 1}], [[1, 2]]), ([{"count": 1}], [[1, 8]])))
         server.drop_database(DB)
         version = server.version()
 

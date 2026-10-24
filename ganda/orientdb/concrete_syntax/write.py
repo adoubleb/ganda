@@ -266,7 +266,9 @@ def _node_delete(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_m
     return st
 
 
-assumes("accepts.update.embedded_list_element", SQL, REFUSED)
+# `SET e1[<filter>].f = ...` answers its count and changes nothing: a write re-sets the
+# whole list
+assumes("accepts.update.filtered_list_element", SQL, REFUSED)
 
 
 def _doc_rewrites(q: WriteQuery, before: Instance, after: Instance) -> list:

@@ -108,11 +108,10 @@ COMPARE_RULES = (
 ASK_RULES = (
     Rule(accepts("projection.comparison"), SQL, REFUSED),
     Rule(accepts("let.after_where"), SQL, REFUSED),
-    Rule(accepts("parent.two_levels_up"), SQL, REFUSED),
     Rule(accepts("update.increment"), SQL, REFUSED),
     Rule(accepts("update.content.parameter"), SQL, REFUSED),
     Rule(accepts("merge.parameter"), SQL, REFUSED),
-    Rule(accepts("update.embedded_list_element"), SQL, REFUSED),
+    Rule(accepts("update.filtered_list_element"), SQL, REFUSED),
     Rule(accepts("delete.timeout"), SQL, REFUSED),
     Rule(accepts("delete_from.vertex_or_edge_class"), SQL, REFUSED),
     Rule(accepts("instanceof.parameter"), SQL, REFUSED),
@@ -121,7 +120,7 @@ ASK_RULES = (
     Rule(accepts("max_depth.parameter"), TRAVERSE, REFUSED),
     Rule(accepts("ddl.in_transaction"), SCRIPT, REFUSED),
     Rule(accepts("named_parameter"), BATCH, REFUSED),
-    Rule(accepts("map_parameter"), BATCH, REFUSED),
+    Rule(accepts("map_parameter"), BATCH, ACCEPTED),
     Rule(accepts("record_filter"), INDEX_DOOR, REFUSED),
 )
 
