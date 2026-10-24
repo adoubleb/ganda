@@ -9,7 +9,7 @@ baseline: 3.2.57, every check of a rule held
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
 | filter.logic | ir | kleene | definition | unread |
-| filter.logic | osql | two-valued | C9 | oracle/rewrites.py:113, oracle/semantics.py:392 |
+| filter.logic | osql | two-valued | C9 | oracle/rewrites.py:117, oracle/semantics.py:392 |
 | match.undirected.self_loop.rows | ir | 2 | definition | unread |
 | match.undirected.self_loop.rows | osql | 2 | C127, C193 | concrete_syntax/traversal.py:301 |
 | match.parallel_edges.rows | ir | 2 | definition | unread |
@@ -20,7 +20,7 @@ baseline: 3.2.57, every check of a rule held
 | order.string | osql | utf-16-code-unit | C17, C18 | oracle/semantics.py:125 |
 | order.string.order_by | osql | collation | C19, C26, C27 | known_bugs/guards.py:1341 |
 | order.string.order_by | osql@index | utf-16-code-unit | C24, C25 | known_bugs/guards.py:1342 |
-| compare.negative_zero_below_zero | osql | true | C15 | oracle/rewrites.py:114, oracle/semantics.py:126, storage/physical_design.py:57 |
+| compare.negative_zero_below_zero | osql | true | C15 | oracle/rewrites.py:118, oracle/semantics.py:126, storage/physical_design.py:57 |
 | filter.like.case_sensitive | osql | false | C171 | oracle/semantics.py:182 |
 | filter.like.one_character_wildcard | osql | `?` | C172 | oracle/pivots.py:19, oracle/semantics.py:183 |
 | filter.case_insensitive.operators | osql | `= <> < <= > >=` | C331 | concrete_syntax/traversal.py:197, oracle/semantics.py:198 |
@@ -107,17 +107,17 @@ baseline: 3.2.57, every check of a rule held
 | O21 | osql | C169, C170 | reproduces | known_bugs/guards.py:560 |
 | O22 | match | C189, C190 | reproduces | concrete_syntax/traversal.py:136 |
 | O23 | osql@index | C206, C207, C274 | reproduces | known_bugs/guards.py:662 |
-| O24 | osql | C145 | reproduces | unread |
+| O24 | osql | C145 | reproduces | oracle/rewrites.py:28 |
 | O25 | osql | C176, C177, C179 | reproduces | known_bugs/guards.py:641 |
 | O26 | osql | C196, C198, C199 | reproduces | known_bugs/guards.py:919 |
 | O27 | osql | C221, C222 | reproduces | known_bugs/guards.py:590 |
 | O28 | osql | C239, C240 | reproduces | known_bugs/guards.py:614 |
-| O29 | osql | C244, C245, C246, C247 | reproduces | oracle/rewrites.py:25 |
-| O30 | osql | C249, C251 | reproduces | oracle/rewrites.py:26 |
+| O29 | osql | C244, C245, C246, C247 | reproduces | oracle/rewrites.py:27 |
+| O30 | osql | C249, C251 | reproduces | oracle/rewrites.py:29 |
 | O31 | script | C270, C271, C272, C276, C312, C320 | reproduces | known_bugs/guards.py:1096 |
 | O32 | osql | C254, C256 | reproduces | known_bugs/guards.py:1114 |
 | O33 | osql | C257 | reproduces | known_bugs/guards.py:1344 |
-| O34 | osql | C260, C262 | reproduces | unread |
+| O34 | osql | C260, C262 | reproduces | storage/dialect.py:59 |
 | O35 | osql | C280 | reproduces | concrete_syntax/path.py:27 |
 | O36 | osql@index | C91 | reproduces | known_bugs/guards.py:366 |
 | O37 | osql@index | C293, C294, C295 | reproduces | known_bugs/guards.py:1549 |
@@ -129,6 +129,6 @@ baseline: 3.2.57, every check of a rule held
 | O43 | osql | C317 | reproduces | known_bugs/guards.py:743 |
 | O44 | traverse | C318 | reproduces | concrete_syntax/traversal.py:417, known_bugs/guards.py:766 |
 | O45 | match | C132, C133, C138, C141 | reproduces | concrete_syntax/traversal.py:316 |
-| O46 | osql | C322 | reproduces | unread |
+| O46 | osql | C322 | reproduces | storage/dialect.py:60 |
 
 50 rules (4 IR definitions): 46 checked by a probe fact, 0 unchecked; 46 read by code, 0 unread; 45 defects (45 reproduced by a probe fact); 0 error classes

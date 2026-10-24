@@ -21,14 +21,18 @@ from ganda.core.rules.vocabulary import Logic
 
 
 
-# INTEGER arithmetic wraps (O29); a null operand is the identity of + and - (O30)
+# INTEGER arithmetic wraps (O29), and so does an out-of-range write into an INTEGER
+# column (O24): a result outside int32 is never computed; a null operand is the identity
+# of + and - (O30)
 works_around("O29")
+works_around("O24")
 works_around("O30")
 
 
 def arith_exact(v, sym: str, c, ftype: FieldType) -> bool:
     """Whether `v <sym> c` is computed exactly in the column's Java box: an int
-    (INTEGER `*` wraps in 32 bits, `+` / `-` wrap on a negative overflow, O29),
+    (INTEGER `*` wraps in 32 bits, `+` / `-` wrap on a negative overflow, O29; a write
+    stores an out-of-range result wrapped, O24),
     a long, a float32-exact float, a double scaled by a power of two, a decimal
     with at most three places, a date inside the format's range."""
     if v is None:

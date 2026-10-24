@@ -23,6 +23,7 @@ from __future__ import annotations
 import re
 
 from ganda.core.data.model import FieldType
+from ganda.orientdb.rules import works_around
 
 # The declared property type of each FieldType (`CREATE PROPERTY t.f <type>`).
 #
@@ -52,6 +53,11 @@ from ganda.core.data.model import FieldType
 # vs-index.md`: the scan decodes the text and then compares the arrays by identity, the
 # index key is compared by content) -- a scan-vs-index divergence the model does not
 # ask about, since a BINARY column takes no comparison predicate and no index.
+
+# a DECIMAL travels as a JSON number, never as a string whose scale it would keep (O34);
+# a BINARY column is never compared or indexed (O46)
+works_around("O34")
+works_around("O46")
 
 ORIENT_TYPES = {
     FieldType.INT: "LONG",
