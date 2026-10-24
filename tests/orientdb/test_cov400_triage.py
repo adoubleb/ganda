@@ -153,8 +153,7 @@ def test_the_fuzzer_bugs():
         def choice(self, xs):
             return self.pick
 
+    # no longer refused when both zeros are present: the arithmetic spelling is compared
+    # across data models only, never with the plain filter
     p = Predicate("source", "f1", "=", "p", -0.0, ftype="float32")
-    values = [0.0, 3.5, None]
-    assert arithmetic(p, Pick(("-", 1)), "ar", FieldType.FLOAT32, values) is None
-    assert arithmetic(p, Pick(("*", 2)), "ar", FieldType.FLOAT32, values) is not None
-    assert arithmetic(Predicate("source", "f1", "=", "p", 0.0, ftype="float32"), Pick(("-", 1)), "ar", FieldType.FLOAT32, values) is not None
+    assert arithmetic(p, Pick(("-", 1)), "ar", FieldType.FLOAT32) is not None

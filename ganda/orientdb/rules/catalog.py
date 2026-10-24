@@ -83,7 +83,6 @@ INT32_SUM_EXACT_BELOW = exact("sum.int32.below", int)
 STRING_EXACT_ROUND_TRIP = Question("value.string.exact_round_trip", bool, COMPARE)
 BINARY_ROUND_TRIP = Question("value.binary.base64_round_trip", bool, COMPARE)
 ABSENT_LIST_SIZE = Question("value.absent_list.size", int, COMPARE)
-NULL_RANGE_HOLDS = Question("filter.null.range_holds", bool, COMPARE)
 CI_AGGREGATES_COLLATE = Question("aggregate.case_insensitive.collates", bool, COMPARE)
 NESTED_LET_PARENT = Question("let.nested.parent_is_enclosing_query", bool, COMPARE)
 LINK_LIST_FIELD_ACCESS = Question("path.link_list.maps_field_access", bool, COMPARE)
@@ -92,7 +91,6 @@ CLASSLESS_ALIAS_ROOT = Question("match.classless_alias.is_root", bool, COMPARE)
 RID_STRING_LINK = Question("parameter.rid_string.becomes_link", bool, COMPARE)
 UNIONALL_ABSENT_EMPTY = Question("unionall.absent_operand.empty", bool, COMPARE)
 UPDATE_EDGE_KEEPS_ENDPOINTS = Question("update_edge.content.keeps_endpoints", bool, COMPARE)
-DATE_PLUS_NUMBER_MS = Question("arithmetic.date_plus_number.shifts_milliseconds", bool, COMPARE)
 MAX_DEPTH_REACHES_BOUND = Question("max_depth.reaches_bound", bool, COMPARE)
 UNWIND_ROW_PER_ELEMENT = Question("unwind.bracket_projection.row_per_element", bool, COMPARE)
 EMBEDDED_ADDS_DEPTH = Question("traverse.embedded_document.adds_depth", bool, COMPARE)
@@ -134,7 +132,6 @@ COMPARE_RULES = (
     Rule(BINARY_ROUND_TRIP, SQL, True),
     Rule(ABSENT_IS_NULL, SQL, True),
     Rule(ABSENT_LIST_SIZE, SQL, 0),
-    Rule(NULL_RANGE_HOLDS, SQL, False),
     Rule(NULLS_ASC, SQL, NullPlacement.LAST),
     Rule(NULLS_ASC, SQL_INDEX, NullPlacement.LAST),
     Rule(NULLS_DESC, SQL, NullPlacement.FIRST),
@@ -149,7 +146,6 @@ COMPARE_RULES = (
     Rule(RID_STRING_LINK, SQL, True),
     Rule(UNIONALL_ABSENT_EMPTY, SQL, True),
     Rule(UPDATE_EDGE_KEEPS_ENDPOINTS, SQL, True),
-    Rule(DATE_PLUS_NUMBER_MS, SQL, True),
     Rule(MAX_DEPTH_REACHES_BOUND, TRAVERSE, True),
     Rule(MAX_DEPTH_REACHES_BOUND, MATCH, True),
     Rule(UNWIND_ROW_PER_ELEMENT, SQL, True),
@@ -235,7 +231,6 @@ DEFECTS = (
     Defect("O27", SQL),
     Defect("O28", SQL),
     Defect("O29", SQL),
-    Defect("O30", SQL),
     Defect("O31", SCRIPT),
     Defect("O32", SQL),
     Defect("O33", SQL),

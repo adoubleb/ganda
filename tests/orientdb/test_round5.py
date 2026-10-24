@@ -1,6 +1,7 @@
 """Round 5: reversed operands, arithmetic rewrites, list operators, the transaction
 door, the BFS distances and their guards."""
 import dataclasses
+import math
 import random
 
 from ganda.core.query.ir.select import TxWrite
@@ -45,40 +46,27 @@ def test_reverse_swaps_the_reversible_leaves_only():
     assert d == rp
 
 
-def test_arithmetic_rewrite_is_exact_or_absent():
+def test_arithmetic_spelling_puts_the_field_under_arithmetic():
     rng = random.Random(1)
     p = Predicate("source", "f1", ">", "p", 5, ftype="int")
-    ap = arithmetic(p, rng, "ar", FieldType.INT, [1, 5, 9, None])
-    assert isinstance(ap, Compound) and ap.op == "AND" and ap.children[1].op == "IS NOT NULL"
-    leaf = ap.children[0]
-    assert leaf.arith is not None and not leaf.plain and leaf.arith.bind == "arc"
-    text = render(ap)
-    assert text.startswith("((f1 ") and ":arc" in text
-    rows = [{"f1": v} for v in (1, 4, 5, 6, 9)] + [{}, {"f1": None}]
-    assert [evaluate(r, p) for r in rows] == [evaluate(r, ap) for r in rows]
-    # `<>` keeps the null rows
-    ne = arithmetic(Predicate("source", "f1", "<>", "p", 5, ftype="int"), rng, "ar", FieldType.INT, [1, 5])
-    assert ne.op == "OR" and ne.children[1].op == "IS NULL"
-    assert [evaluate(r, Predicate("source", "f1", "<>", "p", 5, ftype="int")) for r in rows] == [evaluate(r, ne) for r in rows]
-    # an INTEGER column whose values would leave int32 under every choice gets none
-    assert arithmetic(Predicate("source", "f1", ">", "p", 5, ftype="int32"), rng, "ar", FieldType.INT32, [2**31 - 1, -(2**31)]) is None
-    # a cross-typed pivot, a ci column, a map entry, IN: none
-    assert arithmetic(Predicate("source", "f1", ">", "p", 5.5, ftype="int"), rng, "ar", FieldType.INT, [1]) is None
-    assert arithmetic(Predicate("source", "f2", "=", "p", "a", ftype="string", case_insensitive=True), rng, "ar", FieldType.STRING, ["a"]) is None
-    assert arithmetic(Predicate("source", "f1", "IN", "p", [5], ftype="int"), rng, "ar", FieldType.INT, [1]) is None
+    ap = arithmetic(p, rng, "ar", FieldType.INT)
+    # a spelling of its own, compared across data models only: no IS NOT NULL is added
+    assert ap.arith is not None and not ap.plain and ap.arith.bind == "arc"
+    assert render(ap).startswith("(f1 ") and ":arc" in render(ap)
+    # a ci column, a map entry, IN, a string pivot on a number: none
+    assert arithmetic(Predicate("source", "f2", "=", "p", "a", ftype="string", case_insensitive=True), rng, "ar", FieldType.STRING) is None
+    assert arithmetic(Predicate("source", "f1", "IN", "p", [5], ftype="int"), rng, "ar", FieldType.INT) is None
+    assert arithmetic(Predicate("source", "f1", ">", "p", "a", ftype="int"), rng, "ar", FieldType.INT) is None
+    # an integer pivot the arithmetic takes past the long range is no parameter
+    edge = Predicate("source", "f1", ">=", "p", -(2**63), ftype="int")
+    assert all(arithmetic(edge, random.Random(s), "ar", FieldType.INT) is None or -(2**63) <= arithmetic(edge, random.Random(s), "ar", FieldType.INT).pivot < 2**63 for s in range(20))
+    # a pivot the arithmetic takes past the double range cannot travel as JSON
+    huge = Predicate("source", "f1", ">", "p", 1e308, ftype="float")
+    assert all(arithmetic(huge, random.Random(s), "ar", FieldType.FLOAT) is None or math.isfinite(arithmetic(huge, random.Random(s), "ar", FieldType.FLOAT).pivot) for s in range(20))
     # dates shift by milliseconds, decimals stay exact
     assert apply_arith("2024-01-01 00:00:00", "+", 86400000, "datetime") == "2024-01-02 00:00:00"
     assert apply_arith("2024-01-01 00:00:00", "-", 1000, "date") == "2023-12-31 23:59:59"
     assert apply_arith(0.1, "+", 1, "decimal") == 1.1 and apply_arith(0.3, "*", 3, "decimal") == 0.9
-    dp = arithmetic(Predicate("source", "f1", "<=", "p", 0.5, ftype="decimal"), rng, "ar", FieldType.DECIMAL, [0.25, 0.5, 100.0])
-    assert dp is not None
-    dq = arithmetic(Predicate("source", "f1", "<=", "p", 0.3, ftype="decimal"), rng, "ar", FieldType.DECIMAL, [0.25])
-    assert dq is None  # a non-dyadic pivot shifts inexactly through the binary expansion (O20)
-    # a shift past year 9999 is no shift: no rewrite at the upper bound
-    top = Predicate("source", "f1", "<>", "p", "9999-12-31 23:59:59", ftype="datetime")
-    for seed in range(20):
-        at = arithmetic(top, random.Random(seed), "ar", FieldType.DATETIME, ["2024-01-01 00:00:00", "9999-12-31 23:59:58"])
-        assert at is None or at.children[0].pivot != top.pivot
 
 
 def test_list_operators_predicate_logic_and_rewrite():
@@ -112,8 +100,8 @@ def test_reversed_and_arithmetic_leaves_are_never_index_served():
     plain = Predicate("source", "f1", "<", "p", 5, ftype="int")
     assert _leaf_served(sch, "n1", plain, "doc")
     assert not _leaf_served(sch, "n1", reverse(plain), "doc")
-    ap = arithmetic(plain, random.Random(1), "ar", FieldType.INT, [1])
-    assert not _leaf_served(sch, "n1", ap.children[0], "doc")
+    ap = arithmetic(plain, random.Random(1), "ar", FieldType.INT)
+    assert not _leaf_served(sch, "n1", ap, "doc")
     # O32: a string date pivot on the left
     dsch = _schema([], FieldType.DATETIME)
     dp = Predicate("source", "f1", "=", "p", "2024-01-01 00:00:00", ftype="datetime")

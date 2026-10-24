@@ -4,11 +4,10 @@ import re
 from ganda.orientdb.facade.generate import GeneratorConfig, build
 from ganda.orientdb.known_bugs.guards import select_known
 from ganda.core.data.model import FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
-from ganda.orientdb.facade import predicates
 from ganda.core.oracle.case import QueryCase
 from ganda.orientdb.facade.predicates import Predicate
 from ganda.orientdb.concrete_syntax.select import build_rewrites
-from ganda.core.query.ir.select import COVERAGE_DENOMINATOR, SelectQuery, all_coverage_signatures, coverage_signature, from_params, records
+from ganda.core.query.ir.select import COVERAGE_DENOMINATOR, SelectQuery, all_coverage_signatures, coverage_signature, from_params
 from ganda.orientdb.concrete_syntax.select import BASE, SelectSyntax, Rewrites, applicable, render
 from ganda.core.query.generators.registry import all_cases
 
@@ -129,12 +128,6 @@ def test_every_case_is_well_formed():
                         assert all(f"{s}:{tag}" in c.queries for s in ("doc", "graph", "rel")), data_model
             assert coverage_signature(q) in all_coverage_signatures()
             seen_kinds.add(q.kind)
-            # a rewrite filter is the same predicate over every record
-            for name in ("rw", "rev", "arith"):
-                if name in c.params:
-                    rewritten = Predicate.from_dict(c.params[name])
-                    for n in records(q, inst):
-                        assert predicates.evaluate(n.values, rewritten) == predicates.evaluate(n.values, q.where), (name, c.params[name])
     assert seen_kinds == {"ids", "count", "field", "method", "agg", "group", "distinct", "page", "keys", "join"}
     assert COVERAGE_DENOMINATOR == len(all_coverage_signatures())
 

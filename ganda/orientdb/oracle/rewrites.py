@@ -1,11 +1,11 @@
-"""Equivalent rewrites of a predicate under OrientDB's semantics: the query-rewrite
-oracle's supply. `rewrite` restates a tree through the null rules and two-valued NOT;
-`arithmetic` wraps a leaf's field in arithmetic that is exact on every stored value.
-Neither form is ever index-served the way the plain one is.
+"""Other spellings of a predicate: `rewrite` restates a tree (De Morgan, `IN [x]` for
+`= x`, a negated comparison, `>= AND <=` for BETWEEN), `arithmetic` puts a leaf's field
+under arithmetic. A spelling is compared with the same spelling on the other data
+models only, never with the plain predicate, so it need not be equivalent to it.
+`arith_exact` stays for the write generator, which applies a write to the Instance.
 """
 from __future__ import annotations
 
-import dataclasses
 import math
 import random
 
@@ -17,16 +17,13 @@ from ganda.orientdb.oracle.pivots import lossy_pivot
 from ganda.orientdb.oracle.semantics import apply_arith
 from ganda.orientdb.rules import assumes, works_around
 from ganda.orientdb.rules.catalog import ACCEPTED, SQL
-from ganda.core.rules.vocabulary import Logic
 
 
 
 # INTEGER arithmetic wraps (O29), and so does an out-of-range write into an INTEGER
-# column (O24): a result outside int32 is never computed; a null operand is the identity
-# of + and - (O30)
+# column (O24): a write whose result leaves int32 is never drawn
 works_around("O29")
 works_around("O24")
-works_around("O30")
 
 
 def arith_exact(v, sym: str, c, ftype: FieldType) -> bool:
@@ -63,8 +60,6 @@ _ARITH_CHOICES = {
     FieldType.INT: (("+", 1), ("+", 7), ("-", 1), ("-", 3), ("*", 2), ("*", 3), ("*", -1), ("+", -2)),
     FieldType.INT32: (("+", 1), ("+", 7), ("-", 1), ("-", 3), ("*", 2), ("*", 3), ("*", -1), ("+", -2)),
     FieldType.FLOAT32: (("+", 1), ("-", 1), ("*", 2), ("*", 3), ("*", -1)),
-    # a double sum rounds (adjacent doubles collapse under `+ 1`, so `f + 1 > p + 1`
-    # is not `f > p`): only exact scalings by a power of two
     FieldType.FLOAT: (("*", 2), ("*", -1), ("*", 4)),
     FieldType.DECIMAL: (("+", 1), ("-", 1), ("*", 2), ("*", 3), ("*", -1), ("+", 100)),
     FieldType.DATETIME: (("+", 1000), ("-", 1000), ("+", 86400000), ("-", 3600000), ("+", 60000)),
@@ -72,56 +67,30 @@ _ARITH_CHOICES = {
 }
 
 
-# `(t + :c)` shifts a date by milliseconds; a plain range drops the null rows, so the
-# rewrites' `IS NOT NULL` keeps them alike
-assumes("arithmetic.date_plus_number.shifts_milliseconds", SQL, True)
-assumes("filter.null.range_holds", SQL, False)
-
-
-def arithmetic(p, rng: random.Random, bind: str, ftype: FieldType, values: list):
-    """An equivalent concrete syntax of the leaf `f op :p` as `(f <sym> :c) op' :pc AND f IS
-    NOT NULL` (`... OR f IS NULL` for `<>`) -- the pivot shifted the same way, the
-    operator mirrored under a negative factor, the null rows handled explicitly (a
-    null operand is the identity of `+` and `-`, O30: `null + 1 = 1` would match;
-    and `null <> p` holds). None unless the
-    arithmetic is exact on every stored value and on the pivot, the pivot is of the
-    column's own kind, and the column is not `COLLATE ci`."""
+def arithmetic(p, rng: random.Random, bind: str, ftype: FieldType):
+    """The leaf `f op :p` with its field under arithmetic, `(f <sym> :c) op' :pc`: the
+    pivot shifted the same way, the operator mirrored under a negative factor. None for
+    a leaf with no numeric or date field and pivot, or where the shifted pivot is no
+    parameter the engine takes: a double past the finite range, an integer past the long
+    one (every variant's parameters travel in one request, so one bad value fails them
+    all)."""
     if not isinstance(p, Predicate) or p.op not in MIRROR or p.key is not None or p.case_insensitive or not p.plain or ftype not in _ARITH_CHOICES:
         return None
     pv = p.pivot
-    if isinstance(pv, bool) or pv is None:
+    if isinstance(pv, bool) or pv is None or (ftype in DATE_TYPES) != isinstance(pv, str):
         return None
-    if ftype in (FieldType.INT, FieldType.INT32):
-        if not isinstance(pv, int):
-            return None
-    elif ftype in (FieldType.FLOAT, FieldType.FLOAT32, FieldType.DECIMAL):
-        if not isinstance(pv, float) or lossy_pivot(ftype, pv):
-            return None
-    elif ftype in DATE_TYPES:
-        if not isinstance(pv, str) or len(pv) != 19:
-            return None
     sym, c = rng.choice(_ARITH_CHOICES[ftype])
-    if not all(arith_exact(v, sym, c, ftype) for v in values) or not arith_exact(pv, sym, c, ftype):
+    try:
+        pc = apply_arith(pv, sym, c, ftype.value)
+    except (ValueError, OverflowError, TypeError):
         return None
-    if sym in ("+", "-") and ftype in (FieldType.FLOAT, FieldType.FLOAT32, FieldType.DECIMAL):
-        # a sum erases the sign of zero, which the comparison keeps (`-0.0 < 0.0`,
-        # Double.compare): with both zeros among the values and the pivot, `f = -0.0`
-        # misses a stored 0.0 where `f - 1 = -1.0` matches it (cov400 seed 5087)
-        signs = {math.copysign(1.0, float(v)) for v in list(values) + [pv] if isinstance(v, (int, float)) and not isinstance(v, bool) and float(v) == 0}
-        if len(signs) > 1:
-            return None
+    if isinstance(pc, float) and not math.isfinite(pc):
+        return None
+    if isinstance(pc, int) and not I64_MIN <= pc <= I64_MAX:
+        return None
     op = p.op if (c > 0 or sym != "*") else MIRROR[p.op]
-    cbind = f"{bind}c"
-    leaf = Predicate(p.on, p.field, op, bind, apply_arith(pv, sym, c, ftype.value), p.ftype, p.case_insensitive, None, "", False, Arith(sym, cbind, c))
-    if op == "<>":
-        # `f <> p` holds for a null f: the null rows are added back explicitly
-        return Compound(p.on, "OR", (leaf, Predicate(p.on, p.field, "IS NULL", "", None, p.ftype, p.case_insensitive)))
-    return Compound(p.on, "AND", (leaf, Predicate(p.on, p.field, "IS NOT NULL", "", None, p.ftype, p.case_insensitive)))
+    return Predicate(p.on, p.field, op, bind, pc, p.ftype, p.case_insensitive, None, "", False, Arith(sym, f"{bind}c", c))
 
-
-# a negated range adds IS NOT NULL: the logic is two-valued
-assumes("filter.logic", SQL, Logic.TWO_VALUED)
-assumes("compare.negative_zero_below_zero", SQL, True)
 
 
 # `m[:k] op :p`, the parameter-keyed map entry
@@ -129,10 +98,8 @@ assumes("accepts.map_entry.parameter_key", SQL, ACCEPTED)
 
 
 def rewrite(p, rng: random.Random, bind: str):
-    """An equivalent concrete syntax of `p` under OrientDB's semantics (the null rules,
-    two-valued NOT), or None when it has none. The rewritten leaves bind fresh names
-    under `bind`, with the same values. This is the query-rewrite oracle: the pair
-    (p, rewrite(p)) is the same question through a different planner path."""
+    """Another spelling of `p`, or None when it has none. The rewritten leaves bind
+    fresh names under `bind`, with the same values."""
     if p is None:
         return None
     if isinstance(p, Compound):
@@ -166,34 +133,18 @@ def rewrite(p, rng: random.Random, bind: str):
         return Compound(on, "OR" if op == "HAS ANY" else "AND", tuple(leaf("HAS", f"{bind}_{k}", v) for k, v in enumerate(pv)))
 
     if op == "=":
-        if p.case_insensitive and isinstance(pv, str) and pv.isascii() and rng.random() < 0.5:
-            # a ci equality as a function over the lower-cased value: never index-served
-            return leaf("LOWER=", bind, pv.lower())
-        if p.case_insensitive and isinstance(pv, str):
-            # `IN` ignores the collation on a scan (O21): not an equivalent concrete syntax
-            return Compound(on, "NOT", (leaf("<>", bind, pv),))
         return leaf("IN", bind, [pv])
     if op == "<>":
-        if p.case_insensitive and isinstance(pv, str) and pv.isascii():
-            return Compound(on, "NOT", (leaf("LOWER=", bind, pv.lower()),))
         return Compound(on, "NOT", (leaf("=", bind, pv),))
     if op == "IN":
-        if p.case_insensitive:
-            return None  # `IN` is case-sensitive on a scan, `=` is not: no equivalent
         if len(pv) == 1:
             return leaf("=", bind, pv[0])
         return Compound(on, "OR", tuple(leaf("=", f"{bind}_{k}", v) for k, v in enumerate(pv)))
     if op == "BETWEEN":
-        if p.case_insensitive or (p.ftype == "decimal" and any(lossy_pivot(FieldType.DECIMAL, b) for b in pv)):
-            # a ci BETWEEN is case-sensitive where `>=` is not; a DECIMAL BETWEEN
-            # converts a non-dyadic bound through its decimal string where `>=`
-            # compares the binary expansion (O20): neither has an equivalent
-            return None
         return Compound(on, "AND", (leaf(">=", f"{bind}_0", pv[0]), leaf("<=", f"{bind}_1", pv[1])))
     if op in (">", "<", ">=", "<="):
-        # `NOT (f <= p)` also holds for a null f: the negation needs the null excluded
         neg = {">": "<=", "<": ">=", ">=": "<", "<=": ">"}[op]
-        return Compound(on, "AND", (Compound(on, "NOT", (leaf(neg, bind, pv),)), leaf("IS NOT NULL", "", None)))
+        return Compound(on, "NOT", (leaf(neg, bind, pv),))
     if op == "IS NULL":
         return Compound(on, "NOT", (leaf("IS NOT NULL", "", None),))
     if op == "IS NOT NULL":

@@ -26,7 +26,9 @@ def test_the_catalog_is_well_formed_and_its_checks_name_probe_checks():
 
 
 def test_the_defects_are_o1_to_o46_but_the_retired_each_reproduced_by_a_probe_check():
-    retired = {"O3", "O4"}  # O3: the `index:` door is no longer asked; O4: fixed in 3.2.57
+    # O3: the `index:` door is no longer asked; O4: fixed in 3.2.57; O30: the null rows
+    # under arithmetic matter only against the plain filter, which is no longer compared
+    retired = {"O3", "O4", "O30"}
     assert [d.id for d in CATALOG.defects] == [f"O{n}" for n in range(1, 47) if f"O{n}" not in retired]
     assert CATALOG.unreproduced() == []
 
@@ -63,11 +65,11 @@ def test_the_code_depends_on_what_it_reads():
     changes the generated cases."""
     from ganda.core.rules import mutation
 
-    only = ["projection.keeps_absent_field", "exact.sum.int32", "without O18"]
+    only = ["projection.keeps_absent_field", "aggregate.sum.integer", "without O18"]
     got = {o.label.split(":")[0]: o for o in mutation.check("orientdb", CATALOG, seeds=4, only=only)}
     assert got["projection.keeps_absent_field (osql)"].caught == "import" and "concrete_syntax/traversal.py" in got["projection.keeps_absent_field (osql)"].detail
     assert got["without O18 (osql@index)"].caught == "import" and "known_bugs/guards.py" in got["without O18 (osql@index)"].detail
-    assert got["exact.sum.int32.below (osql)"].caught == "output"
+    assert got["aggregate.sum.integer.exact_below (osql)"].caught == "output"
 
 
 def test_orientdb_compares_data_models_only():

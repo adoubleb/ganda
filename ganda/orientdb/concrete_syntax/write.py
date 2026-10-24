@@ -48,15 +48,15 @@ import re
 from dataclasses import dataclass, field
 
 from ganda.core.data.model import Instance, Schema
-from ganda.orientdb.facade import predicates
-from ganda.orientdb.facade.predicates import Predicate
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
 from ganda.core.query.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
 
 from ganda.orientdb.rules import assumes
 from ganda.orientdb.rules.catalog import REFUSED, SQL
 
-FILTERS = ("plain", "rw", "rev", "ar")
+# a write's filter is the predicate the Instance applies (the doc data model's `eids`
+# form deletes the ids it chose), so its spelling is the plain one
+FILTERS = ("plain",)
 TARGETS = ("table", "nest", "sub")
 DOORS = ("auto", "tx")
 WRITE_TIMEOUT_MS = 10000
@@ -76,6 +76,12 @@ class WriteSyntax:
     def tag(self) -> str:
         parts = [x for x, default in ((self.form, ""), (self.filter, "plain"), (self.target, "table"), (self.door, "auto")) if x != default]
         return "+".join(parts) or "plain"
+
+
+def spelling(sp: WriteSyntax) -> tuple:
+    """What every data model's write shares: the filter, the target and the door (the
+    form is the data model's own)."""
+    return (sp.filter, sp.target, sp.door)
 
 
 @dataclass
@@ -329,21 +335,7 @@ def render(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_model: 
 
 
 def build_rewrites(q: WriteQuery, rng: random.Random, schema: Schema, instance: Instance) -> WriteRewrites:
-    rewrites = WriteRewrites()
-    p = q.where
-    if p is None:
-        return rewrites
-    rewrites.rw = predicates.rewrite(p, rng, "q")
-    rewrites.rev = predicates.reverse(p)
-    if isinstance(p, Predicate) and not q.edge:
-        try:
-            ftype = schema.field(q.table, p.field).type
-        except KeyError:
-            ftype = None
-        if ftype is not None:
-            stored = [n.values.get(p.field) for n in instance.nodes_of(q.table) if p.field in n.values]
-            rewrites.ar = predicates.arithmetic(p, rng, "ar", ftype, stored)
-    return rewrites
+    return WriteRewrites()
 
 
 assumes("statement.write.answers_row_count", SQL, True)

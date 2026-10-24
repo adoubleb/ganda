@@ -296,7 +296,7 @@ def _render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites
 
 
 def build_rewrites(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> Rewrites:
-    from ganda.core.query.ir.select import present_values, records, view
+    from ganda.core.query.ir.select import present_values
     from ganda.orientdb.concrete_syntax.support import literal_pred as _literal_pred
 
     rewrites = Rewrites(present=present_values(q, instance) if q.kind == "agg" else [])
@@ -311,10 +311,7 @@ def build_rewrites(q: SelectQuery, rng: random.Random, schema: Schema, instance:
         except KeyError:
             ftype = None
         if ftype is not None:
-            # exact on every value the read may meet: the transaction's written one
-            # too
-            stored = [n.values.get(p.field) for n in records(q, instance) + (records(q, view(q, instance)) if q.tx else []) if p.field in n.values]
-            rewrites.arith = predicates.arithmetic(p, rng, "ar", ftype, stored)
+            rewrites.arith = predicates.arithmetic(p, rng, "ar", ftype)
     rewrites.literal = _literal_pred(p)
     return rewrites
 

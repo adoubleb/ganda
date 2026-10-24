@@ -153,21 +153,27 @@ def _draw(rng: random.Random, schema: Schema, instance: Instance, step: int) -> 
 
 def choose_syntaxes(q: WriteQuery, rewrites, rng: random.Random, schema: Schema, instance: Instance, keep_known_bugs: bool = False) -> "dict | None":
     """data model -> (concrete syntax, known bug or None): a concrete syntax no guard names, drawn
-    uniformly; with `keep_known_bugs` any applicable one (the finding recorded)."""
+    uniformly; with `keep_known_bugs` any applicable one (the finding recorded). Every
+    data model writes in ONE spelling (`write_syntax.spelling`: the filter, target and
+    door), since the data models' answers and states are compared with each other; only
+    a data model's own form differs. A provider without `spelling` draws per data model."""
     syn, write_known = schema.engine.write_syntax, schema.engine.known_bugs.write_known
-    out = {}
+    spelling = getattr(syn, "spelling", None)
+    judged: dict = {}
     for data_model in schema.engine.data_models:
         options = [sp for sp in syn.all_syntaxes(q, data_model) if syn.applicable(q, sp, rewrites, data_model)]
         rng.shuffle(options)
-        judged = [(sp, write_known(q, sp, rewrites, data_model, schema, instance)) for sp in options]
-        safe = [x for x in judged if x[1] is None]
-        if keep_known_bugs and judged:
-            out[data_model] = judged[0]
-        elif safe:
-            out[data_model] = safe[0]
-        else:
+        found = [(sp, write_known(q, sp, rewrites, data_model, schema, instance)) for sp in options]
+        judged[data_model] = found if keep_known_bugs else [x for x in found if x[1] is None]
+        if not judged[data_model]:
             return None
-    return out
+    if spelling is None:
+        return {data_model: found[0] for data_model, found in judged.items()}
+    shared = [s for s in dict.fromkeys(spelling(sp) for sp, _ in judged[schema.engine.data_models[0]]) if all(any(spelling(sp) == s for sp, _ in found) for found in judged.values())]
+    if not shared:
+        return None
+    s = shared[0]
+    return {data_model: next(x for x in found if spelling(x[0]) == s) for data_model, found in judged.items()}
 
 
 def sample_write(rng: random.Random, schema: Schema, instance: Instance, step: int, keep_known_bugs: bool = False) -> "tuple | None":

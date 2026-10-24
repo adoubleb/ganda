@@ -192,7 +192,8 @@ class Provider:
     write_syntax    build_rewrites(q, rng, schema, instance), all_syntaxes(q, dm),
                     applicable(q, syntax, rewrites, dm), render(q, syntax, rewrites, dm,
                     before, after) -> statements, execute(session, statements),
-                    shared_binds(statements), rewrite_params(rewrites)
+                    shared_binds(statements), rewrite_params(rewrites), spelling(syntax)
+                    -> what every data model's write shares (optional)
     rewrites        arith_exact(v, sym, c, ftype)
     known_bugs      mark_known_bugs(case, q, schema, instance) -> case,
                     select_known(q, syntax, rewrites, dm, schema, instance) -> id | None,

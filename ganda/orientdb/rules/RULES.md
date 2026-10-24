@@ -11,8 +11,8 @@ baseline: 3.2.57, every check of a rule held
 | order.string | osql | utf-16-code-unit | C17, C18 | oracle/semantics.py:121 |
 | order.string.order_by | osql | collation | C19, C26, C27 | known_bugs/guards.py:1122 |
 | order.string.order_by | osql@index | utf-16-code-unit | C24, C25 | known_bugs/guards.py:1123 |
-| compare.negative_zero_below_zero | osql | true | C14, C15 | oracle/rewrites.py:124, oracle/semantics.py:122, storage/physical_design.py:57 |
-| filter.logic | osql | two-valued | C9 | oracle/rewrites.py:123, oracle/semantics.py:391 |
+| compare.negative_zero_below_zero | osql | true | C14, C15 | oracle/semantics.py:122, storage/physical_design.py:57 |
+| filter.logic | osql | two-valued | C9 | oracle/semantics.py:391 |
 | filter.like.case_sensitive | osql | false | C171 | oracle/semantics.py:178 |
 | filter.like.one_character_wildcard | osql | `?` | C172 | oracle/pivots.py:19, oracle/semantics.py:179 |
 | filter.case_insensitive.operators | osql | `= <> < <= > >=` | C331 | concrete_syntax/traversal.py:209, oracle/semantics.py:194 |
@@ -25,20 +25,19 @@ baseline: 3.2.57, every check of a rule held
 | projection.keeps_absent_field | osql | false | C332 | concrete_syntax/traversal.py:212 |
 | expand.embedded.wrapped_under_value | osql | true | C333 | concrete_syntax/traversal.py:141 |
 | index.unique.default_ignores_nulls | osql@index | false | C120 | storage/mapping/common.py:150 |
-| delete_vertex.cascades_edges | osql | true | C130 | concrete_syntax/write.py:227 |
+| delete_vertex.cascades_edges | osql | true | C130 | concrete_syntax/write.py:233 |
 | shortest_path.unreachable.result | osql | 0 | C279 | concrete_syntax/path.py:23 |
 | shortest_path.same_record.result | osql | 1 | C279 | concrete_syntax/path.py:24 |
-| upsert.other_predicate.keeps_id | osql | false | C298 | concrete_syntax/write.py:202 |
-| delete.document.keeps_incoming_links | osql | true | C301 | concrete_syntax/write.py:229 |
-| statement.atomic | osql | false | C297 | concrete_syntax/write.py:350 |
-| statement.write.answers_row_count | osql | true | C291 | concrete_syntax/write.py:349 |
+| upsert.other_predicate.keeps_id | osql | false | C298 | concrete_syntax/write.py:208 |
+| delete.document.keeps_incoming_links | osql | true | C301 | concrete_syntax/write.py:235 |
+| statement.atomic | osql | false | C297 | concrete_syntax/write.py:342 |
+| statement.write.answers_row_count | osql | true | C291 | concrete_syntax/write.py:341 |
 | transaction.own_uncommitted_visible | script | true | C144, C268, C277 | concrete_syntax/select.py:248 |
 | value.double.exact_round_trip | osql | true | C2, C3 | storage/physical_design.py:62 |
 | value.string.exact_round_trip | osql | true | C22 | storage/physical_design.py:63 |
 | value.binary.base64_round_trip | osql | true | C321 | storage/dialect.py:63 |
 | value.absent_is_null | osql | true | C10 | concrete_syntax/traversal.py:214 |
 | value.absent_list.size | osql | 0 | C31, C329 | concrete_syntax/traversal.py:129, engine/connection.py:90 |
-| filter.null.range_holds | osql | false | C7, C8 | oracle/rewrites.py:78 |
 | order.nulls.asc | osql | last | C12 | known_bugs/guards.py:471 |
 | order.nulls.asc | osql@index | last | C209 | known_bugs/guards.py:472 |
 | order.nulls.desc | osql | first | C13 | known_bugs/guards.py:473 |
@@ -53,7 +52,6 @@ baseline: 3.2.57, every check of a rule held
 | parameter.rid_string.becomes_link | osql | true | C143 | storage/mapping/document.py:42 |
 | unionall.absent_operand.empty | osql | true | C194 | concrete_syntax/traversal.py:585 |
 | update_edge.content.keeps_endpoints | osql | true | C212 | storage/mapping/common.py:296 |
-| arithmetic.date_plus_number.shifts_milliseconds | osql | true | C225 | oracle/rewrites.py:77 |
 | max_depth.reaches_bound | match | true | C281 | concrete_syntax/path.py:59 |
 | max_depth.reaches_bound | traverse | true | C281 | concrete_syntax/path.py:58 |
 | unwind.bracket_projection.row_per_element | osql | true | C310 | concrete_syntax/select.py:206 |
@@ -65,18 +63,18 @@ baseline: 3.2.57, every check of a rule held
 |---|---|---|---|---|
 | accepts.projection.comparison | osql | refused | C35 | concrete_syntax/traversal.py:125 |
 | accepts.let.after_where | osql | refused | C36 | concrete_syntax/select.py:182, concrete_syntax/traversal.py:610 |
-| accepts.update.increment | osql | refused | C210 | concrete_syntax/write.py:173, storage/mapping/common.py:223 |
-| accepts.update.content.parameter | osql | refused | C142 | concrete_syntax/write.py:171 |
-| accepts.merge.parameter | osql | refused | C334 | concrete_syntax/write.py:172 |
-| accepts.update.filtered_list_element | osql | refused | C338 | concrete_syntax/write.py:271 |
+| accepts.update.increment | osql | refused | C210 | concrete_syntax/write.py:179, storage/mapping/common.py:223 |
+| accepts.update.content.parameter | osql | refused | C142 | concrete_syntax/write.py:177 |
+| accepts.merge.parameter | osql | refused | C334 | concrete_syntax/write.py:178 |
+| accepts.update.filtered_list_element | osql | refused | C338 | concrete_syntax/write.py:277 |
 | accepts.update.arithmetic_parameter | osql | accepted | C211 | storage/mapping/common.py:227 |
-| accepts.map_entry.parameter_key | osql | accepted | C226 | oracle/rewrites.py:128 |
+| accepts.map_entry.parameter_key | osql | accepted | C226 | oracle/rewrites.py:97 |
 | accepts.class_filter.parameter | osql | accepted | C237 | concrete_syntax/select.py:185 |
 | accepts.create_class.clusters | osql | accepted | C213 | storage/mapping/common.py:126 |
 | accepts.rebuild_index.all | osql | accepted | C214 | storage/mapping/common.py:532 |
 | accepts.match.end_at_edge_alias | match | accepted | C192 | concrete_syntax/traversal.py:334 |
-| accepts.delete.timeout | osql | refused | C299 | concrete_syntax/write.py:230 |
-| accepts.delete_from.vertex_or_edge_class | osql | refused | C131, C303 | concrete_syntax/support.py:150, concrete_syntax/write.py:228 |
+| accepts.delete.timeout | osql | refused | C299 | concrete_syntax/write.py:236 |
+| accepts.delete_from.vertex_or_edge_class | osql | refused | C131, C303 | concrete_syntax/support.py:150, concrete_syntax/write.py:234 |
 | accepts.instanceof.parameter | osql | refused | C238 | concrete_syntax/select.py:183 |
 | accepts.match.timeout | match | refused | C129 | engine/connection.py:129 |
 | accepts.max_depth.parameter | match | refused | C284 | concrete_syntax/traversal.py:329 |
@@ -141,13 +139,12 @@ baseline: 3.2.57, every check of a rule held
 | O21 | osql | C169, C170 | reproduces | known_bugs/guards.py:383 |
 | O22 | match | C189, C190 | reproduces | concrete_syntax/traversal.py:142 |
 | O23 | osql@index | C206, C207, C274 | reproduces | known_bugs/guards.py:467 |
-| O24 | osql | C145 | reproduces | oracle/rewrites.py:28 |
+| O24 | osql | C145 | reproduces | oracle/rewrites.py:26 |
 | O25 | osql | C176, C177, C179 | reproduces | known_bugs/guards.py:446 |
 | O26 | osql | C196, C198, C199 | reproduces | known_bugs/guards.py:731 |
 | O27 | osql | C221, C222 | reproduces | known_bugs/guards.py:413 |
 | O28 | osql | C239, C240 | reproduces | known_bugs/guards.py:437 |
-| O29 | osql | C244, C245, C246, C247 | reproduces | oracle/rewrites.py:27 |
-| O30 | osql | C249, C251 | reproduces | oracle/rewrites.py:29 |
+| O29 | osql | C244, C245, C246, C247 | reproduces | oracle/rewrites.py:25 |
 | O31 | script | C270, C271, C272, C276, C312, C320 | reproduces | known_bugs/guards.py:908 |
 | O32 | osql | C254, C256 | reproduces | known_bugs/guards.py:926 |
 | O33 | osql | C257 | reproduces | known_bugs/guards.py:1125 |
@@ -171,4 +168,4 @@ baseline: 3.2.57, every check of a rule held
 |---|---|---|---|
 | timeout | any | `OTimeoutException`; `OCommandInterruptedException` | C330 |
 
-86 rules (0 IR definitions): 86 checked by a probe fact, 0 unchecked; 86 read by code, 0 unread; 44 defects (44 reproduced by a probe fact); 1 error classes
+84 rules (0 IR definitions): 84 checked by a probe fact, 0 unchecked; 84 read by code, 0 unread; 43 defects (43 reproduced by a probe fact); 1 error classes
