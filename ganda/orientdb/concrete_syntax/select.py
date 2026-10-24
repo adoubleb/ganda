@@ -13,41 +13,31 @@ three independent choices, and every applicable combination is an equivalent tex
                          parses as a float32)
     position   table     `FROM t [WHERE p]` -- the filter may be index-served, an
                          ORDER BY may walk an index
-               scan      `FROM (SELECT FROM t) [WHERE p]` -- a subquery target is
-                         never index-served, and its ORDER BY always sorts
-               nest      `FROM (SELECT FROM t WHERE p)` with the projection, the
-                         aggregate, the grouping or the ordering outside: the filter
-                         index-served, everything after it over the subquery's rows
                poly      `FROM N0 WHERE @class = :cls [AND (p)]`, the base class
                polyin    `FROM N0 WHERE @class IN :clsl [AND (p)]`
-               index     `SELECT rid.id AS id FROM index:<ix> WHERE key ...` (the
-                         `ids` kind over an equality / IN / BETWEEN / composite key)
     form       base      the kind's own text
                order     `max(f)` / `min(f)` as `f WHERE f IS NOT NULL ORDER BY f
                          DESC|ASC LIMIT 1` (the first row of the ordering)
                set       a distinct count as `set(f).size()`
                fn        a distinct count as `count(distinct(f))` (O33: counts every
                          non-null row, withheld)
-               jscan     a join's LET subquery over `(SELECT FROM t)`: the inner
-                         lookup never index-served
                jrev      a join's correlation reversed (`$parent.$current.f > f` for
                          `f < $parent.$current.f`): never index-served either
 
 A data model's name is `<data_model>:<tag>`, the tag the non-default choices joined by `+` in the
-order form, filter, position (`doc:rw`, `graph:order+nest`, `rel:rev+scan`). The
-base concrete syntax (plain,
-table, base) is the same text on every data model, so the three databases -- one schema,
-one data set, different indexes per data model -- are the index-vs-scan oracle, and every
-variant is also a same-database pair.
+order form, filter, position (`doc:rw`, `graph:order+poly`, `rel:rev+polyin`). The
+base concrete syntax (plain, table, base) is the same text on every data model. No
+choice exists only to make a data model use or avoid an index: a pair differs in data
+model or in spelling, never in the planner path alone (the multi-model relation is the
+question; one data model's index against its own scan is not).
 
 A join puts its correlated `LET $m = (SELECT id FROM t WHERE f op
 $parent.$current.f)` between the FROM target and the WHERE (LET precedes WHERE);
-under `nest` the filter is inside the target and the LET correlates with the
-subquery's rows (probed: `$parent.$current` reads them, as it reads a `scan`
-target's and the base class's).
+the LET correlates with the class's records (probed: `$parent.$current` reads them,
+as it reads the base class's).
 
 An EDGE-TYPE target reads `eid AS id` from the graph E class and the junction class
-(every position but the base-class and door ones); the doc data model has no relationship
+(the `table` position); the doc data model has no relationship
 class, so it renders `ids` and `count` alone, through the source records' embedded
 link lists -- `SELECT v AS id FROM (SELECT e[p].eid AS v FROM src UNWIND v) WHERE v
 IS NOT NULL` -- with the plain, rewritten and reversed filters only (its attributes
@@ -83,8 +73,8 @@ from ganda.orientdb.rules import assumes
 from ganda.orientdb.rules.catalog import REFUSED, SCRIPT, SQL
 
 FILTERS = ("plain", "rw", "rev", "arith", "literal")
-POSITIONS = ("table", "scan", "nest", "poly", "polyin", "index")
-FORMS = ("base", "order", "set", "fn", "jscan", "jrev")
+POSITIONS = ("table", "poly", "polyin")
+FORMS = ("base", "order", "set", "fn", "jrev")
 # the positions whose ORDER BY may be an index walk (the O18 / O23 shapes)
 WALK_POSITIONS = ("table", "poly", "polyin")
 
@@ -111,14 +101,13 @@ BASE = SelectSyntax()
 @dataclass
 class Rewrites:
     """The per-case material the concrete syntaxes draw on, drawn once when the case is built:
-    the filter's rewrites (None where it has none), the `index:` door per data model, and the
-    present values of the aggregated field among the matching records."""
+    the filter's rewrites (None where it has none) and the present values of the
+    aggregated field among the matching records."""
 
     rw: object = None
     rev: object = None
     arith: object = None
     literal: "str | None" = None
-    door: dict = field(default_factory=dict)  # data model -> (text, extra binds, IndexSpec)
     present: list = field(default_factory=list)
 
     def filter_pred(self, q: SelectQuery, name: str):
@@ -135,11 +124,11 @@ def all_syntaxes() -> list:
 
 def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str) -> bool:
     if q.edge:
-        if sp.position in ("poly", "polyin", "index"):
+        if sp.position in ("poly", "polyin"):
             return False
         if data_model == "doc" and (q.kind not in DOC_EDGE_KINDS or sp.position != "table" or sp.filter not in ("plain", "rw", "rev") or sp.form != "base"):
             return False
-    if sp.form in ("jscan", "jrev") and q.kind != "join":
+    if sp.form == "jrev" and q.kind != "join":
         return False
     if sp.filter != "plain":
         if q.where is None:
@@ -148,12 +137,8 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
             return False
         if sp.filter != "literal" and getattr(rewrites, sp.filter) is None:
             return False
-    if sp.position == "nest" and q.where is None:
-        return False  # the same text as `scan`
     if sp.position in ("poly", "polyin") and (schema.base is None or schema.is_base(q.table)):
         return False
-    if sp.position == "index":
-        return q.kind == "ids" and sp.filter == "plain" and sp.form == "base" and data_model in rewrites.door
     if sp.form == "order":
         # the first row of an empty (or all-null) ordering is no row, `max` a null one
         return q.kind == "agg" and q.fn in ("max", "min") and bool(rewrites.present)
@@ -194,8 +179,6 @@ def _where_text(q: SelectQuery, sp: SelectSyntax, rewrites: Rewrites) -> "str | 
     return " AND ".join([f"({pred})" if extra else pred] + extra)
 
 
-# a subquery target answers as the class does (collation, dates, definedness)
-assumes("equivalent.subquery_target", SQL, True)
 assumes("accepts.let.after_where", SQL, REFUSED)
 assumes("accepts.instanceof.parameter", SQL, REFUSED)
 
@@ -206,10 +189,6 @@ def _source(q: SelectQuery, schema: Schema, sp: SelectSyntax, where: "str | None
     let = f" {let}" if let else ""
     if sp.position == "table":
         return f"FROM {t}{let}" + (f" WHERE {where}" if where else "")
-    if sp.position == "scan":
-        return f"FROM (SELECT FROM {t}){let}" + (f" WHERE {where}" if where else "")
-    if sp.position == "nest":
-        return f"FROM (SELECT FROM {t} WHERE {where}){let}"
     if sp.position in ("poly", "polyin"):
         cond = "@class = :cls" if sp.position == "poly" else "@class IN :clsl"
         return f"FROM {schema.base.name}{let} WHERE {cond}" + (f" AND ({where})" if where else "")
@@ -218,9 +197,8 @@ def _source(q: SelectQuery, schema: Schema, sp: SelectSyntax, where: "str | None
 
 def _join_let(q: SelectQuery, sp: SelectSyntax) -> str:
     f, op = q.field, q.fn
-    target = f"(SELECT FROM {q.table})" if sp.form == "jscan" else q.table
     cond = f"$parent.$current.{f} {MIRROR[op]} {f}" if sp.form == "jrev" else f"{f} {op} $parent.$current.{f}"
-    return f"LET $m = (SELECT id FROM {target} WHERE {cond})"
+    return f"LET $m = (SELECT id FROM {q.table} WHERE {cond})"
 
 
 def _doc_edge(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites) -> str:
@@ -271,8 +249,6 @@ def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites,
 
 
 def _render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str) -> str:
-    if sp.position == "index":
-        return rewrites.door[data_model][0]
     if q.edge and data_model == "doc":
         return _doc_edge(q, schema, sp, rewrites)
     kind = q.kind
@@ -310,24 +286,6 @@ def _render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites
 # --- the rewrites of one question ------------------------------------------------
 
 
-def _door(p, table: str, schema: Schema, instance: Instance, data_model: str) -> "tuple | None":
-    """The `index:` door of `select_support.index_door` where it answers every matching
-    record (`door_complete`), its own bind variable renamed per data model (two data models'
-    composite indexes may order the same key differently)."""
-    from ganda.orientdb.concrete_syntax.support import door_complete, index_door as _index_door
-
-    door = _index_door(p, table, schema, data_model)
-    if door is None or not door_complete(door[2], table, p, instance):
-        return None
-    text, extra, ix = door
-    renamed = {}
-    for k, v in extra.items():
-        assert text.endswith(f":{k}"), text
-        text = text[: -len(k)] + f"{k}_{data_model}"
-        renamed[f"{k}_{data_model}"] = v
-    return text, renamed, ix
-
-
 def build_rewrites(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> Rewrites:
     from ganda.core.query.ir.select import present_values, records, view
     from ganda.orientdb.concrete_syntax.support import literal_pred as _literal_pred
@@ -349,23 +307,16 @@ def build_rewrites(q: SelectQuery, rng: random.Random, schema: Schema, instance:
             stored = [n.values.get(p.field) for n in records(q, instance) + (records(q, view(q, instance)) if q.tx else []) if p.field in n.values]
             rewrites.arith = predicates.arithmetic(p, rng, "ar", ftype, stored)
     rewrites.literal = _literal_pred(p)
-    if q.kind == "ids" and not q.edge:
-        for data_model in ("doc", "graph", "rel"):
-            door = _door(p, q.table, schema, instance, data_model)
-            if door is not None:
-                rewrites.door[data_model] = door
     return rewrites
 
 
 def extra_binds(q: SelectQuery, schema: Schema, rewrites: Rewrites) -> dict:
     """The bind variables the concrete syntaxes add to the question's own: the
-    rewrites' pivots, the `index:` door's keys and the `@class` filter's names."""
+    rewrites' pivots and the `@class` filter's names."""
     bind: dict = {}
     for rewritten in (rewrites.rw, rewrites.rev, rewrites.arith):
         if rewritten is not None:
             bind.update(rewritten.bind_vars)
-    for _text, extra, _ix in rewrites.door.values():
-        bind.update(extra)
     if schema.base is not None and not q.edge and not schema.is_base(q.table):
         bind.update({"cls": q.table, "clsl": [q.table]})
     return bind
@@ -378,6 +329,4 @@ def rewrite_params(rewrites: Rewrites) -> dict:
         rewritten = getattr(rewrites, name)
         if rewritten is not None:
             params[name] = rewritten.to_dict()
-    if rewrites.door:
-        params["index_door"] = {data_model: d[2].name() for data_model, d in rewrites.door.items()}
     return params

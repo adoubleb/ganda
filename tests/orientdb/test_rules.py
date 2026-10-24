@@ -24,7 +24,7 @@ def test_the_catalog_is_well_formed_and_its_checks_name_probe_checks():
 
 
 def test_the_defects_are_o1_to_o46_but_the_retired_each_reproduced_by_a_probe_check():
-    retired = {"O4"}  # fixed in 3.2.57
+    retired = {"O3", "O4"}  # O3: the `index:` door is no longer asked; O4: fixed in 3.2.57
     assert [d.id for d in CATALOG.defects] == [f"O{n}" for n in range(1, 47) if f"O{n}" not in retired]
     assert CATALOG.unreproduced() == []
 

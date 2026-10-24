@@ -2,7 +2,7 @@
 and compares only what the engine's execution paths answer alike. Its three data models
 speak one language, OrientDB SQL, so a subject is an execution path: a scan, the same
 statement served by an index, MATCH, TRAVERSE, the script door (the transaction door
-too), the /batch door and the `index:` door. The probe checks that check the rules are in
+too) and the /batch door. The probe checks that check the rules are in
 `checks.py`."""
 from __future__ import annotations
 
@@ -32,7 +32,6 @@ class Subject(enum.StrEnum):
     TRAVERSE = "traverse"
     SCRIPT = "script"
     BATCH = "batch"
-    INDEX_DOOR = "index-door"
 
 
 class Strategy(enum.StrEnum):
@@ -40,7 +39,7 @@ class Strategy(enum.StrEnum):
     BREADTH_FIRST = "breadth-first"
 
 
-SQL, SQL_INDEX, MATCH, TRAVERSE, SCRIPT, BATCH, INDEX_DOOR = Subject
+SQL, SQL_INDEX, MATCH, TRAVERSE, SCRIPT, BATCH = Subject
 COMPARE, ASK, EQUIVALENT, EXACT = Kind.COMPARE, Kind.ASK, Kind.EQUIVALENT, Kind.EXACT
 REFUSED, ACCEPTED = Verdict.REFUSED, Verdict.ACCEPTED
 
@@ -120,14 +119,11 @@ ASK_RULES = (
     Rule(accepts("ddl.in_transaction"), SCRIPT, REFUSED),
     Rule(accepts("named_parameter"), BATCH, REFUSED),
     Rule(accepts("map_parameter"), BATCH, ACCEPTED),
-    Rule(accepts("record_filter"), INDEX_DOOR, REFUSED),
 )
 
 # --- equivalent: twin forms answer alike, so a mismatch between them is a finding ----------------
 EQUIVALENT_RULES = (
-    Rule(equivalent("subquery_target"), SQL, True),
     Rule(equivalent("transaction_door"), SCRIPT, True),
-    Rule(equivalent("index_door"), INDEX_DOOR, True),
 )
 
 # --- exact: where a value compares exactly ------------------------------------------------------
@@ -142,7 +138,6 @@ RULES = COMPARE_RULES + ASK_RULES + EQUIVALENT_RULES + EXACT_RULES
 DEFECTS = (
     Defect("O1", SQL_INDEX),
     Defect("O2", SQL_INDEX),
-    Defect("O3", INDEX_DOOR),
     Defect("O5", SQL),
     Defect("O6", SQL_INDEX),
     Defect("O7", SQL),

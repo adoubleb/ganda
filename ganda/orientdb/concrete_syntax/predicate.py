@@ -18,9 +18,8 @@ def render_predicate(p, prefix: str = "") -> str:
         return "(" + f" {p.op} ".join(render_predicate(c, prefix) for c in p.children) + ")"
     expr = prefix + p.field
     if p.sub is not None:
-        t2, g, q, scan = p.sub
-        src = f"(SELECT FROM {t2})" if scan else t2
-        return f"{expr} IN (SELECT {g} FROM {src}" + (f" WHERE {render_predicate(q)}" if q is not None else "") + ")"
+        t2, g, q, _scan = p.sub
+        return f"{expr} IN (SELECT {g} FROM {t2}" + (f" WHERE {render_predicate(q)}" if q is not None else "") + ")"
     if p.key is not None:
         expr = f"{expr}[:{p.key_bind}]" if p.key_bind else f"{expr}.{p.key}"
     if p.arith is not None:

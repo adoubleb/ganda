@@ -1,5 +1,5 @@
 """The building blocks of the SELECT and PATH IRs: a predicate's literal concrete syntax,
-the AND over a composite index's fields, the `index:` door, the method catalog with
+the AND over a composite index's fields, the method catalog with
 its Python mirrors, the per-key sort key, the transaction door's rows and the BFS
 distances."""
 from __future__ import annotations
@@ -7,13 +7,13 @@ from __future__ import annotations
 import dataclasses
 
 from ganda.core.query.ir.select import TxWrite
-from ganda.core.data.model import FieldType, Instance, NodeRow, Schema
-from ganda.orientdb.storage.dialect import HASH_KINDS, sql_op
+from ganda.core.data.model import FieldType, Instance, NodeRow
+from ganda.orientdb.storage.dialect import sql_op
 from ganda.orientdb.facade import predicates
-from ganda.orientdb.facade.predicates import Compound, Predicate
+from ganda.orientdb.facade.predicates import Compound
 from ganda.core.query.generators.support import bfs_distances, composite_and as _composite_and, draw_tx, tx_binds, tx_rows  # noqa: F401
-from ganda.orientdb.rules import assumes, works_around
-from ganda.orientdb.rules.catalog import REFUSED, SQL, INDEX_DOOR
+from ganda.orientdb.rules import assumes
+from ganda.orientdb.rules.catalog import REFUSED, SQL
 
 
 
@@ -49,66 +49,6 @@ def literal_pred(p) -> "str | None":
     return f"{p.field} {sql_op(p.op)} {_literal(p.pivot)}"
 
 
-
-
-# The findings a class SCAN shares with every other path of the same question --
-# the ones a reversed (`:p > f`) or arithmetic (`f + :c > :p`) concrete syntax inherits
-# from the plain predicate (the index-served ones it does not: it is never served).
-SCAN_SIDE_FINDINGS = ("O7", "O17", "O27", "O32")
-
-
-# the `index:` door answers as an index-served lookup, takes no record filter, and is
-# asked `=`, IN and BETWEEN only (a range through it is O3)
-assumes("equivalent.index_door", INDEX_DOOR, True)
-assumes("accepts.record_filter", INDEX_DOOR, REFUSED)
-works_around("O3")
-
-
-def index_door(p, table: str, schema: Schema, data_model: str) -> "tuple[str, dict, object] | None":
-    """`SELECT rid.id AS id FROM index:<name> WHERE key ...` for a leaf `=` / `IN` /
-    `BETWEEN` on a field the table itself indexes on `data_model` (a base-class index
-    covers other classes and the door cannot filter by class, probed), or `key =
-    [a, b]` for an AND of equalities over a composite index's fields (a prefix of
-    them too). A range through the door is O3's ClassCastException, a BETWEEN through
-    a hash index an O5 501: neither is emitted."""
-    own = [ix for ix in schema.indexes if ix.target == "node" and ix.table == table and ix.applies_to(data_model) and ix.option("by") is None]
-    if isinstance(p, Predicate):
-        if p.key is not None or p.op not in ("=", "IN", "BETWEEN") or p.ftype in ("list", "map"):
-            return None
-        for ix in own:
-            if ix.field != p.field:
-                continue
-            if ix.extra_fields:
-                # a prefix key: an SB-tree composite answers it, a hash composite
-                # answers nothing (c100c seed 865)
-                if p.op != "=" or ix.kind in HASH_KINDS:
-                    continue
-                return f"SELECT rid.id AS id FROM index:{ix.name()} WHERE key = :{p.bind}k", {f"{p.bind}k": [p.pivot]}, ix
-            if p.op == "BETWEEN":
-                if ix.kind in HASH_KINDS:
-                    continue
-                return f"SELECT rid.id AS id FROM index:{ix.name()} WHERE key BETWEEN :{p.bind}a AND :{p.bind}b", {}, ix
-            return f"SELECT rid.id AS id FROM index:{ix.name()} WHERE key {sql_op(p.op)} :{p.bind}", {}, ix
-        return None
-    if isinstance(p, Compound) and p.op == "AND" and all(isinstance(c, Predicate) and c.op == "=" and c.key is None for c in p.children):
-        by_field = {c.field: c for c in p.children}
-        for ix in own:
-            if not ix.extra_fields or set(by_field) != set(ix.all_fields):
-                continue
-            bind = p.children[0].bind.rsplit("_", 1)[0] + "k"
-            return f"SELECT rid.id AS id FROM index:{ix.name()} WHERE key = :{bind}", {bind: [by_field[f].pivot for f in ix.all_fields]}, ix
-    return None
-
-
-def door_complete(ix, table: str, p, instance: Instance) -> bool:
-    """Whether the `index:` door answers every record the predicate matches: an index
-    with `ignoreNullValues: true` holds no entry for a record with a null in ANY of
-    its fields, so a prefix key `[a]` of a composite misses the matching records
-    whose second field is null or absent (probed: the planner scans such a prefix
-    instead of using the index, smoke sel-smoke3 seed 1066)."""
-    if not ix.ignore_nulls or not ix.extra_fields:
-        return True
-    return not any(any(n.values.get(g) is None for g in ix.all_fields) for n in _hits(instance, table, p))
 
 
 # Methods, each with a guard on the PRESENT values it is asked over (the query filters

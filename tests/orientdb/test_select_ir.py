@@ -41,13 +41,12 @@ def test_syntax_tags_and_applicability():
     schema, inst = _fixture()
     q = SelectQuery("n1", _gt("f1", 2), "agg", ("f1",), fn="max")
     rewrites = build_rewrites(q, __import__("random").Random(1), schema, inst)
-    assert SelectSyntax("rw", "nest", "order").tag == "order+rw+nest"
+    assert SelectSyntax("rw", "poly", "order").tag == "order+rw+poly"
     assert applicable(q, schema, SelectSyntax(form="order"), rewrites, "doc")
     assert not applicable(q, schema, SelectSyntax(position="poly"), rewrites, "doc")  # no base class
     assert not applicable(q, schema, SelectSyntax(form="set"), rewrites, "doc")
-    assert not applicable(dataclasses.replace(q, where=None), schema, SelectSyntax(position="nest"), rewrites, "doc")
-    assert render(q, schema, SelectSyntax(position="nest", form="order"), rewrites, "doc") == "SELECT f1 AS v FROM (SELECT FROM n1 WHERE (f1 > :p) AND f1 IS NOT NULL) ORDER BY f1 DESC LIMIT 1"
-    assert render(q, schema, SelectSyntax(position="scan"), rewrites, "doc") == "SELECT max(f1) AS v FROM (SELECT FROM n1) WHERE f1 > :p"
+    assert not applicable(dataclasses.replace(q, where=None), schema, SelectSyntax(filter="rw"), rewrites, "doc")
+    assert render(q, schema, SelectSyntax(form="order"), rewrites, "doc") == "SELECT f1 AS v FROM n1 WHERE (f1 > :p) AND f1 IS NOT NULL ORDER BY f1 DESC LIMIT 1"
     empty = SelectQuery("n1", _gt("f1", 100), "agg", ("f1",), fn="max")
     assert not applicable(empty, schema, SelectSyntax(form="order"), build_rewrites(empty, __import__("random").Random(1), schema, inst), "doc")
 
@@ -78,19 +77,6 @@ def test_o18_needs_a_null_key_on_3_2_57():
     full = Instance(schema, [n for n in inst.nodes if n.values.get("f1") is not None], [])
     assert select_known(keys, BASE, Rewrites(), "graph", schema, full) is None
 
-
-def test_scan_target_keeps_only_the_scan_only_bugs():
-    # a truncation-sensitive double pivot on an indexed INT column is O16 through the
-    # index; the subquery target scans it
-    ix = IndexSpec("n1", "f1", data_model="rel", kind="NOTUNIQUE")
-    schema, inst = _fixture([ix])
-    p = Predicate("source", "f1", "=", "p", 3.5, ftype="int")
-    q = SelectQuery("n1", p, "ids")
-    rewrites = Rewrites()
-    assert select_known(q, BASE, rewrites, "rel", schema, inst) == "O16"
-    assert select_known(q, SelectSyntax(position="nest"), rewrites, "rel", schema, inst) == "O16"
-    assert select_known(q, SelectSyntax(position="scan"), rewrites, "rel", schema, inst) is None
-    assert select_known(q, BASE, rewrites, "doc", schema, inst) is None
 
 
 def test_distinct_count_and_avg_findings():
@@ -166,19 +152,3 @@ def test_supply_is_deterministic_and_prefix_stable():
     after = all_cases(rng, schema, inst, traversal_cases=10, select_cases=30)
     assert [c.queries for c in after[: len(before)]] == [c.queries for c in before]
 
-
-def test_index_door_is_withheld_where_a_composite_ignoring_nulls_lacks_a_match():
-    from ganda.orientdb.concrete_syntax.support import door_complete
-
-    ix = IndexSpec("n1", "f3", data_model="both", kind="NOTUNIQUE", extra_fields=("f1",), ignore_nulls=True)
-    schema, inst = _fixture([ix])
-    # f3 = 3 is r2, whose f1 is absent: the composite has no entry for it
-    miss = Predicate("source", "f3", "=", "p", 3, ftype="int")
-    hit = Predicate("source", "f3", "=", "p", 1, ftype="int")
-    assert not door_complete(ix, "n1", miss, inst)
-    assert door_complete(ix, "n1", hit, inst)
-    assert door_complete(dataclasses.replace(ix, ignore_nulls=False), "n1", miss, inst)
-    import random
-
-    assert build_rewrites(SelectQuery("n1", miss, "ids"), random.Random(1), schema, inst).door == {}
-    assert set(build_rewrites(SelectQuery("n1", hit, "ids"), random.Random(1), schema, inst).door) == {"doc", "graph", "rel"}

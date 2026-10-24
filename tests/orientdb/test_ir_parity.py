@@ -69,10 +69,8 @@ def test_insub_renders_evaluates_and_round_trips():
     assert p.bind_vars == {"ps": 1}
     assert [n.record_id for n in inst.nodes_of("n1") if predicates.evaluate(n.values, p)] == ["n1/r1", "n1/r2"]
     assert Predicate.from_dict(p.to_dict()) == p
-    # the rewrite reads the subquery over a subquery target; the literal concrete syntax has none
-    rw = predicates.rewrite(p, random.Random(1), "q")
-    assert rw.sub[3] and render(rw) == "f1 IN (SELECT g1 FROM (SELECT FROM n2) WHERE g1 > :ps)"
-    assert predicates.reverse(p) is None and predicates.rewrite(rw, random.Random(1), "q") is None
+    # no rewrite: the inner query over a subquery target would differ in the planner path alone
+    assert predicates.rewrite(p, random.Random(1), "q") is None and predicates.reverse(p) is None
     # an unfiltered subquery answers a null for a record without the field
     whole = predicates.resolve_subs(_insub(), inst)
     assert whole.pivot == [2, 7, None] and whole.bind_vars == {}
@@ -83,14 +81,13 @@ def test_insub_guards():
     schema, inst = _fixture([ix])
     null_listed = predicates.resolve_subs(_insub(), inst)  # [2, 7, None]
     q = SelectQuery("n1", null_listed, "ids")
-    # O14 where the outer lookup is served by an index on f1 -- not over a subquery target
+    # O14 where the outer lookup is served by an index on f1
     assert select_known(q, BASE, Rewrites(), "graph", schema, inst) == "O14"
-    assert select_known(q, SelectSyntax(position="scan"), Rewrites(), "graph", schema, inst) is None
     assert select_known(q, BASE, Rewrites(), "doc", schema, inst) is None
-    # O39: a CONTAINSVALUE in the inner predicate, on every data model and position
+    # O39: a CONTAINSVALUE in the inner predicate, on every data model
     cv = Predicate("source", "g1", "HAS VALUE", "ps", 2**40, ftype="map")
     q39 = SelectQuery("n1", _insub(cv, pivot=[]), "ids")
-    assert {select_known(q39, sp, Rewrites(), s, schema, inst) for s in ("doc", "rel") for sp in (BASE, SelectSyntax(position="scan"))} == {"O39"}
+    assert {select_known(q39, BASE, Rewrites(), s, schema, inst) for s in ("doc", "rel")} == {"O39"}
 
 
 # --- the join kind ----------------------------------------------------------------------------
@@ -103,12 +100,10 @@ def test_join_syntaxes_and_o1():
     q = SelectQuery("n1", where, "join", ("f1",), fn="<", arg="ids")
     t = Rewrites()
     assert render_select(q, schema, BASE, t, "doc") == "SELECT id, $m.id AS v FROM n1 LET $m = (SELECT id FROM n1 WHERE f1 < $parent.$current.f1) WHERE f2 = :p"
-    assert render_select(q, schema, SelectSyntax(form="jrev", position="nest"), t, "doc") == "SELECT id, $m.id AS v FROM (SELECT FROM n1 WHERE f2 = :p) LET $m = (SELECT id FROM n1 WHERE $parent.$current.f1 > f1)"
-    assert render_select(q, schema, SelectSyntax(form="jscan", position="scan"), t, "doc") == "SELECT id, $m.id AS v FROM (SELECT FROM n1) LET $m = (SELECT id FROM (SELECT FROM n1) WHERE f1 < $parent.$current.f1) WHERE f2 = :p"
-    assert not applicable(SelectQuery("n1", None, "ids"), schema, SelectSyntax(form="jscan"), t, "doc")
-    # O1: the correlated LET under a filter an index of the data model serves -- not over a subquery target
+    assert render_select(q, schema, SelectSyntax(form="jrev"), t, "doc") == "SELECT id, $m.id AS v FROM n1 LET $m = (SELECT id FROM n1 WHERE $parent.$current.f1 > f1) WHERE f2 = :p"
+    assert not applicable(SelectQuery("n1", None, "ids"), schema, SelectSyntax(form="jrev"), t, "doc")
+    # O1: the correlated LET under a filter an index of the data model serves
     assert select_known(q, BASE, t, "rel", schema, inst) == "O1"
-    assert select_known(q, SelectSyntax(position="nest"), t, "rel", schema, inst) is None
     assert select_known(q, BASE, t, "doc", schema, inst) is None
 
 
@@ -122,8 +117,8 @@ def test_edge_target_doc_syntax():
     t = Rewrites(rw=predicates.rewrite(p, random.Random(1), "q"))
     assert render_select(q, schema, BASE, t, "graph") == "SELECT eid AS id FROM e1 WHERE w > :p"
     assert render_select(q, schema, BASE, t, "doc") == "SELECT v AS id FROM (SELECT v FROM (SELECT e1[w > :p].eid AS v FROM n1 UNWIND v) WHERE v IS NOT NULL)"
-    assert applicable(q, schema, SelectSyntax(filter="rw"), t, "doc") and not applicable(q, schema, SelectSyntax(position="scan"), t, "doc")
-    assert applicable(q, schema, SelectSyntax(position="scan"), t, "graph")
+    assert applicable(q, schema, SelectSyntax(filter="rw"), t, "doc") and applicable(q, schema, SelectSyntax(filter="rw"), t, "graph")
+    assert not applicable(q, schema, SelectSyntax(position="poly"), t, "graph")
     page = SelectQuery("e1", None, "page", ("w",), directions=("DESC",), limit=2, edge=True)
     assert not applicable(page, schema, BASE, t, "doc")
     assert render_select(page, schema, BASE, t, "rel") == "SELECT eid AS id FROM e1 ORDER BY w DESC, eid ASC SKIP 0 LIMIT 2"
@@ -144,9 +139,8 @@ def test_tx_view_render_and_o31():
     text = render_select(q, schema, BASE, Rewrites(), "graph")
     assert text == "BEGIN; CREATE VERTEX n1 SET id = :tid, f1 = :tv; LET $r = (SELECT count(*) AS v FROM n1 WHERE f1 > :p TIMEOUT 20000 EXCEPTION); ROLLBACK; RETURN $r"
     assert tx_write(tx, "rel").startswith("INSERT INTO n1") and tx_write(dataclasses.replace(tx, write="delete"), "graph") == "DELETE VERTEX n1 WHERE id = :tid"
-    # O31 through the graph data model's SB-tree index; a subquery target and the other sides are right
+    # O31 through the graph data model's SB-tree index; the other sides are right
     assert select_known(q, BASE, Rewrites(), "graph", schema, inst) == "O31"
-    assert select_known(q, SelectSyntax(position="scan"), Rewrites(), "graph", schema, inst) is None
     assert select_known(q, BASE, Rewrites(), "doc", schema, inst) is None
 
 
@@ -228,13 +222,12 @@ def test_index_mutants_touch_only_servable_syntaxes():
     case = QueryCase("ir_select", "", Comparison.NESTED_VALUE, {
         "doc": "SELECT id FROM n1 WHERE f1 > :p ORDER BY f1 DESC",
         "graph": "SELECT id FROM n1 WHERE f1 > :p",
-        "graph:scan": "SELECT id FROM (SELECT FROM n1) WHERE f1 > :p",
         "graph:rev": "SELECT id FROM n1 WHERE :p < f1",
         "rel": "SELECT id FROM n1 WHERE f1 = :p",
     }, {}, {"table": "n1"})
     g = MUTANTS_BY_NAME["graph_index_range_inclusive"].rewrite_case_schema(case, schema)
     assert g.queries["graph"] == "SELECT id FROM n1 WHERE f1 >= :p"
-    assert g.queries["graph:scan"] == case.queries["graph:scan"] and g.queries["graph:rev"] == case.queries["graph:rev"]
+    assert g.queries["graph:rev"] == case.queries["graph:rev"]
     r = MUTANTS_BY_NAME["rel_index_null_keys"].rewrite_case_schema(case, schema)
     assert r.queries["rel"] == "SELECT id FROM n1 WHERE (f1 = :p OR f1 IS NULL)"
     d = MUTANTS_BY_NAME["doc_index_desc_walk"].rewrite_case_schema(case, schema)
@@ -290,19 +283,3 @@ def test_o17_covers_a_map_entry_between():
     exact = Predicate("source", "m", "BETWEEN", "p", [-54, -49], ftype="int", key="k3")
     assert o17_predicate(schema, "n1", lossy) and not o17_predicate(schema, "n1", exact)
 
-
-def test_scan_verdict_is_not_masked_by_an_index_finding():
-    # a semi-join with a null answered value (O14 where served) next to a reversed
-    # date leaf with a string pivot (O32 on every data model): the scan side is O32
-    ix = IndexSpec("n1", "f2", data_model="graph", kind="NOTUNIQUE")
-    schema = Schema(
-        node_types=(NodeTypeSpec("n1", (FieldSpec("f2", FieldType.STRING), FieldSpec("d", FieldType.DATETIME))), NodeTypeSpec("n2", (FieldSpec("g", FieldType.STRING),))),
-        edge_types=(),
-        indexes=(ix,),
-    )
-    inst = Instance(schema, [NodeRow("n1", 0, {"f2": "a", "d": "2020-01-01 00:00:00"}), NodeRow("n2", 0, {})], [])
-    sub = Predicate("source", "f2", "INSUB", "", [None], "string", sub=("n2", "g", None, False))
-    rev = Predicate("source", "d", "<", "p_1", "2021-01-01 00:00:00", ftype="datetime", rev=True)
-    q = SelectQuery("n1", Compound("source", "AND", (sub, rev)), "ids")
-    assert select_known(q, BASE, Rewrites(), "graph", schema, inst) == "O14"
-    assert select_known(q, SelectSyntax(position="scan"), Rewrites(), "graph", schema, inst) == "O32"

@@ -28,7 +28,6 @@ from ganda.orientdb.rules.catalog import (
     DELETE_FROM_DOC_KEEPS_LINKS,
     DELETE_VERTEX_CASCADES,
     EXPAND_WRAPS_EMBEDDED,
-    INDEX_DOOR,
     INT32_SUM_EXACT_BELOW,
     LIKE_ONE_CHARACTER,
     MATCH,
@@ -52,7 +51,6 @@ from ganda.orientdb.rules.catalog import (
 )
 
 TRANSACTION_DOOR = Rule(equivalent("transaction_door"), SCRIPT, True)
-SUBQUERY_TARGET = Rule(equivalent("subquery_target"), SQL, True)
 ORDER_BY_COLLATES = Rule(ORDER_BY_STRING, SQL, StringOrder.COLLATION)
 INDEX_WALK_CODE_UNITS = Rule(ORDER_BY_STRING, SQL_INDEX, StringOrder.UTF16_CODE_UNIT)
 
@@ -84,8 +82,6 @@ _RULE_CHECKS = {
     "C191": (Rule(OPTIONAL_NO_PATH, MATCH, EmptyInputRows.ONE_ROW),),
     "C193": (Rule(UNDIRECTED_SELF_LOOP_ROWS, SQL, 2),),
     "C210": (Rule(accepts("update.increment"), SQL, REFUSED),),
-    "C231": (Rule(equivalent("index_door"), INDEX_DOOR, True),),
-    "C236": (Rule(accepts("record_filter"), INDEX_DOOR, REFUSED),),
     "C238": (Rule(accepts("instanceof.parameter"), SQL, REFUSED),),
     "C267": (Rule(UNGROUPED_EMPTY_ROWS, SQL, EmptyInputRows.NO_ROW),),
     "C268": (TRANSACTION_DOOR, Rule(OWN_UNCOMMITTED_VISIBLE, SCRIPT, True)),
@@ -94,8 +90,6 @@ _RULE_CHECKS = {
     "C282": (Rule(TRAVERSE_DEFAULT, TRAVERSE, Strategy.DEPTH_FIRST),),
     "C284": (Rule(accepts("max_depth.parameter"), MATCH, REFUSED), Rule(accepts("max_depth.parameter"), TRAVERSE, REFUSED)),
     "C285": (Rule(UNGROUPED_EMPTY_ROWS, SQL, EmptyInputRows.NO_ROW),),
-    "C288": (SUBQUERY_TARGET,),
-    "C289": (SUBQUERY_TARGET,),
     "C291": (Rule(WRITE_ROW_COUNT, SQL, True),),
     "C297": (Rule(STATEMENT_ATOMIC, SQL, False),),
     "C298": (Rule(UPSERT_OTHER_PREDICATE_KEEPS_ID, SQL, False),),
@@ -116,7 +110,6 @@ _RULE_CHECKS = {
 REPRODUCED_BY = {
     "O1": ("C38", "C39", "C41", "C69"),
     "O2": ("C42", "C43", "C47", "C48", "C49", "C50", "C53", "C55", "C57", "C59", "C60", "C61", "C64"),
-    "O3": ("C74", "C232"),
     "O5": ("C34", "C71", "C233", "C265", "C305", "C307", "C319"),
     "O6": ("C24", "C25"),
     "O7": ("C77", "C185", "C187", "C228", "C263"),

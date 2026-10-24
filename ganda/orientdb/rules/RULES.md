@@ -9,8 +9,8 @@ baseline: 3.2.57, every check of a rule held
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
 | order.string | osql | utf-16-code-unit | C17, C18 | oracle/semantics.py:121 |
-| order.string.order_by | osql | collation | C19, C26, C27 | known_bugs/guards.py:1330 |
-| order.string.order_by | osql@index | utf-16-code-unit | C24, C25 | known_bugs/guards.py:1331 |
+| order.string.order_by | osql | collation | C19, C26, C27 | known_bugs/guards.py:1281 |
+| order.string.order_by | osql@index | utf-16-code-unit | C24, C25 | known_bugs/guards.py:1282 |
 | compare.negative_zero_below_zero | osql | true | C15 | oracle/rewrites.py:118, oracle/semantics.py:122, storage/physical_design.py:57 |
 | filter.logic | osql | two-valued | C9 | oracle/rewrites.py:117, oracle/semantics.py:388 |
 | filter.like.case_sensitive | osql | false | C171 | oracle/semantics.py:178 |
@@ -32,36 +32,33 @@ baseline: 3.2.57, every check of a rule held
 | delete.document.keeps_incoming_links | osql | true | C301 | concrete_syntax/write.py:229 |
 | statement.atomic | osql | false | C297 | concrete_syntax/write.py:350 |
 | statement.write.answers_row_count | osql | true | C291 | concrete_syntax/write.py:349 |
-| transaction.own_uncommitted_visible | script | true | C144, C268 | concrete_syntax/select.py:261 |
+| transaction.own_uncommitted_visible | script | true | C144, C268 | concrete_syntax/select.py:239 |
 
 ## ask
 
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
 | accepts.projection.comparison | osql | refused | C35 | concrete_syntax/traversal.py:123 |
-| accepts.let.after_where | osql | refused | C36 | concrete_syntax/select.py:199, concrete_syntax/traversal.py:585 |
+| accepts.let.after_where | osql | refused | C36 | concrete_syntax/select.py:182, concrete_syntax/traversal.py:585 |
 | accepts.update.increment | osql | refused | C210 | concrete_syntax/write.py:173, storage/mapping/common.py:216 |
 | accepts.update.content.parameter | osql | refused | C142 | concrete_syntax/write.py:171 |
 | accepts.merge.parameter | osql | refused | C334 | concrete_syntax/write.py:172 |
 | accepts.update.filtered_list_element | osql | refused | C338 | concrete_syntax/write.py:271 |
 | accepts.delete.timeout | osql | refused | C299 | concrete_syntax/write.py:230 |
-| accepts.delete_from.vertex_or_edge_class | osql | refused | C131, C303 | concrete_syntax/support.py:210, concrete_syntax/write.py:228 |
-| accepts.instanceof.parameter | osql | refused | C238 | concrete_syntax/select.py:200 |
+| accepts.delete_from.vertex_or_edge_class | osql | refused | C131, C303 | concrete_syntax/support.py:150, concrete_syntax/write.py:228 |
+| accepts.instanceof.parameter | osql | refused | C238 | concrete_syntax/select.py:183 |
 | accepts.match.timeout | match | refused | C129 | engine/connection.py:124 |
 | accepts.max_depth.parameter | match | refused | C284 | concrete_syntax/traversal.py:315 |
 | accepts.max_depth.parameter | traverse | refused | C284 | concrete_syntax/path.py:26, concrete_syntax/traversal.py:416 |
 | accepts.ddl.in_transaction | script | refused | C335 | storage/mapping/common.py:513 |
 | accepts.named_parameter | batch | refused | C336 | storage/mapping/common.py:394 |
 | accepts.map_parameter | batch | accepted | C337 | storage/mapping/common.py:395 |
-| accepts.record_filter | index-door | refused | C236 | concrete_syntax/support.py:63 |
 
 ## equivalent
 
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
-| equivalent.subquery_target | osql | true | C288, C289 | concrete_syntax/select.py:198 |
-| equivalent.transaction_door | script | true | C268, C269, C311 | concrete_syntax/select.py:260 |
-| equivalent.index_door | index-door | true | C231 | concrete_syntax/support.py:62 |
+| equivalent.transaction_door | script | true | C268, C269, C311 | concrete_syntax/select.py:238 |
 
 ## exact
 
@@ -82,48 +79,47 @@ baseline: 3.2.57, every check of a rule held
 |---|---|---|---|---|
 | O1 | osql@index | C38, C39, C41, C69 | reproduces | known_bugs/guards.py:240 |
 | O2 | osql@index | C42, C43, C47, C48, C49, C50, C53, C55, C57, C59, C60, C61, C64 | reproduces | known_bugs/guards.py:260 |
-| O3 | index-door | C74, C232 | reproduces | concrete_syntax/support.py:64 |
-| O5 | osql | C34, C71, C233, C265, C305, C307, C319 | reproduces | known_bugs/guards.py:972 |
-| O6 | osql@index | C24, C25 | reproduces | known_bugs/guards.py:1332 |
+| O5 | osql | C34, C71, C233, C265, C305, C307, C319 | reproduces | known_bugs/guards.py:954 |
+| O6 | osql@index | C24, C25 | reproduces | known_bugs/guards.py:1283 |
 | O7 | osql | C77, C185, C187, C228, C263 | reproduces | known_bugs/guards.py:293 |
-| O8 | osql | C80, C227 | reproduces | known_bugs/guards.py:824 |
-| O9 | osql | C82 | reproduces | known_bugs/guards.py:835 |
+| O8 | osql | C80, C227 | reproduces | known_bugs/guards.py:806 |
+| O9 | osql | C82 | reproduces | known_bugs/guards.py:817 |
 | O10 | osql@index | C85, C87, C215, C264 | reproduces | known_bugs/guards.py:409 |
 | O11 | osql@index | C89, C208 | reproduces | known_bugs/guards.py:439 |
-| O12 | osql | C92 | reproduces | known_bugs/guards.py:948 |
-| O13 | osql | C95 | reproduces | known_bugs/guards.py:717 |
-| O14 | osql@index | C98, C100, C102 | reproduces | known_bugs/guards.py:1181 |
-| O15 | osql | C105 | reproduces | known_bugs/guards.py:812 |
+| O12 | osql | C92 | reproduces | known_bugs/guards.py:930 |
+| O13 | osql | C95 | reproduces | known_bugs/guards.py:699 |
+| O14 | osql@index | C98, C100, C102 | reproduces | known_bugs/guards.py:1163 |
+| O15 | osql | C105 | reproduces | known_bugs/guards.py:794 |
 | O16 | osql@index | C114, C115, C116, C118, C151, C152, C153, C158, C159, C216, C234 | reproduces | known_bugs/guards.py:514 |
-| O17 | osql | C110, C113, C147, C306 | reproduces | known_bugs/guards.py:691 |
-| O18 | osql@index | C122, C123, C204, C205, C273, C287 | reproduces | known_bugs/guards.py:650 |
-| O19 | osql | C148, C202 | reproduces | known_bugs/guards.py:792 |
+| O17 | osql | C110, C113, C147, C306 | reproduces | known_bugs/guards.py:673 |
+| O18 | osql@index | C122, C123, C204, C205, C273, C287 | reproduces | known_bugs/guards.py:632 |
+| O19 | osql | C148, C202 | reproduces | known_bugs/guards.py:774 |
 | O20 | osql | C161, C162 | reproduces | known_bugs/guards.py:521 |
 | O21 | osql | C169, C170 | reproduces | known_bugs/guards.py:549 |
 | O22 | match | C189, C190 | reproduces | concrete_syntax/traversal.py:136 |
-| O23 | osql@index | C206, C207, C274 | reproduces | known_bugs/guards.py:651 |
+| O23 | osql@index | C206, C207, C274 | reproduces | known_bugs/guards.py:633 |
 | O24 | osql | C145 | reproduces | oracle/rewrites.py:28 |
-| O25 | osql | C176, C177, C179 | reproduces | known_bugs/guards.py:630 |
-| O26 | osql | C196, C198, C199 | reproduces | known_bugs/guards.py:908 |
+| O25 | osql | C176, C177, C179 | reproduces | known_bugs/guards.py:612 |
+| O26 | osql | C196, C198, C199 | reproduces | known_bugs/guards.py:890 |
 | O27 | osql | C221, C222 | reproduces | known_bugs/guards.py:579 |
 | O28 | osql | C239, C240 | reproduces | known_bugs/guards.py:603 |
 | O29 | osql | C244, C245, C246, C247 | reproduces | oracle/rewrites.py:27 |
 | O30 | osql | C249, C251 | reproduces | oracle/rewrites.py:29 |
-| O31 | script | C270, C271, C272, C276, C312, C320 | reproduces | known_bugs/guards.py:1085 |
-| O32 | osql | C254, C256 | reproduces | known_bugs/guards.py:1103 |
-| O33 | osql | C257 | reproduces | known_bugs/guards.py:1333 |
+| O31 | script | C270, C271, C272, C276, C312, C320 | reproduces | known_bugs/guards.py:1067 |
+| O32 | osql | C254, C256 | reproduces | known_bugs/guards.py:1085 |
+| O33 | osql | C257 | reproduces | known_bugs/guards.py:1284 |
 | O34 | osql | C260, C262 | reproduces | storage/dialect.py:59 |
 | O35 | osql | C280 | reproduces | concrete_syntax/path.py:27 |
 | O36 | osql@index | C91 | reproduces | known_bugs/guards.py:365 |
-| O37 | osql@index | C293, C294, C295 | reproduces | known_bugs/guards.py:1538 |
-| O38 | script | C302 | reproduces | known_bugs/guards.py:1581 |
-| O39 | osql | C300 | reproduces | known_bugs/guards.py:844 |
+| O37 | osql@index | C293, C294, C295 | reproduces | known_bugs/guards.py:1475 |
+| O38 | script | C302 | reproduces | known_bugs/guards.py:1518 |
+| O39 | osql | C300 | reproduces | known_bugs/guards.py:826 |
 | O40 | osql | C313 | reproduces | concrete_syntax/path.py:91 |
-| O41 | osql | C315 | reproduces | known_bugs/guards.py:1308 |
+| O41 | osql | C315 | reproduces | known_bugs/guards.py:1259 |
 | O42 | osql | C316 | reproduces | oracle/semantics.py:180 |
-| O43 | osql | C317 | reproduces | known_bugs/guards.py:732 |
-| O44 | traverse | C318 | reproduces | concrete_syntax/traversal.py:417, known_bugs/guards.py:755 |
+| O43 | osql | C317 | reproduces | known_bugs/guards.py:714 |
+| O44 | traverse | C318 | reproduces | concrete_syntax/traversal.py:417, known_bugs/guards.py:737 |
 | O45 | match | C132, C133, C138, C141 | reproduces | concrete_syntax/traversal.py:316 |
 | O46 | osql | C322 | reproduces | storage/dialect.py:60 |
 
-46 rules (0 IR definitions): 46 checked by a probe fact, 0 unchecked; 46 read by code, 0 unread; 45 defects (45 reproduced by a probe fact); 0 error classes
+43 rules (0 IR definitions): 43 checked by a probe fact, 0 unchecked; 43 read by code, 0 unread; 44 defects (44 reproduced by a probe fact); 0 error classes

@@ -235,8 +235,9 @@ def test_date_and_map_axes():
     for seed in range(41, 47):
         schema, inst, rng = build(seed, GeneratorConfig(date_map_probability=0.7, list_index_probability=1.0, index_probability=0.6, inheritance_probability=0.5))
         for c in all_cases(rng, schema, inst, select_cases=30):
-            seen |= {s_.split(":", 1)[1] for s_ in c.queries if ":" in s_}
-    assert {"index", "poly", "polyin"} <= seen
+            seen |= {tag for s_ in c.queries if ":" in s_ for tag in s_.split(":", 1)[1].split("+")}
+    # the base-class positions are drawn; no variant exists only to use or avoid an index
+    assert {"poly", "polyin"} <= seen and not seen & {"scan", "nest", "index", "jscan"}
 
 
 def test_binary_columns_hold_base64_values_and_carry_no_index():

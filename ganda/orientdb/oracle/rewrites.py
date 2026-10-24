@@ -141,9 +141,9 @@ def rewrite(p, rng: random.Random, bind: str):
         return Predicate(on, f, o, b, v, p.ftype, p.case_insensitive, p.key, p.key_bind)
 
     if p.sub is not None:
-        # the inner subquery over `(SELECT FROM t2)`: the same values, never
-        # index-served (the outer lookup unchanged)
-        return None if p.sub.scan else dataclasses.replace(p, sub=p.sub._replace(scan=True))
+        # a semi-join has no rewrite: its inner query over `(SELECT FROM t2)` would
+        # differ from it in the planner path alone
+        return None
     if p.key is not None and not p.key_bind and rng.random() < 0.5:
         # the parameter-keyed bracket form of the same entry: `m[:kb] op :p`
         return Predicate(on, f, op, bind if op not in NO_BIND_OPS else "", pv, p.ftype, p.case_insensitive, p.key, f"{bind}k")

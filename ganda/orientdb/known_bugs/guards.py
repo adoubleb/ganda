@@ -609,24 +609,6 @@ def o28_avg(present: list) -> bool:
     return bool(present) and sum(present) % len(present) != 0
 
 
-def index_door_known(p, ix, schema: Schema, instance: Instance) -> "str | None":
-    """The known bugs the `index:` door shares with an index-served scan of the
-    same index: O10 (a mixed-box IN list), O16 / O20 (a lossy key: the door converts
-    it too, probed), O21 (the door applies the collation where a scan's IN / BETWEEN
-    does not)."""
-    leaves = _leaves(p)
-    for leaf in leaves:
-        if leaf.op == "IN" and isinstance(leaf.pivot, list) and _mixed_boxes(leaf.pivot):
-            return "O10"
-    for leaf in leaves:
-        ftype = _column_type(schema, ix.table, leaf.field, False)
-        if any(lossy_pivot(ftype, v) for v in _pivots(leaf)) if ftype else False:
-            return "O20" if ftype is FieldType.DECIMAL else ("O27" if ftype in (FieldType.DATETIME, FieldType.DATE) else "O16")
-        if leaf.op in ("IN", "BETWEEN") and _ci_column(schema, ix.table, leaf.field):
-            return "O21"
-    return None
-
-
 works_around("O25")
 
 
@@ -1185,51 +1167,20 @@ def insub_known(schema: Schema, instance: Instance, table: str, p, data_model: s
     """The findings of a tree's SEMI-JOIN leaves (`f IN (SELECT g FROM t2 [WHERE
     q])`, the select IR's `INSUB`): O39 for a CONTAINSVALUE in `q` (a subquery
     consumed as a value, any position); `q`'s own findings as the inner query
-    filters (index-served over `t2`, or the scan-side ones where the leaf reads
-    `(SELECT FROM t2)`); and where the OUTER query may be index-served, O14 (a null
-    among the answered values through an index on `f`: the null-keyed records come
-    back). O10 / O21 on the outer lookup are the IN leaf's, judged by
+    filters (index-served over `t2`); and where the OUTER query may be index-served,
+    O14 (a null among the answered values through an index on `f`: the null-keyed
+    records come back). O10 / O21 on the outer lookup are the IN leaf's, judged by
     `o10_predicate` / `o21_predicate`."""
-    from ganda.orientdb.concrete_syntax.support import SCAN_SIDE_FINDINGS
-
     for leaf in predicates.subqueries(p):
-        t2, _g, q, scan = leaf.sub
+        t2, _g, q, _scan = leaf.sub
         if q is not None:
             if o39_predicate(q):
                 return "O39"
             inner = node_case_known(t2, q, schema, instance).get(data_model)
-            if scan:
-                inner = list_ops_known(schema, t2, q, data_model, servable=False) or (inner if inner in SCAN_SIDE_FINDINGS else None)
             if inner:
                 return inner
         if outer_served and _plain(leaf) and any(v is None for v in leaf.pivot) and schema.has_index(table, leaf.field, data_model):
             return "O14"
-    return None
-
-
-def scan_known(schema: Schema, instance: Instance, table: str, p, data_model: str, edge: bool = False) -> "str | None":
-    """The findings a SCAN of the predicate is the exact shape of -- a subquery
-    target, the transaction door's `:scan` rewrite -- judged directly, never by
-    filtering `node_case_known`'s verdict (which returns the FIRST finding, so an
-    index-served one masked a scan-side one: remote campaign cov400 seed 5325, a
-    semi-join's O14 hiding a reversed date leaf's O32 on `graph:rev+scan`): the
-    semi-joins' own findings with the outer lookup scanned, the list operators
-    unserved, O32, O7, O17, O27."""
-    if not edge:
-        fid = insub_known(schema, instance, table, p, data_model, outer_served=False)
-        if fid:
-            return fid
-    fid = list_ops_known(schema, table, p, data_model, edge=edge, servable=False)
-    if fid:
-        return fid
-    if o32_predicate(schema, table, p, edge):
-        return "O32"
-    if o7_predicate(schema, table, p, edge) and not (edge and data_model == "doc"):
-        return "O7"
-    if o17_predicate(schema, table, p, edge):
-        return "O17"
-    if o27_predicate(schema, table, p, edge):
-        return "O27"
     return None
 
 
@@ -1431,16 +1382,15 @@ def o5_poly_join(q, sp, schema: Schema) -> bool:
 
 def _join_known(q, sp, data_model: str, schema: Schema, instance: Instance, eff) -> "str | None":
     """A join's own findings: O1 where the correlated LET sits in a query whose
-    filter an index serves (the class or the base class as the target: `nest` and
-    `scan` read a subquery's rows, never index-served); and the inner lookup's --
-    `f op $parent.$current.f` with the enclosing record's value as the pivot, a null
-    one included, served by an index on `f` in the `base` form, never under `jscan` /
-    `jrev`."""
+    filter an index serves (the class or the base class as the target); and the inner
+    lookup's -- `f op $parent.$current.f` with the enclosing record's value as the
+    pivot, a null one included, served by an index on `f` in the `base` form, never
+    under `jrev`."""
     from ganda.core.query.ir.select import column
 
     if sp.position in ("poly", "polyin") and o5_poly_join(q, sp, schema):
         return "O5"
-    if sp.position in ("table", "poly", "polyin") and eff is not None:
+    if eff is not None:
         if _any_indexed(schema, q.table, eff, data_model) or (sp.position != "table" and _any_indexed(schema, schema.base.name, eff, data_model)):
             return "O1"
     if sp.form == "base":
@@ -1453,23 +1403,19 @@ def _join_known(q, sp, data_model: str, schema: Schema, instance: Instance, eff)
 def _tx_known(q, sp, data_model: str, schema: Schema, eff) -> "str | None":
     """The transaction door's own finding, O31 (a one-sided range, or a reversed
     two-sided one, served by an SB-tree index after the transaction wrote the column
-    or inserted), for the positions whose filter an index may serve -- a `scan`
-    target never is, and the `index:` door is right inside a transaction (probed) --
-    judged on the filter and on a semi-join's inner predicate over the written
-    class (or the base class, which holds its records). That inner query reads the
-    class itself under every position, `scan` included (cov400: seven `:scan` rewrites
-    of `f IN (SELECT f FROM t WHERE f >= :p)` missed the inserted record)."""
-    if sp.position == "index" or eff is None:
+    or inserted), judged on the filter and on a semi-join's inner predicate over the
+    written class (or the base class, which holds its records: cov400, seven
+    semi-joins `f IN (SELECT f FROM t WHERE f >= :p)` missed the inserted record)."""
+    if eff is None:
         return None
     write = q.tx.write
     written = set() if write == "delete" else {q.tx.field}
-    if sp.position != "scan":
-        fid = o31_known(schema, q.table, eff, data_model, write, written)
-        if fid:
-            return fid
+    fid = o31_known(schema, q.table, eff, data_model, write, written)
+    if fid:
+        return fid
     for leaf in predicates.subqueries(eff):
-        t2, _g, q2, scan = leaf.sub
-        if q2 is not None and not scan and (t2 == q.table or schema.is_base(t2)):
+        t2, _g, q2, _scan = leaf.sub
+        if q2 is not None and (t2 == q.table or schema.is_base(t2)):
             fid = o31_known(schema, t2, q2, data_model, write, written)
             if fid:
                 return fid
@@ -1479,11 +1425,9 @@ def _tx_known(q, sp, data_model: str, schema: Schema, eff) -> "str | None":
 def select_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Instance) -> "str | None":
     """The known bug a SELECT IR concrete syntax on `data_model` is the exact shape of, or
     None. The filter is judged as the concrete syntax filters (its rewrite, with the
-    concrete syntax's `IS NOT NULL` conjuncts): through `node_case_known` where the class
-    is the target (`table`, `nest`, the base class) and it may be index-served; as a
-    scan where the target is a subquery (`scan`: only the scan-side findings, and
-    the list operators unserved); through `index_door_known` for the `index:` door;
-    through `edge_case_known` for an edge type (the doc data model's bracket filter: its
+    concrete syntax's `IS NOT NULL` conjuncts): through `node_case_known` (the class or
+    the base class is the target, and it may be index-served); through `edge_case_known`
+    for an edge type (the doc data model's bracket filter: its
     own O13 / O17); plus O12 for the literal pivots, a join's and the transaction
     door's own findings (O39 first there: the read is a `LET $r = (SELECT ...)`),
     and the shape's own findings."""
@@ -1503,17 +1447,10 @@ def select_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Ins
     fid = None
     if q.edge:
         if eff is not None:
-            if data_model != "doc" and sp.position == "scan":
-                fid = scan_known(schema, instance, table, eff, data_model, edge=True)
-            else:
-                fid = edge_case_known(table, eff, schema, instance).get(data_model)
-    elif sp.position == "index":
-        fid = node_case_known(table, eff, schema, instance).get(data_model) or index_door_known(q.where, rewrites.door[data_model][2], schema, instance)
+            fid = edge_case_known(table, eff, schema, instance).get(data_model)
     elif eff is not None:
         plain = node_case_known(table, eff, schema, instance).get(data_model)
-        if sp.position == "scan":
-            fid = scan_known(schema, instance, table, eff, data_model)
-        elif sp.position in ("poly", "polyin"):
+        if sp.position in ("poly", "polyin"):
             # the base-class query is not served by the subclass's LIST index
             # (campaign c100d, seed 1046): the list operators' scan faces apply
             fid = plain or list_ops_known(schema, table, eff, data_model, servable=False) or ("O5" if o5_poly_sibling_index(schema, table, eff, data_model) else None)

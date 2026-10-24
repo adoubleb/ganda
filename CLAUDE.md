@@ -74,10 +74,16 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
 
 ## OrientDB
 
+Ganda compares data models, not one data model's planner paths: no select position or
+form exists only to make a data model use or avoid an index (the `scan` / `nest`
+positions, the `index:` door, `jscan` and the semi-join's subquery-target rewrite were
+removed 2026-10-24). A pair differs in data model or in spelling (`rw`, `rev`, `arith`,
+`literal`, the forms, the base class); each data model keeps its own physical design.
+
 The engine rules are minimal records in `ganda/orientdb/rules/catalog.py`, as HANA's (the
 subjects are OrientDB SQL's execution paths: a scan, an index-served statement, MATCH,
-TRAVERSE, the script / transaction door, /batch, the `index:` door); the defects O1..O46
-(but O4) beside them; `rules/checks.py` lists the rules each probe check (C1..C338 in
+TRAVERSE, the script / transaction door, /batch); the defects O1..O46 (but O3, O4)
+beside them; `rules/checks.py` lists the rules each probe check (C1..C338 in
 `scripts/probe_osql.py`) asserts and the defects it reproduces (every defect has a check
 whose expected answer is the defect's). A failing check prints the rule that no
 longer holds, or the defect that no longer reproduces, and the code reading it. A rule
