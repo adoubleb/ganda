@@ -65,7 +65,7 @@ from ganda.orientdb.facade.predicates import fields_of, has_op
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
 
 from ganda.orientdb.rules import answer, assumes, works_around
-from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+from ganda.orientdb.rules.catalog import MATCH, REFUSED, SQL, TRAVERSE, Strategy
 from ganda.core.rules.vocabulary import EmptyInputRows
 
 SYNTAXES = {

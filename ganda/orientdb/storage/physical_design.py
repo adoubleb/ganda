@@ -21,8 +21,8 @@ from ganda.orientdb.storage.dialect import (
     is_valid_key,  # noqa: F401
 )
 
-from ganda.orientdb.rules import answer, assumes, works_around
-from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+from ganda.orientdb.rules import assumes
+from ganda.orientdb.rules.catalog import SQL
 
 _INDEX_KIND_WEIGHTS = {"NOTUNIQUE": 40, "UNIQUE": 10, "NOTUNIQUE_HASH_INDEX": 20, "UNIQUE_HASH_INDEX": 5, "DICTIONARY": 15}
 # the kinds a composite, an edge or a list index draws from

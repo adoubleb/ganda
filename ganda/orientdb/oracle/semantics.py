@@ -56,7 +56,7 @@ from ganda.core.query.ir.predicates import Compound
 from ganda.core.data.neighbours import shift_date
 from ganda.core.engine.provider import Semantics
 from ganda.orientdb.rules import answer, assumes, works_around
-from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+from ganda.orientdb.rules.catalog import SQL
 from ganda.core.rules.vocabulary import Logic, StringOrder
 
 
@@ -72,10 +72,6 @@ def f32(v: float) -> float:
         return struct.unpack("f", struct.pack("f", v))[0]
     except OverflowError:
         return v
-
-
-def f32_exact(v) -> bool:
-    return isinstance(v, bool) or not isinstance(v, float) or f32(v) == v
 
 
 def decimal_of(v) -> Decimal:

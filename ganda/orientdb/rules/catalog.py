@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import enum
 
-from ganda.core.rules.model import Defect, ErrorClass, ErrorKind, Kind, Question, Rule, Verdict
+from ganda.core.rules.model import Defect, Kind, Question, Rule, Verdict
 from ganda.core.rules.vocabulary import (
     FILTER_LOGIC,
     LIKE_CASE_SENSITIVE,

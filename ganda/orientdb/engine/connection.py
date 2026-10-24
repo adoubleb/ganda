@@ -1,6 +1,6 @@
 """Lifecycle management for an OrientDB server under test, plus a thin HTTP client.
 
-OrientDB is driven as a real server (Docker, `orientdb:latest`) over its REST API, so
+OrientDB is driven as a real server (Docker, `orientdb:3.2.57`) over its REST API, so
 the fuzzer exercises the path a real client would: `/command/<db>/sql` for one
 statement with named parameters, `/command/<db>/script` for a multi-statement script,
 `/batch/<db>` for a transactional batch. Every representation of one instance lives on
@@ -52,8 +52,8 @@ import requests
 
 from ganda.orientdb.storage.mapping.common import Batch, Script, Sql, resolve_refs
 from ganda.core.engine.provider import EngineCrash, EngineError, Server, Session
-from ganda.orientdb.rules import answer, assumes, works_around
-from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+from ganda.orientdb.rules import assumes
+from ganda.orientdb.rules.catalog import MATCH, REFUSED
 
 
 
@@ -65,7 +65,8 @@ class OrientCrash(EngineCrash):
     """The server could not be reached or replied with garbage."""
 
 
-DEFAULT_IMAGE = "orientdb:latest"
+# the build `rules/baseline.json` records (`orientdb:latest` drifts: 3.2.56 or 3.2.57 by host)
+DEFAULT_IMAGE = "orientdb:3.2.57"
 DEFAULT_PASSWORD = "fuzz"
 CONTAINER_LABEL = "orientdb-fuzzer=true"
 DEFAULT_TIMEOUT_MS = 30000

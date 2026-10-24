@@ -1,7 +1,7 @@
 """Which rules each probe check (`scripts/probe_osql.py`, ids C1..C338) checks, and which
 defects it reproduces: a check is listed against a rule only where it asserts that rule's
-answer (C31 asserts nothing: an empty class), against a defect
-only where its expected answer is the defect's (not the controls beside it)."""
+answer, against a defect only where its expected answer is the defect's (not the
+controls beside it)."""
 from __future__ import annotations
 
 from ganda.core.rules.model import Rule

@@ -186,7 +186,6 @@ from __future__ import annotations
 
 import dataclasses
 
-import math
 
 from ganda.orientdb.known_bugs.java_hash import distinct_collides
 from ganda.core.query.ir.select import TxWrite
@@ -471,12 +470,6 @@ def o11_shape(q: TraversalQuery, schema: Schema, instance: Instance, data_model:
     return False
 
 
-def _truncates(v) -> bool:
-    """A double whose conversion to a long changes the comparison: a fractional part,
-    or a magnitude at or beyond 2^53 (where the long is exact and the double is not)."""
-    return lossy_pivot(FieldType.INT, v)
-
-
 def _pivots(leaf) -> list:
     return leaf.pivot if isinstance(leaf.pivot, list) else [leaf.pivot]
 
@@ -486,10 +479,6 @@ def _column_type(schema: Schema, table: str, field_name: str, edge: bool) -> "Fi
         return schema.field(table, field_name, edge=edge).type
     except KeyError:
         return None
-
-
-def _int_column(schema: Schema, table: str, field_name: str, edge: bool) -> bool:
-    return _column_type(schema, table, field_name, edge) in (FieldType.INT, FieldType.INT32, FieldType.FLOAT32)
 
 
 def _field_indexes(schema: Schema, table: str, field_name: str, data_model: str, edge: bool) -> list:

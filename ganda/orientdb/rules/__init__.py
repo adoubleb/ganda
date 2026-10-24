@@ -5,7 +5,7 @@ import pathlib
 
 from ganda.core.rules.baseline import Baseline
 from ganda.core.rules.lookup import Lookup
-from ganda.core.rules.model import IR, Catalog  # noqa: F401 -- IR for the readers
+from ganda.core.rules.model import Catalog
 from ganda.orientdb.rules.catalog import DEFECTS, ERRORS, RULES, Subject
 from ganda.orientdb.rules.checks import CHECKS
 

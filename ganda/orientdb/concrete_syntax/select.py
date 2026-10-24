@@ -79,8 +79,8 @@ from ganda.orientdb.facade.predicates import MIRROR, Predicate
 from ganda.orientdb.concrete_syntax.support import METHODS  # noqa: F401 -- the method catalog
 from ganda.core.query.ir.select import DOC_EDGE_KINDS, SelectQuery, notnull_fields
 
-from ganda.orientdb.rules import answer, assumes, works_around
-from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+from ganda.orientdb.rules import assumes
+from ganda.orientdb.rules.catalog import REFUSED, SCRIPT, SQL
 
 FILTERS = ("plain", "rw", "rev", "arith", "literal")
 POSITIONS = ("table", "scan", "nest", "poly", "polyin", "index")

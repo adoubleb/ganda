@@ -314,7 +314,8 @@ Not run: the full 21-mutant benchmark at 8 trials, and long campaigns.
 O4 check (an equality through a DICTIONARY index answers every record) and three O18
 checks (a DESC walk of an index that ignores nulls answers rows) now fail, in the legacy
 tree's probe as well -- the engine, not the port. Since 2026-10-24 the probe targets
-3.2.57 (`rules/baseline.json`): O4 is retired (fixed), and O18 is narrowed -- 3.2.57's DESC
+3.2.57 (`rules/baseline.json`) and the provider's default image is pinned to
+`orientdb:3.2.57` (`orientdb:latest` is 3.2.56 on mousedeer): O4 is retired (fixed), and O18 is narrowed -- 3.2.57's DESC
 walk no longer answers nothing but lacks the null-key records as the ASC walk does, so
 the guard withholds a walk in either direction only where a record has a null key.
 Everything else below held.

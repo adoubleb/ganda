@@ -144,7 +144,9 @@ def main() -> int:
         check("C28", "sum over longs is exact", col(s, "SELECT sum(f1) AS v FROM n1"), [2**54 + 2])
         check("C29", "max ignores null, over nothing is null", col(s, "SELECT max(f1) AS v FROM n1 WHERE id = 'n1/r5'"), [None])
         check("C30", "sum over nothing is 0 (grouped)", col(s, "SELECT id, sum(f1) AS v FROM n1 WHERE id = 'n1/r5' GROUP BY id"), [0])
-        check("C31", ".size() on an absent list is 0", col(s, "SELECT e1.size() AS v FROM d1 WHERE id = 'x'"), [])
+        for q in ["CREATE CLASS d0", "CREATE PROPERTY d0.id STRING", "CREATE PROPERTY d0.e1 EMBEDDEDLIST", "INSERT INTO d0 SET id = 'n', e1 = null", "INSERT INTO d0 SET id = 'a'", "INSERT INTO d0 SET id = 'e', e1 = []"]:
+            s.sql(q)
+        check("C31", ".size() of a null, an absent and an empty list is 0, so `.size() = 0` holds for all three", (col(s, "SELECT e1.size() AS v FROM d0 ORDER BY id"), col(s, "SELECT id AS v FROM d0 WHERE e1.size() = 0 ORDER BY id")), ([0, 0, 0], ["a", "e", "n"]))
         s.sql("INSERT INTO d1 SET id = 'd1/r0'")
         check("C32", ".size() on an absent list is 0", col(s, "SELECT e1.size() AS v FROM d1"), [0])
         check("C33", "absent list projects null", col(s, "SELECT e1.target AS v FROM d1"), [None])

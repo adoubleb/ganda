@@ -53,8 +53,8 @@ from ganda.orientdb.facade.predicates import Predicate
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
 from ganda.core.query.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
 
-from ganda.orientdb.rules import answer, assumes, works_around
-from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+from ganda.orientdb.rules import assumes
+from ganda.orientdb.rules.catalog import REFUSED, SQL
 
 FILTERS = ("plain", "rw", "rev", "ar")
 TARGETS = ("table", "nest", "sub")

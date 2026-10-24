@@ -3,8 +3,8 @@ from __future__ import annotations
 from ganda.core.query.ir.path import PathQuery, distance
 from ganda.core.data.model import Instance, Schema
 
-from ganda.orientdb.rules import answer, assumes, works_around
-from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+from ganda.orientdb.rules import assumes, works_around
+from ganda.orientdb.rules.catalog import REFUSED, SQL, TRAVERSE
 from ganda.core.rules.vocabulary import EmptyInputRows
 
 _FN = {"OUT": "out", "IN": "in", "BOTH": "both"}

@@ -12,8 +12,8 @@ from ganda.orientdb.storage.dialect import HASH_KINDS, sql_op
 from ganda.orientdb.facade import predicates
 from ganda.orientdb.facade.predicates import Compound, Predicate
 from ganda.core.query.generators.support import bfs_distances, composite_and as _composite_and, draw_tx, tx_binds, tx_rows  # noqa: F401
-from ganda.orientdb.rules import answer, assumes, works_around
-from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+from ganda.orientdb.rules import assumes, works_around
+from ganda.orientdb.rules.catalog import REFUSED, SQL, INDEX_DOOR
 
 
 

@@ -15,8 +15,8 @@ from ganda.core.data.neighbours import _f32
 from ganda.core.data.model import DATE_TYPES, FieldType
 from ganda.orientdb.oracle.pivots import lossy_pivot
 from ganda.orientdb.oracle.semantics import apply_arith
-from ganda.orientdb.rules import answer, assumes, works_around
-from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+from ganda.orientdb.rules import assumes, works_around
+from ganda.orientdb.rules.catalog import SQL
 from ganda.core.rules.vocabulary import Logic
 
 
