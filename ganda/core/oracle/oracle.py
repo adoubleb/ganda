@@ -1,11 +1,11 @@
 """The metamorphic oracle: run a `QueryCase` against every data model and decide whether the
 answers are equivalent.
 
-Every unordered *pair* of data models (`doc`, `graph`, `rel`, plus every variant such
-as `graph:match` or `rel:flat`) is compared independently, and each `Mismatch` records
-which pair saw it (`CaseResult.failing_pairs`) -- the per-pair attribution that says
-whether a divergence is cross-model, or a same-database disagreement between two
-syntaxes over one storage layout.
+Every pair of two DATA MODELS asked in one spelling is compared independently
+(`case.comparable_pairs`): `doc:rw` with `graph:rw`, `graph:match` with `doc:path`, never
+`doc` with `doc:rw` -- Ganda's question is the multi-model relation, not whether two
+syntaxes of one data model agree. Each `Mismatch` records which pair saw it
+(`CaseResult.failing_pairs`).
 
 Normalization strips only *representation* artifacts:
 - a concrete syntax that answers one row per PATH (MATCH, an edge/junction scan, UNWIND) is
@@ -19,8 +19,8 @@ Normalization strips only *representation* artifacts:
 Numbers are NOT collapsed across types: every column has one declared type on every
 data model, so `5` against `5.0` for the same expression is a divergence.
 
-An error on some data models but not all is a finding (`error_asymmetry`); an error on every
-data model is consistent rejection. An *internal* error (a raw exception from inside the engine) is a
+An error on one side of a compared pair but not the other is a finding (`error_asymmetry`);
+an error on both sides of every compared pair is consistent rejection. An *internal* error (a raw exception from inside the engine) is a
 finding of its own class whether or not the data models agree on it. A variant that TIMES
 OUT (`EngineError.timeout`) is recorded in `CaseResult.timeouts` (the campaign counts
 them) and, by default, read as the rejection it is on a small instance -- a plan that
@@ -33,14 +33,13 @@ fault every variant shares is not seen.
 """
 from __future__ import annotations
 
-import itertools
 import json
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any
 
 from ganda.core.data.model import hashable_value
-from ganda.core.oracle.case import Comparison, QueryCase, data_model_of
+from ganda.core.oracle.case import Comparison, QueryCase, comparable_pairs, data_model_of
 from ganda.core.engine.provider import DEFAULT_SEMANTICS, EngineCrash, EngineError
 
 _BARE = (Comparison.SINGLE_VALUE, Comparison.NESTED_VALUE)
@@ -196,13 +195,11 @@ class CaseResult:
 
     @property
     def error_asymmetry(self) -> bool:
-        flags = [bool(self.errors.get(s)) for s in self.variants]
-        return any(flags) and not all(flags)
+        return any(bool(self.errors.get(a)) != bool(self.errors.get(b)) for a, b in comparable_pairs(self.case, self.variants))
 
     @property
     def symmetric_error(self) -> bool:
-        flags = [bool(self.errors.get(s)) for s in self.variants]
-        return bool(flags) and all(flags)
+        return any(self.errors.get(s) for s in self.variants) and not self.error_asymmetry
 
     @property
     def internal_error(self) -> bool:
@@ -211,7 +208,7 @@ class CaseResult:
     @property
     def failing_pairs(self) -> list:
         seen = {m.pair for m in self.mismatches}
-        return [f"{a}/{b}" for a, b in itertools.combinations(self.variants, 2) if f"{a}/{b}" in seen]
+        return [f"{a}/{b}" for a, b in comparable_pairs(self.case, self.variants) if f"{a}/{b}" in seen]
 
     @property
     def finding_class(self) -> "str | None":
@@ -235,11 +232,15 @@ class CaseResult:
 
     @property
     def asserts_anything(self) -> bool:
-        """Whether the case compared a non-empty answer: at least two variants answered
-        (a lone variant has nothing to be compared with) and no variant erred."""
-        if any(self.errors.values()) or len(self.variants) < 2:
+        """Whether the case compared a non-empty answer: a compared pair both answered (a
+        lone variant has nothing to be compared with) and no compared pair parts on an
+        error."""
+        answered = [s for s in self.variants if not self.errors.get(s)]
+        if self.error_asymmetry or not comparable_pairs(self.case, answered):
             return False
-        return any(not is_empty_value(v) for v in self.compared_values())
+        rows = self.rows.get(answered[0], [])
+        values = list(rows) if self.case.comparison in _BARE else [row.get(self.case.result_field) for row in rows if isinstance(row, dict)]
+        return any(not is_empty_value(v) for v in values)
 
 
 def run_case(case: QueryCase, sessions: dict, explain: bool = False, keep_known_bugs: bool = False, after_variant=None, timeouts_are_errors: bool = True) -> CaseResult:
@@ -252,8 +253,9 @@ def run_case(case: QueryCase, sessions: dict, explain: bool = False, keep_known_
     plans: dict = {}
     suppressed: dict = {}
     timeouts: dict = {}
+    partnered = {v for pair in comparable_pairs(case, case.variants) for v in pair}
     for variant in case.variants:
-        if data_model_of(variant) not in sessions:
+        if data_model_of(variant) not in sessions or variant not in partnered:
             continue
         if variant in case.known_bugs and not keep_known_bugs:
             suppressed[variant] = case.known_bugs[variant]
@@ -306,13 +308,15 @@ def build_result(case: QueryCase, rows: dict, errors: dict) -> CaseResult:
     erred alike) -- unless the provider says `compare_despite_errors`: the variants that
     answered are then compared among themselves, so an error asymmetry does not hide
     a wrong answer among the rest (the result carries both)."""
-    failed = any(errors.values())
-    if failed and not getattr(case.engine, "compare_despite_errors", False):
-        return CaseResult(case=case, ok=all(errors.values()), rows=rows, errors=errors)
-    asymmetry = failed and not all(errors.values())
+    answered = [s for s in case.variants if s in rows]
+    asymmetry = any(bool(errors.get(a)) != bool(errors.get(b)) for a, b in comparable_pairs(case, answered))
+    # an asymmetry ends the comparison unless the provider compares despite errors; a
+    # spelling refused on every data model leaves the others compared
+    if asymmetry and not getattr(case.engine, "compare_despite_errors", False):
+        return CaseResult(case=case, ok=False, rows=rows, errors=errors)
 
-    variants = [s for s in case.variants if s in rows and not errors.get(s)]
-    pairs = list(itertools.combinations(variants, 2))
+    variants = [s for s in answered if not errors.get(s)]
+    pairs = comparable_pairs(case, variants)
 
     if case.comparison in _BARE:
         normalized = {s: normalize_bare(case, rows[s]) for s in variants}

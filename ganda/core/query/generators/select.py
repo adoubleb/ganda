@@ -304,6 +304,7 @@ def build_case(q: SelectQuery, rng: random.Random, schema: Schema, instance: Ins
     queries: dict = {}
     known_bugs: dict = {}
     syntaxes: dict = {}
+    spellings: dict = {}
     for data_model in data_models:
         for sp in [syn.BASE] + chosen:
             if not syn.applicable(q, schema, sp, rewrites, data_model):
@@ -311,6 +312,8 @@ def build_case(q: SelectQuery, rng: random.Random, schema: Schema, instance: Ins
             name = data_model if sp == syn.BASE else f"{data_model}:{sp.tag}"
             queries[name] = syn.render(q, schema, sp, rewrites, data_model)
             syntaxes[name] = sp.tag or "base"
+            if sp != syn.BASE:
+                spellings[name] = sp.tag
             fid = engine.known_bugs.select_known(q, sp, rewrites, data_model, schema, instance)
             if fid:
                 known_bugs[name] = fid
@@ -324,7 +327,7 @@ def build_case(q: SelectQuery, rng: random.Random, schema: Schema, instance: Ins
     if set(syn.base_data_models(q)) != set(data_models):
         params["partial"] = True
     params.update(syn.rewrite_params(rewrites))
-    return QueryCase("ir_select", q.table if q.edge else "", q.comparison, queries, bind, params, shape=params["shape"], known_bugs=known_bugs, engine=engine)
+    return QueryCase("ir_select", q.table if q.edge else "", q.comparison, queries, bind, params, shape=params["shape"], known_bugs=known_bugs, spellings=spellings, engine=engine)
 
 
 def strata(schema: Schema, instance: Instance) -> list:

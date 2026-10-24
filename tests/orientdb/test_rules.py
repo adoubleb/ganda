@@ -68,3 +68,19 @@ def test_the_code_depends_on_what_it_reads():
     assert got["projection.keeps_absent_field (osql)"].caught == "import" and "concrete_syntax/traversal.py" in got["projection.keeps_absent_field (osql)"].detail
     assert got["without O18 (osql@index)"].caught == "import" and "known_bugs/guards.py" in got["without O18 (osql@index)"].detail
     assert got["exact.sum.int32.below (osql)"].caught == "output"
+
+
+def test_orientdb_compares_data_models_only():
+    from ganda.core.data.generator import build
+    from ganda.core.oracle.case import comparable_pairs, data_model_of
+    from ganda.core.query.generators.registry import all_cases
+    from ganda.orientdb import PROVIDER
+
+    cfg = PROVIDER.config_class()
+    schema, inst, rng = build(3, cfg, PROVIDER)
+    seen = 0
+    for case in all_cases(rng, schema, inst, cfg=cfg):
+        for a, b in comparable_pairs(case, case.variants):
+            assert data_model_of(a) != data_model_of(b) and case.spellings.get(a, "") == case.spellings.get(b, "")
+            seen += 1
+    assert seen

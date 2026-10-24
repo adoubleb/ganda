@@ -143,3 +143,25 @@ def test_every_finding_class_has_a_deduplication_key():
                     assert key[0] == case.generator_name and key[3] == r.finding_class and key[2]
                     seen.add(r.finding_class)
     assert set(tampers) <= seen
+
+
+
+def test_the_oracle_compares_one_spelling_across_data_models():
+    from ganda.core.oracle.case import Comparison, QueryCase, comparable_pairs
+    from ganda.core.oracle.oracle import build_result
+
+    engine = FakeProvider()
+    case = QueryCase("ir_select", "", Comparison.SET_BY_ID, {"doc": "q", "graph": "q", "rel": "q", "graph:match": "q", "doc:rw": "q", "rel:rw": "q", "rel:lone": "q"},
+                     spellings={"doc:rw": "rw", "rel:rw": "rw", "rel:lone": "lone"}, engine=engine)
+    pairs = {f"{a}/{b}" for a, b in comparable_pairs(case, case.variants)}
+    # the plain spelling across data models (whatever the model's syntax), the rewrite
+    # across data models; never two variants of one data model, never two spellings
+    assert pairs == {"doc/graph", "doc/rel", "doc/graph:match", "graph/rel", "graph:match/rel", "doc:rw/rel:rw"}
+    row = [{"id": 1, "v": 1}]
+    plain = {"doc": row, "graph": row, "rel": row}
+    # doc:rw and rel:rw refuse alike: no finding, the plain spelling still compared
+    r = build_result(case, {**plain, "graph:match": [{"id": 1, "v": 2}], "doc:rw": [], "rel:rw": []}, {"doc:rw": "refused", "rel:rw": "refused"})
+    assert not r.error_asymmetry and r.symmetric_error and r.failing_pairs == ["doc/graph:match", "graph:match/rel"]
+    # one side of a compared pair erred: an error asymmetry
+    r = build_result(case, {**plain, "graph:match": row, "doc:rw": [], "rel:rw": row}, {"doc:rw": "refused"})
+    assert r.error_asymmetry and not r.ok

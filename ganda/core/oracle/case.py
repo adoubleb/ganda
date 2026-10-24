@@ -39,6 +39,11 @@ class QueryCase:
     known_bugs: dict = field(default_factory=dict)
     # variant -> engine options the session passes through with the text (a plan hint)
     variant_options: dict = field(default_factory=dict)
+    # variant -> its spelling at the IR level (a rewritten filter, a form: the same choice
+    # on every data model); absent: the plain spelling. The oracle pairs a variant with
+    # the same spelling on another data model, whatever the data model's own syntax
+    # (`graph:match` / `doc:path`), never with another variant of its own data model
+    spellings: dict = field(default_factory=dict)
     # the provider the texts are written for (None: the standard three data models and
     # the core's default value order)
     engine: Any = field(default=None, compare=False, repr=False)
@@ -79,3 +84,12 @@ class QueryCase:
 
 def data_model_of(variant: str) -> str:
     return variant.split(":", 1)[0]
+
+
+def comparable_pairs(case: QueryCase, variants: list) -> list:
+    """The pairs of `variants` the oracle compares: two DATA MODELS asked in one spelling.
+    Ganda's question is the multi-model relation, so two syntaxes of one data model are
+    never compared, nor two spellings."""
+    import itertools
+
+    return [(a, b) for a, b in itertools.combinations(variants, 2) if data_model_of(a) != data_model_of(b) and case.spellings.get(a, "") == case.spellings.get(b, "")]
