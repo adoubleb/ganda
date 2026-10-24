@@ -26,6 +26,8 @@ created with the DDL, before the data.
 """
 from __future__ import annotations
 
+from ganda.hana.rules import assumes
+from ganda.hana.rules.catalog import ACCEPTED, GRAPHSCRIPT, REFUSED
 from ganda.core.data.model import Instance, Schema
 from ganda.hana.storage import physical_design
 from ganda.hana.storage.dialect import GRAPH_WORKSPACE, SCHEMA_TOKEN, graph_columns, graph_label, graph_view
@@ -81,6 +83,11 @@ SCRIPT_PROCEDURES = (
     f'CREATE PROCEDURE p_gs_path_kind (IN sv_ia NVARCHAR(256), IN sv_ib NVARCHAR(256), IN sv_kind NVARCHAR(256), IN sv_dir NVARCHAR(16), OUT sv_o TABLE (ID NVARCHAR(256))) LANGUAGE GRAPH READS SQL DATA AS BEGIN GRAPH sv_g = Graph("{SCHEMA_TOKEN}", "{SCRIPT_WORKSPACE.upper()}"); GRAPH sv_sg = SubGraph(:sv_g, sv_e IN Edges(:sv_g) WHERE :sv_e."KIND" == :sv_kind); {_PATH_BODY.format(g="sv_sg")} END',
 )
 
+
+# GraphScript compiles over a homogeneous workspace only (so `gws`, keys only), and takes
+# the direction of a shortest path as a parameter
+assumes("accepts.workspace.heterogeneous", GRAPHSCRIPT, REFUSED)
+assumes("accepts.shortest_path.direction_parameter", GRAPHSCRIPT, ACCEPTED)
 
 def script_ddl(schema: Schema) -> list:
     """GraphScript's own workspace (probe G35: GraphScript compiles over a HOMOGENEOUS

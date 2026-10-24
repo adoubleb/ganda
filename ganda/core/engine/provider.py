@@ -151,6 +151,11 @@ class Server:
         """What is known about a server that crashed (logs, exit state)."""
         return ""
 
+    def version(self) -> "str | None":
+        """The engine's build, which a campaign compares with the provider's baseline at
+        startup (None: the server cannot say, and nothing is compared)."""
+        return None
+
 
 class Provider:
     """One DBMS behind the core. The attributes are the SLOTS the core reads; a slot may
@@ -195,6 +200,8 @@ class Provider:
     mutants         the mutation benchmark's catalog (`ganda.core.mutation.mutants`)
     rules           `ganda.core.rules.Catalog`: the engine rules as typed records (None:
                     the provider has no catalog yet); `ganda <engine> rules` renders it
+    baseline        `ganda.core.rules.baseline.Baseline`: the build the probe last
+                    verified; a campaign against a server of another build warns at startup
     extra_generators  {generator name: (rng, schema, instance, cfg) -> cases}: the
                     engine-only query generators
     compare_despite_errors  the oracle compares the variants that answered when another
@@ -223,6 +230,7 @@ class Provider:
     known_bugs = None
     mutants: list = []
     rules = None  # a `ganda.core.rules.Catalog`
+    baseline = None  # a `ganda.core.rules.baseline.Baseline`
     extra_generators: dict = {}
     coverage_levels = ("off", "seed", "case", "variant")
     # False for a provider that only has its connection layer so far

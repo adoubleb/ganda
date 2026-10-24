@@ -8,9 +8,8 @@ import pytest
 
 from ganda.core.engine.provider import EngineCrash, EngineError
 from ganda.core.rules.model import ErrorKind, validate
-from ganda.core.rules.render import render
 from ganda.hana.engine import connection
-from ganda.hana.rules import CATALOG
+from ganda.hana.rules import CATALOG, read_index, rendered
 from ganda.hana.scripts import probe
 
 HANA = pathlib.Path(__file__).resolve().parents[2] / "ganda" / "hana"
@@ -25,28 +24,31 @@ def test_every_defect_has_its_finding():
     assert [d.id for d in CATALOG.defects if not any(n.startswith(f"{d.id}-") for n in names)] == []
 
 
-def test_the_connection_holds_the_catalogs_error_codes():
-    by_kind = {}
-    for e in CATALOG.errors:
-        by_kind.setdefault(e.kind, []).append(e)
-    assert set(connection.CONNECTION_LOST) == set(by_kind[ErrorKind.CONNECTION_LOST][0].codes)
-    assert set(connection.TIMEOUT_CODES) == set(by_kind[ErrorKind.TIMEOUT][0].codes)
-    assert set(connection.INTERNAL_CODES) == set(by_kind[ErrorKind.INTERNAL][0].codes)
-    assert tuple(connection.INTERNAL_TEXTS) == by_kind[ErrorKind.INTERNAL][1].marks
-    assert tuple(connection.REJECTION_129) == by_kind[ErrorKind.REJECTION][0].marks
+# (code, message, the kind the engine's error is): connection lost, timeouts by code and by
+# message, the triple store's 129 wrapping an ordinary refusal, internal failures by code
+# and by message, and ordinary refusals (a cypher compile error naming an exception too)
+SAMPLES = [
+    (-10709, "Socket closed by peer", ErrorKind.CONNECTION_LOST),
+    (613, "execution aborted by timeout", ErrorKind.TIMEOUT),
+    (1, "Timeout: statement aborted", ErrorKind.TIMEOUT),
+    (129, "generic. Error - syntax", ErrorKind.REJECTION),
+    (129, "Unsupported functionality: MEDIAN", ErrorKind.REJECTION),
+    (129, "transaction rolled back by an internal error", ErrorKind.INTERNAL),
+    (3, "fatal error: Execution flow must not reach here", ErrorKind.INTERNAL),
+    (2048, "column store error", ErrorKind.INTERNAL),
+    (7, "an assertion failed", ErrorKind.INTERNAL),
+    (4906, "GraphEngine: OpenCypher compilation error", ErrorKind.REJECTION),
+    (4901, "compilation failed: exception 42", ErrorKind.REJECTION),
+    (301, "unique constraint violated", ErrorKind.REJECTION),
+    (0, "", ErrorKind.REJECTION),
+]
 
 
-SAMPLES = [(-10709, "Socket closed by peer"), (613, "execution aborted by timeout"), (1, "Timeout: statement aborted"), (129, "generic. Error - syntax"), (129, "transaction rolled back by an internal error"),
-           (3, "fatal error: Execution flow must not reach here"), (2048, "column store error"), (4906, "GraphEngine: OpenCypher compilation error"), (7, "an assertion failed"), (301, "unique constraint violated"),
-           (129, "Unsupported functionality: MEDIAN"), (4901, "compilation failed: exception 42"), (0, "")]
-
-
-@pytest.mark.parametrize("code,text", SAMPLES)
-def test_the_catalog_classifies_errors_as_the_connection_does(code, text):
+@pytest.mark.parametrize("code,text,kind", SAMPLES)
+def test_the_connection_classifies_errors_by_the_catalog(code, text, kind):
     e = connection._error(types.SimpleNamespace(errorcode=code, errortext=text))
     seen = ErrorKind.CONNECTION_LOST if isinstance(e, EngineCrash) else ErrorKind.TIMEOUT if e.timeout else ErrorKind.INTERNAL if e.internal else ErrorKind.REJECTION
-    assert isinstance(e, (EngineCrash, EngineError))
-    assert CATALOG.classify(code, text) is seen
+    assert isinstance(e, (EngineCrash, EngineError)) and seen is kind and CATALOG.classify(code, text) is kind
 
 
 def test_the_probe_names_the_rules_a_failing_fact_checks():
@@ -55,4 +57,4 @@ def test_the_probe_names_the_rules_a_failing_fact_checks():
 
 
 def test_the_generated_rules_are_current():
-    assert (HANA / "rules" / "RULES.md").read_text() == render(CATALOG), "run `python3 -m ganda hana rules --write`"
+    assert (HANA / "rules" / "RULES.md").read_text() == rendered(), "run `python3 -m ganda hana rules --write`"

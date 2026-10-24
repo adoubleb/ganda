@@ -28,7 +28,15 @@ solution's bindings.
 from __future__ import annotations
 
 from ganda.core.query.ir.predicates import MIRROR, Compound
+from ganda.core.rules.vocabulary import Logic
+from ganda.hana.rules import assumes, works_around
+from ganda.hana.rules.catalog import SPARQL
 from ganda.hana.storage.dialect import child_table, sparql_literal
+
+# the rdf `native` variants rest on SPARQL's error propagation (three-valued as SQL);
+# the never-bound variable is declared by a never-matching OPTIONAL (A6)
+assumes("filter.logic", SPARQL, Logic.KLEENE)
+works_around("A6")
 
 UNKNOWN_VAR = "?ganda_unknown"
 

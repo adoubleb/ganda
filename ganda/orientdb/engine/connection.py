@@ -52,6 +52,9 @@ import requests
 
 from ganda.orientdb.storage.mapping.common import Batch, Script, Sql, resolve_refs
 from ganda.core.engine.provider import EngineCrash, EngineError, Server, Session
+from ganda.orientdb.rules import answer, assumes, works_around
+from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+
 
 
 class OrientError(EngineError):
@@ -114,6 +117,10 @@ def unwrap_script(result: list) -> list:
         v = result[0]["value"]
         return [strip_meta(r) if isinstance(r, dict) else r for r in v] if isinstance(v, list) else [v]
     return result
+
+
+# a SELECT carries TIMEOUT; MATCH (and DELETE) take none
+assumes("accepts.match.timeout", MATCH, REFUSED)
 
 
 class OrientSession(Session):
@@ -551,6 +558,10 @@ class OrientServer(Server):
     def databases(self) -> list:
         r = self._root().get(f"{self.base_url}/listDatabases", timeout=30)
         return sorted(r.json().get("databases", []))
+
+    def version(self) -> str:
+        r = self._root().get(f"{self.base_url}/server/version", timeout=30)
+        return r.text.strip()
 
     def session(self, db: str) -> OrientSession:
         return OrientSession(self.base_url, self.password, db=db, timeout=max(120.0, self.query_timeout_ms / 1000.0 + 60.0), query_timeout_ms=self.query_timeout_ms)

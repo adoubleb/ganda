@@ -16,6 +16,8 @@ import json
 from ganda.core.query.ir.select import TxWrite
 from ganda.core.data.model import FieldType, Schema
 from ganda.hana.concrete_syntax import document
+from ganda.hana.rules import assumes
+from ganda.hana.rules.catalog import COLLECTION, SPARQL
 from ganda.hana.storage.dialect import GRAPH_TOKEN, PREFIX_TEXT, child_table, record_iri, sparql_literal, sparql_string
 
 TX_MARK = "/* ganda:tx */"
@@ -65,6 +67,8 @@ def _rel(tx: TxWrite, schema: Schema) -> list:
     return [f"UPDATE {t} SET {f} = {rhs} WHERE id = :tid"] + elements
 
 
+assumes("transaction.joins_sql_transaction", COLLECTION, True)
+
 def _doc(tx: TxWrite, schema: Schema) -> list:
     t, f = tx.table, tx.field
     key = f"WHERE {document.path('id')} = CAST(:tid AS NVARCHAR(256))"
@@ -77,6 +81,8 @@ def _doc(tx: TxWrite, schema: Schema) -> list:
         return [f"UPDATE {t} UNSET {document.path(f)} {key}"]
     return [f"UPDATE {t} SET {document.path(f)} = PARSE_JSON(:tv__json) {key}"]
 
+
+assumes("transaction.joins_sql_transaction", SPARQL, True)
 
 def _rdf(tx: TxWrite, schema: Schema) -> list:
     t, f = tx.table, tx.field

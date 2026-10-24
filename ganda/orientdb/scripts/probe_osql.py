@@ -2,7 +2,11 @@
 """Re-check every OrientDB SQL fact the fuzzer's design rests on, live, and exit
 non-zero if one has changed. Each check is one statement (or a few) with the expected
 answer that was observed on 3.2.56; a change means a template, a guard or the
-semantics needs a second look before the next campaign.
+semantics needs a second look before the next campaign: the output names the rule a
+failing check checks, or the defect it reproduces, and the code reading it. A failing
+check of a rule (or of nothing in the catalog) fails the run; a defect that no longer
+reproduces is recorded as fixed on the build. A run in which every check of a rule holds
+writes `rules/baseline.json` and re-renders `RULES.md`.
 
     python3 -m ganda orientdb probe                # Docker
     ORIENT_URL=http://127.0.0.1:2480 ORIENT_PASSWORD=fuzz python3 -m ganda orientdb probe
@@ -10,20 +14,25 @@ semantics needs a second look before the next campaign.
 from __future__ import annotations
 
 import base64
+import pathlib
 import sys
 
+from ganda.core.rules.model import Defect
 from ganda.orientdb.engine.connection import OrientError, OrientServer  # noqa: E402
 from ganda.orientdb.engine.limits import HTTP_MAX_LENGTH  # noqa: E402
 
 DB = "fz_probe_osql"
+ran: list = []
 failures: list = []
 
 
 def check(fid: str, name: str, got, expected) -> None:
-    """One fact: `fid` names it in `rules/checks.py`, which lists the rules it checks."""
+    """One fact: `fid` names it in `rules/checks.py`, which lists the rules it checks and
+    the defects it reproduces."""
     ok = got == expected
     print(f"{'ok  ' if ok else 'FAIL'} {fid:5s} {name}: {got!r}" + ("" if ok else f"  (expected {expected!r})"))
-    if not ok:
+    ran.append(fid)
+    if not ok and fid not in failures:
         failures.append(fid)
 
 
@@ -196,8 +205,8 @@ def main() -> int:
         s.sql("CREATE CLASS k1"); s.sql("CREATE PROPERTY k1.f STRING"); s.sql("CREATE INDEX k1_f ON k1 (f) DICTIONARY")
         for i in range(3):
             s.sql("INSERT INTO k1 SET f = 'dup'")
-        check("C75", "O4: an equality through a DICTIONARY index returns one of three records", len(rows(s, "SELECT FROM k1 WHERE f = 'dup'")), 1)
-        check("C76", "O4: ... a range through it returns all three", len(rows(s, "SELECT FROM k1 WHERE f > 'a'")), 3)
+        check("C75", "an equality through a DICTIONARY index answers every record holding the key (O4 on 3.2.56: one of three)", len(rows(s, "SELECT FROM k1 WHERE f = 'dup'")), 3)
+        check("C76", "... a range through it too", len(rows(s, "SELECT FROM k1 WHERE f > 'a'")), 3)
 
         print("--- lists, links and composite indexes (O7-O11)")
         s.sql("CREATE CLASS l1"); s.sql("CREATE PROPERTY l1.f5 EMBEDDEDLIST LONG"); s.sql("CREATE PROPERTY l1.e1 EMBEDDEDLIST")
@@ -292,7 +301,7 @@ def main() -> int:
         check("C121", "... with ignoreNullValues: true it accepts any number of them", err(s, "INSERT INTO u2 SET g = 'b'"), "ok")
         for g, f in (("c", 5), ("d", 1), ("e", 9)):
             s.sql("INSERT INTO u2 SET g = :g, f = :f", {"g": g, "f": f})
-        check("C122", "O18: ORDER BY f DESC served from an index that ignores nulls returns no rows", col(s, "SELECT g AS v FROM u2 ORDER BY f DESC"), [])
+        check("C122", "O18: ORDER BY f DESC served from an index that ignores nulls omits the null records (3.2.56: no rows)", col(s, "SELECT g AS v FROM u2 ORDER BY f DESC"), ["e", "c", "d"])
         check("C123", "O18: ... ORDER BY f ASC omits the null records", col(s, "SELECT g AS v FROM u2 ORDER BY f ASC"), ["d", "c", "e"])
         check("C124", "O18: ... a second key sorts and is right", col(s, "SELECT g AS v FROM u2 ORDER BY f DESC, g ASC"), ["a", "b", "e", "c", "d"])
         check("C125", "O18: ... max() is right", col(s, "SELECT max(f) AS v FROM u2"), [9])
@@ -445,7 +454,7 @@ def main() -> int:
         check("C203", "nulls sort last ascending and first descending, per key", (col(s, "SELECT id AS v FROM ob ORDER BY f ASC, g ASC, id ASC"), col(s, "SELECT id AS v FROM ob ORDER BY f DESC, g DESC, id ASC")), (["r2", "r0", "r1", "r6", "r4", "r3", "r5"], ["r5", "r3", "r4", "r6", "r1", "r0", "r2"]))
         s.sql("CREATE INDEX ob_fg ON ob (f, g) NOTUNIQUE METADATA {ignoreNullValues: true}")
         check("C204", "O18: ORDER BY walked from a composite index that ignores nulls lacks every record with a null key", col(s, "SELECT id AS v FROM ob ORDER BY f ASC, g ASC"), ["r2", "r0", "r6"])
-        check("C205", "O18: ... and answers nothing descending", col(s, "SELECT id AS v FROM ob ORDER BY f DESC, g DESC"), [])
+        check("C205", "O18: ... descending too (3.2.56: nothing)", col(s, "SELECT id AS v FROM ob ORDER BY f DESC, g DESC"), ["r6", "r0", "r2"])
         s.sql("DROP INDEX ob_fg"); s.sql("CREATE INDEX ob_fg ON ob (f, g) NOTUNIQUE METADATA {ignoreNullValues: false}")
         check("C206", "O23: ORDER BY walked from a composite index that keeps nulls puts them FIRST ascending", col(s, "SELECT id AS v FROM ob ORDER BY f ASC, g ASC"), ["r5", "r3", "r1", "r2", "r0", "r4", "r6"])
         check("C207", "O23: ... and LAST descending", col(s, "SELECT id AS v FROM ob ORDER BY f DESC, g DESC"), ["r6", "r4", "r0", "r2", "r1", "r3", "r5"])
@@ -604,7 +613,7 @@ def main() -> int:
         none = "FROM sq WHERE f > 100"
         check("C285", "count(*) and count(f) over no rows answer 0; max / sum / avg / median / set answer NO row", [rows(s, f"SELECT {fn} AS v {none}") for fn in ("count(*)", "count(f)", "max(f)", "sum(f)", "avg(f)", "median(f)", "set(f)")], [[{"v": 0}], [{"v": 0}], [], [], [], [], []])
         check("C286", "... over rows that are all null: max null, sum 0, set().size() 0", [col(s, f"SELECT {fn} AS v FROM sq WHERE f IS NULL") for fn in ("max(f)", "sum(f)", "set(f).size()")], [[None], [0], [0]])
-        check("C287", "O18 under a WHERE on another field: the DESC walk still answers no rows; over a subquery target it sorts", (col(s, "SELECT f AS v FROM sq WHERE b = true ORDER BY f DESC", key="v"), col(s, "SELECT f AS v FROM (SELECT FROM sq WHERE b = true) ORDER BY f DESC"), col(s, "SELECT f AS v FROM (SELECT FROM sq) WHERE b = true ORDER BY f DESC")), ([], [None, 3, 1], [None, 3, 1]))
+        check("C287", "O18 under a WHERE on another field: the DESC walk still omits the null record (3.2.56: no rows); over a subquery target it sorts", (col(s, "SELECT f AS v FROM sq WHERE b = true ORDER BY f DESC", key="v"), col(s, "SELECT f AS v FROM (SELECT FROM sq WHERE b = true) ORDER BY f DESC"), col(s, "SELECT f AS v FROM (SELECT FROM sq) WHERE b = true ORDER BY f DESC")), ([3, 1], [None, 3, 1], [None, 3, 1]))
         check("C288", "a subquery target keeps the class's collation and definedness", (sorted(col(s, "SELECT id AS v FROM (SELECT FROM sq) WHERE g = :p", {"p": "AB"})), col(s, "SELECT id AS v FROM (SELECT FROM sq) WHERE g IS NOT DEFINED")), (["a", "b"], []))
         check("C289", "GROUP BY / DISTINCT / UNWIND / SKIP-LIMIT over a subquery target", (sorted(col(s, "SELECT count(*) AS v FROM (SELECT FROM sq WHERE f > 0) GROUP BY b")), sorted(col(s, "SELECT v FROM (SELECT list(f) AS v FROM (SELECT FROM sq WHERE f > 0) UNWIND v) WHERE v IS NOT NULL")), col(s, "SELECT id AS v FROM (SELECT FROM sq WHERE f > 0) ORDER BY f DESC, id ASC SKIP 1 LIMIT 1")), ([1, 2], [1, 3, 7], ["a"]))
         check("C290", "the index: door of a composite ignoring nulls has no entry for a record with a null component (the prefix key misses it; the planner scans the prefix)", (sorted(col(s, "SELECT rid.id AS v FROM index:sq_bf WHERE key = :k", {"k": [True]})), sorted(col(s, "SELECT id AS v FROM sq WHERE b = :p", {"p": True}))), (["a", "b"], ["a", "b", "c"]))
@@ -860,18 +869,63 @@ def main() -> int:
 
         check("C330", "a `TIMEOUT ... EXCEPTION` that fires is OTimeoutException, classified as a timeout (no answer), never as a rejection", timed_out() in ("answered", "timeout"), True)
         server.drop_database(DB)
+        version = server.version()
 
-    print(f"\n{len(failures)} fact(s) changed" if failures else "\nall facts hold")
+    from ganda.orientdb import rules
+
+    blocking, fixed = _sort_failures(rules.CATALOG)
+    print(f"\n{len(failures)} fact(s) changed on {version}: {len(blocking)} of rules, {len(failures) - len(blocking)} of defects" if failures else f"\nall facts hold on {version}")
+    index = rules.read_index() if failures else {}
     for fid in failures:
-        print(f"  {fid} checks: {', '.join(checked_by(fid))}")
-    return 1 if failures else 0
+        for line in consequences(fid, index):
+            print(f"  {fid} {line}")
+    print(rules.BASELINE.record(version, [fid for fid in dict.fromkeys(ran) if fid not in failures], fixed, blocking))
+    if not blocking:
+        path = pathlib.Path(rules.__file__).with_name("RULES.md")
+        path.write_text(rules.rendered())
+        print(f"re-rendered {path}")
+    return 1 if blocking else 0
+
+
+def _sort_failures(catalog) -> "tuple[list, dict]":
+    """The failing checks that block (a rule changed, or a fact the catalog does not
+    hold), and the defects fixed: {defect id: the failing checks that reproduced it}."""
+    blocking, fixed = [], {}
+    for fid in failures:
+        items = catalog.checks.get(fid, ())
+        if items and all(isinstance(i, Defect) for i in items):
+            for d in items:
+                fixed.setdefault(d.id, []).append(fid)
+        else:
+            blocking.append(fid)
+    return blocking, fixed
+
+
+def _name(item) -> str:
+    return f"{item.id} ({item.subject.value})" if isinstance(item, Defect) else f"{item.question.name} ({item.subject.value})"
 
 
 def checked_by(fid: str) -> list:
-    """The rules of `rules/catalog.py` a probe check checks (`rules/checks.py`)."""
+    """The rules a probe check checks and the defects it reproduces (`rules/checks.py`)."""
     from ganda.orientdb.rules import CATALOG
 
-    return [f"{r.question.name} ({r.subject.value})" for r in CATALOG.checks.get(fid, ())] or ["no rule"]
+    return [_name(item) for item in CATALOG.checks.get(fid, ())] or ["no rule"]
+
+
+def consequences(fid: str, index: dict) -> list:
+    """What a failing check means: each rule it checks no longer holds, each defect it
+    reproduces is gone, with the code reading them (`rules.read_index`)."""
+    from ganda.orientdb.rules import CATALOG
+
+    out = []
+    for item in CATALOG.checks.get(fid, ()):
+        if isinstance(item, Defect):
+            what, reads = "no longer reproduces", index["defects"].get(item.id, [])
+        else:
+            what, reads = "no longer holds", index["rules"].get((item.question.name, item.subject), [])
+        sites = ", ".join(f"{r.path.removeprefix('ganda/orientdb/')}:{r.line}" for r in reads)
+        out.append(f"{_name(item)} {what}: read by {sites or 'nothing'}")
+    return out or ["checks no rule"]
 
 
 if __name__ == "__main__":

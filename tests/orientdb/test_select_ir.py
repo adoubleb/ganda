@@ -53,7 +53,9 @@ def test_syntax_tags_and_applicability():
 
 
 def test_order_walk_guards_hold_on_the_class_only():
-    ix = IndexSpec("n1", "f1", data_model="graph", kind="NOTUNIQUE", ignore_nulls=True)
+    # a composite index ignoring nulls skips n1/3 (f1 present, f2 absent), so the order
+    # form's `max` misses it
+    ix = IndexSpec("n1", "f1", extra_fields=("f2",), data_model="graph", kind="NOTUNIQUE", ignore_nulls=True)
     schema, inst = _fixture([ix])
     q = SelectQuery("n1", None, "agg", ("f1",), fn="max")
     rewrites = Rewrites(present=[3, 1, 3, 7])
@@ -63,6 +65,18 @@ def test_order_walk_guards_hold_on_the_class_only():
     keys = SelectQuery("n1", _gt("f3", 0), "keys", ("f1",), directions=("DESC",))
     assert select_known(keys, BASE, Rewrites(), "graph", schema, inst) == "O18"
     assert select_known(keys, SelectSyntax(position="nest"), Rewrites(), "graph", schema, inst) is None
+
+
+def test_o18_needs_a_null_key_on_3_2_57():
+    # a single-field index ignoring nulls: the walk lacks only the null records, which
+    # the order form's `IS NOT NULL` excludes; the keys kind lacks n1/2 (no f1)
+    schema, inst = _fixture([IndexSpec("n1", "f1", data_model="graph", kind="NOTUNIQUE", ignore_nulls=True)])
+    q = SelectQuery("n1", None, "agg", ("f1",), fn="max")
+    assert select_known(q, SelectSyntax(form="order"), Rewrites(present=[3, 1, 3, 7]), "graph", schema, inst) is None
+    keys = SelectQuery("n1", _gt("f3", 0), "keys", ("f1",), directions=("DESC",))
+    assert select_known(keys, BASE, Rewrites(), "graph", schema, inst) == "O18"
+    full = Instance(schema, [n for n in inst.nodes if n.values.get("f1") is not None], [])
+    assert select_known(keys, BASE, Rewrites(), "graph", schema, full) is None
 
 
 def test_scan_target_keeps_only_the_scan_only_bugs():

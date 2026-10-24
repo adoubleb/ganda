@@ -97,7 +97,7 @@ file. Listed so you can see what was NOT a HANA issue.
   re-probed live: B9 and B10 moved to A (A5, A6); B1, B4, B5 and B8 kept B with corrected claims.
 - Code 129 ("transaction rolled back by an internal error") is how the triple store reports EVERY
   refusal (a syntax error too), and how the Document Store reports a string MAX: it marks no
-  internal failure there (`connection.REJECTION_129`).
+  internal failure there (the error classes in `ganda/hana/rules/catalog.py`).
 - The campaign's own bug bundles (`bugs/`) are the raw evidence (every variant's text, binds,
   rows, mismatches); this folder distils them into runnable, minimal repros.
 - `TRANSCRIPT.txt` is a captured run of every repro here. `campaign-round4-clean-stats.json` is the

@@ -6,6 +6,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
+from ganda.hana.rules import assumes, works_around
+from ganda.hana.rules.catalog import COLLECTION, OPENCYPHER, SPARQL, SQL
 from ganda.core.data.generator import GeneratorConfig
 
 
@@ -17,7 +19,8 @@ class HanaConfig(GeneratorConfig):
         "graph_cache_probability": "chance the graph workspace is created NO CACHE (graph data model)",
     }
 
-    # HANA must have at least 2 node classes or else, bug H7 will trigger
+    # two node classes keep the graph workspace heterogeneous: over ONE vertex table and
+    # one edge table a labelled MATCH fails (defect A7)
     min_node_types: int = 2
     # the index on `id`, per data model: one of `dialect.ID_INDEX_KINDS` instead of the
     # PRIMARY KEY (rel) / no index (doc)
@@ -38,6 +41,13 @@ class HanaConfig(GeneratorConfig):
 # inheritance axis is modelled too (`mapping/relational.py`: the base class as a UNION
 # ALL view; `mapping/rdf.py`: a second class triple; the graph data model's unlabelled
 # MATCH; the doc views' union).
+works_around("A7")
+# the custom-key axis is drawn because every style round-trips and orders alike
+assumes("exact.custom_key", SQL, True)
+assumes("exact.custom_key", COLLECTION, True)
+assumes("exact.custom_key", SPARQL, True)
+assumes("exact.custom_key", OPENCYPHER, True)
+
 UNSUPPORTED_AXES = {
     "narrow_type_probability": "INTEGER / REAL / DECIMAL columns: the conversions of a REAL against a double and of a DECIMAL in the doc and rdf data models are not modelled",
     "date_map_probability": "TIMESTAMP / DATE and map columns: no date literal or map form is modelled across the four data models",

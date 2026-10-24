@@ -56,6 +56,9 @@ from ganda.core.data.model import (
 )
 from ganda.orientdb.storage.dialect import DEFAULT_ID_INDEX, ORIENT_TYPES, UNIQUE_KINDS
 from ganda.orientdb.engine.limits import LIMITS
+from ganda.orientdb.rules import answer, assumes, works_around
+from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+
 
 
 # --- setup plan vocabulary ---------------------------------------------------------------
@@ -140,6 +143,10 @@ def id_index_step(table: str, schema: Schema, data_model: str) -> list:
     return [Sql(f"CREATE INDEX {table}_id ON {table} (id) {kind}")]
 
 
+# a UNIQUE index keeps an absent field as the key null unless told: metadata is explicit
+assumes("index.unique.default_ignores_nulls", SQL_INDEX, False)
+
+
 def index_step(ix: IndexSpec) -> Sql:
     """The metadata is always explicit: the engine's default is `ignoreNullValues:
     false` (probed: a UNIQUE index created without metadata treats an absent field as
@@ -204,6 +211,9 @@ def insert_step(table: str, doc: dict, form: WriteForm, vertex: bool = False) ->
             params[f"v{i}"] = v
         return Sql(f"INSERT INTO {table} ({cols}) VALUES ({vals})", params, capture=doc["id"])
     return Sql(f"{verb} SET {_set_clause(doc, params)}", params, capture=doc["id"])
+
+
+assumes("accepts.update.increment", SQL, REFUSED)
 
 
 def _arith_set_clause(table: str, schema: Schema, initial: dict, final: dict, params: dict) -> str:
@@ -379,6 +389,11 @@ def _refs_in(value: Any) -> set:
     return set()
 
 
+# /batch binds positionally and stringifies a map: a step with one runs outside it
+assumes("accepts.named_parameter", BATCH, REFUSED)
+assumes("accepts.map_parameter", BATCH, REFUSED)
+
+
 def _has_complex_param(step: Sql) -> bool:
     return any(isinstance(v, (dict, list)) for v in step.params.values())
 
@@ -515,6 +530,9 @@ def _rename_param(text: str, old: str, new: str) -> str:
     import re
 
     return re.sub(rf":{re.escape(old)}(?![A-Za-z0-9_])", f":{new}", text)
+
+
+assumes("accepts.ddl.in_transaction", SCRIPT, REFUSED)
 
 
 def finalize(ddl: list, data: list, tail: list, instance: Instance, data_model: str, form: WriteForm, vertex: bool = False) -> list:

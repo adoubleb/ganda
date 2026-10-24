@@ -15,6 +15,15 @@ from ganda.core.data.neighbours import _f32
 from ganda.core.data.model import DATE_TYPES, FieldType
 from ganda.orientdb.oracle.pivots import lossy_pivot
 from ganda.orientdb.oracle.semantics import apply_arith
+from ganda.orientdb.rules import answer, assumes, works_around
+from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+from ganda.core.rules.vocabulary import Logic
+
+
+
+# INTEGER arithmetic wraps (O29); a null operand is the identity of + and - (O30)
+works_around("O29")
+works_around("O30")
 
 
 def arith_exact(v, sym: str, c, ftype: FieldType) -> bool:
@@ -98,6 +107,11 @@ def arithmetic(p, rng: random.Random, bind: str, ftype: FieldType, values: list)
         # `f <> p` holds for a null f: the null rows are added back explicitly
         return Compound(p.on, "OR", (leaf, Predicate(p.on, p.field, "IS NULL", "", None, p.ftype, p.case_insensitive)))
     return Compound(p.on, "AND", (leaf, Predicate(p.on, p.field, "IS NOT NULL", "", None, p.ftype, p.case_insensitive)))
+
+
+# a negated range adds IS NOT NULL: the logic is two-valued
+assumes("filter.logic", SQL, Logic.TWO_VALUED)
+assumes("compare.negative_zero_below_zero", SQL, True)
 
 
 def rewrite(p, rng: random.Random, bind: str):

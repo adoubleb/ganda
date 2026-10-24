@@ -21,6 +21,9 @@ from ganda.orientdb.storage.dialect import (
     is_valid_key,  # noqa: F401
 )
 
+from ganda.orientdb.rules import answer, assumes, works_around
+from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+
 _INDEX_KIND_WEIGHTS = {"NOTUNIQUE": 40, "UNIQUE": 10, "NOTUNIQUE_HASH_INDEX": 20, "UNIQUE_HASH_INDEX": 5, "DICTIONARY": 15}
 # the kinds a composite, an edge or a list index draws from
 NON_UNIQUE_KINDS = ("NOTUNIQUE", "NOTUNIQUE_HASH_INDEX")
@@ -46,9 +49,12 @@ def holds_one_record_per_key(ix) -> bool:
 
 def demoted_kind(kind: str) -> str:
     """The kind an index whose keys collide falls back to: a unique kind's NOTUNIQUE
-    sibling; a DICTIONARY index over duplicate values becomes NOTUNIQUE (the planner
-    would answer an equality predicate through it and drop rows, O4)."""
+    sibling; a DICTIONARY index over duplicate values becomes NOTUNIQUE (it keeps one
+    record per key, by replacement)."""
     return _DEMOTED[kind]
+
+
+assumes("compare.negative_zero_below_zero", SQL, True)
 
 
 def index_key_value(v, ci: bool = False):

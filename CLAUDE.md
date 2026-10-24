@@ -76,12 +76,22 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
 The engine rules are minimal records in `ganda/orientdb/rules/catalog.py`, as HANA's (the
 subjects are OrientDB SQL's execution paths: a scan, an index-served statement, MATCH,
 TRAVERSE, the script / transaction door, /batch, the `index:` door); the defects O1..O46
-beside them; `rules/checks.py` lists the rules each probe check (C1..C330 in
-`scripts/probe_osql.py`) asserts. `ganda orientdb rules --write` renders
+(but O4) beside them; `rules/checks.py` lists the rules each probe check (C1..C330 in
+`scripts/probe_osql.py`) asserts and the defects it reproduces (every defect has a check
+whose expected answer is the defect's). A failing check prints the rule that no
+longer holds, or the defect that no longer reproduces, and the code reading it. A rule
+that changed (or a failing check of nothing in the catalog) fails the probe; a defect
+that no longer reproduces is a bug fixed, which only costs coverage (its guard withholds
+what the build answers right), so it is recorded, not failed: a probe run in which every
+check of a rule holds writes `rules/baseline.json` (the server's build, the checks that
+held, the defects fixed there with the checks that stopped reproducing them) and
+re-renders `RULES.md`, whose defects table then shows each defect on that build.
+`ganda orientdb run` warns at startup when the server is another build than the
+baseline's. `ganda orientdb rules --write` renders
 `ganda/orientdb/rules/RULES.md`; `tests/orientdb/test_rules.py` keeps them in step. Layout: `storage/dialect.py` (vocabulary), `storage/physical_design.py`, `config.py`,
 `engine/limits.py` (what the engine can hold), `engine/connection.py`, `storage/mapping/`, `oracle/semantics.py`, `oracle/pivots.py`, `oracle/rewrites.py`,
 `concrete_syntax/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),
-`known_bugs/guards.py` (most of O1..O46; O3, O22, O24, O29, O30, O34, O42, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `engine/coverage.py` (JaCoCo),
+`known_bugs/guards.py` (most of O1..O46; O4 retired, fixed in 3.2.57; O3, O22, O24, O29, O30, O34, O42, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `engine/coverage.py` (JaCoCo),
 
 `scripts/` (`probe_osql.py`, `coverage_report.py`).
 
@@ -149,9 +159,16 @@ The engine rules are minimal records in `ganda/hana/rules/catalog.py` (`ganda/co
 `Rule(question, subject, answer)`, the question's kind saying what the fuzzer does with
 it (compare, ask, equivalent, exact); the defects A1-A10 and the error classes beside
 them. `rules/checks.py` lists the rules each probe fact's check asserts; the rest are
-unchecked. `ganda hana rules --write` renders `ganda/hana/rules/RULES.md`, and
-`tests/hana/test_rules.py` keeps the catalog, the checks, the probe, `connection.py`'s
-error codes and the rendered file in step. Data models
+unchecked. The code reads the rules through `ganda.hana.rules` (`ganda/core/rules/lookup.py`):
+`answer` / `refused` / `alike` where it branches on an answer (the switches of
+`concrete_syntax/graph.py` and the offline translator, `select._cypher_asks`, the pivot
+and sum bounds, `connection._error`), and `assumes(question, subject, expected)` /
+`works_around(defect)` where it has no branch for another answer (a changed catalog then
+fails the import). `ganda hana rules --write` renders `ganda/hana/rules/RULES.md` with
+who checks and who reads each rule, and `tests/hana/test_rules.py` keeps the catalog, the
+checks, the probe, the error classification and the rendered file in step. HANA runs
+live only from hana-fuzzer (the instance accepts that host; a Python 3.12 venv made with
+`uv` beside the checkout). Data models
 `doc` (JSON Document Store), `rel` (column tables), `graph` (Property Graph Engine: a
 GRAPH WORKSPACE over views of rel-shaped
 tables, openCypher through `OPENCYPHER_TABLE`; added 2026-10-11, its 32 `G*` probe facts
@@ -223,7 +240,7 @@ around them and withholds H4's shape (`known_bugs/guards.py`). `ganda/hana/findi
 sorts every live observation into A (engine bug), B (quirk or documented) and C (provider
 bug), each B with a verdict checked against SAP's docs. HANA reports EVERY SPARQL refusal
 (a syntax error too) as code 129, so a 129 carrying an ordinary refusal is a rejection, not
-an internal error (`connection.REJECTION_129`).
+an internal error (the error classes in `rules/catalog.py`).
 
 If the instance is reached through an SSH tunnel to a bastion, set `HANA_SNI_HOSTNAME` to
 the real hostname (HANA Cloud routes TLS by SNI) and leave `disableCloudRedirect` on (its
@@ -290,9 +307,11 @@ Not run: the full 21-mutant benchmark at 8 trials, and long campaigns.
 `orientdb:latest` is now 3.2.57, and FOUR pre-existing facts changed on it: the probe's
 O4 check (an equality through a DICTIONARY index answers every record) and three O18
 checks (a DESC walk of an index that ignores nulls answers rows) now fail, in the legacy
-tree's probe as well -- the engine, not the port. The O4 / O18 guards therefore withhold
-variants 3.2.57 answers correctly; re-probe and decide whether to retire them or pin the
-image. Everything else below held.
+tree's probe as well -- the engine, not the port. Since 2026-10-24 the probe targets
+3.2.57 (`rules/baseline.json`): O4 is retired (fixed), and O18 is narrowed -- 3.2.57's DESC
+walk no longer answers nothing but lacks the null-key records as the ASC walk does, so
+the guard withholds a walk in either direction only where a record has a null key.
+Everything else below held.
 
 - `ganda orientdb probe`: every other fact holds, the new "large data" section included
   (BINARY round trip and its scan-vs-index equality, the 10240-byte index key, a 4 MB

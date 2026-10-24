@@ -10,12 +10,9 @@ import enum
 
 from ganda.core.rules.model import Defect, ErrorClass, ErrorKind, Kind, Question, Rule, Verdict
 from ganda.core.rules.vocabulary import (
-    COUNT_EMPTY,
     FILTER_LOGIC,
     IR_RULES,
     LIKE_CASE_SENSITIVE,
-    NULLS_ASC,
-    NULLS_DESC,
     OWN_UNCOMMITTED_VISIBLE,
     PARALLEL_EDGE_ROWS,
     STRING_ORDER,
@@ -23,10 +20,8 @@ from ganda.core.rules.vocabulary import (
     UNDIRECTED_SELF_LOOP_ROWS,
     UNGROUPED_EMPTY_ROWS,
     WRITE_ROW_COUNT,
-    EmptyAggregate,
     EmptyInputRows,
     Logic,
-    NullPlacement,
     StringOrder,
 )
 
@@ -82,8 +77,6 @@ INT32_SUM_EXACT_BELOW = exact("sum.int32.below", int)
 
 # --- compare: paths answering differently are not compared where the question is exercised ----
 COMPARE_RULES = (
-    Rule(NULLS_ASC, SQL, NullPlacement.LAST),
-    Rule(NULLS_DESC, SQL, NullPlacement.FIRST),
     Rule(STRING_ORDER, SQL, StringOrder.UTF16_CODE_UNIT),
     Rule(ORDER_BY_STRING, SQL, StringOrder.COLLATION),
     Rule(ORDER_BY_STRING, SQL_INDEX, StringOrder.UTF16_CODE_UNIT),
@@ -92,7 +85,6 @@ COMPARE_RULES = (
     Rule(LIKE_CASE_SENSITIVE, SQL, False),
     Rule(LIKE_ONE_CHARACTER, SQL, "?"),
     Rule(CI_OPERATORS, SQL, "= <> < <= > >="),
-    Rule(COUNT_EMPTY, SQL, EmptyAggregate.ZERO),
     Rule(UNGROUPED_EMPTY_ROWS, SQL, EmptyInputRows.NO_ROW),
     Rule(UNDIRECTED_SELF_LOOP_ROWS, SQL, 2),
     Rule(PARALLEL_EDGE_ROWS, SQL, 2),
@@ -146,13 +138,14 @@ EXACT_RULES = (
     Rule(INT32_SUM_EXACT_BELOW, SQL, 2**31),
 )
 
-RULES = IR_RULES + COMPARE_RULES + ASK_RULES + EQUIVALENT_RULES + EXACT_RULES
+_SUBJECT_RULES = COMPARE_RULES + ASK_RULES + EQUIVALENT_RULES + EXACT_RULES
+# the core IR's definitions of the compare questions this engine answers
+RULES = tuple(r for r in IR_RULES if r.question in {s.question for s in _SUBJECT_RULES}) + _SUBJECT_RULES
 
 DEFECTS = (
     Defect("O1", SQL_INDEX),
     Defect("O2", SQL_INDEX),
     Defect("O3", INDEX_DOOR),
-    Defect("O4", SQL_INDEX),
     Defect("O5", SQL),
     Defect("O6", SQL_INDEX),
     Defect("O7", SQL),

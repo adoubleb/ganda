@@ -20,7 +20,14 @@ OPENCYPHER_TABLE call) are worked around in the renderings instead (`rules/catal
 variant meets them."""
 from __future__ import annotations
 
+from ganda.hana.oracle.semantics import SUM_BOUND
+from ganda.hana.rules import alike, works_around
+from ganda.hana.rules.catalog import SPARQL, SQL
+
 import dataclasses
+
+
+works_around("A4")
 
 
 def _h4(q, schema, instance) -> bool:
@@ -35,7 +42,7 @@ def _h4(q, schema, instance) -> bool:
         et = schema.edge_type(last.edge_type)
         targets = {et.to_type, et.from_type} if last.direction == "both" else {et.to_type if last.direction == "out" else et.from_type}
         values = [n.values.get(q.field) for t in targets for n in instance.nodes_of(t)]
-    return sum(abs(v) for v in values if isinstance(v, int) and not isinstance(v, bool)) >= 2**62
+    return sum(abs(v) for v in values if isinstance(v, int) and not isinstance(v, bool)) >= SUM_BOUND
 
 
 # --- B13: an rdf average the triple store's double arithmetic cannot answer as SQL does ----
@@ -62,13 +69,16 @@ def mark_known_bugs(case, q, schema, instance):
     if _h4(q, schema, instance):
         for variant in case.queries:
             if variant.split(":", 1)[0] == "doc":
-                known_bugs[variant] = "H4"
+                known_bugs[variant] = "A4"
     return dataclasses.replace(case, known_bugs=known_bugs) if known_bugs != case.known_bugs else case
 
 
+AVG_ALIKE = alike("aggregate.avg.integer.result", SQL, SPARQL)
+
+
 def select_known(q, syntax, rewrites, data_model, schema, instance):
-    if data_model == "rdf" and _b13(q, instance):
-        return "B13"
+    if data_model == "rdf" and not AVG_ALIKE and _b13(q, instance):
+        return "aggregate.avg.integer.result"
     return None
 
 

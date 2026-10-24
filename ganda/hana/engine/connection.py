@@ -38,26 +38,14 @@ import threading
 from decimal import Decimal
 
 from ganda.core.engine.provider import EngineCrash, EngineError, Server, Session
+from ganda.core.rules.model import ErrorKind
+from ganda.hana.rules import CATALOG, assumes, works_around
+from ganda.hana.rules.catalog import COLLECTION, OPENCYPHER, SPARQL, SQL
 from ganda.hana.concrete_syntax import tx as _tx
 from ganda.hana.storage.dialect import GRAPH_TOKEN, SCHEMA_TOKEN, child_table, from_rdf_term, graph_iri, list_text, number, opencypher_table, record_iri
 
 SPARQL_QUERY_HEADERS = "Accept: application/sparql-results+json\r\nContent-Type: application/sparql-query"
 SPARQL_UPDATE_HEADERS = ""
-# client-side codes of a lost connection (negative: the driver's own)
-CONNECTION_LOST = {-10709, -10807, -10108, -10821, -10806}
-TIMEOUT_CODES = {613}
-# a raw failure inside the engine, a finding whatever the other variants did: a general
-# error, a fatal error, a transaction rolled back by an internal error, a column store
-# error (to refine against live answers)
-INTERNAL_CODES = {2, 3, 129, 2048}
-# ... but 129 is also how the triple store and the Document Store wrap an ORDINARY refusal
-# (probed 2026-10-09: a SPARQL syntax error, an undefined prefix, an unknown function, a
-# non-grouped variable -- "generic. Error - ..."; MEDIAN without GROUP BY -- "Unsupported
-# functionality"; a collection's MAX over a string -- "supports only numeric values"): a
-# 129 carrying one of these is a rejection, compared across variants like any other
-REJECTION_129 = ("generic. Error -", "Unsupported functionality", "supports only")
-# message texts that mark an internal failure whatever the code
-INTERNAL_TEXTS = ("internal error", "assertion", "must not reach here")
 DEFAULT_TIMEOUT_MS = 30000
 # dropping and creating a campaign database: not a compared statement, so a slow one is
 # waited for and retried rather than reported
@@ -331,17 +319,12 @@ def _error(e) -> Exception:
     code = getattr(e, "errorcode", 0) or 0
     text = getattr(e, "errortext", "") or str(e)
     message = f"[{code}] {text}"[:2000]
-    if code in CONNECTION_LOST:
+    kind = CATALOG.classify(code, text)
+    if kind is ErrorKind.CONNECTION_LOST:
         return EngineCrash(message)
-    if code in TIMEOUT_CODES or "timeout" in text.lower() and "abort" in text.lower():
+    if kind is ErrorKind.TIMEOUT:
         return EngineError(message, status=code, timeout=True)
-    # a message confessing an internal failure under any code is one too (a compile
-    # error naming an "exception <number>" is not: the Property Graph Engine words its
-    # clean refusals so, probe G35) -- unless it is the triple store's 129 wrapping of an
-    # ordinary refusal, which says "internal error" every time
-    rejection_129 = code == 129 and any(m in text for m in REJECTION_129)
-    internal = (code in INTERNAL_CODES or any(m in text.lower() for m in INTERNAL_TEXTS)) and not rejection_129
-    return EngineError(message, internal=internal, status=code)
+    return EngineError(message, internal=kind is ErrorKind.INTERNAL, status=code)
 
 
 def _dbapi():
@@ -393,10 +376,18 @@ def connect(schema: "str | None" = None):
             return dbapi.connect(**kw)
         except dbapi.Error as e:
             last = e
-            if getattr(e, "errorcode", 0) not in CONNECTION_LOST or attempt == retries:
+            if CATALOG.classify(getattr(e, "errorcode", 0) or 0, "") is not ErrorKind.CONNECTION_LOST or attempt == retries:
                 break
             time.sleep(0.5 * (attempt + 1))
     raise EngineCrash(f"could not connect to SAP HANA at {host}: {last}") from last
+
+
+# the transaction door's peer check: a second connection reads the committed state
+assumes("equivalent.peer_read.committed_state", SQL, True)
+assumes("equivalent.peer_read.committed_state", COLLECTION, True)
+assumes("equivalent.peer_read.committed_state", SPARQL, True)
+assumes("equivalent.peer_read.committed_state", OPENCYPHER, True)
+works_around("A1")
 
 
 class HanaSession(Session):
@@ -706,6 +697,8 @@ class HanaSession(Session):
             out = {k: v for k, v in out.items() if k in wanted}
         return out
 
+    # an xsd:double is serialized to ~6 significant figures in every result format (A1):
+    # a value is read through STR(?o)
     def _rdf_records(self, cls: str, idp: str, table: str) -> dict:
         from ganda.hana.storage.dialect import PREFIX_TEXT
 

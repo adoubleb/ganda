@@ -1,15 +1,13 @@
-"""Which rules each probe check (`scripts/probe_osql.py`, ids C1..C330) checks: a check is
-listed against a rule only where it asserts that rule's answer (C31 and C73 assert
-nothing: an empty class, no matching record)."""
+"""Which rules each probe check (`scripts/probe_osql.py`, ids C1..C330) checks, and which
+defects it reproduces: a check is listed against a rule only where it asserts that rule's
+answer (C31 and C73 assert nothing: an empty class, no matching record), against a defect
+only where its expected answer is the defect's (not the controls beside it)."""
 from __future__ import annotations
 
 from ganda.core.rules.model import Rule
 from ganda.core.rules.vocabulary import (
-    COUNT_EMPTY,
     FILTER_LOGIC,
     LIKE_CASE_SENSITIVE,
-    NULLS_ASC,
-    NULLS_DESC,
     OWN_UNCOMMITTED_VISIBLE,
     PARALLEL_EDGE_ROWS,
     STRING_ORDER,
@@ -17,13 +15,12 @@ from ganda.core.rules.vocabulary import (
     UNDIRECTED_SELF_LOOP_ROWS,
     UNGROUPED_EMPTY_ROWS,
     WRITE_ROW_COUNT,
-    EmptyAggregate,
     EmptyInputRows,
     Logic,
-    NullPlacement,
     StringOrder,
 )
 from ganda.orientdb.rules.catalog import (
+    DEFECTS,
     DELETE_FROM_DOC_KEEPS_LINKS,
     DELETE_VERTEX_CASCADES,
     INDEX_DOOR,
@@ -54,11 +51,9 @@ SUBQUERY_TARGET = Rule(equivalent("subquery_target"), SQL, True)
 ORDER_BY_COLLATES = Rule(ORDER_BY_STRING, SQL, StringOrder.COLLATION)
 INDEX_WALK_CODE_UNITS = Rule(ORDER_BY_STRING, SQL_INDEX, StringOrder.UTF16_CODE_UNIT)
 
-CHECKS = {
+_RULE_CHECKS = {
     "C4": (Rule(SUM_EXACT_BELOW, SQL, 2**63),),
     "C9": (Rule(FILTER_LOGIC, SQL, Logic.TWO_VALUED),),
-    "C12": (Rule(NULLS_ASC, SQL, NullPlacement.LAST),),
-    "C13": (Rule(NULLS_DESC, SQL, NullPlacement.FIRST),),
     "C15": (Rule(NEGATIVE_ZERO_BELOW_ZERO, SQL, True),),
     "C17": (Rule(STRING_ORDER, SQL, StringOrder.UTF16_CODE_UNIT),),
     "C18": (Rule(STRING_ORDER, SQL, StringOrder.UTF16_CODE_UNIT),),
@@ -83,7 +78,6 @@ CHECKS = {
     "C172": (Rule(LIKE_ONE_CHARACTER, SQL, "?"),),
     "C191": (Rule(OPTIONAL_NO_PATH, MATCH, EmptyInputRows.ONE_ROW),),
     "C193": (Rule(UNDIRECTED_SELF_LOOP_ROWS, SQL, 2),),
-    "C203": (Rule(NULLS_ASC, SQL, NullPlacement.LAST), Rule(NULLS_DESC, SQL, NullPlacement.FIRST)),
     "C210": (Rule(accepts("update.increment"), SQL, REFUSED),),
     "C231": (Rule(equivalent("index_door"), INDEX_DOOR, True),),
     "C236": (Rule(accepts("record_filter"), INDEX_DOOR, REFUSED),),
@@ -94,7 +88,7 @@ CHECKS = {
     "C279": (Rule(SHORTEST_PATH_UNREACHABLE, SQL, 0), Rule(SHORTEST_PATH_SAME_RECORD, SQL, 1)),
     "C282": (Rule(TRAVERSE_DEFAULT, TRAVERSE, Strategy.DEPTH_FIRST),),
     "C284": (Rule(accepts("max_depth.parameter"), MATCH, REFUSED), Rule(accepts("max_depth.parameter"), TRAVERSE, REFUSED)),
-    "C285": (Rule(COUNT_EMPTY, SQL, EmptyAggregate.ZERO), Rule(UNGROUPED_EMPTY_ROWS, SQL, EmptyInputRows.NO_ROW)),
+    "C285": (Rule(UNGROUPED_EMPTY_ROWS, SQL, EmptyInputRows.NO_ROW),),
     "C288": (SUBQUERY_TARGET,),
     "C289": (SUBQUERY_TARGET,),
     "C291": (Rule(WRITE_ROW_COUNT, SQL, True),),
@@ -105,3 +99,55 @@ CHECKS = {
     "C303": (Rule(accepts("delete_from.vertex_or_edge_class"), SQL, REFUSED),),
     "C311": (TRANSACTION_DOOR,),
 }
+
+REPRODUCED_BY = {
+    "O1": ("C38", "C39", "C41", "C69"),
+    "O2": ("C42", "C43", "C47", "C48", "C49", "C50", "C53", "C55", "C57", "C59", "C60", "C61", "C64"),
+    "O3": ("C74", "C232"),
+    "O5": ("C34", "C71", "C233", "C265", "C305", "C307", "C319"),
+    "O6": ("C24", "C25"),
+    "O7": ("C77", "C185", "C187", "C228", "C263"),
+    "O8": ("C80", "C227"),
+    "O9": ("C82",),
+    "O10": ("C85", "C87", "C215", "C264"),
+    "O11": ("C89", "C208"),
+    "O12": ("C92",),
+    "O13": ("C95",),
+    "O14": ("C98", "C100", "C102"),
+    "O15": ("C105",),
+    "O16": ("C114", "C115", "C116", "C118", "C151", "C152", "C153", "C158", "C159", "C216", "C234"),
+    "O17": ("C110", "C113", "C147", "C306"),
+    "O18": ("C122", "C123", "C204", "C205", "C273", "C287"),
+    "O19": ("C148", "C202"),
+    "O20": ("C161", "C162"),
+    "O21": ("C169", "C170"),
+    "O22": ("C189", "C190"),
+    "O23": ("C206", "C207", "C274"),
+    "O24": ("C145",),
+    "O25": ("C176", "C177", "C179"),
+    "O26": ("C196", "C198", "C199"),
+    "O27": ("C221", "C222"),
+    "O28": ("C239", "C240"),
+    "O29": ("C244", "C245", "C246", "C247"),
+    "O30": ("C249", "C251"),
+    "O31": ("C270", "C271", "C272", "C276", "C312", "C320"),
+    "O32": ("C254", "C256"),
+    "O33": ("C257",),
+    "O34": ("C260", "C262"),
+    "O35": ("C280",),
+    "O36": ("C91",),
+    "O37": ("C293", "C294", "C295"),
+    "O38": ("C302",),
+    "O39": ("C300",),
+    "O40": ("C313",),
+    "O41": ("C315",),
+    "O42": ("C316",),
+    "O43": ("C317",),
+    "O44": ("C318",),
+    "O45": ("C132", "C133", "C138", "C141"),
+    "O46": ("C322",),
+}
+
+_DEFECT = {d.id: d for d in DEFECTS}
+CHECKS = {fid: _RULE_CHECKS.get(fid, ()) + tuple(_DEFECT[did] for did, fids in REPRODUCED_BY.items() if fid in fids)
+          for fid in sorted({*_RULE_CHECKS, *(f for fids in REPRODUCED_BY.values() for f in fids)}, key=lambda f: int(f[1:]))}

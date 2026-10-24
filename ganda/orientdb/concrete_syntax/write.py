@@ -53,6 +53,9 @@ from ganda.orientdb.facade.predicates import Predicate
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
 from ganda.core.query.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
 
+from ganda.orientdb.rules import answer, assumes, works_around
+from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+
 FILTERS = ("plain", "rw", "rev", "ar")
 TARGETS = ("table", "nest", "sub")
 DOORS = ("auto", "tx")
@@ -164,6 +167,12 @@ def _where(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites) -> "str | No
     return text
 
 
+# UPDATE ... CONTENT and MERGE take a JSON literal, INCREMENT is refused
+assumes("accepts.update.content.parameter", SQL, REFUSED)
+assumes("accepts.merge.parameter", SQL, REFUSED)
+assumes("accepts.update.increment", SQL, REFUSED)
+
+
 def _change(q: WriteQuery, params: dict) -> str:
     op = q.op.removeprefix("edge_")
     f = q.field
@@ -189,6 +198,10 @@ def _returning(q: WriteQuery) -> str:
     return f" RETURN {q.returning.upper()} $current.id AS id, $current.{q.field} AS v"
 
 
+# UPSERT only by id (on another predicate it inserts a record with no id)
+assumes("upsert.other_predicate.keeps_id", SQL, False)
+
+
 def _node_update(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites) -> tuple:
     params: dict = {}
     change = _change(q, params)
@@ -207,6 +220,14 @@ def _node_update(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites) -> tup
 
 def _victims(q: WriteQuery, where: "str | None") -> str:
     return f"(SELECT id FROM {q.table}" + (f" WHERE {where}" if where else "") + ")"
+
+
+# DELETE VERTEX cascades its edges, DELETE FROM a vertex class is refused, a doc delete
+# leaves its incoming links (the cascade rewrites them first); DELETE takes no TIMEOUT
+assumes("delete_vertex.cascades_edges", SQL, True)
+assumes("accepts.delete_from.vertex_or_edge_class", SQL, REFUSED)
+assumes("delete.document.keeps_incoming_links", SQL, True)
+assumes("accepts.delete.timeout", SQL, REFUSED)
 
 
 def _node_delete(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_model: str, schema: Schema, instance: Instance) -> Statements:
@@ -243,6 +264,9 @@ def _node_delete(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_m
     else:
         st.main = (f"DELETE FROM {t}" + (f" WHERE {where}" if where else ""), {})
     return st
+
+
+assumes("accepts.update.embedded_list_element", SQL, REFUSED)
 
 
 def _doc_rewrites(q: WriteQuery, before: Instance, after: Instance) -> list:
@@ -318,6 +342,10 @@ def build_rewrites(q: WriteQuery, rng: random.Random, schema: Schema, instance: 
             stored = [n.values.get(p.field) for n in instance.nodes_of(q.table) if p.field in n.values]
             rewrites.ar = predicates.arithmetic(p, rng, "ar", ftype, stored)
     return rewrites
+
+
+assumes("statement.write.answers_row_count", SQL, True)
+assumes("statement.atomic", SQL, False)
 
 
 def execute(session, st) -> list:

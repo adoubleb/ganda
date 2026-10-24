@@ -91,11 +91,10 @@ ORIENT_TYPES = {
 
 # Index kinds (`IndexSpec.kind`). NOTUNIQUE/UNIQUE are the SB-tree indexes
 # (range-capable); the *_HASH_INDEX kinds answer equality only and a range predicate on
-# them falls back to a scan (probed); DICTIONARY keeps ONE record per key and the
-# planner still uses it to answer an equality predicate, dropping every other record
-# holding the key (probed, issue-drafts/O4) -- so `known_bugs.o4_shape` withholds the cases
-# where that is what a correct engine would show, and the kind is only drawn for a
-# column whose values are distinct on every data model. `IndexSpec.ignore_nulls` is the
+# them falls back to a scan (probed); DICTIONARY keeps ONE record per key (by
+# replacement), so the kind is only drawn for a column whose values are distinct on every
+# data model (3.2.56's planner answered an equality through it with one record, O4,
+# fixed in 3.2.57). `IndexSpec.ignore_nulls` is the
 # METADATA `ignoreNullValues`, always rendered out (the engine's default is false: a null
 # or ABSENT field is the key `null`, which a unique index holds once -- probed);
 # the index option `by` (`physical_design.draw_index_options`) is a map index's `BY KEY`

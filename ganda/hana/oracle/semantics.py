@@ -33,6 +33,8 @@ from typing import Any
 
 from ganda.core.query.ir.predicates import Compound
 from ganda.core.engine.provider import Semantics
+from ganda.hana.rules import answer
+from ganda.hana.rules.catalog import SQL
 
 UNKNOWN = None
 
@@ -186,6 +188,9 @@ def evaluate(values: dict, p) -> bool:
 
 
 I64 = 2**63
+# integers whose absolute total stays below half the bound SUM is exact under sum exactly
+# in every order of the partial sums
+SUM_BOUND = answer("aggregate.sum.integer.exact_below", SQL) // 2
 
 
 def sum_is_exact(values: list, ftype: "str | None" = "int") -> bool:
@@ -193,7 +198,7 @@ def sum_is_exact(values: list, ftype: "str | None" = "int") -> bool:
     leaves a BIGINT; a double sum depends on the order, so it is never exact."""
     if any(isinstance(v, bool) or not isinstance(v, int) for v in values):
         return False
-    return sum(abs(v) for v in values) < 2**62
+    return sum(abs(v) for v in values) < SUM_BOUND
 
 
 class HanaSemantics(Semantics):

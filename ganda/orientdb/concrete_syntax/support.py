@@ -12,6 +12,9 @@ from ganda.orientdb.storage.dialect import HASH_KINDS, sql_op
 from ganda.orientdb.facade import predicates
 from ganda.orientdb.facade.predicates import Compound, Predicate
 from ganda.core.query.generators.support import bfs_distances, composite_and as _composite_and, draw_tx, tx_binds, tx_rows  # noqa: F401
+from ganda.orientdb.rules import answer, assumes, works_around
+from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+
 
 
 def _hits(instance: Instance, table: str, p) -> list:
@@ -52,6 +55,13 @@ def literal_pred(p) -> "str | None":
 # the ones a reversed (`:p > f`) or arithmetic (`f + :c > :p`) concrete syntax inherits
 # from the plain predicate (the index-served ones it does not: it is never served).
 SCAN_SIDE_FINDINGS = ("O7", "O17", "O27", "O32")
+
+
+# the `index:` door answers as an index-served lookup, takes no record filter, and is
+# asked `=`, IN and BETWEEN only (a range through it is O3)
+assumes("equivalent.index_door", INDEX_DOOR, True)
+assumes("accepts.record_filter", INDEX_DOOR, REFUSED)
+works_around("O3")
 
 
 def index_door(p, table: str, schema: Schema, data_model: str) -> "tuple[str, dict, object] | None":
@@ -196,6 +206,9 @@ METHODS = {
 
 
 # --- the transaction door ---------------------------------------------------------------------
+
+assumes("accepts.delete_from.vertex_or_edge_class", SQL, REFUSED)
+
 
 def tx_write(tx: TxWrite, data_model: str) -> str:
     """The write's text on `data_model`: a vertex is created and deleted through `CREATE

@@ -119,7 +119,10 @@ def test_cross_type_guards_o16_o17():
     assert edge_case_known("e1", Predicate("edge", "w", "=", "p", 5.5), _schema([IndexSpec("e1", "w", data_model="graph", target="edge", kind="NOTUNIQUE")]), inst) == {"graph": "O16"}
 
 
-def test_o18_withholds_the_desc_order_variant_under_an_index_that_ignores_nulls():
+def test_o18_withholds_the_order_variant_only_where_the_walk_skips_a_present_value():
+    """3.2.57: a walk of an index that ignores nulls lacks the null records, which the
+    order form's `IS NOT NULL` excludes; a composite one also lacks a record whose
+    other component is null."""
     from ganda.orientdb.known_bugs.guards import select_shape_known
     from ganda.core.query.ir.select import SelectQuery
     from ganda.orientdb.concrete_syntax.select import SelectSyntax
@@ -127,22 +130,23 @@ def test_o18_withholds_the_desc_order_variant_under_an_index_that_ignores_nulls(
     order = SelectSyntax(form="order")
     found = {"O18": 0, "plain": 0}
     for seed in range(1, 60):
-        schema, inst, _ = build(seed, GeneratorConfig(index_probability=0.9))
+        schema, inst, _ = build(seed, GeneratorConfig(index_probability=0.9, composite_index_probability=0.6))
         for nt in schema.node_types:
+            rows = inst.nodes_of(nt.name)
             for f in nt.fields:
-                if f.type not in (FieldType.INT, FieldType.FLOAT) or not any(n.values.get(f.name) is not None for n in inst.nodes_of(nt.name)):
+                if f.type not in (FieldType.INT, FieldType.FLOAT) or not any(n.values.get(f.name) is not None for n in rows):
                     continue
                 q = SelectQuery(nt.name, None, "agg", (f.name,), fn="max")
-                present = [n.values[f.name] for n in inst.nodes_of(nt.name) if n.values.get(f.name) is not None]
+                present = [n.values[f.name] for n in rows if n.values.get(f.name) is not None]
                 for data_model in ("doc", "graph", "rel"):
-                    ignoring = any(ix.kind in ("NOTUNIQUE", "UNIQUE", "DICTIONARY") and ix.ignore_nulls for ix in schema.node_indexes(nt.name, f.name, data_model))
+                    skips = any(
+                        ix.kind in ("NOTUNIQUE", "UNIQUE", "DICTIONARY") and ix.ignore_nulls and ix.field == f.name
+                        and any(n.values.get(f.name) is not None and any(n.values.get(g) is None for g in ix.extra_fields) for n in rows)
+                        for ix in schema.node_indexes(nt.name, f.name, data_model)
+                    )
                     fid = select_shape_known(q, order, data_model, schema, inst, present)
-                    if ignoring:
-                        assert fid == "O18"
-                        found["O18"] += 1
-                    else:
-                        assert fid is None
-                        found["plain"] += 1
+                    assert fid == ("O18" if skips else None)
+                    found["O18" if skips else "plain"] += 1
     assert found["O18"] > 0 and found["plain"] > 0
 
 

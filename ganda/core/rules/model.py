@@ -4,8 +4,9 @@ only what an engine's languages answer alike.
 A `Rule` is one subject's (a language, optionally on a data model) answer to one
 `Question`; the question's `Kind` says what the fuzzer does with the answers. A
 `Defect` names an engine bug the known-bug guards withhold. An `ErrorClass` is one entry
-of the ordered error classification. A probe fact CHECKS rules (`Catalog.checks`): a
-rule no fact checks is unchecked, and the rendering says so."""
+of the ordered error classification. A probe fact CHECKS rules, and reproduces defects
+(`Catalog.checks`): a rule no fact checks is unchecked, and the rendering says so; a
+fact reproducing a defect that fails says the defect is gone."""
 from __future__ import annotations
 
 import dataclasses
@@ -89,7 +90,7 @@ class Catalog:
     rules: "tuple[Rule, ...]"
     defects: "tuple[Defect, ...]" = ()
     errors: "tuple[ErrorClass, ...]" = ()
-    checks: "dict" = dataclasses.field(default_factory=dict)  # {probe fact id: (Rule, ...)}
+    checks: "dict" = dataclasses.field(default_factory=dict)  # {probe fact id: (Rule | Defect, ...)}
 
     def answer(self, question: Question, subject):
         for r in self.rules:
@@ -112,12 +113,16 @@ class Catalog:
                 out.append((q, rules))
         return out
 
-    def checked_by(self, rule: Rule) -> "list[str]":
-        return [fid for fid, rules in self.checks.items() if rule in rules]
+    def checked_by(self, item: "Rule | Defect") -> "list[str]":
+        return [fid for fid, items in self.checks.items() if item in items]
 
     def unchecked(self) -> "list[Rule]":
-        checked = {r for rules in self.checks.values() for r in rules}
+        checked = {r for items in self.checks.values() for r in items}
         return [r for r in self.rules if r.subject is not IR and r not in checked]
+
+    def unreproduced(self) -> "list[Defect]":
+        checked = {d for items in self.checks.values() for d in items}
+        return [d for d in self.defects if d not in checked]
 
     def classify(self, code: int, message: str) -> "ErrorKind | None":
         for e in self.errors:
@@ -168,11 +173,15 @@ def validate(catalog: Catalog, fact_ids: "set | None" = None) -> "list[str]":
     for r in catalog.rules:
         if names.setdefault(r.question.name, r.question) != r.question:
             bad.append(f"{r.question.name}: two questions share the name")
-    rules = set(catalog.rules)
+    rules, defects = set(catalog.rules), set(catalog.defects)
     for fid, checked in catalog.checks.items():
         if fact_ids is not None and fid not in fact_ids:
             bad.append(f"check {fid}: no such probe fact")
         for r in checked:
+            if isinstance(r, Defect):
+                if r not in defects:
+                    bad.append(f"check {fid}: {r.id} / {r.subject} is no defect of the catalog")
+                continue
             if r not in rules:
                 bad.append(f"check {fid}: {r.question.name} / {r.subject} is no rule of the catalog")
             if r.subject is IR:

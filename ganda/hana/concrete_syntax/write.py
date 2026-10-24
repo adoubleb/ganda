@@ -55,6 +55,8 @@ from ganda.core.data.model import FieldType, Instance, Schema
 from ganda.hana.oracle import rewrites as _rewrites
 from ganda.hana.concrete_syntax import document
 from ganda.hana.concrete_syntax.predicate import sparql_filter, sql
+from ganda.hana.rules import assumes
+from ganda.hana.rules.catalog import COLLECTION, REFUSED, SQL
 from ganda.hana.storage.dialect import GRAPH_TOKEN, PREFIX_TEXT, child_table, list_text, record_iri, sparql_literal, sparql_string
 
 FILTERS = ("plain", "rw", "rev", "ar")
@@ -315,6 +317,11 @@ def _link_arrays(q: WriteQuery, schema: Schema, after: Instance, sources: dict, 
     return steps
 
 
+# a doc write sets constants only (an arithmetic write reads, shifts and writes back), and
+# issues SET and UNSET as two statements
+assumes("accepts.update.set_expression", COLLECTION, REFUSED)
+assumes("accepts.update.set_unset_without_comma", COLLECTION, REFUSED)
+
 def _doc(q: WriteQuery, sp: WriteSyntax, pred, schema: Schema, before: Instance, after: Instance) -> Statements:
     """`table`: one UPDATE / DELETE with the filter (where the statement's filter
     language states it); `nest`: the records chosen first by a collection SELECT (the
@@ -536,6 +543,9 @@ def build_rewrites(q: WriteQuery, rng: random.Random, schema: Schema, instance: 
             rewrites.ar = _rewrites.arithmetic(p, rng, "ar", ftype, stored)
     return rewrites
 
+
+assumes("statement.write.answers_row_count", SQL, True)
+assumes("statement.write.answers_row_count", COLLECTION, True)
 
 def execute(session, st: Statements) -> list:
     """Run one data model's statements (in one transaction for the tx door); the

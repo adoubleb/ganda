@@ -98,6 +98,21 @@ def test_campaign_runs_clean_and_counts(tmp_path):
     assert all(not server.databases for server in engine.servers)  # every database dropped
 
 
+def test_a_campaign_warns_on_a_server_of_another_build_than_the_baseline(tmp_path, monkeypatch, capsys):
+    from ganda.core.rules.baseline import Baseline
+    from tests.fake_engine import FakeServer
+
+    engine = FakeProvider()
+    engine.baseline = Baseline(tmp_path / "baseline.json")
+    engine.baseline.record("1.0", ["X1"], {}, [])
+    argv = ["--iterations", "1", "--out-dir", str(tmp_path / "bugs"), "--stats-dir", str(tmp_path / "stats")]
+    for version, warned in (("1.0", False), ("1.1", True)):
+        monkeypatch.setattr(FakeServer, "version", lambda self: version)
+        stats, _ = campaign.run_campaign(engine, _args(campaign.add_arguments, engine, argv))
+        out = capsys.readouterr().out
+        assert stats.instances == 1 and ("warning: fake: the server is 1.1, the baseline 1.0" in out) == warned
+
+
 def test_mutation_benchmark_catches_instance_mutants():
     engine = FakeProvider()
     picked = ["graph_drop_first_edge", "rel_swap_direction"]

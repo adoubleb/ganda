@@ -74,6 +74,9 @@ from ganda.core.query.ir.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS,
 from ganda.core.data.model import FieldType, Schema
 from ganda.hana.concrete_syntax import document, graph, hints
 from ganda.hana.concrete_syntax.predicate import REL, Names, fields_used, filter_expr, optionals, sparql_filter, sql, var
+from ganda.hana.rules import IR, alike, assumes, works_around
+from ganda.hana.rules.catalog import OPENCYPHER, REFUSED, SPARQL, SQL, SQL_DOC
+from ganda.core.rules.vocabulary import EmptyAggregate
 from ganda.hana.storage.dialect import GRAPH_TOKEN, PREFIX_TEXT
 
 SYNTAXES = {
@@ -98,6 +101,11 @@ def _target_type(schema: Schema, hop) -> str:
     et = schema.edge_type(hop.edge_type)
     return et.to_type if hop.direction != "in" else et.from_type
 
+
+# a doc traversal's LIST membership is an EXISTS over an element view beside the UNNEST
+# edge views; its aggregates avoid the correlated scalar subquery over the views (A2)
+assumes("accepts.exists.unnest_element_view.with_unnest_edge_views", SQL_DOC, REFUSED)
+works_around("A2")
 
 def applicable(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) -> bool:
     if syntax.startswith(_HINT):
@@ -210,6 +218,8 @@ def _where(conds: list) -> str:
     conds = [c for c in conds if c]
     return f" WHERE {' AND '.join(conds)}" if conds else ""
 
+
+assumes("accepts.identifier.start", SQL, REFUSED)
 
 def _rel_reach(q: TraversalQuery, schema: Schema, names: Names) -> str:
     """The derived table of (start, record within k hops), the start included. The start
@@ -332,6 +342,12 @@ def _proj_ftype(q: TraversalQuery, schema: Schema) -> "FieldType | None":
     return schema.field(tgt, q.field).type
 
 
+# a SPARQL sum answers 0 over no value, SQL NULL: the guard answers MAX over the same
+# values, unbound over none, and an aggregate (a grouped SELECT takes no bare variable)
+assumes("aggregate.max.empty_input", SPARQL, EmptyAggregate.NULL)
+assumes("accepts.select.ungrouped_variable", SPARQL, REFUSED)
+works_around("A3")
+
 def guarded(fn: str, var: str, zero: "str | None" = None) -> str:
     """SUM / AVG over `var`, unbound where no value is present (SPARQL answers 0 there,
     SQL NULL). The else branch is MAX over the same values, unbound over none: an
@@ -346,6 +362,8 @@ def guarded(fn: str, var: str, zero: "str | None" = None) -> str:
     inner = f"COALESCE({var}, {zero})" if zero is not None else var
     return f"IF(COUNT({var}) > 0, {fn}({inner}), MAX({var}))"
 
+
+works_around("A1")
 
 def agg_proj(expr: str, ftype: "FieldType | None", alias: str) -> str:
     """An aggregate expression as a SELECT-list item carrying the decode suffix of its
@@ -509,7 +527,7 @@ def _graph_applicable(q: TraversalQuery, schema: Schema, syntax: str) -> bool:
     if syntax == "paths":
         return proj in _AGGREGATES and (graph.WALK_ACROSS_CLAUSES or distinct_types)
     if syntax == "undirected":
-        return len(q.hops) == 1 and q.hops[0].direction == "both" and proj in _DISTINCT
+        return len(q.hops) == 1 and q.hops[0].direction == "both" and (proj in _DISTINCT or alike("match.undirected.self_loop.rows", OPENCYPHER, IR))
     return False
 
 

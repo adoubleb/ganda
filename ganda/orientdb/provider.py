@@ -74,6 +74,12 @@ class OrientDBProvider(Provider):
         return CATALOG
 
     @property
+    def baseline(self):
+        from ganda.orientdb.rules import BASELINE
+
+        return BASELINE
+
+    @property
     def mutants(self) -> list:
         from ganda.orientdb.mutation.mutants import MUTANTS
 
@@ -114,16 +120,6 @@ class OrientDBProvider(Provider):
         return any(is_script(text) for text in case.queries.values())
 
     # --- the campaign ---------------------------------------------------------------------
-
-    def add_arguments(self, parser) -> None:
-        parser.add_argument("--keep-dictionary-duplicates", action="store_true", help="keep DICTIONARY indexes over duplicate values (O4) instead of demoting them")
-
-    def configure(self, args, cfg):
-        from ganda.orientdb.known_bugs import guards as known_bugs
-
-        keep = bool(getattr(args, "keep_dictionary_duplicates", False))
-        known_bugs.DICTIONARY_DUPLICATES = keep
-        return cfg.with_(demote_colliding_indexes=False) if keep else cfg
 
     def coverage(self, server, args):
         """The JaCoCo collector (`ganda.orientdb.engine.coverage`) under `--coverage`."""

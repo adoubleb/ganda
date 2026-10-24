@@ -4,199 +4,149 @@
 
 ## compare
 
-| question | subject | answer | checked by |
-|---|---|---|---|
-| filter.logic | ir | kleene | definition |
-| filter.logic | sql | kleene | unchecked |
-| filter.logic | collection | kleene | D19 |
-| filter.logic | sparql | kleene | K5 |
-| filter.logic | opencypher | kleene | G3 |
-| filter.membership.absent_list | ir | false | definition |
-| filter.membership.absent_list | collection | false | D8 |
-| parameter.bare.typed_by | ir | value | definition |
-| parameter.bare.typed_by | sql | column | unchecked |
-| parameter.bare.typed_by | opencypher | column | unchecked |
-| aggregate.group.null_key.groups | ir | 1 | definition |
-| aggregate.group.null_key.groups | sql | 1 | unchecked |
-| aggregate.group.null_key.groups | opencypher | 1 | G24 |
-| match.edge_binding | ir | homomorphism | definition |
-| match.edge_binding | opencypher | edge-isomorphism | G8 |
-| match.undirected.self_loop.rows | ir | 2 | definition |
-| match.undirected.self_loop.rows | opencypher | 1 | unchecked |
-| match.parallel_edges.rows | ir | 2 | definition |
-| match.parallel_edges.rows | sparql | 2 | K4 |
-| match.parallel_edges.rows | opencypher | 2 | G23 |
-| match.disconnected_patterns | ir | cartesian-product | definition |
-| match.disconnected_patterns | opencypher | cartesian-product | G20 |
-| path.variable_length.mode | ir | walk | definition |
-| path.variable_length.mode | opencypher | trail | unchecked |
-| transaction.joins_sql_transaction | ir | true | definition |
-| transaction.joins_sql_transaction | collection | true | D17 |
-| transaction.joins_sql_transaction | sparql | true | K15 |
-| transaction.own_uncommitted_visible | ir | true | definition |
-| transaction.own_uncommitted_visible | opencypher | true | G12 |
-| order.nulls.asc | sql | first | R5 |
-| order.nulls.asc | collection | first | D12 |
-| order.nulls.asc | sparql | first | K17 |
-| order.nulls.asc | opencypher | last | G5 |
-| order.nulls.desc | sql | last | unchecked |
-| order.nulls.desc | collection | last | unchecked |
-| order.nulls.desc | sparql | last | unchecked |
-| order.nulls.desc | opencypher | first | unchecked |
-| order.string | sql | utf-16-code-unit | R3, R18 |
-| order.string | collection | utf-16-code-unit | unchecked |
-| order.string | sparql | code-point | K21 |
-| order.string | opencypher | utf-16-code-unit | G6, G28 |
-| value.absent_is_null | sql | true | unchecked |
-| value.absent_is_null | collection | true | D7 |
-| value.absent_is_null | sparql | true | unchecked |
-| value.absent_is_null | opencypher | true | unchecked |
-| value.string.empty_is_null | sql | false | R4 |
-| value.string.padding | sql | no-pad | unchecked |
-| value.double.exact_round_trip | sql | true | R1 |
-| value.double.exact_round_trip | collection | true | D1 |
-| value.double.exact_round_trip | sparql | false | unchecked |
-| value.double.exact_round_trip | opencypher | true | G11 |
-| filter.like.case_sensitive | sql | true | R10 |
-| aggregate.sum.empty_input | sql | null | unchecked |
-| aggregate.sum.empty_input | sparql | zero | K8 |
-| aggregate.sum.empty_input | opencypher | null | unchecked |
-| aggregate.sum.all_null_input | sql | null | unchecked |
-| aggregate.sum.all_null_input | opencypher | null | unchecked |
-| aggregate.max.empty_input | sql | null | unchecked |
-| aggregate.max.empty_input | sparql | null | unchecked |
-| aggregate.max.empty_input | opencypher | null | G4 |
-| aggregate.count.empty_input | sql | zero | unchecked |
-| aggregate.count.empty_input | sparql | zero | unchecked |
-| aggregate.count.empty_input | opencypher | zero | G4 |
-| aggregate.skips_null | sql | true | unchecked |
-| aggregate.skips_null | sparql | true | K7 |
-| aggregate.skips_null | opencypher | true | unchecked |
-| aggregate.ungrouped.empty_input.rows | sql | one-row | unchecked |
-| aggregate.ungrouped.empty_input.rows | opencypher | one-row | G4 |
-| aggregate.grouped.empty_input.rows | sql | no-row | unchecked |
-| aggregate.grouped.empty_input.rows | sparql | no-row | K9 |
-| aggregate.avg.integer.result | sql | decimal(25,6)-truncated | R20 |
-| aggregate.avg.integer.result | sparql | double | unchecked |
-| aggregate.median_function.integer.result | sql | rounded-half-away-from-zero | unchecked |
-| aggregate.median_function.integer.result | sparql | interpolated | unchecked |
-| aggregate.percentile_cont_half.integer.result | sql | interpolated | R9 |
-| match.unlabelled_vertex.spans_all_tables | opencypher | true | G21 |
-| query.node_with_two_types.rows | sparql | 1 | K22 |
-| statement.write.answers_row_count | sql | true | R15 |
-| statement.write.answers_row_count | collection | true | D15 |
+| question | subject | answer | checked by | read by |
+|---|---|---|---|---|
+| filter.logic | ir | kleene | definition | unread |
+| filter.logic | collection | kleene | D19 | concrete_syntax/document.py:289 |
+| filter.logic | sparql | kleene | K5 | concrete_syntax/predicate.py:38 |
+| filter.membership.absent_list | ir | false | definition | unread |
+| filter.membership.absent_list | collection | false | D8 | concrete_syntax/document.py:290 |
+| match.edge_binding | ir | homomorphism | definition | unread |
+| match.edge_binding | opencypher | edge-isomorphism | G8 | tests/hana/opencypher_sqlite.py:37 |
+| match.undirected.self_loop.rows | ir | 2 | definition | concrete_syntax/traversal.py:530 |
+| match.undirected.self_loop.rows | opencypher | 1 | unchecked | concrete_syntax/traversal.py:530, tests/hana/opencypher_sqlite.py:36 |
+| path.variable_length.mode | ir | walk | definition | unread |
+| path.variable_length.mode | opencypher | trail | unchecked | tests/hana/opencypher_sqlite.py:39 |
+| transaction.joins_sql_transaction | ir | true | definition | unread |
+| transaction.joins_sql_transaction | collection | true | D17 | concrete_syntax/tx.py:70 |
+| transaction.joins_sql_transaction | sparql | true | K15 | concrete_syntax/tx.py:85 |
+| transaction.own_uncommitted_visible | ir | true | definition | unread |
+| transaction.own_uncommitted_visible | opencypher | true | G12 | concrete_syntax/graph.py:80 |
+| order.nulls.asc | sql | first | R5 | concrete_syntax/graph.py:74 |
+| order.nulls.asc | opencypher | last | G5 | concrete_syntax/graph.py:74, tests/hana/opencypher_sqlite.py:41 |
+| order.nulls.desc | sql | last | unchecked | concrete_syntax/graph.py:74 |
+| order.nulls.desc | opencypher | first | unchecked | concrete_syntax/graph.py:74 |
+| order.string | sql | utf-16-code-unit | R3, R18 | concrete_syntax/graph.py:76 |
+| order.string | opencypher | utf-16-code-unit | G6, G28 | concrete_syntax/graph.py:76 |
+| aggregate.sum.all_null_input | opencypher | null | unchecked | tests/hana/opencypher_sqlite.py:40 |
+| aggregate.max.empty_input | sparql | null | unchecked | concrete_syntax/traversal.py:347 |
+| aggregate.ungrouped.empty_input.rows | sql | one-row | unchecked | concrete_syntax/graph.py:78 |
+| aggregate.ungrouped.empty_input.rows | opencypher | one-row | G4 | concrete_syntax/graph.py:78 |
+| aggregate.avg.integer.result | sql | decimal(25,6)-truncated | R20 | known_bugs/guards.py:76 |
+| aggregate.avg.integer.result | sparql | double | unchecked | known_bugs/guards.py:76 |
+| aggregate.median_function.integer.result | sql | rounded-half-away-from-zero | unchecked | concrete_syntax/select.py:438 |
+| aggregate.percentile_cont_half.integer.result | sql | interpolated | R9 | concrete_syntax/select.py:439 |
+| match.unlabelled_vertex.spans_all_tables | opencypher | true | G21 | concrete_syntax/graph.py:355 |
+| query.node_with_two_types.rows | sparql | 1 | K22 | storage/mapping/rdf.py:61 |
+| statement.write.answers_row_count | sql | true | R15 | concrete_syntax/write.py:547 |
+| statement.write.answers_row_count | collection | true | D15 | concrete_syntax/write.py:548 |
 
 ## ask
 
-| question | subject | answer | checked by |
-|---|---|---|---|
-| accepts.match.second_clause | opencypher | refused | G8 |
-| accepts.pattern.chained_edges | opencypher | refused | G8 |
-| accepts.expression.is_not_null | opencypher | refused | unchecked |
-| accepts.where.boolean_attribute | opencypher | refused | unchecked |
-| accepts.count.boolean_attribute | opencypher | refused | G33 |
-| accepts.compare.boolean_attributes | opencypher | refused | G33 |
-| accepts.group_key.boolean_attribute | opencypher | accepted | G33 |
-| accepts.compare.bigint_attribute_with_float | opencypher | refused | unchecked |
-| accepts.parameters.cast | opencypher | refused | unchecked |
-| accepts.contains.parameter | opencypher | refused | unchecked |
-| accepts.skip.without_limit | opencypher | refused | unchecked |
-| accepts.aggregate.count_distinct | opencypher | refused | unchecked |
-| accepts.aggregate.avg | opencypher | refused | unchecked |
-| accepts.aggregate.max_min_sum.non_numeric | opencypher | refused | unchecked |
-| accepts.filter.bare_parameter | collection | refused | unchecked |
-| accepts.filter.in_list_parameter | collection | refused | unchecked |
-| accepts.like.parameter | collection | refused | unchecked |
-| accepts.query.boolean_constant | collection | refused | unchecked |
-| accepts.update.set_expression | collection | refused | unchecked |
-| accepts.update.set_unset_without_comma | collection | refused | unchecked |
-| accepts.aggregate.max_min.string_field | collection | refused | unchecked |
-| accepts.union_all.collection_queries | collection | refused | unchecked |
-| accepts.except.collection_queries | collection | refused | unchecked |
-| accepts.subquery.nested_unnest_view | sql@doc | refused | unchecked |
-| accepts.exists.unnest_element_view.positive_conjunct | sql@doc | accepted | unchecked |
-| accepts.exists.unnest_element_view.under_or | sql@doc | refused | unchecked |
-| accepts.exists.unnest_element_view.under_not | sql@doc | refused | unchecked |
-| accepts.exists.unnest_element_view.in_semi_join | sql@doc | refused | unchecked |
-| accepts.exists.unnest_element_view.with_unnest_edge_views | sql@doc | refused | unchecked |
-| accepts.select.ungrouped_variable | sparql | refused | unchecked |
-| accepts.aggregate.median.without_group_by | sparql | refused | unchecked |
-| accepts.offset.without_limit | sql | refused | unchecked |
-| accepts.identifier.start | sql | refused | unchecked |
-| accepts.workspace.heterogeneous | graphscript | refused | unchecked |
-| accepts.shortest_path.direction_parameter | graphscript | accepted | unchecked |
-| accepts.neighbors.direction_argument | graphscript | refused | unchecked |
-| accepts.subgraph.vertex_outside.lookup | graphscript | refused | unchecked |
+| question | subject | answer | checked by | read by |
+|---|---|---|---|---|
+| accepts.match.second_clause | opencypher | refused | G8 | concrete_syntax/graph.py:70, tests/hana/opencypher_sqlite.py:38 |
+| accepts.expression.is_not_null | opencypher | refused | unchecked | concrete_syntax/graph.py:258 |
+| accepts.where.boolean_attribute | opencypher | refused | unchecked | concrete_syntax/graph.py:72 |
+| accepts.count.boolean_attribute | opencypher | refused | G33 | concrete_syntax/select.py:644 |
+| accepts.compare.boolean_attributes | opencypher | refused | G33 | concrete_syntax/select.py:671 |
+| accepts.compare.bigint_attribute_with_float | opencypher | refused | unchecked | concrete_syntax/graph.py:260 |
+| accepts.parameters.cast | opencypher | refused | unchecked | concrete_syntax/graph.py:88 |
+| accepts.contains.parameter | opencypher | refused | unchecked | concrete_syntax/graph.py:259 |
+| accepts.skip.without_limit | opencypher | refused | unchecked | concrete_syntax/select.py:675 |
+| accepts.aggregate.count_distinct | opencypher | refused | unchecked | concrete_syntax/select.py:654 |
+| accepts.aggregate.avg | opencypher | refused | unchecked | concrete_syntax/select.py:650 |
+| accepts.aggregate.median | opencypher | refused | unchecked | concrete_syntax/select.py:650 |
+| accepts.path.variable_length | opencypher | accepted | G9 | concrete_syntax/graph.py:86 |
+| accepts.opencypher_table.in_correlated_scalar_subquery | sql@graph | accepted | G1 | concrete_syntax/graph.py:82 |
+| accepts.opencypher_table.in_in_subquery | sql@graph | accepted | G19 | concrete_syntax/graph.py:84 |
+| accepts.opencypher_table.in_not_in_subquery | sql@graph | accepted | G19 | concrete_syntax/graph.py:84 |
+| accepts.aggregate.max_min_sum.non_numeric | opencypher | refused | unchecked | concrete_syntax/select.py:647 |
+| accepts.filter.bare_parameter | collection | refused | unchecked | concrete_syntax/document.py:257 |
+| accepts.filter.in_list_parameter | collection | refused | unchecked | concrete_syntax/document.py:258 |
+| accepts.like.parameter | collection | refused | unchecked | concrete_syntax/document.py:248 |
+| accepts.query.boolean_constant | collection | refused | unchecked | concrete_syntax/document.py:119 |
+| accepts.update.set_expression | collection | refused | unchecked | concrete_syntax/write.py:322 |
+| accepts.update.set_unset_without_comma | collection | refused | unchecked | concrete_syntax/write.py:323 |
+| accepts.aggregate.max_min.string_field | collection | refused | unchecked | concrete_syntax/select.py:185 |
+| accepts.subquery.nested_unnest_view | sql@doc | refused | unchecked | concrete_syntax/path.py:178, concrete_syntax/select.py:197 |
+| accepts.exists.unnest_element_view.positive_conjunct | sql@doc | accepted | unchecked | concrete_syntax/document.py:213 |
+| accepts.exists.unnest_element_view.under_or | sql@doc | refused | unchecked | concrete_syntax/document.py:214 |
+| accepts.exists.unnest_element_view.under_not | sql@doc | refused | unchecked | concrete_syntax/document.py:215 |
+| accepts.exists.unnest_element_view.in_semi_join | sql@doc | refused | unchecked | concrete_syntax/document.py:216 |
+| accepts.exists.unnest_element_view.with_unnest_edge_views | sql@doc | refused | unchecked | concrete_syntax/traversal.py:107 |
+| accepts.select.ungrouped_variable | sparql | refused | unchecked | concrete_syntax/traversal.py:348 |
+| accepts.aggregate.median.without_group_by | sparql | refused | unchecked | concrete_syntax/select.py:773 |
+| accepts.offset.without_limit | sql | refused | unchecked | concrete_syntax/select.py:522 |
+| accepts.identifier.start | sql | refused | unchecked | concrete_syntax/traversal.py:222 |
+| accepts.workspace.heterogeneous | graphscript | refused | unchecked | storage/mapping/graph.py:89 |
+| accepts.shortest_path.direction_parameter | graphscript | accepted | unchecked | storage/mapping/graph.py:90 |
+| accepts.subgraph.vertex_outside.lookup | graphscript | refused | unchecked | concrete_syntax/path.py:151 |
 
 ## equivalent
 
-| question | subject | answer | checked by |
-|---|---|---|---|
-| equivalent.hint_profile | sql | true | P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P15, P16, P17 |
-| equivalent.hint_profile | collection | true | D27 |
-| equivalent.anonymous_block | sqlscript | true | P20 |
-| equivalent.set_operation_partition | sql | true | R23 |
-| equivalent.set_operation_partition | sql@doc | true | D25 |
-| equivalent.set_operation_partition | sparql | true | K26 |
-| equivalent.not_kept_as_written | collection | true | D19, D20 |
-| equivalent.from_graph_clause | sparql | true | K3 |
-| equivalent.workspace_no_cache | opencypher | true | G25 |
-| equivalent.peer_read.committed_state | sql | true | R24 |
-| equivalent.peer_read.committed_state | collection | true | D26 |
-| equivalent.peer_read.committed_state | sparql | true | K27 |
-| equivalent.peer_read.committed_state | opencypher | true | G37 |
+| question | subject | answer | checked by | read by |
+|---|---|---|---|---|
+| equivalent.hint_profile | sql | true | P1, P2, P3, P4, P5, P6, P7, P8, P9, P10, P11, P12, P13, P14, P15, P16, P17 | concrete_syntax/hints.py:58 |
+| equivalent.hint_profile | collection | true | D27 | concrete_syntax/hints.py:59 |
+| equivalent.anonymous_block | sqlscript | true | P20 | concrete_syntax/select.py:165 |
+| equivalent.set_operation_partition | sql | true | R23 | concrete_syntax/select.py:161 |
+| equivalent.set_operation_partition | sql@doc | true | D25 | concrete_syntax/select.py:162 |
+| equivalent.set_operation_partition | sparql | true | K26 | concrete_syntax/select.py:774 |
+| equivalent.not_kept_as_written | collection | true | D19, D20 | concrete_syntax/select.py:163 |
+| equivalent.from_graph_clause | sparql | true | K3 | concrete_syntax/select.py:164 |
+| equivalent.workspace_no_cache | opencypher | true | G25 | storage/physical_design.py:118 |
+| equivalent.peer_read.committed_state | sql | true | R24 | engine/connection.py:386 |
+| equivalent.peer_read.committed_state | collection | true | D26 | engine/connection.py:387 |
+| equivalent.peer_read.committed_state | sparql | true | K27 | engine/connection.py:388 |
+| equivalent.peer_read.committed_state | opencypher | true | G37 | engine/connection.py:389 |
 
 ## exact
 
-| question | subject | answer | checked by |
-|---|---|---|---|
-| aggregate.sum.integer.exact_below | sql | 9223372036854775808 | R8 |
-| exact.cross_type_numeric_pivot.below | sql | 1000000000000 | R21 |
-| exact.cross_type_numeric_pivot.below | collection | 1000000000000 | D24 |
-| exact.cross_type_numeric_pivot.below | sparql | 1000000000000 | K24 |
-| exact.cross_type_numeric_pivot.below | opencypher | 1000000000000 | G36 |
-| exact.constant.double | sql | true | R22 |
-| exact.constant.double | opencypher | false | unchecked |
-| exact.constant.integer | sql | true | R22 |
-| exact.constant.integer | opencypher | true | G30 |
-| exact.constant.string | sql | true | R22 |
-| exact.constant.string | opencypher | true | G34 |
-| exact.constant.boolean | sql | true | R22 |
-| exact.custom_key | sql | true | R18 |
-| exact.custom_key | collection | true | D22 |
-| exact.custom_key | sparql | true | K21 |
-| exact.custom_key | opencypher | true | G28 |
+| question | subject | answer | checked by | read by |
+|---|---|---|---|---|
+| aggregate.sum.integer.exact_below | sql | 9223372036854775808 | R8 | oracle/semantics.py:193 |
+| exact.cross_type_numeric_pivot.below | sql | 1000000000000 | R21 | oracle/pivots.py:30 |
+| exact.cross_type_numeric_pivot.below | collection | 1000000000000 | D24 | oracle/pivots.py:31 |
+| exact.cross_type_numeric_pivot.below | sparql | 1000000000000 | K24 | oracle/pivots.py:32 |
+| exact.cross_type_numeric_pivot.below | opencypher | 1000000000000 | G36 | oracle/pivots.py:33 |
+| exact.constant.double | sql | true | R22 | concrete_syntax/select.py:166 |
+| exact.constant.double | opencypher | false | unchecked | concrete_syntax/graph.py:207 |
+| exact.constant.integer | sql | true | R22 | concrete_syntax/select.py:167 |
+| exact.constant.integer | opencypher | true | G30 | concrete_syntax/graph.py:205 |
+| exact.constant.string | sql | true | R22 | concrete_syntax/select.py:168 |
+| exact.constant.string | opencypher | true | G34 | concrete_syntax/graph.py:206 |
+| exact.constant.boolean | sql | true | R22 | concrete_syntax/select.py:169 |
+| exact.custom_key | sql | true | R18 | config.py:46 |
+| exact.custom_key | collection | true | D22 | config.py:47 |
+| exact.custom_key | sparql | true | K21 | config.py:48 |
+| exact.custom_key | opencypher | true | G28 | config.py:49 |
 
 ## divergences
 
 | question | answers |
 |---|---|
-| parameter.bare.typed_by | ir: value; sql: column; opencypher: column |
 | match.edge_binding | ir: homomorphism; opencypher: edge-isomorphism |
 | match.undirected.self_loop.rows | ir: 2; opencypher: 1 |
 | path.variable_length.mode | ir: walk; opencypher: trail |
-| order.nulls.asc | sql: first; collection: first; sparql: first; opencypher: last |
-| order.nulls.desc | sql: last; collection: last; sparql: last; opencypher: first |
-| order.string | sql: utf-16-code-unit; collection: utf-16-code-unit; sparql: code-point; opencypher: utf-16-code-unit |
-| value.double.exact_round_trip | sql: true; collection: true; sparql: false; opencypher: true |
-| aggregate.sum.empty_input | sql: null; sparql: zero; opencypher: null |
+| order.nulls.asc | sql: first; opencypher: last |
+| order.nulls.desc | sql: last; opencypher: first |
 | aggregate.avg.integer.result | sql: decimal(25,6)-truncated; sparql: double |
-| aggregate.median_function.integer.result | sql: rounded-half-away-from-zero; sparql: interpolated |
 
 ## defects
 
-| id | subject |
-|---|---|
-| A1 | sparql |
-| A2 | sql@doc |
-| A3 | sparql |
-| A4 | sql@doc |
-| A5 | sql@doc |
-| A6 | sparql |
-| A7 | opencypher |
-| A8 | opencypher |
-| A9 | sql@graph |
-| A10 | sparql |
+| id | subject | reproduced by | read by |
+|---|---|---|---|
+| A1 | sparql | unchecked | concrete_syntax/traversal.py:366, engine/connection.py:390 |
+| A2 | sql@doc | unchecked | concrete_syntax/document.py:50, concrete_syntax/traversal.py:108 |
+| A3 | sparql | unchecked | concrete_syntax/select.py:775, concrete_syntax/traversal.py:349 |
+| A4 | sql@doc | unchecked | known_bugs/guards.py:30 |
+| A5 | sql@doc | unchecked | concrete_syntax/document.py:100 |
+| A6 | sparql | unchecked | concrete_syntax/predicate.py:39 |
+| A7 | opencypher | unchecked | config.py:44 |
+| A8 | opencypher | unchecked | concrete_syntax/graph.py:208 |
+| A9 | sql@graph | unchecked | concrete_syntax/graph.py:209 |
+| A10 | sparql | unchecked | concrete_syntax/select.py:776 |
 
 ## error classes
 
@@ -210,4 +160,4 @@
 | internal | any | `internal error`; `assertion`; `must not reach here` (any case) |
 | rejection | any |  |
 
-145 rules (11 IR definitions): 70 checked by a probe fact, 64 unchecked; 10 defects; 7 error classes
+100 rules (7 IR definitions): 53 checked by a probe fact, 40 unchecked; 93 read by code, 0 unread; 10 defects (0 reproduced by a probe fact); 7 error classes

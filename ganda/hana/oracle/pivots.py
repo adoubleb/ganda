@@ -17,12 +17,21 @@ from __future__ import annotations
 
 import random
 
+from ganda.hana.rules import answer
+from ganda.hana.rules.catalog import COLLECTION, OPENCYPHER, SPARQL, SQL
+
 ORDERED_OPS = ("=", "<>", ">", ">=", "<", "<=", "IN", "NOT IN", "BETWEEN")
 NULL_OPS = ("IS NULL", "IS NOT NULL")
 # a LIKE pattern is built only from a value holding none of these
 LIKE_WILDCARDS = "%_\\"
-# the magnitude under which a cross-type pivot is drawn (the module docstring)
-CROSS_TYPE_BOUND = 10**12
+# the magnitude under which a cross-type pivot is drawn (the module docstring): where
+# every data model's language compares it exactly
+CROSS_TYPE_BOUND = min(
+    answer("exact.cross_type_numeric_pivot.below", SQL),
+    answer("exact.cross_type_numeric_pivot.below", COLLECTION),
+    answer("exact.cross_type_numeric_pivot.below", SPARQL),
+    answer("exact.cross_type_numeric_pivot.below", OPENCYPHER),
+)
 
 
 def ordered_ops(ftype) -> tuple:

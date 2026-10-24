@@ -13,6 +13,8 @@ from __future__ import annotations
 import dataclasses
 import random
 
+from ganda.hana.rules import assumes
+from ganda.hana.rules.catalog import OPENCYPHER
 from ganda.core.data.generator import BOUNDARY_VALUES as _CORE_BOUNDARY_VALUES
 from ganda.core.data.model import FieldType, WriteForm, options
 from ganda.core.rng import stream
@@ -112,6 +114,8 @@ def draw_id_indexes(seed: "int | None", cfg) -> dict:
             id_index[GRAPH_CACHE_KEY] = "none"
     return id_index
 
+
+assumes("equivalent.workspace_no_cache", OPENCYPHER, True)
 
 def graph_cache(schema) -> str:
     """The graph workspace's cache form (`dialect.GRAPH_CACHE_FORMS`): dynamic unless the

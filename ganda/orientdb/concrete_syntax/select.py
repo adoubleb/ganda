@@ -62,8 +62,8 @@ VERTEX`), so the pairs compare transaction views alike.
 Facts (probed 3.2.56): a subquery target's records keep their class's semantics
 (a `ci` comparison, a DATETIME against a string pivot, a DECIMAL, `IS [NOT] DEFINED`
 on an absent field); `ORDER BY` over a subquery sorts where the same ORDER BY on the
-class walks an index (`FROM t ORDER BY f DESC` over an index ignoring nulls answers
-no rows, O18 -- also under a WHERE on another field); GROUP BY, DISTINCT, UNWIND,
+class walks an index (`FROM t ORDER BY f DESC` over an index ignoring nulls lacks the
+null records, O18 -- also under a WHERE on another field); GROUP BY, DISTINCT, UNWIND,
 SKIP / LIMIT and every aggregate work over a subquery target.
 """
 from __future__ import annotations
@@ -78,6 +78,9 @@ from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_
 from ganda.orientdb.facade.predicates import MIRROR, Predicate
 from ganda.orientdb.concrete_syntax.support import METHODS  # noqa: F401 -- the method catalog
 from ganda.core.query.ir.select import DOC_EDGE_KINDS, SelectQuery, notnull_fields
+
+from ganda.orientdb.rules import answer, assumes, works_around
+from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
 
 FILTERS = ("plain", "rw", "rev", "arith", "literal")
 POSITIONS = ("table", "scan", "nest", "poly", "polyin", "index")
@@ -191,6 +194,12 @@ def _where_text(q: SelectQuery, sp: SelectSyntax, rewrites: Rewrites) -> "str | 
     return " AND ".join([f"({pred})" if extra else pred] + extra)
 
 
+# a subquery target answers as the class does (collation, dates, definedness)
+assumes("equivalent.subquery_target", SQL, True)
+assumes("accepts.let.after_where", SQL, REFUSED)
+assumes("accepts.instanceof.parameter", SQL, REFUSED)
+
+
 def _source(q: SelectQuery, schema: Schema, sp: SelectSyntax, where: "str | None", let: str = "") -> str:
     """The FROM target, the LET (a join's; it precedes the WHERE) and the WHERE."""
     t = q.table
@@ -245,6 +254,11 @@ def _agg_text(q: SelectQuery, sp: SelectSyntax, src: str) -> str:
 
 
 TX_TIMEOUT = "TIMEOUT 20000 EXCEPTION"
+
+
+# the transaction door answers as the plain statement does (`RETURN $r` after ROLLBACK)
+assumes("equivalent.transaction_door", SCRIPT, True)
+assumes("transaction.own_uncommitted_visible", SCRIPT, True)
 
 
 def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str) -> str:

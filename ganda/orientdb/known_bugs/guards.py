@@ -103,13 +103,13 @@ withheld for a BETWEEN leaf with a lossy bound on such a column; the `>= AND <=`
 rewrite stays admitted.
 
 O18 (`issue-drafts/O18-order-by-through-an-index-that-ignores-nulls.md`): an `ORDER
-BY` walked from an index created with `ignoreNullValues: true` -- a single key DESC
-returns no rows and ASC lacks the null records; a composite index walked for `ORDER
-BY f, g` (or its prefix, one direction) lacks every record with a null in a key and
-answers nothing DESC. A second key the index does not cover, mixed directions or a
+BY` walked from an index created with `ignoreNullValues: true` lacks every record with a
+null in a key of the index, ascending and descending alike (3.2.57; on 3.2.56 a DESC
+walk answered no rows at all); a composite index is walked for `ORDER BY f, g` or its
+prefix, one direction. A second key the index does not cover, mixed directions or a
 range predicate route the query through a sort, which is right. Guarded where it is
-emitted: the select IR's `max` through the `order` form on a data model holding such an
-index (`_order_form_o18`), and the `keys` kind (`ordered_keys_known`).
+emitted and a walked record has a null key: the select IR's `max` / `min` through the
+`order` form (`_order_form_o18`), and the `keys` kind (`ordered_keys_known`).
 
 O19 (`issue-drafts/O19-sum-over-integers-wraps-in-32-bit-arithmetic.md`): `sum()`
 accumulates Integer boxes in 32-bit arithmetic and wraps (`+` promotes to a long, `*`
@@ -172,12 +172,6 @@ no concrete syntax uses it). The shape: the PULLED-UP `rel:flat` of a `both` que
 parts carry a subquery -- a field projection's nested LET, or a target predicate's
 `IN (SELECT ...)` (c100c seed 808) -- (`mark_known_bugs`).
 
-O4 (`issue-drafts/O4-dictionary-index-answers-equality.md`): the planner serves an
-equality / IN predicate through a DICTIONARY index, which keeps one record per key, so
-every other record holding the key is dropped. The generator demotes a DICTIONARY
-index over duplicate values to NOTUNIQUE, so the shape only arises with
-`--keep-dictionary-duplicates`; the guard is the second line.
-
 O46 (`issues/O46-binary-equality-scan-vs-index.md`, found by the large-data probe on
 3.2.57): `b = <base64 text>` on a BINARY column matches nothing on a scan -- the new
 executor's `OQueryOperatorEquals.equals` decodes the text to a byte[] and then compares
@@ -203,9 +197,9 @@ from ganda.core.oracle.case import QueryCase
 from ganda.core.query.ir.traversal import REACH_PROJECTIONS, TraversalQuery
 from ganda.orientdb.facade.predicates import lossy_pivot, Compound, Predicate
 from ganda.orientdb.concrete_syntax.traversal import BRACKET, CORRELATED
-
-DICTIONARY_DUPLICATES = False  # set by `--keep-dictionary-duplicates`
-
+from ganda.core.rules.vocabulary import StringOrder
+from ganda.orientdb.rules import assumes, works_around
+from ganda.orientdb.rules.catalog import SQL, SQL_INDEX
 
 def _leaves(p) -> list:
     return predicates.leaves(p)
@@ -244,6 +238,9 @@ def _any_indexed(schema: Schema, table: str, p, data_model: str, edge: bool = Fa
     return any(_leaf_served(schema, table, leaf, data_model, edge) for leaf in _leaves(p))
 
 
+works_around("O1")
+
+
 def o1_shape(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) -> bool:
     if data_model == "rel" and syntax == "flat":
         # the junction's FK columns are always indexed, so `near IN (SELECT id ...)` /
@@ -259,6 +256,9 @@ def o1_shape(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) ->
     if p is None:
         return False
     return _any_indexed(schema, q.source_table, p, data_model)
+
+
+works_around("O2")
 
 
 def o2_shape(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) -> bool:
@@ -288,42 +288,10 @@ def o2_shape(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) ->
     return False
 
 
-def _dictionary_equality(schema: Schema, instance: Instance, table: str, p, data_model: str, edge: bool = False) -> bool:
-    for leaf in _leaves(p):
-        if leaf.op not in ("=", "IN", "INSUB") or leaf.key is not None or not _plain(leaf):
-            continue
-        if edge:
-            candidates = [ix for ix in schema.indexes if ix.target == "edge" and ix.table == table and ix.field == leaf.field and ix.applies_to(data_model)]
-        else:
-            candidates = schema.node_indexes(table, leaf.field, data_model)
-        for ix in candidates:
-            if ix.kind != "DICTIONARY":
-                continue
-            # the index keeps one record per key over every class it covers (a ci
-            # index: the lower-cased key)
-            rows = instance.edges_of(ix.table) if edge else instance.nodes_of(ix.table)
-            ci = _ci_column(schema, table, leaf.field, edge)
-            keys = [r.values.get(leaf.field) for r in rows if r.values.get(leaf.field) is not None]
-            keys = [k.lower() if ci and isinstance(k, str) else k for k in keys]
-            if len(keys) != len({repr(k) for k in keys}):
-                return True
-    return False
-
-
-def o4_shape(q: TraversalQuery, schema: Schema, instance: Instance, data_model: str) -> bool:
-    if _dictionary_equality(schema, instance, q.source_table, q.source_predicate, data_model):
-        return True
-    for h in q.hops:
-        et = schema.edge_type(h.edge_type)
-        if _dictionary_equality(schema, instance, h.edge_type, h.edge_predicate, data_model, edge=True):
-            return True
-        tgt = et.to_type if h.direction == "out" else et.from_type
-        if _dictionary_equality(schema, instance, tgt, h.target_predicate, data_model):
-            return True
-    return False
-
-
 _O7_OPS = ("=", "<>", "IN")
+
+
+works_around("O7")
 
 
 def o7_predicate(schema: Schema, table: str, p, edge: bool = False) -> bool:
@@ -395,6 +363,9 @@ def _composite_served(schema: Schema, table: str, leaf, leaves: list, data_model
     return _plain(leaf) and any(leaf.field in ix.extra_fields and ix.field in eq_fields for ix in _composite_members(schema, table, data_model))
 
 
+works_around("O36")
+
+
 def o36_predicate(schema: Schema, table: str, p, data_model: str) -> bool:
     """O36 (`issue-drafts/O36-between-on-composite-index-lead-ignores-the-second-field.md`):
     `f BETWEEN a AND b AND g op c` served by a range-capable composite index on
@@ -436,6 +407,9 @@ def _leaf_indexed(schema: Schema, table: str, leaf, leaves: list, data_model: st
     return not edge and _composite_served(schema, table, leaf, leaves, data_model)
 
 
+works_around("O10")
+
+
 def o10_predicate(schema: Schema, table: str, p, data_model: str, edge: bool = False) -> bool:
     leaves = _leaves(p)
     for leaf in leaves:
@@ -461,6 +435,9 @@ def _composite_members(schema: Schema, table: str, data_model: str) -> list:
     if schema.base is not None:
         tables |= {nt.name for nt in schema.node_types} if schema.is_base(table) else {schema.base.name}
     return [ix for ix in schema.indexes if ix.target == "node" and ix.extra_fields and ix.table in tables and ix.applies_to(data_model)]
+
+
+works_around("O11")
 
 
 def o11_predicate(schema: Schema, instance: Instance, table: str, p, data_model: str) -> bool:
@@ -545,8 +522,14 @@ def _lossy_key_predicate(schema: Schema, table: str, p, data_model: str, edge: b
     return False
 
 
+works_around("O16")
+
+
 def o16_predicate(schema: Schema, table: str, p, data_model: str, edge: bool = False) -> bool:
     return _lossy_key_predicate(schema, table, p, data_model, edge, (FieldType.INT, FieldType.INT32, FieldType.FLOAT32))
+
+
+works_around("O20")
 
 
 def o20_predicate(schema: Schema, table: str, p, data_model: str, edge: bool = False) -> bool:
@@ -572,6 +555,9 @@ def _ci_column(schema: Schema, table: str, field_name: str, edge: bool = False) 
         return schema.field(table, field_name, edge=edge).case_insensitive
     except KeyError:
         return False
+
+
+works_around("O21")
 
 
 def o21_predicate(schema: Schema, table: str, p, data_model: str) -> bool:
@@ -601,6 +587,9 @@ def o21_shape(q: TraversalQuery, schema: Schema, data_model: str) -> bool:
     return False
 
 
+works_around("O27")
+
+
 def o27_predicate(schema: Schema, table: str, p, edge: bool = False) -> bool:
     """A date column compared with a partially matching string (compared as the
     date's midnight)."""
@@ -622,6 +611,9 @@ def o27_shape(q: TraversalQuery, schema: Schema) -> bool:
     return False
 
 
+works_around("O28")
+
+
 def o28_avg(present: list) -> bool:
     """Whether `avg()` over these integers divides inexactly (the mean is not
     integral: integer division truncates it)."""
@@ -630,9 +622,9 @@ def o28_avg(present: list) -> bool:
 
 def index_door_known(p, ix, schema: Schema, instance: Instance) -> "str | None":
     """The known bugs the `index:` door shares with an index-served scan of the
-    same index: O4 (a DICTIONARY index keeps one record per key), O10 (a mixed-box
-    IN list), O16 / O20 (a lossy key: the door converts it too, probed), O21 (the
-    door applies the collation where a scan's IN / BETWEEN does not)."""
+    same index: O10 (a mixed-box IN list), O16 / O20 (a lossy key: the door converts
+    it too, probed), O21 (the door applies the collation where a scan's IN / BETWEEN
+    does not)."""
     leaves = _leaves(p)
     for leaf in leaves:
         if leaf.op == "IN" and isinstance(leaf.pivot, list) and _mixed_boxes(leaf.pivot):
@@ -643,12 +635,10 @@ def index_door_known(p, ix, schema: Schema, instance: Instance) -> "str | None":
             return "O20" if ftype is FieldType.DECIMAL else ("O27" if ftype in (FieldType.DATETIME, FieldType.DATE) else "O16")
         if leaf.op in ("IN", "BETWEEN") and _ci_column(schema, ix.table, leaf.field):
             return "O21"
-    if ix.kind == "DICTIONARY":
-        rows = instance.nodes_of(ix.table)
-        keys = [tuple(r.values.get(f) for f in ix.all_fields) for r in rows if all(r.values.get(f) is not None for f in ix.all_fields)]
-        if len(keys) != len({repr(k) for k in keys}):
-            return "O4"
     return None
+
+
+works_around("O25")
 
 
 def o25_predicate(schema: Schema, table: str, p) -> bool:
@@ -668,11 +658,15 @@ def o25_shape(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) -
     return False
 
 
+works_around("O18")
+works_around("O23")
+
+
 def ordered_keys_known(schema: Schema, instance: Instance, table: str, keys: list, directions: list, data_model: str, edge: bool = False) -> "str | None":
-    """`SELECT ... ORDER BY k1 d1, k2 d2` on `data_model`: O18 when the keys are a
-    one-direction prefix of a range index that ignores nulls (a single-field one for
-    one key), O23 when they are such a prefix of a composite index that keeps nulls
-    and a key column holds a null."""
+    """`SELECT ... ORDER BY k1 d1, k2 d2` on `data_model`: when the keys are a
+    one-direction prefix of a range index (a single-field one for one key) and a record
+    holds a null in a column of the index, O18 if the index ignores nulls, O23 if it is
+    a composite one that keeps them."""
     one_direction = len(set(directions)) == 1
     if not one_direction:
         return None
@@ -686,9 +680,10 @@ def ordered_keys_known(schema: Schema, instance: Instance, table: str, keys: lis
             continue
         if tuple(keys) != ix.all_fields[: len(keys)]:
             continue
-        if ix.ignore_nulls:
+        null_key = any(n.values.get(k) is None for n in rows for k in ix.all_fields)
+        if ix.ignore_nulls and null_key:
             return "O18"
-        if ix.extra_fields and any(n.values.get(k) is None for n in rows for k in ix.all_fields):
+        if ix.extra_fields and null_key:
             return "O23"
     return None
 
@@ -702,6 +697,9 @@ def o16_shape(q: TraversalQuery, schema: Schema, data_model: str) -> bool:
         if o16_predicate(schema, tgt, h.target_predicate, data_model) or o16_predicate(schema, h.edge_type, h.edge_predicate, data_model, edge=True):
             return True
     return False
+
+
+works_around("O17")
 
 
 def o17_predicate(schema: Schema, table: str, p, edge: bool = False) -> bool:
@@ -727,6 +725,9 @@ def o17_shape(q: TraversalQuery, schema: Schema) -> bool:
     return False
 
 
+works_around("O13")
+
+
 def o13_predicate(instance: Instance, edge_type: str, p) -> bool:
     """An edge BETWEEN whose bounds and stored values do not share one int width."""
     for leaf in _leaves(p):
@@ -737,6 +738,9 @@ def o13_predicate(instance: Instance, edge_type: str, p) -> bool:
         if ints and len({_int32(v) for v in ints}) > 1:
             return True
     return False
+
+
+works_around("O43")
 
 
 def o43_predicate(schema: Schema, edge_type: str, p) -> bool:
@@ -757,6 +761,9 @@ def o43_predicate(schema: Schema, edge_type: str, p) -> bool:
 
 def o43_shape(q: TraversalQuery, schema: Schema, data_model: str) -> bool:
     return data_model == "doc" and any(o43_predicate(schema, h.edge_type, h.edge_predicate) for h in q.hops if h.edge_predicate is not None)
+
+
+works_around("O44")
 
 
 def o44_dfs_reach(q: TraversalQuery, instance: Instance) -> bool:
@@ -793,6 +800,9 @@ def o13_shape(q: TraversalQuery, schema: Schema, instance: Instance, data_model:
     return any(o13_predicate(instance, h.edge_type, h.edge_predicate) for h in q.hops if h.edge_predicate is not None)
 
 
+works_around("O19")
+
+
 def o19_shape(q: TraversalQuery, schema: Schema, instance: Instance, data_model: str) -> bool:
     if data_model != "doc" or q.projection != "esum":
         return False
@@ -810,6 +820,9 @@ def o19_shape(q: TraversalQuery, schema: Schema, instance: Instance, data_model:
     return False
 
 
+works_around("O15")
+
+
 def o15_shape(q: TraversalQuery, schema: Schema, instance: Instance, data_model: str) -> bool:
     if data_model != "doc" or q.projection not in ("emax", "emin"):
         return False
@@ -817,6 +830,9 @@ def o15_shape(q: TraversalQuery, schema: Schema, instance: Instance, data_model:
     if schema.field(et, q.field, edge=True).type is not FieldType.INT:
         return False
     return _mixed_int_widths([e.values.get(q.field) for e in instance.edges_of(et)])
+
+
+works_around("O8")
 
 
 def o8_shape(q: TraversalQuery, data_model: str, syntax: str) -> bool:
@@ -827,10 +843,16 @@ def o8_shape(q: TraversalQuery, data_model: str, syntax: str) -> bool:
     return any(predicates.has_op(p, ("IS PRESENT", "IS ABSENT")) for p in (q.hops[0].target_predicate, q.source_predicate) if p is not None)
 
 
+works_around("O9")
+
+
 def o9_shape(q: TraversalQuery, data_model: str, syntax: str) -> bool:
     if (data_model, syntax) not in (("doc", "path"), ("graph", "bag")):
         return False
     return any(h.predicate is not None for h in q.hops[1:])
+
+
+works_around("O39")
 
 
 def o39_predicate(p) -> bool:
@@ -891,9 +913,10 @@ def _data_model_known(q: TraversalQuery, schema: Schema, instance: Instance, bas
         return "O19"
     if o9_shape(q, base, syntax):
         return "O9"
-    if o4_shape(q, schema, instance, base):
-        return "O4"
     return None
+
+
+works_around("O26")
 
 
 def mark_known_bugs(case: QueryCase, q: TraversalQuery, schema: Schema, instance: Instance) -> QueryCase:
@@ -933,6 +956,9 @@ def float32_exact(v) -> bool:
         return False
 
 
+works_around("O12")
+
+
 def o12_literal(p) -> bool:
     """Whether concrete syntax `p`'s pivots as literals is O12's shape."""
     for leaf in _leaves(p):
@@ -952,6 +978,9 @@ def _conjunct_leaves(p) -> list:
     if isinstance(p, Compound) and p.op == "AND":
         return [leaf for c in p.children for leaf in _conjunct_leaves(c)]
     return []
+
+
+works_around("O5")
 
 
 def list_ops_known(schema: Schema, table: str, p, data_model: str, edge: bool = False, servable: bool = True) -> "str | None":
@@ -1064,19 +1093,25 @@ def o5_poly_sibling_index(schema: Schema, table: str, p, data_model: str) -> boo
     return False
 
 
+works_around("O31")
+
+
 def o31_desc_walk(schema: Schema, table: str, keys: list, directions: list, tx: "TxWrite | None", data_model: str, edge: bool = False) -> bool:
     """O31's walk face (cov400 seeds 5192 / 5287 / 5338 / 5355, 5229's `max` read
     as `ORDER BY f DESC LIMIT 1`): inside a transaction that wrote a non-null value
     to the ordered field (or inserted a record), a single-key DESC walk of an SB-tree
     index answers the written record FIRST (after the nulls), whatever its value.
     Probed: the ASC walk, an id-tiebroken ordering (it sorts), a hash index, no
-    index, and a write of null are right; an index ignoring nulls answers no rows on
-    a DESC walk anyway (O18)."""
+    index, and a write of null are right; an index ignoring nulls lacks the null
+    records on a walk anyway (O18)."""
     if not tx or tx.write not in ("update", "insert") or not keys or not directions or directions[0] != "DESC":
         return False
     if tx.write == "update" and (tx.remove or tx.tv is None or tx.field not in keys):
         return False
     return any(ix.kind in RANGE_KINDS for ix in _field_indexes(schema, table, keys[0], data_model, edge))
+
+
+works_around("O32")
 
 
 def o32_predicate(schema: Schema, table: str, p, edge: bool = False) -> bool:
@@ -1154,6 +1189,9 @@ def o31_known(schema: Schema, table: str, p, data_model: str, write: str, writte
     return None
 
 
+works_around("O14")
+
+
 def insub_known(schema: Schema, instance: Instance, table: str, p, data_model: str, outer_served: bool = True) -> "str | None":
     """The findings of a tree's SEMI-JOIN leaves (`f IN (SELECT g FROM t2 [WHERE
     q])`, the select IR's `INSUB`): O39 for a CONTAINSVALUE in `q` (a subquery
@@ -1161,8 +1199,8 @@ def insub_known(schema: Schema, instance: Instance, table: str, p, data_model: s
     filters (index-served over `t2`, or the scan-side ones where the leaf reads
     `(SELECT FROM t2)`); and where the OUTER query may be index-served, O14 (a null
     among the answered values through an index on `f`: the null-keyed records come
-    back). O10 / O21 / O4 on the outer lookup are the IN leaf's, judged by
-    `o10_predicate` / `o21_predicate` / `_dictionary_equality`."""
+    back). O10 / O21 on the outer lookup are the IN leaf's, judged by
+    `o10_predicate` / `o21_predicate`."""
     from ganda.orientdb.concrete_syntax.support import SCAN_SIDE_FINDINGS
 
     for leaf in predicates.subqueries(p):
@@ -1235,8 +1273,6 @@ def node_case_known(table: str, p, schema: Schema, instance: Instance) -> dict:
             known_bugs[data_model] = "O27"
         elif o21_predicate(schema, table, p, data_model):
             known_bugs[data_model] = "O21"
-        elif _dictionary_equality(schema, instance, table, p, data_model):
-            known_bugs[data_model] = "O4"
     return known_bugs
 
 
@@ -1259,8 +1295,6 @@ def edge_case_known(edge_type: str, p, schema: Schema, instance: Instance) -> di
             known_bugs[data_model] = "O16"
         elif o17_predicate(schema, edge_type, p, edge=True):
             known_bugs[data_model] = "O17"
-        elif _dictionary_equality(schema, instance, edge_type, p, data_model, edge=True):
-            known_bugs[data_model] = "O4"
     if o43_predicate(schema, edge_type, p):
         known_bugs["doc"] = "O43"
     elif o13_predicate(instance, edge_type, p):
@@ -1272,17 +1306,17 @@ def edge_case_known(edge_type: str, p, schema: Schema, instance: Instance) -> di
 
 def _order_form_o18(schema: Schema, instance: Instance, table: str, fn: str, field_name: str, data_model: str, edge: bool = False) -> bool:
     """`max(f)` / `min(f)` read as the first row of `ORDER BY f DESC|ASC` over the
-    class: a single-key DESC walk of a range index that ignores nulls answers no rows
-    (O18); the ASC walk only lacks the null records, which `IS NOT NULL` excludes --
-    unless the index is COMPOSITE and a record with a present f has a null in another
-    component: that record has no entry and the walk skips it (campaign c100e, seed
-    1049)."""
+    class: a walk of a range index that ignores nulls lacks the null records, which `IS
+    NOT NULL` excludes -- unless the index is COMPOSITE and a record with a present f
+    has a null in another component: that record has no entry and the walk skips it
+    (campaign c100e, seed 1049)."""
     cands = _field_indexes(schema, table, field_name, data_model, edge)
     ixs = [ix for ix in cands if ix.kind in RANGE_KINDS and ix.ignore_nulls and ix.field == field_name]
-    if fn == "max" and ixs:
-        return True
     rows = instance.edges_of(table) if edge else instance.nodes_of(table)
     return any(ix.extra_fields and any(n.values.get(field_name) is not None and any(n.values.get(g) is None for g in ix.extra_fields) for n in rows) for ix in ixs)
+
+
+works_around("O41")
 
 
 def o41_values(values: list, key: str, ftype: FieldType, key2: str = "", values2: "list | None" = None, ftype2: "FieldType | None" = None) -> bool:
@@ -1301,6 +1335,13 @@ def o41_values(values: list, key: str, ftype: FieldType, key2: str = "", values2
         seen.setdefault(tuple(orient_key(x) for x in row.values()), row)
     types = {key: ftype, key2: ftype2} if values2 is not None else {key: ftype}
     return distinct_collides(list(seen.values()), types)
+
+
+# a STRING order: a sort collates, an index walk orders by code unit (O6)
+assumes("order.string.order_by", SQL, StringOrder.COLLATION)
+assumes("order.string.order_by", SQL_INDEX, StringOrder.UTF16_CODE_UNIT)
+works_around("O6")
+works_around("O33")
 
 
 def select_shape_known(q, sp, data_model: str, schema: Schema, instance: Instance, present: list) -> "str | None":
@@ -1505,6 +1546,9 @@ _RANGE_OPS = ("<", "<=", ">", ">=", "BETWEEN", "IS NOT NULL")
 _MOVING_WRITES = ("set", "arith", "merge", "edge_set", "edge_arith")
 
 
+works_around("O37")
+
+
 def o37_write(q, sp, data_model: str, pred, schema: Schema) -> bool:
     """O37 (`issue-drafts/O37-update-revisits-the-records-it-moves-through-an-index.md`):
     an UPDATE whose WHERE is served by an SB-tree index walk and whose SET changes a
@@ -1543,6 +1587,9 @@ def _poly_tables(schema: Schema, table: str) -> set:
     if schema.base is not None:
         tables |= {nt.name for nt in schema.node_types} if schema.is_base(table) else {schema.base.name}
     return tables
+
+
+works_around("O38")
 
 
 def write_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Instance) -> "str | None":

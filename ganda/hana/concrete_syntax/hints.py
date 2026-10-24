@@ -51,6 +51,13 @@ from __future__ import annotations
 import re
 import zlib
 
+from ganda.hana.rules import assumes
+from ganda.hana.rules.catalog import COLLECTION, SQL
+
+# a hinted twin answers as its plain statement does: a mismatch between them is a finding
+assumes("equivalent.hint_profile", SQL, True)
+assumes("equivalent.hint_profile", COLLECTION, True)
+
 PROFILES = {
     "nohex": ("NO_USE_HEX_PLAN",),
     "hex": ("USE_HEX_PLAN",),

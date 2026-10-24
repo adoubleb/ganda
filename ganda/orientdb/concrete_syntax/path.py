@@ -3,6 +3,10 @@ from __future__ import annotations
 from ganda.core.query.ir.path import PathQuery, distance
 from ganda.core.data.model import Instance, Schema
 
+from ganda.orientdb.rules import answer, assumes, works_around
+from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+from ganda.core.rules.vocabulary import EmptyInputRows
+
 _FN = {"OUT": "out", "IN": "in", "BOTH": "both"}
 
 
@@ -12,6 +16,15 @@ def bind_vars(q: PathQuery) -> dict:
 
 def _start(q: PathQuery) -> str:
     return f"(SELECT FROM {q.start_type} WHERE id = :a)"
+
+
+# shortestPath answers 0 unreachable, 1 for the same record; an aggregate over no row
+# answers no row, so every form answers nothing when unreachable; maxDepth is O35
+assumes("shortest_path.unreachable.result", SQL, 0)
+assumes("shortest_path.same_record.result", SQL, 1)
+assumes("aggregate.ungrouped.empty_input.rows", SQL, EmptyInputRows.NO_ROW)
+assumes("accepts.max_depth.parameter", TRAVERSE, REFUSED)
+works_around("O35")
 
 
 def _graph(q: PathQuery) -> dict:
@@ -73,6 +86,9 @@ def _rel(q: PathQuery) -> dict:
         "rel:inline": f"SELECT min(d) + 1 AS v FROM (SELECT expand(unionall({', '.join(reversed(parts))})))",
         "rel:asc": f"SELECT min(d) + 1 AS v FROM (SELECT expand(unionall({', '.join(parts)})))",
     }
+
+
+works_around("O40")
 
 
 def o40_asc(q: PathQuery, d: "int | None") -> bool:

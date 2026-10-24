@@ -326,6 +326,14 @@ def apply_profile(args, cfg) -> None:
         print(f"scale {p.name}: stored state {state}, query timeout {args.query_timeout_ms / 1000:.0f} s ({'a finding' if p.timeouts_are_errors else 'left out of the comparison'}), bundles carry the shape of the data", flush=True)
 
 
+def _warn_on_unprobed_build(engine, server) -> None:
+    """Warn when the server is another build than the one the probe last verified (the
+    provider's baseline)."""
+    warning = engine.baseline.warning(engine.name, server.version()) if engine.baseline is not None else None
+    if warning:
+        print(f"warning: {warning}", flush=True)
+
+
 def run_campaign(engine, args) -> "tuple[CampaignStats, object]":
     cfg = _scale.resolve(engine.configure(args, config_from_args(engine.config_class, args)), limits_of(engine))
     apply_profile(args, cfg) # to switch between small or large data and table size for fuzzing
@@ -334,6 +342,7 @@ def run_campaign(engine, args) -> "tuple[CampaignStats, object]":
     start = time.time()
     os.makedirs(args.out_dir, exist_ok=True)
     with measured_server(engine, args) as (server, shared.coverage):
+        _warn_on_unprobed_build(engine, server)
         box = {"server": server}
         if args.workers <= 1:
             _worker(engine, 0, seeds, cfg, args, shared, box)

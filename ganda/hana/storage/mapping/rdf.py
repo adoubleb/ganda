@@ -28,6 +28,8 @@ from __future__ import annotations
 
 from collections import Counter
 
+from ganda.hana.rules import assumes
+from ganda.hana.rules.catalog import SPARQL
 from ganda.core.data.model import EdgeDelete, EdgeUpdate, FieldType, Instance, NodeDelete, NodeUpdate
 from ganda.hana.storage.dialect import GRAPH_TOKEN, PREFIX_TEXT, record_iri, sparql_literal, sparql_string
 from ganda.hana.storage.mapping.common import Declare, Sparql, chunks, initial_edge_values, initial_edges, initial_node_values, initial_nodes, wrap
@@ -55,6 +57,8 @@ def value_triples(subject: str, fields, values: dict) -> list:
                 out.append(f"{subject} i:{f.name} {sparql_literal(x)}")
     return out
 
+
+assumes("query.node_with_two_types.rows", SPARQL, 1)
 
 def class_triples(subject: str, type_name: str, schema) -> list:
     """`<s> a c:n1`, and under the inheritance axis `<s> a c:N0` as well: a node is a

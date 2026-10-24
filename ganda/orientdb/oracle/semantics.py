@@ -55,6 +55,10 @@ from typing import Any
 from ganda.core.query.ir.predicates import Compound
 from ganda.core.data.neighbours import shift_date
 from ganda.core.engine.provider import Semantics
+from ganda.orientdb.rules import answer, assumes, works_around
+from ganda.orientdb.rules.catalog import MATCH, REFUSED, SCRIPT, SQL, SQL_INDEX, TRAVERSE, INDEX_DOOR, BATCH, Strategy
+from ganda.core.rules.vocabulary import Logic, StringOrder
+
 
 
 def _is_number(v: Any) -> bool:
@@ -117,6 +121,11 @@ def canonical_date(v: Any) -> Any:
     return v
 
 
+# a comparison orders strings by UTF-16 code unit, keeps -0.0 below 0.0
+assumes("order.string", SQL, StringOrder.UTF16_CODE_UNIT)
+assumes("compare.negative_zero_below_zero", SQL, True)
+
+
 def orient_key(v: Any):
     """A total-order key reproducing OrientDB's comparison inside one declared type,
     and a stable cross-type rank for mixed lists (null < bool < number < string <
@@ -170,6 +179,11 @@ _LINE_TERMINATORS = "\n\r\u0085\u2028\u2029"
 _WILD = f"[^{_LINE_TERMINATORS}]"
 
 
+assumes("filter.like.case_sensitive", SQL, False)
+assumes("filter.like.one_character_wildcard", SQL, "?")
+works_around("O42")
+
+
 def like_hit(value: str, pattern: str) -> bool:
     """`LIKE`: case-insensitive on every string (probed 3.2.56: `'a' LIKE 'A%'`
     holds on a plain STRING); `%` any run of characters and `?` one character --
@@ -181,7 +195,7 @@ def like_hit(value: str, pattern: str) -> bool:
     return re.fullmatch(rx, value) is not None
 
 
-_CI_OPS = ("=", "<>", "<", "<=", ">", ">=")
+_CI_OPS = tuple(answer("filter.case_insensitive.operators", SQL).split())
 
 
 def _convert(v: Any, pivot: Any, ftype: "str | None", ci: bool, op: str):
@@ -357,7 +371,7 @@ def sum_is_exact(values: list, ftype: "str | None" = "int") -> bool:
         return all(isinstance(v, float) for v in values)
     if any(isinstance(v, bool) or not isinstance(v, int) for v in values):
         return False
-    bound = 2**30 if ftype == "int32" else 2**62
+    bound = (answer("exact.sum.int32.below", SQL) if ftype == "int32" else answer("aggregate.sum.integer.exact_below", SQL)) // 2
     return sum(abs(v) for v in values) < bound
 
 
@@ -373,6 +387,9 @@ def apply_arith(v, sym: str, c, ftype: "str | None"):
         r = {"+": a + c, "-": a - c, "*": a * c}[sym]
         return float(r)
     return {"+": v + c, "-": v - c, "*": v * c}[sym]
+
+
+assumes("filter.logic", SQL, Logic.TWO_VALUED)
 
 
 def evaluate(values: dict, p) -> bool:

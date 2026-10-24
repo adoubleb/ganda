@@ -14,8 +14,8 @@ comparisons / IS NULL / CONTAINS / STARTS WITH / ENDS WITH / arithmetic / NOT AN
 ORDER BY, LIMIT and SKIP. Anything else raises `UnsupportedCypher` (`translatable` is
 the runner's valve: such a variant is left out offline, as rdf's `native` is).
 
-It mirrors the engine's semantics as probed (2026-10-11), each a switch named after the
-probe fact (`ganda/hana/rules/catalog.py`): one MATCH clause only (a second one is the engine's refusal, raised
+It mirrors the engine's semantics, each a switch read from the engine rules
+(`ganda/hana/rules/catalog.py`): one MATCH clause only (a second one is the engine's refusal, raised
 at run time); a relationship binds once within the clause (pairwise `eid <>` between its
 edge variables); an undirected edge is both orientations but a self-loop once; a
 variable-length path never repeats a relationship; SUM over a group of nulls is NULL;
@@ -27,14 +27,18 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-# --- the engine's probed behaviour (probe facts, `ganda/hana/rules/catalog.py`) -----------------
+from ganda.core.rules.vocabulary import EdgeBinding, EmptyAggregate, NullPlacement, PathMode
+from ganda.hana.rules import answer, refused
+from ganda.hana.rules.catalog import OPENCYPHER
 
-SELF_LOOP_TWICE = False  # G7 (probed 2026-10-11): an undirected edge matches a self-loop once
-ISOMORPHIC_WITHIN_CLAUSE = True  # G8 (probed): edge variables of one clause bind distinct relationships
-ONE_CLAUSE_ONLY = True  # G8 (probed): a heterogeneous workspace refuses a second MATCH clause
-TRAIL_PATHS = True  # G9 (probed): a variable-length path repeats no relationship
-SUM_EMPTY_ZERO = False  # G4 (probed): SUM over a group of nulls answers NULL (the docs say 0)
-NULLS_FIRST_ASC = False  # G5 (probed): ORDER BY ASC puts NULL last
+# --- the engine's behaviour, read from its rules (`ganda/hana/rules/catalog.py`) ----------------
+
+SELF_LOOP_TWICE = answer("match.undirected.self_loop.rows", OPENCYPHER) == 2
+ISOMORPHIC_WITHIN_CLAUSE = answer("match.edge_binding", OPENCYPHER) is EdgeBinding.EDGE_ISOMORPHISM
+ONE_CLAUSE_ONLY = refused("match.second_clause", OPENCYPHER)
+TRAIL_PATHS = answer("path.variable_length.mode", OPENCYPHER) is PathMode.TRAIL
+SUM_EMPTY_ZERO = answer("aggregate.sum.all_null_input", OPENCYPHER) is EmptyAggregate.ZERO
+NULLS_FIRST_ASC = answer("order.nulls.asc", OPENCYPHER) is NullPlacement.FIRST
 
 
 class UnsupportedCypher(ValueError):
