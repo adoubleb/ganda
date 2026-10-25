@@ -71,7 +71,7 @@ def test_every_read_generator_emits():
 
 
 def test_guards_see_leaves_inside_compounds():
-    from ganda.orientdb.known_bugs.guards import node_case_known, o10_predicate, o12_literal
+    from ganda.orientdb.known_bugs.guards import node_case_known, o10_predicate
     from ganda.orientdb.facade.predicates import Compound
 
     schema = _schema([IndexSpec("n1", "f1", data_model="rel", kind="NOTUNIQUE")])
@@ -81,8 +81,6 @@ def test_guards_see_leaves_inside_compounds():
     assert o2_shape(q, schema, "rel", "let")
     mixed = Compound("source", "AND", (Predicate("source", "f1", "IN", "p_0", [1, 2**40]), Predicate("source", "f1", "<>", "p_1", 5)))
     assert o10_predicate(schema, "n1", mixed, "rel") and not o10_predicate(schema, "n1", mixed, "doc")
-    assert o12_literal(Compound("source", "NOT", (Predicate("source", "f2", "=", "p_0", 776.417),)))
-    assert not o12_literal(Predicate("source", "f2", "=", "p", 1.5))
     schema2, inst, _ = build(3, GeneratorConfig())
     assert node_case_known("n1", None, schema2, inst) == {}
 

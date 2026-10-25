@@ -1,5 +1,5 @@
 """Predicates under OrientDB: the core's predicate tree with this engine's semantics,
-pivots and rewrites bound, so OrientDB-side code calls `evaluate(values, p)` and
+pivots bound, so OrientDB-side code calls `evaluate(values, p)` and
 `draw_over(rng, on, fields, values_of, bind)` without naming the engine.
 """
 from __future__ import annotations
@@ -20,13 +20,11 @@ from ganda.core.query.ir.predicates import (  # noqa: F401
     has_op_deep,
     leaves,
     resolve_subs,
-    reverse,
     sub_values,
     subqueries,
 )
-from ganda.orientdb.oracle.pivots import cross_type, lossy_pivot  # noqa: F401
-from ganda.orientdb.oracle.rewrites import _arith_exact, arithmetic, rewrite  # noqa: F401
-from ganda.orientdb.oracle.semantics import apply_arith, evaluate  # noqa: F401
+from ganda.orientdb.oracle.pivots import cross_type, leaf_form, lossy_pivot  # noqa: F401
+from ganda.orientdb.oracle.semantics import apply_arith, arith_exact, evaluate  # noqa: F401
 
 
 def _engine():

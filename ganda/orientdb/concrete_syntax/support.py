@@ -1,52 +1,18 @@
-"""The building blocks of the SELECT and PATH IRs: a predicate's literal concrete syntax,
-the AND over a composite index's fields, the method catalog with
-its Python mirrors, the per-key sort key, the transaction door's rows and the BFS
+"""The building blocks of the SELECT and PATH IRs: the AND over a composite index's
+fields, the method catalog with its Python mirrors, the per-key sort key, the transaction door's rows and the BFS
 distances."""
 from __future__ import annotations
 
-import dataclasses
 
 from ganda.core.query.ir.select import TxWrite
 from ganda.core.data.model import FieldType, Instance
-from ganda.orientdb.storage.dialect import sql_op
 from ganda.orientdb.facade import predicates
-from ganda.orientdb.facade.predicates import Compound
 from ganda.core.query.generators.support import bfs_distances, composite_and as _composite_and, draw_tx, tx_binds, tx_rows  # noqa: F401
 
 
 
 def _hits(instance: Instance, table: str, p) -> list:
     return [n for n in instance.nodes_of(table) if predicates.evaluate(n.values, p)]
-
-
-def _literal(v) -> str:
-    """A NUMERIC pivot as SQL text -- the one kind of value that is safe to interpolate
-    (a string never is). A float keeps its full repr."""
-    if isinstance(v, list):
-        return "[" + ", ".join(_literal(x) for x in v) + "]"
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    return repr(v)
-
-
-def literal_pred(p) -> "str | None":
-    if isinstance(p, Compound):
-        parts = [literal_pred(c) for c in p.children]
-        if any(x is None for x in parts):
-            return None
-        return f"NOT ({parts[0]})" if p.op == "NOT" else "(" + f" {p.op} ".join(parts) + ")"
-    if p.key is not None or p.op in predicates.MAP_OPS or p.sub is not None:
-        return None
-    if p.op in predicates.NO_BIND_OPS:
-        return f"{p.field} {sql_op(p.op)}"
-    pivots = p.pivot if isinstance(p.pivot, list) else [p.pivot]
-    if p.op == "LIKE" or any(isinstance(v, str) or isinstance(v, list) or v is None for v in pivots):
-        return None
-    if p.op == "BETWEEN":
-        return f"{p.field} BETWEEN {_literal(p.pivot[0])} AND {_literal(p.pivot[1])}"
-    return f"{p.field} {sql_op(p.op)} {_literal(p.pivot)}"
-
-
 
 
 # Methods, each with a guard on the PRESENT values it is asked over (the query filters

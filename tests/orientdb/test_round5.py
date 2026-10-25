@@ -1,5 +1,5 @@
-"""Round 5: reversed operands, arithmetic rewrites, list operators, the transaction
-door, the BFS distances and their guards."""
+"""Round 5: reversed operands, arithmetic and literal leaves, list operators, the
+transaction door, the BFS distances and their guards."""
 import dataclasses
 import math
 import random
@@ -9,11 +9,11 @@ from ganda.orientdb.facade.generate import GeneratorConfig, build
 from ganda.orientdb.known_bugs.guards import _leaf_served, list_ops_known, o31_known
 from ganda.core.data.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.engine.connection import is_script, unwrap_script
-from ganda.orientdb.facade import predicates
 from ganda.orientdb.concrete_syntax.support import bfs_distances
 from ganda.orientdb.concrete_syntax.support import tx_rows as _tx_rows
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render
-from ganda.orientdb.facade.predicates import Compound, Predicate, apply_arith, arithmetic, evaluate, reverse
+from ganda.orientdb.facade.predicates import Compound, Predicate, apply_arith, evaluate
+from ganda.orientdb.oracle.pivots import _arithmetic, leaf_form
 from ganda.core.query.generators.registry import all_cases
 from ganda.orientdb.oracle.semantics import predicate_hit
 
@@ -28,59 +28,82 @@ def _schema(indexes=(), ftype=FieldType.INT):
     )
 
 
-def test_reverse_swaps_the_reversible_leaves_only():
+class _Roll:
+    """A random stream whose `random()` answers `roll` (then 0.99), `choice` the first."""
+
+    def __init__(self, *rolls):
+        self.rolls = list(rolls)
+
+    def random(self):
+        return self.rolls.pop(0) if self.rolls else 0.99
+
+    def choice(self, xs):
+        return xs[0]
+
+
+class _Pick:
+    def __init__(self, pick):
+        self.pick = pick
+
+    def choice(self, xs):
+        return self.pick
+
+
+def test_leaf_forms_render_and_evaluate_as_drawn():
     p = Predicate("source", "f1", "<", "p", 5, ftype="int")
-    rp = reverse(p)
+    rp = leaf_form(_Roll(0.05), p)
     assert rp.rev and render(rp) == ":p > f1" and render(p) == "f1 < :p"
     assert rp.bind_vars == p.bind_vars and rp.signature == p.signature
-    assert reverse(Predicate("source", "f1", "IN", "p", [5])) is None
-    assert reverse(Predicate("source", "f1", "IS NULL", "", None)) is None
-    c = Compound("source", "AND", (Predicate("source", "f1", "IN", "p_0", [5]), Predicate("source", "f1", ">=", "p_1", 5)))
-    rc = reverse(c)
-    assert render(rc) == "(f1 IN :p_0 AND :p_1 <= f1)"
-    assert render(reverse(Predicate("source", "f1", "HAS", "p", 2, ftype="list"))) == ":p IN f1"
-    # the same answer on every row
+    # IN and the null tests keep their operand order
+    assert not leaf_form(_Roll(0.05), Predicate("source", "f1", "IN", "p", [5])).rev
+    assert render(leaf_form(_Roll(0.05), Predicate("source", "f1", "HAS", "p", 2, ftype="list"))) == ":p IN f1"
     rows = [{"f1": 4}, {"f1": 5}, {"f1": 6}, {}, {"f1": None}]
     assert [evaluate(r, p) for r in rows] == [evaluate(r, rp) for r in rows]
-    d = Predicate.from_dict(rp.to_dict())
-    assert d == rp
+    assert Predicate.from_dict(rp.to_dict()) == rp
+    # a literal pivot: in the text, not bound
+    lp = leaf_form(_Roll(0.25), Predicate("source", "f1", "BETWEEN", "p", [1, 5], ftype="int"))
+    assert lp.literal and render(lp) == "f1 BETWEEN 1 AND 5" and lp.bind_vars == {}
+    assert Predicate.from_dict(lp.to_dict()) == lp
+    # never a string, nor a double a FLOAT would not hold (O12), nor a relationship attribute
+    assert not leaf_form(_Roll(0.25), Predicate("source", "f2", "=", "p", "a", ftype="string")).literal
+    assert not leaf_form(_Roll(0.25), Predicate("source", "f1", "=", "p", 776.417, ftype="float")).literal
+    assert leaf_form(_Roll(0.25), Predicate("source", "f1", "=", "p", 1.5, ftype="float")).literal
+    assert not leaf_form(_Roll(0.25), Predicate("edge", "w", "=", "p", 1, ftype="int")).literal
+    # a map entry keyed by a parameter
+    kp = leaf_form(_Roll(0.1), Predicate("source", "m", "=", "p", 2, "int", False, "k2"))
+    assert render(kp) == "m[:pk] = :p" and kp.bind_vars == {"pk": "k2", "p": 2}
 
 
-def test_arithmetic_spelling_puts_the_field_under_arithmetic():
+def test_arithmetic_form_puts_the_field_under_arithmetic():
     rng = random.Random(1)
     p = Predicate("source", "f1", ">", "p", 5, ftype="int")
-    ap = arithmetic(p, rng, "ar", FieldType.INT)
-    # a spelling of its own, compared across data models only: no IS NOT NULL is added
-    assert ap.arith is not None and not ap.plain and ap.arith.bind == "arc"
-    assert render(ap).startswith("(f1 ") and ":arc" in render(ap)
-    # a ci column, a map entry, IN, a string pivot on a number: none
-    assert arithmetic(Predicate("source", "f2", "=", "p", "a", ftype="string", case_insensitive=True), rng, "ar", FieldType.STRING) is None
-    assert arithmetic(Predicate("source", "f1", "IN", "p", [5], ftype="int"), rng, "ar", FieldType.INT) is None
-    assert arithmetic(Predicate("source", "f1", ">", "p", "a", ftype="int"), rng, "ar", FieldType.INT) is None
+    ap = _arithmetic(rng, p)
+    assert ap.arith is not None and not ap.plain and ap.arith.bind == "pc"
+    assert render(ap).startswith("(f1 ") and ":pc" in render(ap)
+    rows = [{"f1": 1}, {"f1": 7}, {}]
+    # the pivot shifted alike: the same records
+    assert [evaluate(r, p) for r in rows] == [evaluate(r, ap) for r in rows]
+    # a ci column, IN, a string pivot on a number, a relationship attribute: none
+    assert _arithmetic(rng, Predicate("source", "f2", "=", "p", "a", ftype="string", case_insensitive=True)) is None
+    assert _arithmetic(rng, Predicate("source", "f1", "IN", "p", [5], ftype="int")) is None
+    assert _arithmetic(rng, Predicate("source", "f1", ">", "p", "a", ftype="int")) is None
+    assert _arithmetic(rng, Predicate("edge", "w", ">", "p", 5, ftype="int")) is None
     # an integer pivot the arithmetic takes past the long range is no parameter
     edge = Predicate("source", "f1", ">=", "p", -(2**63), ftype="int")
-    assert all(arithmetic(edge, random.Random(s), "ar", FieldType.INT) is None or -(2**63) <= arithmetic(edge, random.Random(s), "ar", FieldType.INT).pivot < 2**63 for s in range(20))
+    assert all(_arithmetic(random.Random(s), edge) is None or -(2**63) <= _arithmetic(random.Random(s), edge).pivot < 2**63 for s in range(20))
     # a pivot the arithmetic takes past the double range cannot travel as JSON
     huge = Predicate("source", "f1", ">", "p", 1e308, ftype="float")
-    assert all(arithmetic(huge, random.Random(s), "ar", FieldType.FLOAT) is None or math.isfinite(arithmetic(huge, random.Random(s), "ar", FieldType.FLOAT).pivot) for s in range(20))
+    assert all(_arithmetic(random.Random(s), huge) is None or math.isfinite(_arithmetic(random.Random(s), huge).pivot) for s in range(20))
     # dates shift by milliseconds, decimals stay exact
     assert apply_arith("2024-01-01 00:00:00", "+", 86400000, "datetime") == "2024-01-02 00:00:00"
     assert apply_arith("2024-01-01 00:00:00", "-", 1000, "date") == "2023-12-31 23:59:59"
     assert apply_arith(0.1, "+", 1, "decimal") == 1.1 and apply_arith(0.3, "*", 3, "decimal") == 0.9
 
 
-def test_list_operators_predicate_logic_and_rewrite():
+def test_list_operators_predicate_logic():
     assert predicate_hit(True, [1, 2], "HAS ANY", [2, 9]) and not predicate_hit(True, [1, 2], "HAS ANY", [9])
     assert predicate_hit(True, [1, 2], "HAS ALL", [2, 1]) and not predicate_hit(True, [1, 2], "HAS ALL", [2, 3])
     assert predicate_hit(True, [], "HAS ALL", []) and not predicate_hit(False, None, "HAS ALL", [])
-    rng = random.Random(3)
-    rw = predicates.rewrite(Predicate("source", "f1", "HAS ALL", "p", [1, 2], ftype="list"), rng, "q")
-    assert rw.op == "AND" and all(c.op == "HAS" for c in rw.children)
-    rw = predicates.rewrite(Predicate("source", "f1", "HAS ANY", "p", [1, 2], ftype="list"), rng, "q")
-    assert rw.op == "OR"
-    rows = [{"f1": [1]}, {"f1": [1, 2]}, {"f1": []}, {}]
-    p = Predicate("source", "f1", "HAS ALL", "p", [1, 2], ftype="list")
-    assert [evaluate(r, p) for r in rows] == [evaluate(r, predicates.rewrite(p, rng, "q")) for r in rows]
 
 
 def test_list_ops_guard_names_the_boxed_faces():
@@ -99,8 +122,8 @@ def test_reversed_and_arithmetic_leaves_are_never_index_served():
     sch = _schema([IndexSpec("n1", "f1", data_model="both", kind="NOTUNIQUE")])
     plain = Predicate("source", "f1", "<", "p", 5, ftype="int")
     assert _leaf_served(sch, "n1", plain, "doc")
-    assert not _leaf_served(sch, "n1", reverse(plain), "doc")
-    ap = arithmetic(plain, random.Random(1), "ar", FieldType.INT)
+    assert not _leaf_served(sch, "n1", dataclasses.replace(plain, rev=True), "doc")
+    ap = _arithmetic(random.Random(1), plain)
     assert not _leaf_served(sch, "n1", ap, "doc")
 
 

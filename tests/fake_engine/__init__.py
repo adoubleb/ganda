@@ -35,6 +35,10 @@ DATA_MODELS = ("doc", "graph", "rel")
 
 
 class FakeSemantics(Semantics):
+    @staticmethod
+    def arith_exact(v, sym, c, ftype) -> bool:
+        return isinstance(v, int) and not isinstance(v, bool) and abs(v) < 2**40
+
     def eq(self, a, b) -> bool:
         return a is not None and b is not None and self.key(a) == self.key(b)
 
@@ -403,12 +407,6 @@ class _PhysicalDesign:
         return True
 
 
-class _Rewrites:
-    @staticmethod
-    def arith_exact(v, sym, c, ftype) -> bool:
-        return isinstance(v, int) and not isinstance(v, bool) and abs(v) < 2**40
-
-
 class _KnownBugs:
     @staticmethod
     def mark_known_bugs(case, q, schema, instance):
@@ -450,7 +448,6 @@ class FakeProvider(Provider):
     select_syntax = _SelectSyntax
     path_syntax = _PathSyntax
     write_syntax = _WriteSyntax
-    rewrites = _Rewrites
     known_bugs = _KnownBugs
     mutants = INSTANCE_MUTANTS
 

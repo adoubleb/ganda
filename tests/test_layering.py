@@ -84,7 +84,6 @@ def test_a_full_provider_fills_every_slot():
             "select_syntax": ("BASE", "METHODS", "build_rewrites", "extra_binds", "rewrite_params", "base_data_models", "syntaxes_for", "applicable", "render"),
             "path_syntax": ("render_all", "bind_vars"),
             "write_syntax": ("build_rewrites", "all_syntaxes", "applicable", "render", "execute", "shared_binds", "rewrite_params"),
-            "rewrites": ("arith_exact",),
             "known_bugs": ("mark_known_bugs", "select_known", "write_known"),
         }.items():
             missing = [m for m in members if not hasattr(getattr(engine, slot), m)]

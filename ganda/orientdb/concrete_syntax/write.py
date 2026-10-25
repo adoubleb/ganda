@@ -5,9 +5,6 @@ against each other and against the Instance with the write applied. Over a campa
 every concrete syntax meets every other one. The choices:
 
     axis     choice       the text
-    filter   plain        `WHERE p`
-             rw / rev     `WHERE rewrite(p)` / the reversed operands (`:p < f`, a scan)
-             ar           the select IR's arithmetic rewrite (`(f + :c) op :pc`), a scan
     target   table        `UPDATE t ... WHERE p`
              nest         `UPDATE t ... WHERE id IN (SELECT id FROM t WHERE p)`: the
                           records chosen before any is written
@@ -54,9 +51,8 @@ from ganda.core.query.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
 from ganda.orientdb.rules import assumes
 from ganda.orientdb.rules.catalog import SQL
 
-# a write's filter is the predicate the Instance applies (the doc data model's `eids`
-# form deletes the ids it chose), so its spelling is the plain one
-FILTERS = ("plain",)
+# a write's filter is the drawn predicate's own text, the one the Instance applies (the
+# doc data model's `eids` form deletes the ids it chose)
 TARGETS = ("table", "nest", "sub")
 DOORS = ("auto", "tx")
 WRITE_TIMEOUT_MS = 10000
@@ -67,31 +63,25 @@ _NODE_UPDATES = ("set", "arith", "null", "remove", "merge")
 
 @dataclass(frozen=True)
 class WriteSyntax:
-    filter: str = "plain"
     target: str = "table"
     door: str = "auto"
     form: str = ""
 
     @property
     def tag(self) -> str:
-        parts = [x for x, default in ((self.form, ""), (self.filter, "plain"), (self.target, "table"), (self.door, "auto")) if x != default]
+        parts = [x for x, default in ((self.form, ""), (self.target, "table"), (self.door, "auto")) if x != default]
         return "+".join(parts) or "plain"
 
 
 def spelling(sp: WriteSyntax) -> tuple:
-    """What every data model's write shares: the filter, the target and the door (the
-    form is the data model's own)."""
-    return (sp.filter, sp.target, sp.door)
+    """What every data model's write shares: the target and the door (the form is the
+    data model's own)."""
+    return (sp.target, sp.door)
 
 
 @dataclass
 class WriteRewrites:
-    rw: object = None
-    rev: object = None
-    ar: object = None
-
-    def pred(self, q: WriteQuery, name: str):
-        return q.where if name == "plain" else getattr(self, name)
+    """The per-case material of a write: none (its filter is the question's own)."""
 
 
 @dataclass
@@ -136,7 +126,7 @@ def forms(q: WriteQuery, data_model: str) -> tuple:
 
 
 def all_syntaxes(q: WriteQuery, data_model: str) -> list:
-    return [WriteSyntax(f, t, d, m) for m in forms(q, data_model) for f in FILTERS for t in TARGETS for d in DOORS]
+    return [WriteSyntax(t, d, m) for m in forms(q, data_model) for t in TARGETS for d in DOORS]
 
 
 def applicable(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_model: str) -> bool:
@@ -145,16 +135,11 @@ def applicable(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_mod
         if sp.target != "table":
             return False
         if sp.form == "bracket":
-            # the predicate itself in a bracket filter: plain or rewritten leaves only
-            return q.where is not None and sp.filter in ("plain", "rw") and (sp.filter == "plain" or rewrites.rw is not None)
-        return sp.filter == "plain"
-    if sp.filter != "plain":
-        if q.where is None or rewrites.pred(q, sp.filter) is None:
-            return False
-        if sp.filter == "ar" and q.op in EDGE_OPS:
-            return False
+            # the predicate itself in a bracket filter
+            return q.where is not None
+        return True
     if q.op == "upsert":
-        return sp.filter == "plain" and sp.target == "table"
+        return sp.target == "table"
     if sp.target == "nest" and q.where is None and not q.extra_notnull:
         return False
     if sp.target == "sub":
@@ -166,8 +151,7 @@ def applicable(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_mod
 
 
 def _where(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites) -> "str | None":
-    pred = rewrites.pred(q, sp.filter)
-    text = render_pred(pred) if pred is not None else None
+    text = render_pred(q.where) if q.where is not None else None
     if q.extra_notnull:
         return f"({text}) AND {q.field} IS NOT NULL" if text else f"{q.field} IS NOT NULL"
     return text
@@ -295,7 +279,7 @@ def _edge_write(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_mo
             gone = [e.record_id for e in edge_hits(q, before)]
             st.prelude = [(f"UPDATE {et.from_type} SET {et.name} = {et.name}[eid NOT IN :wgone] WHERE {et.name} CONTAINS (eid IN :wgone) {_T}", {"wgone": gone})]
         else:
-            w = render_pred(rewrites.pred(q, sp.filter))
+            w = render_pred(q.where)
             st.prelude = [(f"UPDATE {et.from_type} SET {et.name} = {et.name}[NOT ({w})] WHERE {et.name} CONTAINS ({w}) {_T}", {})]
         return st
     where = _where(q, sp, rewrites)
@@ -318,9 +302,8 @@ def render(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_model: 
         st = _node_delete(q, sp, rewrites, data_model, before.schema, before)
     else:
         st = Statements(main=_node_update(q, sp, rewrites), door=sp.door)
-    # every statement of the data model carries the filter's bind variables (its rewrite's)
-    pred = rewrites.pred(q, sp.filter)
-    binds = dict(pred.bind_vars) if pred is not None else {}
+    # every statement of the data model carries the filter's bind variables
+    binds = dict(q.where.bind_vars) if q.where is not None else {}
     st.prelude = [(t, {**binds, **params}) for t, params in st.prelude]
     if st.main is not None:
         st.main = (st.main[0], {**binds, **st.main[1]})
@@ -359,9 +342,4 @@ def shared_binds(st: Statements) -> dict:
 
 
 def rewrite_params(rewrites: WriteRewrites) -> dict:
-    params: dict = {}
-    for name in ("rw", "rev", "ar"):
-        rewritten = getattr(rewrites, name)
-        if rewritten is not None:
-            params[name] = rewritten.to_dict()
-    return params
+    return {}

@@ -61,10 +61,10 @@ import dataclasses
 
 from ganda.core.data.model import Schema
 from ganda.core.query.ir.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, FIELD_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, Hop, TraversalQuery
-from ganda.orientdb.facade.predicates import fields_of
+from ganda.orientdb.facade.predicates import fields_of, has_op
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
 
-from ganda.orientdb.rules import assumes, works_around
+from ganda.orientdb.rules import answer, assumes, works_around
 from ganda.orientdb.rules.catalog import ACCEPTED, MATCH, SQL, TRAVERSE, Strategy
 from ganda.core.rules.vocabulary import EmptyAggregate, EmptyInputRows
 
@@ -208,11 +208,26 @@ def applicable(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) 
 # IS NULL holds for an absent field as for a null one: a pulled-up predicate meets nulls
 
 
+_CI_OPS = tuple(answer("filter.case_insensitive.operators", SQL).split())
+
+
+# a pull-up lifts the source predicate over a projection on doc and graph, and keeps it
+# on the class on rel (`id IN (SELECT id FROM t WHERE p)`): a predicate the projection
+# changes would make them differ
+assumes("projection.keeps_absent_field", SQL, False)
+# IS NULL holds for an absent field as for a null one: a pulled-up predicate meets nulls
+assumes("value.absent_is_null", SQL, True)
+
+
 def can_pull_up(q: TraversalQuery) -> bool:
-    """A question with a source predicate can be pulled up. A projection loses the
-    field's definedness and collation, alike on every data model's pull-up, which is
-    compared with the other pull-ups only."""
-    return q.source_predicate is not None
+    """A source predicate can be lifted over a projection unless it tests
+    definedness (an absent field projects as an explicit null) or compares a `ci`
+    field (a projected value carries no collation: campaign c100, seed 670, an O25
+    face; campaign p3, seed 1008, the definedness face)."""
+    p = q.source_predicate
+    if p is None or has_op(p, ("IS PRESENT", "IS ABSENT")):
+        return False
+    return not any(leaf.case_insensitive and leaf.op in _CI_OPS for leaf in p.leaves())
 
 
 def syntaxes_for(q: TraversalQuery, schema: Schema, data_model: str) -> list:

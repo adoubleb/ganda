@@ -120,7 +120,7 @@ def test_pulled_up_form_and_traverse():
     assert not applicable(TraversalQuery("n1", (Hop("e1", "out"),), "distinct_ids"), schema, "graph", "traverse")  # e1 is self-typed
     # a definedness test pulls up too: every data model's pull-up loses it alike, and the
     # pull-ups are compared with each other only
-    assert can_pull_up(TraversalQuery("n1", (Hop("e2", "out"),), "ids", None, Predicate("source", "f1", "IS PRESENT", "", None)))
+    assert not can_pull_up(TraversalQuery("n1", (Hop("e2", "out"),), "ids", None, Predicate("source", "f1", "IS PRESENT", "", None)))
 
 
 def test_both_direction_nexists_and_optional_match():
@@ -168,7 +168,6 @@ def test_narrow_types_in_the_predicate_logic():
     assert not predicate_hit(True, "Ab", "=", "aB", "string", False)
     assert not predicate_hit(True, "Ab", "IN", ["aB"], "string", True)
     assert predicate_hit(True, "Ab", "LIKE", "a%", "string", False)
-    assert predicate_hit(True, "Ab", "LOWER=", "ab", "string", True)
     # sums: 32-bit for an INTEGER column, exact decimal arithmetic for a DECIMAL one
     assert sum_is_exact([2**31 - 1, 5], "int") and not sum_is_exact([2**31 - 1, 5], "int32")
 

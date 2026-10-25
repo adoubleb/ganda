@@ -1,15 +1,7 @@
 """The concrete syntax catalog of the SELECT IR: HOW a `SelectQuery` is asked. A concrete syntax is
-three independent choices, and every applicable combination is an equivalent text:
+two independent choices, and every applicable combination is an equivalent text:
 
     axis       choice    the text
-    filter     plain     `WHERE p`
-               rw        `WHERE rewrite(p)`: an equivalent predicate tree (De Morgan,
-                         `IN [x]` for `= x`, the null-aware negations, ...)
-               rev       `WHERE reverse(p)`: the reversible leaves' operands swapped
-                         (`:p > f`), never index-served (probed)
-               arith     `(f + :c) op :pc AND f IS NOT NULL` for a leaf, where the
-                         arithmetic is exact on every stored value; never index-served
-               literal   the numeric pivots rendered as literals
     position   table     `FROM t [WHERE p]` -- the filter may be index-served, an
                          ORDER BY may walk an index
                poly      `FROM N0 WHERE @class = :cls [AND (p)]`, the base class
@@ -23,9 +15,13 @@ three independent choices, and every applicable combination is an equivalent tex
                jrev      a join's correlation reversed (`$parent.$current.f > f` for
                          `f < $parent.$current.f`): never index-served either
 
+The filter is the drawn predicate's own text (`predicate.render_predicate`): its leaves'
+forms -- reversed operands, arithmetic, a literal pivot -- are drawn with the predicate
+(`oracle/pivots.leaf_form`), never derived from another filter.
+
 A data model's name is `<data_model>:<tag>`, the tag the non-default choices joined by `+` in the
-order form, filter, position (`doc:rw`, `graph:order+poly`, `rel:rev+polyin`). The
-base concrete syntax (plain, table, base) is the same text on every data model. No
+order form, position (`graph:order+poly`, `rel:polyin`). The
+base concrete syntax (table, base) is the same text on every data model. No
 choice exists only to make a data model use or avoid an index: a pair differs in data
 model or in spelling, never in the planner path alone (the multi-model relation is the
 question; one data model's index against its own scan is not).
@@ -39,9 +35,7 @@ An EDGE-TYPE target reads `eid AS id` from the graph E class and the junction cl
 (the `table` position); the doc data model has no relationship
 class, so it renders `ids` and `count` alone, through the source records' embedded
 link lists -- `SELECT v AS id FROM (SELECT e[p].eid AS v FROM src UNWIND v) WHERE v
-IS NOT NULL` -- with the plain, rewritten and reversed filters only (its attributes
-are untyped JSON: the arithmetic rewrite's exactness rests on the declared type, and a
-bracket filter is never index-served, so the positions are one).
+IS NOT NULL` (a bracket filter is never index-served, so the positions are one).
 
 The TRANSACTION door wraps every concrete syntax of a `tx` question the same way:
 `BEGIN; <write>; LET $r = (<text> TIMEOUT ...); ROLLBACK; RETURN $r`, the write
@@ -62,16 +56,14 @@ import random
 from dataclasses import dataclass, field
 
 from ganda.core.data.model import Instance, Schema
-from ganda.orientdb.facade import predicates
 from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
-from ganda.orientdb.facade.predicates import MIRROR, Predicate
+from ganda.orientdb.facade.predicates import MIRROR
 from ganda.orientdb.concrete_syntax.support import METHODS  # noqa: F401 -- the method catalog
 from ganda.core.query.ir.select import DOC_EDGE_KINDS, SelectQuery, notnull_fields
 
 from ganda.orientdb.rules import assumes
 from ganda.orientdb.rules.catalog import SQL
 
-FILTERS = ("plain", "rw", "rev", "arith", "literal")
 POSITIONS = ("table", "poly", "polyin")
 FORMS = ("base", "order", "set", "fn", "jrev")
 # the positions whose ORDER BY may be an index walk (the O18 / O23 shapes)
@@ -80,18 +72,17 @@ WALK_POSITIONS = ("table", "poly", "polyin")
 
 @dataclass(frozen=True)
 class SelectSyntax:
-    filter: str = "plain"
     position: str = "table"
     form: str = "base"
 
     @property
     def tag(self) -> str:
-        parts = [x for x, default in ((self.form, "base"), (self.filter, "plain"), (self.position, "table")) if x != default]
+        parts = [x for x, default in ((self.form, "base"), (self.position, "table")) if x != default]
         return "+".join(parts)
 
     @property
     def axes(self) -> int:
-        return len([x for x in (self.form != "base", self.filter != "plain", self.position != "table") if x])
+        return len([x for x in (self.form != "base", self.position != "table") if x])
 
 
 BASE = SelectSyntax()
@@ -100,42 +91,23 @@ BASE = SelectSyntax()
 @dataclass
 class Rewrites:
     """The per-case material the concrete syntaxes draw on, drawn once when the case is built:
-    the filter's rewrites (None where it has none) and the present values of the
-    aggregated field among the matching records."""
+    the present values of the aggregated field among the matching records."""
 
-    rw: object = None
-    rev: object = None
-    arith: object = None
-    literal: "str | None" = None
     present: list = field(default_factory=list)
-
-    def filter_pred(self, q: SelectQuery, name: str):
-        """The predicate object a filter choice stands for (the literal concrete syntax's is
-        the plain filter: only its text differs)."""
-        if name in ("plain", "literal"):
-            return q.where
-        return getattr(self, name)
 
 
 def all_syntaxes() -> list:
-    return [SelectSyntax(f, p, m) for m, f, p in itertools.product(FORMS, FILTERS, POSITIONS)]
+    return [SelectSyntax(p, m) for m, p in itertools.product(FORMS, POSITIONS)]
 
 
 def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str) -> bool:
     if q.edge:
         if sp.position in ("poly", "polyin"):
             return False
-        if data_model == "doc" and (q.kind not in DOC_EDGE_KINDS or sp.position != "table" or sp.filter not in ("plain", "rw", "rev") or sp.form != "base"):
+        if data_model == "doc" and (q.kind not in DOC_EDGE_KINDS or sp.position != "table" or sp.form != "base"):
             return False
     if sp.form == "jrev" and q.kind != "join":
         return False
-    if sp.filter != "plain":
-        if q.where is None:
-            return False
-        if sp.filter == "literal" and rewrites.literal is None:
-            return False
-        if sp.filter != "literal" and getattr(rewrites, sp.filter) is None:
-            return False
     if sp.position in ("poly", "polyin") and (schema.base is None or schema.is_base(q.table)):
         return False
     if sp.form == "order":
@@ -161,17 +133,13 @@ def syntaxes_for(q: SelectQuery, schema: Schema, rewrites: Rewrites, data_model:
 # --- rendering -------------------------------------------------------------------------------
 
 
-def _filter_text(q: SelectQuery, sp: SelectSyntax, rewrites: Rewrites) -> "str | None":
-    if q.where is None:
-        return None
-    if sp.filter == "literal":
-        return rewrites.literal
-    return render_pred(rewrites.filter_pred(q, sp.filter))
+def _filter_text(q: SelectQuery) -> "str | None":
+    return None if q.where is None else render_pred(q.where)
 
 
-def _where_text(q: SelectQuery, sp: SelectSyntax, rewrites: Rewrites) -> "str | None":
+def _where_text(q: SelectQuery, sp: SelectSyntax) -> "str | None":
     """The concrete syntax's filter text with its `IS NOT NULL` conjuncts."""
-    pred = _filter_text(q, sp, rewrites)
+    pred = _filter_text(q)
     extra = [f"{f} IS NOT NULL" for f in notnull_fields(q, sp.form)]
     if pred is None:
         return " AND ".join(extra) or None
@@ -202,12 +170,12 @@ def _join_let(q: SelectQuery, sp: SelectSyntax) -> str:
 assumes("unwind.bracket_projection.row_per_element", SQL, True)
 
 
-def _doc_edge(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites) -> str:
+def _doc_edge(q: SelectQuery, schema: Schema) -> str:
     """The doc data model's relationship records: the embedded link documents of the
     source class, filtered by a bracket filter and unwound one row per link (an
     empty or absent list unwinds to a null row, filtered out)."""
     et = schema.edge_type(q.table)
-    pred = _filter_text(q, sp, rewrites)
+    pred = _filter_text(q)
     coll = f"{et.name}[{pred}].eid" if pred else f"{et.name}.eid"
     inner = f"SELECT v FROM (SELECT {coll} AS v FROM {et.from_type} UNWIND v) WHERE v IS NOT NULL"
     if q.kind == "count":
@@ -252,9 +220,9 @@ def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites,
 
 def _render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str) -> str:
     if q.edge and data_model == "doc":
-        return _doc_edge(q, schema, sp, rewrites)
+        return _doc_edge(q, schema)
     kind = q.kind
-    src = _source(q, schema, sp, _where_text(q, sp, rewrites), _join_let(q, sp) if kind == "join" else "")
+    src = _source(q, schema, sp, _where_text(q, sp), _join_let(q, sp) if kind == "join" else "")
     rid = "eid AS id" if q.edge else "id"
     if kind == "join":
         return f"SELECT id, {'$m.size()' if q.arg == 'count' else '$m.id'} AS v {src}"
@@ -285,47 +253,23 @@ def _render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites
     raise ValueError(kind)
 
 
-# --- the rewrites of one question ------------------------------------------------
+# --- the per-case material ------------------------------------------------------------
 
 
 def build_rewrites(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> Rewrites:
     from ganda.core.query.ir.select import present_values
-    from ganda.orientdb.concrete_syntax.support import literal_pred as _literal_pred
 
-    rewrites = Rewrites(present=present_values(q, instance) if q.kind == "agg" else [])
-    p = q.where
-    if p is None:
-        return rewrites
-    rewrites.rw = predicates.rewrite(p, rng, "q")
-    rewrites.rev = predicates.reverse(p)
-    if isinstance(p, Predicate) and p.sub is None:
-        try:
-            ftype = schema.field(q.table, p.field, edge=q.edge).type
-        except KeyError:
-            ftype = None
-        if ftype is not None:
-            rewrites.arith = predicates.arithmetic(p, rng, "ar", ftype)
-    rewrites.literal = _literal_pred(p)
-    return rewrites
+    return Rewrites(present=present_values(q, instance) if q.kind == "agg" else [])
 
 
 def extra_binds(q: SelectQuery, schema: Schema, rewrites: Rewrites) -> dict:
-    """The bind variables the concrete syntaxes add to the question's own: the
-    rewrites' pivots and the `@class` filter's names."""
-    bind: dict = {}
-    for rewritten in (rewrites.rw, rewrites.rev, rewrites.arith):
-        if rewritten is not None:
-            bind.update(rewritten.bind_vars)
+    """The bind variables the concrete syntaxes add to the question's own: the `@class`
+    filter's names."""
     if schema.base is not None and not q.edge and not schema.is_base(q.table):
-        bind.update({"cls": q.table, "clsl": [q.table]})
-    return bind
+        return {"cls": q.table, "clsl": [q.table]}
+    return {}
 
 
 def rewrite_params(rewrites: Rewrites) -> dict:
-    """What a bundle records of the rewrites."""
-    params: dict = {}
-    for name in ("rw", "rev", "arith"):
-        rewritten = getattr(rewrites, name)
-        if rewritten is not None:
-            params[name] = rewritten.to_dict()
-    return params
+    """What a bundle records of the per-case material: nothing beyond the question."""
+    return {}

@@ -31,7 +31,7 @@ def test_the_defects_are_o1_to_o46_but_the_retired_each_reproduced_by_a_probe_ch
     # O11, O28, O33: they answer alike on every data model (two guards-off campaigns:
     # 0 failing of 85-258 compared pairs each)
     # O32: its failing pairs were other defects underneath
-    retired = {"O3", "O4", "O11", "O28", "O29", "O30", "O32", "O33", "O34", "O37", "O42"}
+    retired = {"O3", "O4", "O11", "O28", "O29", "O30", "O32", "O33", "O34", "O42"}
     assert [d.id for d in CATALOG.defects] == [f"O{n}" for n in range(1, 47) if f"O{n}" not in retired]
     assert CATALOG.unreproduced() == []
 

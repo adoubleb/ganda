@@ -248,6 +248,12 @@ def canonical(value):
 
 
 class ArangoSemantics(Semantics):
+    @staticmethod
+    def arith_exact(v, sym, c, ftype) -> bool:
+        from ganda.arangodb.oracle.rewrites import arith_exact
+
+        return arith_exact(v, sym, c, ftype)
+
     key = staticmethod(aql_key)
     eq = staticmethod(eq)
     lt = staticmethod(lt)

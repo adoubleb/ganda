@@ -54,6 +54,14 @@ def err(session, sql, params=None) -> str:
         return "internal:" + ("NPE" if "NullPointer" in m else "ClassCast" if "ClassCast" in m else "unsupported" if "Unsupported" in m else "other") if e.internal else "rejected"
 
 
+def _last_error(session, sql, params=None) -> str:
+    try:
+        rows(session, sql, params)
+        return ""
+    except OrientError as e:
+        return str(e)
+
+
 def err_script(session, text, params=None) -> str:
     try:
         session.script(text, params)
@@ -88,6 +96,7 @@ def main() -> int:
         check("C4", "long overflow wraps", col(s, "SELECT (:p + 1) AS v", {"p": 2**63 - 1}), [-(2**63)])
 
         print("--- null semantics")
+        check("C10", "IS NULL holds for absent and explicit null", col(s, "SELECT id AS v FROM n1 WHERE f1 IS NULL"), ["n1/r4", "n1/r5"])
         check("C12", "ORDER BY ASC puts nulls last", col(s, "SELECT id AS v FROM n1 ORDER BY f1 ASC, id ASC")[-2:], ["n1/r4", "n1/r5"])
         check("C13", "ORDER BY DESC puts nulls first", col(s, "SELECT id AS v FROM n1 ORDER BY f1 DESC, id ASC")[:2], ["n1/r4", "n1/r5"])
 
@@ -456,7 +465,7 @@ def main() -> int:
         check("C285", "count(*) and count(f) over no rows answer 0; max / sum / avg / median / set answer NO row", [rows(s, f"SELECT {fn} AS v {none}") for fn in ("count(*)", "count(f)", "max(f)", "sum(f)", "avg(f)", "median(f)", "set(f)")], [[{"v": 0}], [{"v": 0}], [], [], [], [], []])
         check("C287", "O18 under a WHERE on another field: the DESC walk still omits the null record (3.2.56: no rows); over a subquery target it sorts", (col(s, "SELECT f AS v FROM sq WHERE b = true ORDER BY f DESC", key="v"), col(s, "SELECT f AS v FROM (SELECT FROM sq WHERE b = true) ORDER BY f DESC"), col(s, "SELECT f AS v FROM (SELECT FROM sq) WHERE b = true ORDER BY f DESC")), ([3, 1], [None, 3, 1], [None, 3, 1]))
 
-        print("--- the write IR: predicate-targeted writes (O38, O39)")
+        print("--- the write IR: predicate-targeted writes (O37, O38, O39)")
         TW = " TIMEOUT 4000 EXCEPTION"
         for q in ["CREATE CLASS wt", "CREATE PROPERTY wt.id STRING", "CREATE PROPERTY wt.f LONG", "CREATE PROPERTY wt.u LONG", "CREATE PROPERTY wt.m EMBEDDEDMAP LONG",
                   "CREATE INDEX wt_f ON wt (f) NOTUNIQUE METADATA {ignoreNullValues: true}", "CREATE INDEX wt_u ON wt (u) UNIQUE METADATA {ignoreNullValues: true}"]:
@@ -470,8 +479,18 @@ def main() -> int:
         def wf():
             return [r.get("f") for r in sorted(rows(s, "SELECT id, f FROM wt"), key=lambda r: r["id"])]
 
+        def werr(q, p=None):
+            e = err(s, q, p)
+            return "timeout" if e == "rejected" and "Timeout" in _last_error(s, q, p) else e
+
         wreset()
         check("C291", "UPDATE / DELETE answer the count; RETURN AFTER / BEFORE a row per matched record", (rows(s, "UPDATE wt SET u = u WHERE f < 6" + TW), rows(s, "UPDATE wt SET f = f RETURN AFTER $current.id AS id, $current.f AS v WHERE id = 'w1'" + TW)), ([{"count": 2}], [{"id": "w1", "v": 5}]))
+        wreset()
+        check("C293", "O37: `SET f = f + 1 WHERE f > 4` through an index on f never terminates (the TIMEOUT stops it, the records it wrote stay written: one of them far past its start)", (werr("UPDATE wt SET f = f + 1 WHERE f > 4" + TW), max(v for v in wf() if v is not None) > 1000), ("timeout", True))
+        wreset()
+        check("C294", "O37: ... `SET f = 100` counts every record twice", rows(s, "UPDATE wt SET f = 100 WHERE f > 4" + TW), [{"count": 8}])
+        wreset()
+        check("C295", "O37: ... a two-sided range walks the record up to its bound", (rows(s, "UPDATE wt SET f = f + 1 WHERE f > 4 AND f < 100" + TW), wf()[4]), ([{"count": 95}], 100))
         wreset()
         check("C297", "a UNIQUE index is checked per row and a failed UPDATE keeps what it wrote (no statement atomicity outside a transaction)", (err(s, "UPDATE wt SET u = 99 WHERE f > 4" + TW), sorted(r["u"] for r in rows(s, "SELECT u FROM wt WHERE u = 99"))), ("rejected", [99]))
         wreset()
@@ -657,8 +676,16 @@ def main() -> int:
         check("C330", "a `TIMEOUT ... EXCEPTION` that fires is OTimeoutException, classified as a timeout (no answer), never as a rejection", timed_out(), "timeout")
 
         print("--- what the renderers and the mapping assume")
-        for q in ["CREATE CLASS exw", "CREATE PROPERTY exw.id STRING", "CREATE PROPERTY exw.e1 EMBEDDEDLIST"]:
+        for q in ["CREATE CLASS cio", "CREATE PROPERTY cio.id STRING", "CREATE PROPERTY cio.s STRING", "ALTER PROPERTY cio.s COLLATE ci",
+                  "CREATE CLASS abp", "CREATE PROPERTY abp.id STRING", "CREATE PROPERTY abp.f LONG",
+                  "CREATE CLASS exw", "CREATE PROPERTY exw.id STRING", "CREATE PROPERTY exw.e1 EMBEDDEDLIST"]:
             s.sql(q)
+        for v in ("a", "B"):
+            s.sql("INSERT INTO cio SET id = :v, s = :v", {"v": v})
+        ci_ops = {op: col(s, f"SELECT id AS v FROM cio WHERE s {op} :p ORDER BY id", {"p": p}) for op, p in (("=", "A"), ("<>", "A"), ("<", "b"), ("<=", "A"), (">", "A"), (">=", "b"))}
+        check("C331", "on a ci column every comparison operator compares case-insensitively on a scan", ci_ops, {"=": ["a"], "<>": ["B"], "<": ["a"], "<=": ["a"], ">": ["B"], ">=": ["B"]})
+        s.sql("INSERT INTO abp SET id = 'x', f = 1"); s.sql("INSERT INTO abp SET id = 'y'")
+        check("C332", "a projection turns an absent field into an explicit null (IS NOT DEFINED holds on the class only)", (col(s, "SELECT id AS v FROM (SELECT id, f FROM abp) WHERE f IS NOT DEFINED"), col(s, "SELECT id AS v FROM abp WHERE f IS NOT DEFINED")), ([], ["y"]))
         s.sql("INSERT INTO exw SET id = 'r', e1 = [{'w': 1, 'k': 'p'}, {'w': 2, 'k': 'q'}]")
         check("C333", "expand() of an embedded list answers each document under `value`", rows(s, "SELECT expand(e1) FROM exw WHERE id = 'r'"), [{"value": {"w": 1, "k": "p"}}, {"value": {"w": 2, "k": "q"}}])
         m, lst, docs = {"x": 1, "y": "z"}, [1, 2**40], [{"k": 1, "n": {"q": 2}}]

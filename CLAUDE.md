@@ -49,7 +49,8 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
   `generate.py`) and `ganda.orientdb.Schema`. Core code never uses these.
 - **Provider layout** (OrientDB, ArangoDB, HANA alike): `provider.py` and `config.py`
   at the top; `engine/` (connection, limits), `storage/` (dialect, physical design,
-  `mapping/`), `oracle/` (semantics, pivots, rewrites), `concrete_syntax/`,
+  `mapping/`), `oracle/` (semantics, pivots; ArangoDB and HANA keep `rewrites` until
+  their port), `concrete_syntax/`,
   `known_bugs/` (`guards.py`), `mutation/` (`mutants.py`), `scripts/`.
 - **Use conventional names** (the README glossary). New concepts get the textbook term.
 - **Engine limits are the provider's, in its `limits` slot** (`core/data/limits.py`,
@@ -77,13 +78,18 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
 Ganda compares data models, not one data model's planner paths: no select position or
 form exists only to make a data model use or avoid an index (the `scan` / `nest`
 positions, the `index:` door, `jscan` and the semi-join's subquery-target rewrite were
-removed 2026-10-24). A pair differs in data model or in spelling (`rw`, `rev`, `arith`,
-`literal`, the forms, the base class); each data model keeps its own physical design.
+removed 2026-10-24). A pair differs in data model, never in spelling alone (the forms and
+the base class positions are compared across data models only); each data model keeps its
+own physical design. A filter is never derived from another: the predicate generator draws
+each leaf's form itself (`oracle/pivots.leaf_form`: reversed operands, the field under
+arithmetic, a literal pivot, a parameter-keyed map entry; since 2026-10-25), so every IR
+asks them, writes included (the write generator keeps an arithmetic leaf only where it is
+exact on every stored value).
 
 The engine rules are minimal records in `ganda/orientdb/rules/catalog.py`, as HANA's (the
 subjects are OrientDB SQL's execution paths: a scan, an index-served statement, MATCH,
 TRAVERSE, the script / transaction door, /batch); the defects O1..O46 that can still make two data models differ
-(O3, O4, O11, O28, O29, O30, O32, O33, O34, O37, O42 retired) beside them; `rules/checks.py` lists the rules each probe check (167 of them, ids up to C338
+(O3, O4, O11, O28, O29, O30, O32, O33, O34, O42 retired) beside them; `rules/checks.py` lists the rules each probe check (173 of them, ids up to C338
 in `scripts/probe_osql.py`, never reused) asserts and the defects it reproduces (every defect has a check
 whose expected answer is the defect's). A failing check prints the rule that no
 longer holds, or the defect that no longer reproduces, and the code reading it. A rule
@@ -101,9 +107,9 @@ generated setup plans and cases of 20 seeds change; a survivor is a record nothi
 decides on. The catalog holds no IR definition (the code compares no subject with the
 IR). `ganda orientdb rules --write` renders
 `ganda/orientdb/rules/RULES.md`; `tests/orientdb/test_rules.py` keeps them in step. Layout: `storage/dialect.py` (vocabulary), `storage/physical_design.py`, `config.py`,
-`engine/limits.py` (what the engine can hold), `engine/connection.py`, `storage/mapping/`, `oracle/semantics.py`, `oracle/pivots.py`, `oracle/rewrites.py`,
+`engine/limits.py` (what the engine can hold), `engine/connection.py`, `storage/mapping/`, `oracle/semantics.py`, `oracle/pivots.py`,
 `concrete_syntax/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),
-`known_bugs/guards.py` (most of O1..O46; O4 retired, fixed in 3.2.57; O22, O24, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `engine/coverage.py` (JaCoCo),
+`known_bugs/guards.py` (most of O1..O46; O4 retired, fixed in 3.2.57; O12, O22, O24, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `engine/coverage.py` (JaCoCo),
 
 `scripts/` (`probe_osql.py`, `coverage_report.py`).
 

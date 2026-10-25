@@ -75,12 +75,6 @@ class HanaProvider(Provider):
         return write
 
     @property
-    def rewrites(self):
-        from ganda.hana.oracle import rewrites
-
-        return rewrites
-
-    @property
     def known_bugs(self):
         from ganda.hana.known_bugs import guards as known_bugs
 

@@ -67,6 +67,11 @@ class Semantics:
         """Whether a record satisfies a predicate tree (the engine's boolean logic)."""
         raise NotImplementedError
 
+    def arith_exact(self, v: Any, sym: str, c: Any, ftype) -> bool:
+        """Whether `v <sym> c` is computed exactly in a column of `ftype` (a
+        `FieldType`): the write generator draws `SET f = f <sym> c` only then."""
+        raise NotImplementedError
+
     def apply_arith(self, v: Any, sym: str, c: Any, ftype: "str | None"):
         """`v <sym> c` as the engine computes it."""
         raise NotImplementedError
@@ -171,7 +176,8 @@ class Provider:
     pivots          predicate sampling: NULL_OPS, ORDERED_OPS, LIKE_WILDCARDS,
                     ordered_ops(ftype) (the comparison operators a column of the type
                     admits: a subset of ORDERED_OPS), cross_type(rng, ftype, v),
-                    refine(rng, ftype, v)
+                    refine(rng, ftype, v); optionally leaf_form(rng, leaf) (the
+                    drawn leaf in a form of the engine's: reversed, under arithmetic, ...)
     physical_design index kinds and what they enforce, write forms, key rules:
                     draw_index_kind(rng), NON_UNIQUE_KINDS, EDGE_INDEX_DATA_MODELS,
                     is_unique(ix), holds_one_record_per_key(ix), demoted_kind(kind),
@@ -194,7 +200,6 @@ class Provider:
                     before, after) -> statements, execute(session, statements),
                     shared_binds(statements), rewrite_params(rewrites), spelling(syntax)
                     -> what every data model's write shares (optional)
-    rewrites        arith_exact(v, sym, c, ftype)
     known_bugs      mark_known_bugs(case, q, schema, instance) -> case,
                     select_known(q, syntax, rewrites, dm, schema, instance) -> id | None,
                     write_known(q, syntax, rewrites, dm, schema, instance) -> id | None
@@ -227,7 +232,6 @@ class Provider:
     select_syntax = None
     path_syntax = None
     write_syntax = None
-    rewrites = None
     known_bugs = None
     mutants: list = []
     rules = None  # a `ganda.core.rules.Catalog`

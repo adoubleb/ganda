@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from ganda.core.rules.model import Rule
 from ganda.core.rules.vocabulary import (
+    ABSENT_IS_NULL,
     DOUBLE_EXACT_ROUND_TRIP,
     MAX_EMPTY,
     NULLS_ASC,
@@ -22,6 +23,8 @@ from ganda.core.rules.vocabulary import (
 )
 from ganda.orientdb.rules.catalog import (
     ABSENT_LIST_SIZE,
+    ABSENT_SURVIVES_PROJECTION,
+    CI_OPERATORS,
     BINARY_ROUND_TRIP,
     CI_AGGREGATES_COLLATE,
     CLASSLESS_ALIAS_ROOT,
@@ -100,6 +103,7 @@ _RULE_CHECKS |= {
     "C1": (Rule(LONG_PARAMETER_BELOW, SQL, 2**63),),
     "C2": (Rule(DOUBLE_EXACT_ROUND_TRIP, SQL, True),),
     "C3": (Rule(DOUBLE_EXACT_ROUND_TRIP, SQL, True),),
+    "C10": (Rule(ABSENT_IS_NULL, SQL, True),),
     "C12": (Rule(NULLS_ASC, SQL, NullPlacement.LAST),),
     "C13": (Rule(NULLS_DESC, SQL, NullPlacement.FIRST),),
     "C14": (Rule(NEGATIVE_ZERO_BELOW_ZERO, SQL, True),),
@@ -137,6 +141,8 @@ _RULE_CHECKS |= {
     "C327": (Rule(IN_LIST_IDS, SQL, 500),),
     "C328": (Rule(IN_LIST_IDS, SQL, 500),),
     "C329": (Rule(ABSENT_LIST_SIZE, SQL, 0),),
+    "C331": (Rule(CI_OPERATORS, SQL, "= <> < <= > >="),),
+    "C332": (Rule(ABSENT_SURVIVES_PROJECTION, SQL, False),),
     "C330": ERRORS,
 }
 
@@ -168,6 +174,7 @@ REPRODUCED_BY = {
     "O31": ("C270", "C271", "C272", "C276", "C312", "C320"),
     "O35": ("C280",),
     "O36": ("C91",),
+    "O37": ("C293", "C294", "C295"),
     "O38": ("C302",),
     "O39": ("C300",),
     "O40": ("C313",),

@@ -10,8 +10,9 @@ every record; a value from the column's own values or a fresh one of its type; t
 before / after rows instead of a count for a node update with `RETURNING_PROBABILITY`.
 A write is kept only if it is safe by construction:
 
-- arithmetic stays exact on every matched value (the provider's
-  `rewrites.arith_exact`);
+- arithmetic stays exact on every matched value, and a filter's arithmetic leaf on
+  every stored value of its field (the engine's `semantics.arith_exact`), so the
+  Instance applies the write the engine does;
 - no index that holds one record per key ends up holding a key twice on any data
   model, and none covering the written field is written through more than one record
   (an engine may check uniqueness per row, in an order that differs per data model,
@@ -28,6 +29,7 @@ import random
 
 from ganda.core.data.model import COLLECTION_TYPES, INT_TYPES, FieldType, Instance, Schema
 from ganda.core.query.generators import predicates as sampler
+from ganda.core.query.ir.predicates import leaves
 from ganda.core.query.ir.write import EDGE_OPS, NODE_OPS, RETURNING_OPS, WriteQuery, apply, edge_hits, node_hits
 
 EDGE_PROBABILITY = 0.3
@@ -93,7 +95,21 @@ def unique_safe(q: WriteQuery, before: Instance, after: Instance) -> bool:
 
 
 def _arith_ok(engine, ftype: FieldType, sym: str, c: int, values: list) -> bool:
-    return all(engine.rewrites.arith_exact(v, sym, c, ftype) for v in values if v is not None)
+    return all(engine.semantics.arith_exact(v, sym, c, ftype) for v in values if v is not None)
+
+
+def _filter_exact(schema: Schema, instance: Instance, where, rows: list) -> bool:
+    """Whether every arithmetic leaf of `where` (a semi-join's too) is exact on every
+    stored value of its field."""
+    for leaf in leaves(where):
+        if leaf.sub is not None and leaf.sub.pred is not None:
+            if not _filter_exact(schema, instance, leaf.sub.pred, [n.values for n in instance.nodes_of(leaf.sub.table)]):
+                return False
+        if leaf.arith is not None and leaf.key is None:
+            ftype = FieldType(leaf.ftype)
+            if not _arith_ok(schema.engine, ftype, leaf.arith.sym, leaf.arith.value, [r.get(leaf.field) for r in rows]):
+                return False
+    return True
 
 
 def _draw(rng: random.Random, schema: Schema, instance: Instance, step: int) -> "WriteQuery | None":
@@ -123,6 +139,8 @@ def _draw(rng: random.Random, schema: Schema, instance: Instance, step: int) -> 
     where = None
     if op != "upsert" and rng.random() < WHERE_PROBABILITY:
         where = sampler.draw_over(rng, on, fields, values_of, "p", schema.engine)
+        if not _filter_exact(schema, instance, where, rows):
+            return None
     kw: dict = dict(target, op=op, where=where, field=field.name if field else None)
     if op in ("set", "merge", "upsert", "edge_set"):
         kw["value"] = _value(rng, field.type, values_of(field))

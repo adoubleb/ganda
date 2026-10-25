@@ -56,12 +56,6 @@ class OrientDBProvider(Provider):
         return write_syntax
 
     @property
-    def rewrites(self):
-        from ganda.orientdb.oracle import rewrites
-
-        return rewrites
-
-    @property
     def known_bugs(self):
         from ganda.orientdb.known_bugs import guards as known_bugs
 

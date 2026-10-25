@@ -1,4 +1,3 @@
-import dataclasses
 import re
 
 from ganda.orientdb.facade.generate import GeneratorConfig, build
@@ -40,11 +39,10 @@ def test_syntax_tags_and_applicability():
     schema, inst = _fixture()
     q = SelectQuery("n1", _gt("f1", 2), "agg", ("f1",), fn="max")
     rewrites = build_rewrites(q, __import__("random").Random(1), schema, inst)
-    assert SelectSyntax("rw", "poly", "order").tag == "order+rw+poly"
+    assert SelectSyntax("poly", "order").tag == "order+poly"
     assert applicable(q, schema, SelectSyntax(form="order"), rewrites, "doc")
     assert not applicable(q, schema, SelectSyntax(position="poly"), rewrites, "doc")  # no base class
     assert not applicable(q, schema, SelectSyntax(form="set"), rewrites, "doc")
-    assert not applicable(dataclasses.replace(q, where=None), schema, SelectSyntax(filter="rw"), rewrites, "doc")
     assert render(q, schema, SelectSyntax(form="order"), rewrites, "doc") == "SELECT f1 AS v FROM n1 WHERE (f1 > :p) AND f1 IS NOT NULL ORDER BY f1 DESC LIMIT 1"
     empty = SelectQuery("n1", _gt("f1", 100), "agg", ("f1",), fn="max")
     assert not applicable(empty, schema, SelectSyntax(form="order"), build_rewrites(empty, __import__("random").Random(1), schema, inst), "doc")

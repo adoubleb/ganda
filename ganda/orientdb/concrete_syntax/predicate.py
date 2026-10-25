@@ -1,7 +1,7 @@
 """OrientDB SQL text for the abstract predicate IR (`predicates`): the engine's
 parameter syntax (`:p1`), its operator concrete syntaxes (`m.values() CONTAINS`,
-`f.toLowerCase() =`, `m[:k]`), the semi-join's subquery and the reversed and
-arithmetic forms. Identical on every data model, the field expression being the data model's
+`m[:k]`), the semi-join's subquery and the reversed, arithmetic and literal
+forms. Identical on every data model, the field expression being the data model's
 own (`f1`, `in.f1`, `$n.f1`) via `prefix`."""
 from __future__ import annotations
 
@@ -9,7 +9,24 @@ from ganda.orientdb.facade.predicates import MIRROR, NO_BIND_OPS, Compound
 from ganda.orientdb.storage.dialect import sql_op
 
 
-# every pivot is bound, and a bound double compares exactly
+# a pivot is bound unless the leaf writes it into the text, and a bound double compares
+# exactly
+
+
+def _literal(v) -> str:
+    """A NUMERIC pivot as SQL text -- the one kind of value that is safe to interpolate
+    (a string never is). A float keeps its full repr."""
+    if isinstance(v, list):
+        return "[" + ", ".join(_literal(x) for x in v) + "]"
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    return repr(v)
+
+
+def _pivot(p, suffix: str = "") -> str:
+    if not p.literal:
+        return f":{p.bind}{suffix}"
+    return _literal(p.pivot[0 if suffix == "a" else 1] if suffix else p.pivot)
 
 
 def render_predicate(p, prefix: str = "") -> str:
@@ -29,14 +46,12 @@ def render_predicate(p, prefix: str = "") -> str:
         expr = f"({expr} {p.arith.sym} :{p.arith.bind})"
     if p.rev:
         if p.op == "HAS":
-            return f":{p.bind} IN {expr}"
-        return f":{p.bind} {MIRROR[p.op]} {expr}"
+            return f"{_pivot(p)} IN {expr}"
+        return f"{_pivot(p)} {MIRROR[p.op]} {expr}"
     if p.op in NO_BIND_OPS:
         return f"{expr} {sql_op(p.op)}"
     if p.op == "BETWEEN":
-        return f"{expr} BETWEEN :{p.bind}a AND :{p.bind}b"
-    if p.op == "LOWER=":
-        return f"{expr}.toLowerCase() = :{p.bind}"
+        return f"{expr} BETWEEN {_pivot(p, 'a')} AND {_pivot(p, 'b')}"
     if p.op == "VALUES HAS":
-        return f"{expr}.values() CONTAINS :{p.bind}"
-    return f"{expr} {sql_op(p.op)} :{p.bind}"
+        return f"{expr}.values() CONTAINS {_pivot(p)}"
+    return f"{expr} {sql_op(p.op)} {_pivot(p)}"

@@ -10,6 +10,7 @@ import enum
 
 from ganda.core.rules.model import Defect, ErrorClass, ErrorKind, Kind, Question, Rule, Verdict
 from ganda.core.rules.vocabulary import (
+    ABSENT_IS_NULL,
     DOUBLE_EXACT_ROUND_TRIP,
     MAX_EMPTY,
     NULLS_ASC,
@@ -71,6 +72,8 @@ INT32_SUM_EXACT_BELOW = exact("sum.int32.below", int)
 STRING_EXACT_ROUND_TRIP = Question("value.string.exact_round_trip", bool, COMPARE)
 BINARY_ROUND_TRIP = Question("value.binary.base64_round_trip", bool, COMPARE)
 ABSENT_LIST_SIZE = Question("value.absent_list.size", int, COMPARE)
+CI_OPERATORS = Question("filter.case_insensitive.operators", str, COMPARE)
+ABSENT_SURVIVES_PROJECTION = Question("projection.keeps_absent_field", bool, COMPARE)
 CI_AGGREGATES_COLLATE = Question("aggregate.case_insensitive.collates", bool, COMPARE)
 NESTED_LET_PARENT = Question("let.nested.parent_is_enclosing_query", bool, COMPARE)
 LINK_LIST_FIELD_ACCESS = Question("path.link_list.maps_field_access", bool, COMPARE)
@@ -110,6 +113,9 @@ COMPARE_RULES = (
     Rule(STRING_EXACT_ROUND_TRIP, SQL, True),
     Rule(BINARY_ROUND_TRIP, SQL, True),
     Rule(ABSENT_LIST_SIZE, SQL, 0),
+    Rule(ABSENT_IS_NULL, SQL, True),
+    Rule(CI_OPERATORS, SQL, "= <> < <= > >="),
+    Rule(ABSENT_SURVIVES_PROJECTION, SQL, False),
     Rule(NULLS_ASC, SQL, NullPlacement.LAST),
     Rule(NULLS_ASC, SQL_INDEX, NullPlacement.LAST),
     Rule(NULLS_DESC, SQL, NullPlacement.FIRST),
@@ -190,6 +196,7 @@ DEFECTS = (
     Defect("O31", SCRIPT),
     Defect("O35", SQL),
     Defect("O36", SQL_INDEX),
+    Defect("O37", SQL_INDEX),
     Defect("O38", SCRIPT),
     Defect("O39", SQL),
     Defect("O40", SQL),

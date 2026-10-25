@@ -2,11 +2,13 @@
 
 A LEAF's pivot sits ON a stored value, ADJACENT to one (`neighbours.offset`) or OUTSIDE
 the range; with `cross_type_probability` it is a cross-type numeric pivot drawn by the
-engine's `pivots.cross_type`. A compound (`AND` / `OR` / `NOT`) is built over leaves, at
+engine's `pivots.cross_type`. An engine whose `pivots` has `leaf_form(rng, leaf)`
+then draws the leaf's form (reversed operands, the field under arithmetic, a literal
+pivot, ...): another question, asked alike on every data model. A compound (`AND` / `OR` / `NOT`) is built over leaves, at
 most two levels deep. The engine arrives as an explicit argument (`engine.pivots`,
 `engine.semantics`) or on the schema.
 
-The tree itself, its evaluation and its rewrites are `ganda.core.query.ir.predicates`.
+The tree itself and its evaluation are `ganda.core.query.ir.predicates`.
 """
 from __future__ import annotations
 
@@ -24,8 +26,17 @@ CROSS_TYPE_PROBABILITY = 0.2
 
 
 def draw(rng: random.Random, on: str, f: FieldSpec, values: list, bind: str, engine, cross_type_probability: float = CROSS_TYPE_PROBABILITY) -> "Predicate | None":
-    """A LEAF predicate on `f` whose stored (non-null) values are `values`. None when
-    the column holds nothing to aim at."""
+    """A LEAF predicate on `f` whose stored values are `values`, in a form the engine
+    draws (`pivots.leaf_form`, if it has one). None when the column holds nothing to
+    aim at."""
+    leaf = _draw(rng, on, f, values, bind, engine, cross_type_probability)
+    leaf_form = getattr(engine.pivots, "leaf_form", None)
+    if leaf is None or leaf_form is None:
+        return leaf
+    return leaf_form(rng, leaf)
+
+
+def _draw(rng: random.Random, on: str, f: FieldSpec, values: list, bind: str, engine, cross_type_probability: float) -> "Predicate | None":
     present = [v for v in values if v is not None]
     ft, ci = f.type.value, f.case_insensitive
     pivots_of, _sort_key = engine.pivots, engine.semantics.key
@@ -123,7 +134,7 @@ def _draw_map(rng: random.Random, on: str, f: FieldSpec, present: list, bind: st
     k = rng.choice(keys)
     kvals = [m[k] for m in present if m.get(k) is not None]
     spec = FieldSpec(f.name, FieldType.INT)
-    inner = draw(rng, on, spec, kvals, bind, engine) if kvals else None
+    inner = _draw(rng, on, spec, kvals, bind, engine, CROSS_TYPE_PROBABILITY) if kvals else None
     if inner is None or inner.op in ("IS PRESENT", "IS ABSENT"):
         return Predicate(on, f.name, rng.choice(("IS NULL", "IS NOT NULL")), "", None, "int", False, k)
     return Predicate(on, f.name, inner.op, inner.bind, inner.pivot, "int", False, k)

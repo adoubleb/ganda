@@ -712,29 +712,6 @@ def mark_known_bugs(case: QueryCase, q: TraversalQuery, schema: Schema, instance
     return dataclasses.replace(case, known_bugs=known_bugs) if known_bugs != case.known_bugs else case
 
 
-def float32_exact(v) -> bool:
-    import struct
-
-    if isinstance(v, bool) or not isinstance(v, float):
-        return True
-    try:
-        return struct.unpack("f", struct.pack("f", v))[0] == v
-    except OverflowError:
-        return False
-
-
-works_around("O12")
-
-
-def o12_literal(p) -> bool:
-    """Whether concrete syntax `p`'s pivots as literals is O12's shape."""
-    for leaf in _leaves(p):
-        pivots = leaf.pivot if isinstance(leaf.pivot, list) else [leaf.pivot]
-        if any(isinstance(v, float) and not float32_exact(v) for v in pivots):
-            return True
-    return False
-
-
 def _conjunct_leaves(p) -> list:
     """The leaves at the top of the tree or under a chain of ANDs -- the ones the
     planner can serve from an index; a leaf under a NOT or an OR is not."""
@@ -1198,8 +1175,8 @@ def _tx_known(q, sp, data_model: str, schema: Schema, eff) -> "str | None":
 
 def select_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Instance) -> "str | None":
     """The known bug a SELECT IR concrete syntax on `data_model` is the exact shape of, or
-    None. The filter is judged as the concrete syntax filters (its rewrite, with the
-    concrete syntax's `IS NOT NULL` conjuncts): through `node_case_known` (the class or
+    None. The filter is judged as the concrete syntax filters (with the concrete
+    syntax's `IS NOT NULL` conjuncts): through `node_case_known` (the class or
     the base class is the target, and it may be index-served); through `edge_case_known`
     for an edge type (the doc data model's bracket filter: its
     own O13); plus a join's and the transaction
@@ -1208,8 +1185,7 @@ def select_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Ins
     from ganda.core.query.ir.select import effective, view
 
     table = q.table
-    pred = rewrites.filter_pred(q, sp.filter)
-    eff = effective(q, sp.form, pred)
+    eff = effective(q, sp.form, q.where)
     if q.tx and eff is not None and o39_predicate(eff):
         return "O39"
     shape_instance = instance
@@ -1230,13 +1206,61 @@ def select_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Ins
             fid = plain or list_ops_known(schema, table, eff, data_model, servable=False) or ("O5" if o5_poly_sibling_index(schema, table, eff, data_model) else None)
         else:
             fid = plain
-    if fid is None and sp.filter == "literal" and o12_literal(q.where):
-        fid = "O12"
     if fid is None and q.kind == "join":
         fid = _join_known(q, sp, data_model, schema, instance, eff)
     if fid is None and q.tx:
         fid = _tx_known(q, sp, data_model, schema, eff)
     return fid or select_shape_known(q, sp, data_model, schema, shape_instance, rewrites.present)
+
+
+# `IS NOT NULL` through an index is a walk of every non-null key (the arithmetic
+# write's own null filter)
+_RANGE_OPS = ("<", "<=", ">", ">=", "BETWEEN", "IS NOT NULL")
+# the writes that move an index key to a value the statement may meet again
+_MOVING_WRITES = ("set", "arith", "merge", "edge_set", "edge_arith")
+
+
+works_around("O37")
+
+
+def o37_write(q, sp, data_model: str, pred, schema: Schema) -> bool:
+    """O37 (`issue-drafts/O37-update-revisits-the-records-it-moves-through-an-index.md`):
+    an UPDATE whose WHERE is served by an SB-tree index walk and whose SET changes a
+    field of that index meets the records it moved again -- `SET f = f + 1 WHERE f >
+    4` never terminates, `f * 2` doubles until the long wraps, `SET f = 100` counts
+    every record twice, a two-sided range walks a record up to its bound, `RETURN
+    BEFORE` lists a record twice. Probed on NOTUNIQUE and UNIQUE indexes, either
+    null setting, on a vertex class and through an edge index; not through a hash
+    index, a scan (a reversed operand), the `nest` target (`id IN (SELECT ...)`
+    chooses the records first) or a transaction. The shape (conservative): a moving
+    write, auto-commit, on the class or a `sub` target, and a plain top-level
+    conjunct served by a range-capable index of the data model that holds the written
+    field -- a range on any of its fields, or any comparison on another field of it.
+    `SET f = null` / `REMOVE f` / a delete move nothing a walk meets (probed)."""
+    if q.op not in _MOVING_WRITES or sp.door == "tx" or sp.target == "nest":
+        return False
+    if q.edge and data_model == "doc":
+        return False
+    for leaf in _conjunct_leaves(pred):
+        if not _plain(leaf) or leaf.key is not None:
+            continue
+        if q.edge:
+            ixs = [ix for ix in schema.indexes if ix.target == "edge" and ix.table == q.edge_type and ix.applies_to(data_model) and leaf.field in ix.all_fields]
+        else:
+            ixs = [ix for ix in schema.indexes if ix.target == "node" and ix.applies_to(data_model) and leaf.field in ix.all_fields and ix.table in _poly_tables(schema, q.table)]
+        for ix in ixs:
+            if ix.kind not in RANGE_KINDS or q.field not in ix.all_fields:
+                continue
+            if leaf.op in _RANGE_OPS or leaf.field != q.field or ix.extra_fields:
+                return True
+    return False
+
+
+def _poly_tables(schema: Schema, table: str) -> set:
+    tables = {table}
+    if schema.base is not None:
+        tables |= {nt.name for nt in schema.node_types} if schema.is_base(table) else {schema.base.name}
+    return tables
 
 
 works_around("O38")
@@ -1247,8 +1271,8 @@ def write_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Inst
     is judged as a read of the same predicate would be (a finding there chooses the
     wrong records, and the state diverges from the reference): `node_case_known` /
     `edge_case_known`, the doc data model's bracket filter through its own findings (O13)
-    and O25 (a bracket ignores a `ci` collation)."""
-    pred = rewrites.pred(q, sp.filter)
+    and O25 (a bracket ignores a `ci` collation); then O37."""
+    pred = q.where
     eff = pred
     if q.extra_notnull:
         extra = Predicate("edge" if q.edge else "source", q.field, "IS NOT NULL", "", None)
@@ -1261,6 +1285,8 @@ def write_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Inst
             fid = edge_case_known(q.edge_type, eff, schema, instance).get(data_model)
         elif sp.form == "bracket":
             fid = edge_case_known(q.edge_type, eff, schema, instance).get("doc") or ("O25" if any(leaf.case_insensitive for leaf in _leaves(eff)) else None)
+    if fid is None and o37_write(q, sp, data_model, eff, schema):
+        fid = "O37"
     if fid is None and eff is not None and o39_predicate(eff) and (sp.target == "nest" or (q.op == "delete" and data_model == "rel")):
         # the filter inside `id IN (SELECT ...)` (the nest target, the rel data model's
         # cascade) holds a CONTAINSVALUE leaf: O39's NPE

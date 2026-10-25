@@ -39,6 +39,7 @@ class Predicate:
     rev: bool = False # reverse operand positions
     arith: "Arith | None" = None
     sub: "SubQuery | None" = None  # a semi-join (`INSUB`): the pivot is the answered `field` list, nulls included
+    literal: bool = False  # the pivot written into the text instead of bound
 
     def __post_init__(self):
         object.__setattr__(self, "on", On(self.on))
@@ -53,6 +54,8 @@ class Predicate:
             d["rev"] = True
         if self.arith is not None:
             d["arith"] = list(self.arith)
+        if self.literal:
+            d["literal"] = True
         if self.sub is not None:
             s = self.sub
             d["sub"] = {"table": s.table, "field": s.field, "pred": s.pred.to_dict() if s.pred is not None else None, "scan": s.scan}
@@ -69,7 +72,7 @@ class Predicate:
         if d.get("sub"):
             x = d["sub"]
             sub = SubQuery(x["table"], x["field"], Predicate.from_dict(x["pred"]), x["scan"])
-        return Predicate(d["on"], d["field"], d["op"], d["bind"], d["pivot"], d.get("ftype"), d.get("case_insensitive", d.get("ci", False)), d.get("key"), d.get("key_bind", ""), d.get("rev", False), arith, sub)
+        return Predicate(d["on"], d["field"], d["op"], d["bind"], d["pivot"], d.get("ftype"), d.get("case_insensitive", d.get("ci", False)), d.get("key"), d.get("key_bind", ""), d.get("rev", False), arith, sub, d.get("literal", False))
 
     @property
     def bind_vars(self) -> dict:
@@ -78,7 +81,7 @@ class Predicate:
         out = {self.key_bind: self.key} if self.key_bind else {}
         if self.arith is not None:
             out[self.arith.bind] = self.arith.value
-        if self.op in NO_BIND_OPS:
+        if self.op in NO_BIND_OPS or self.literal:
             return out
         if self.op == "BETWEEN":
             out.update({self.bind + "a": self.pivot[0], self.bind + "b": self.pivot[1]})

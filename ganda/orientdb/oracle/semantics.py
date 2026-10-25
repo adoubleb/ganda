@@ -47,6 +47,7 @@ No answer is predicted from them. The rules:
 from __future__ import annotations
 
 import datetime as _dt
+import math
 import re
 import struct
 from decimal import Decimal
@@ -55,7 +56,7 @@ from typing import Any
 from ganda.core.query.ir.predicates import Compound
 from ganda.core.data.neighbours import shift_date
 from ganda.core.engine.provider import Semantics
-from ganda.orientdb.rules import answer, assumes
+from ganda.orientdb.rules import answer, assumes, works_around
 from ganda.orientdb.rules.catalog import SQL
 
 
@@ -185,7 +186,7 @@ def like_hit(value: str, pattern: str) -> bool:
 
 
 # the comparisons a ci column makes case-insensitively on a scan (generation only)
-_CI_OPS = ("=", "<>", "<", "<=", ">", ">=")
+_CI_OPS = tuple(answer("filter.case_insensitive.operators", SQL).split())
 
 
 def _convert(v: Any, pivot: Any, ftype: "str | None", ci: bool, op: str):
@@ -313,8 +314,6 @@ def predicate_hit(present: bool, v: Any, op: str, pivot: Any, ftype: "str | None
         return null_v
     if null_v or pivot is None:
         return False
-    if op == "LOWER=":
-        return isinstance(v, str) and v.lower() == pivot
     if op == "=":
         a, b = _convert(v, pivot, ftype, ci, op)
         return eq(a, b)
@@ -405,6 +404,44 @@ def evaluate(values: dict, p) -> bool:
     return predicate_hit(present, v, p.op, p.pivot, p.ftype, p.case_insensitive, p.key)
 
 
+# an out-of-range write into an INTEGER column is stored wrapped (O24): a write whose
+# result leaves int32 is never drawn
+works_around("O24")
+
+
+def arith_exact(v, sym: str, c, ftype) -> bool:
+    """Whether `v <sym> c` is computed exactly in the column's Java box (`ftype` a
+    `FieldType`): an int (a write stores an out-of-range result wrapped, O24), a long,
+    a float32-exact float, a double scaled by a power of two, a decimal with at most
+    three places, a date inside the format's range."""
+    from ganda.core.constants import I32_MAX, I32_MIN, I64_MAX, I64_MIN
+    from ganda.core.data.model import DATE_TYPES, FieldType
+    from ganda.orientdb.oracle.pivots import lossy_pivot
+
+    if v is None:
+        return True
+    try:
+        r = apply_arith(v, sym, c, ftype.value)
+    except (ValueError, OverflowError):
+        return False
+    if ftype is FieldType.INT32:
+        return I32_MIN <= r <= I32_MAX
+    if ftype is FieldType.INT:
+        return I64_MIN <= r <= I64_MAX
+    if ftype is FieldType.FLOAT32:
+        return math.isfinite(r) and f32(r) == r and abs(r) < 2**24
+    if ftype is FieldType.FLOAT:
+        return math.isfinite(r) and r != 0 or v == 0
+    if ftype is FieldType.DECIMAL:
+        return math.isfinite(r) and not lossy_pivot(FieldType.DECIMAL, r) and abs(r) < 1e15
+    if ftype in DATE_TYPES:
+        # `_shift_date` answers its input unchanged past year 9999: that is no shift
+        # (`f + 1000 <> '9999-12-31 23:59:59'` is not `f <> ...`, smoke sel-smoke4
+        # seed 1101)
+        return isinstance(r, str) and r != v and "1900-01-01 00:00:00" <= r <= "9999-12-31 23:59:59"
+    return False
+
+
 class OrientSemantics(Semantics):
     """OrientDB's value semantics as the core's `Semantics`: this module's functions."""
 
@@ -414,6 +451,7 @@ class OrientSemantics(Semantics):
     predicate_hit = staticmethod(predicate_hit)
     evaluate = staticmethod(evaluate)
     apply_arith = staticmethod(apply_arith)
+    arith_exact = staticmethod(arith_exact)
     sum_is_exact = staticmethod(sum_is_exact)
 
 SEMANTICS = OrientSemantics()

@@ -69,8 +69,6 @@ def test_insub_renders_evaluates_and_round_trips():
     assert p.bind_vars == {"ps": 1}
     assert [n.record_id for n in inst.nodes_of("n1") if predicates.evaluate(n.values, p)] == ["n1/r1", "n1/r2"]
     assert Predicate.from_dict(p.to_dict()) == p
-    # no rewrite: the inner query over a subquery target would differ in the planner path alone
-    assert predicates.rewrite(p, random.Random(1), "q") is None and predicates.reverse(p) is None
     # an unfiltered subquery answers a null for a record without the field
     whole = predicates.resolve_subs(_insub(), inst)
     assert whole.pivot == [2, 7, None] and whole.bind_vars == {}
@@ -114,10 +112,9 @@ def test_edge_target_doc_syntax():
     schema, inst = _fixture()
     p = Predicate("edge", "w", ">", "p", 2, ftype="int")
     q = SelectQuery("e1", p, "ids", edge=True)
-    t = Rewrites(rw=predicates.rewrite(p, random.Random(1), "q"))
+    t = Rewrites()
     assert render_select(q, schema, BASE, t, "graph") == "SELECT eid AS id FROM e1 WHERE w > :p"
     assert render_select(q, schema, BASE, t, "doc") == "SELECT v AS id FROM (SELECT v FROM (SELECT e1[w > :p].eid AS v FROM n1 UNWIND v) WHERE v IS NOT NULL)"
-    assert applicable(q, schema, SelectSyntax(filter="rw"), t, "doc") and applicable(q, schema, SelectSyntax(filter="rw"), t, "graph")
     assert not applicable(q, schema, SelectSyntax(position="poly"), t, "graph")
     page = SelectQuery("e1", None, "page", ("w",), directions=("DESC",), limit=2, edge=True)
     assert not applicable(page, schema, BASE, t, "doc")

@@ -19,7 +19,7 @@ from ganda.orientdb.known_bugs.guards import (
 from ganda.orientdb.known_bugs.java_hash import distinct_collides, java_hash, string_hash
 from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema, options
 from ganda.core.query.ir.traversal import Hop, TraversalQuery
-from ganda.orientdb.facade.predicates import Compound, Predicate, arithmetic
+from ganda.orientdb.facade.predicates import Compound, Predicate
 from ganda.orientdb.oracle.semantics import like_hit
 
 # the 66 LONG values a live reduction kept: DISTINCT over them answers a duplicate,
@@ -153,7 +153,9 @@ def test_the_fuzzer_bugs():
         def choice(self, xs):
             return self.pick
 
-    # no longer refused when both zeros are present: the arithmetic spelling is compared
-    # across data models only, never with the plain filter
+    # not refused when both zeros are present: the arithmetic form is another question,
+    # asked alike on every data model
+    from ganda.orientdb.oracle.pivots import _arithmetic
+
     p = Predicate("source", "f1", "=", "p", -0.0, ftype="float32")
-    assert arithmetic(p, Pick(("-", 1)), "ar", FieldType.FLOAT32) is not None
+    assert _arithmetic(Pick(("-", 1)), p) is not None
