@@ -19,7 +19,7 @@ from ganda.orientdb.known_bugs.guards import (
 from ganda.orientdb.known_bugs.java_hash import distinct_collides, java_hash, string_hash
 from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema, options
 from ganda.core.query.ir.traversal import Hop, TraversalQuery
-from ganda.orientdb.facade.predicates import Compound, Predicate
+from ganda.core.query.ir.predicates import Compound, Predicate
 from ganda.orientdb.concrete_syntax.query.predicate_sampling.predicate_steering import like_hit
 
 # the 66 LONG values a live reduction kept: DISTINCT over them answers a duplicate,
@@ -141,10 +141,10 @@ def test_o44_depth_first_reach():
 
 
 def test_the_fuzzer_bugs():
-    from ganda.orientdb.facade import predicates
+    from ganda.core.data.neighbours import offset
 
     # `VALUES CONTAINS` one past a stored Long.MAX stays a long
-    assert predicates.offset(FieldType.INT, 2**63 - 1, 1) == 2**63 - 1
+    assert offset(FieldType.INT, 2**63 - 1, 1) == 2**63 - 1
 
     class Pick:
         def __init__(self, pick):

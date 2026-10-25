@@ -5,16 +5,17 @@ import dataclasses
 import random
 from collections import Counter
 
-from ganda.orientdb.facade.generate import GeneratorConfig, build
+from tests.orientdb.helpers import GeneratorConfig, build
 from ganda.orientdb.known_bugs.guards import select_known
 from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.mutation.mutants import MUTANTS_BY_NAME
-from ganda.orientdb.facade import predicates
+from ganda.core.query.ir import predicates
 from ganda.core.oracle.case import Comparison, QueryCase
 from ganda.core.query.ir.path import PathQuery
 from ganda.orientdb.concrete_syntax.query.path import render_all
 from ganda.orientdb.concrete_syntax.query.predicate import render_predicate as render
-from ganda.orientdb.facade.predicates import Compound, Predicate
+from ganda.core.query.ir.predicates import Compound, Predicate
+from ganda.orientdb.concrete_syntax.query.predicate_sampling.predicate_steering import evaluate
 from ganda.core.query.generators.select import KIND_WEIGHTS, build_case, strata
 from ganda.core.query.ir.enums import SelectKind
 from ganda.core.query.ir.select import SelectQuery, TxWrite, tx_instance
@@ -67,7 +68,7 @@ def test_insub_renders_evaluates_and_round_trips():
     assert p.constant == [2, 7]
     assert render(p) == "f1 IN (SELECT g1 FROM n2 WHERE g1 > :ps)"
     assert p.bind_vars == {"ps": 1}
-    assert [n.record_id for n in inst.nodes_of("n1") if predicates.evaluate(n.values, p)] == ["n1/r1", "n1/r2"]
+    assert [n.record_id for n in inst.nodes_of("n1") if evaluate(n.values, p)] == ["n1/r1", "n1/r2"]
     assert Predicate.from_dict(p.to_dict()) == p
     # an unfiltered subquery answers a null for a record without the field
     whole = predicates.resolve_subs(_insub(), inst)

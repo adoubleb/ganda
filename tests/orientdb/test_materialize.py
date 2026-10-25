@@ -1,6 +1,6 @@
 import json
 
-from ganda.orientdb.facade.generate import GeneratorConfig, build
+from tests.orientdb.helpers import GeneratorConfig, build
 from ganda.orientdb.concrete_syntax.setup import MAPPERS
 from ganda.orientdb.concrete_syntax.setup.common import Batch, Ref, Script, Sql, _groups, plan_from_dict, plan_to_dict, resolve_refs, wrap_data
 from ganda.core.data.model import WriteForm

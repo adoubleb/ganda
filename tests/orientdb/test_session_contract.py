@@ -7,7 +7,7 @@ from ganda.core.engine.provider import EngineCrash, EngineError, Server, Session
 from ganda.orientdb import PROVIDER
 from ganda.orientdb.concrete_syntax.query import write as write_syntax
 from ganda.orientdb.engine.connection import OrientCrash, OrientError, OrientServer, OrientSession
-from ganda.orientdb.facade.generate import GeneratorConfig, build
+from tests.orientdb.helpers import GeneratorConfig, build
 
 
 class _Recorder(OrientSession):

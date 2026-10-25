@@ -1,9 +1,9 @@
-from ganda.orientdb.facade.generate import GeneratorConfig, build
+from tests.orientdb.helpers import GeneratorConfig, build
 from ganda.orientdb.known_bugs.guards import o1_shape, o2_shape
 from ganda.core.data.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeTypeSpec, Schema
 from ganda.orientdb.mutation.mutants import MUTANTS
 from ganda.core.query.ir.traversal import Hop, TraversalQuery
-from ganda.orientdb.facade.predicates import Predicate
+from ganda.core.query.ir.predicates import Predicate
 from ganda.core.query.generators.registry import all_cases
 
 
@@ -72,7 +72,7 @@ def test_every_read_generator_emits():
 
 def test_guards_see_leaves_inside_compounds():
     from ganda.orientdb.known_bugs.guards import node_case_known, o10_predicate
-    from ganda.orientdb.facade.predicates import Compound
+    from ganda.core.query.ir.predicates import Compound
 
     schema = _schema([IndexSpec("n1", "f1", data_model="rel", kind="NOTUNIQUE")])
     inner = Predicate("target", "f1", ">", "p1_0", 0)
@@ -150,7 +150,7 @@ def test_o18_withholds_the_order_variant_only_where_the_walk_skips_a_present_val
 
 def test_new_type_and_collation_guards():
     from ganda.orientdb.known_bugs.guards import node_case_known, o16_predicate, o17_predicate, o20_predicate, o21_predicate, ordered_keys_known
-    from ganda.orientdb.facade.predicates import Compound
+    from ganda.core.query.ir.predicates import Compound
 
     inst = build(3, GeneratorConfig())[1]
     schema = Schema(
@@ -210,7 +210,7 @@ def test_o25_withholds_bracket_syntaxes_on_ci_targets():
 
 def test_o36_between_on_a_composite_lead_next_to_a_later_field():
     from ganda.orientdb.known_bugs.guards import o36_predicate
-    from ganda.orientdb.facade.predicates import Compound
+    from ganda.core.query.ir.predicates import Compound
 
     schema = Schema(
         node_types=(NodeTypeSpec("n1", (FieldSpec("f", FieldType.INT), FieldSpec("g", FieldType.INT), FieldSpec("h", FieldType.INT))),),

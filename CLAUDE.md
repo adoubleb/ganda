@@ -44,9 +44,11 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
   legacy OrientDB fuzzer: old campaigns are reproduced with `../OrientDB` itself.
 - **Query generator ids are random-stream names** (`ir_traversal`, `ir_select`,
   `ir_path`, `ir_write`): renaming one changes every seed.
-- **A provider facade binds the engine** so provider code and tests can call core
-  functions without naming it: `ganda/orientdb/facade/` (`predicates.py`,
-  `generate.py`) and `ganda.orientdb.Schema`. Core code never uses these.
+- **Provider code imports a name from where it is defined** (the core's IR, or the
+  provider module that owns it); there is no facade layer. A core function that takes
+  the engine gets it passed (`PROVIDER`); OrientDB's tests build instances through
+  `tests/orientdb/helpers.build`, and `ganda.orientdb.Schema` is a `Schema` bound to
+  OrientDB for hand-built schemas.
 - **Provider layout** (OrientDB; ArangoDB and HANA move to it in turn): `config.py` at
   the top; `provider/` (`provider.py`, and `physical_design.py`: the index, storage and
   write-form draws); `engine/` (connection, limits, semantics, dialect);

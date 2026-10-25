@@ -1,10 +1,10 @@
 import itertools
 
-from ganda.orientdb.facade.generate import GeneratorConfig, build
+from tests.orientdb.helpers import GeneratorConfig, build
 from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.core.query.ir.traversal import PROJECTIONS, SHAPE_DENOMINATOR, Hop, TraversalQuery, all_signatures, from_params, shape_signature
 from ganda.core.query.generators.traversal import generate_traversal_cases, sample_query
-from ganda.orientdb.facade.predicates import Compound, Predicate
+from ganda.core.query.ir.predicates import Compound, Predicate
 from ganda.orientdb.concrete_syntax.query.traversal import SYNTAXES, applicable, can_pull_up, render, syntaxes_for
 
 

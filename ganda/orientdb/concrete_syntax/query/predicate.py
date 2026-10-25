@@ -5,7 +5,7 @@ forms. Identical on every data model, the field expression being the data model'
 own (`f1`, `in.f1`, `$n.f1`) via `prefix`."""
 from __future__ import annotations
 
-from ganda.orientdb.facade.predicates import MIRROR, NO_BIND_OPS, Compound
+from ganda.core.query.ir.predicates import MIRROR, NO_BIND_OPS, Compound
 from ganda.orientdb.rules import assumes
 from ganda.orientdb.rules.catalog import SQL
 

@@ -61,7 +61,7 @@ import dataclasses
 
 from ganda.core.data.model import Schema
 from ganda.core.query.ir.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, FIELD_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, Hop, TraversalQuery
-from ganda.orientdb.facade.predicates import fields_of, has_op
+from ganda.core.query.ir.predicates import fields_of, has_op
 from ganda.orientdb.concrete_syntax.query.predicate import render_predicate as render_pred
 
 from ganda.orientdb.rules import answer, assumes, works_around

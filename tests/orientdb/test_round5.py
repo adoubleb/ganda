@@ -5,14 +5,16 @@ import math
 import random
 
 from ganda.core.query.ir.select import TxWrite
-from ganda.orientdb.facade.generate import GeneratorConfig, build
+from tests.orientdb.helpers import GeneratorConfig, build
 from ganda.orientdb.known_bugs.guards import _leaf_served, list_ops_known, o31_known
 from ganda.core.data.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.engine.connection import is_script, unwrap_script
 from ganda.orientdb.concrete_syntax.query.support import bfs_distances
 from ganda.orientdb.concrete_syntax.query.support import tx_rows as _tx_rows
 from ganda.orientdb.concrete_syntax.query.predicate import render_predicate as render
-from ganda.orientdb.facade.predicates import Compound, Predicate, apply_arith, evaluate
+from ganda.core.query.ir.predicates import Compound, Predicate
+from ganda.orientdb.engine.semantics import apply_arith
+from ganda.orientdb.concrete_syntax.query.predicate_sampling.predicate_steering import evaluate
 from ganda.orientdb.concrete_syntax.query.predicate_sampling.forms import _arithmetic, leaf_form
 from ganda.core.query.generators.registry import all_cases
 from ganda.orientdb.concrete_syntax.query.predicate_sampling.predicate_steering import predicate_hit

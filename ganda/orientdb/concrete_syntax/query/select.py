@@ -57,7 +57,7 @@ from dataclasses import dataclass, field
 
 from ganda.core.data.model import Instance, Schema
 from ganda.orientdb.concrete_syntax.query.predicate import render_predicate as render_pred
-from ganda.orientdb.facade.predicates import MIRROR
+from ganda.core.query.ir.predicates import MIRROR
 from ganda.orientdb.concrete_syntax.query.support import METHODS  # noqa: F401 -- the method catalog
 from ganda.core.query.ir.select import DOC_EDGE_KINDS, SelectQuery, notnull_fields
 

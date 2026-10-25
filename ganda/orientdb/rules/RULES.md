@@ -8,8 +8,8 @@ baseline: 3.2.57, every check of a rule held
 
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
-| order.string.order_by | osql | collation | C19, C26, C27 | known_bugs/guards.py:1034 |
-| order.string.order_by | osql@index | utf-16-code-unit | C24, C25 | known_bugs/guards.py:1035 |
+| order.string.order_by | osql | collation | C19, C26, C27 | known_bugs/guards.py:1036 |
+| order.string.order_by | osql@index | utf-16-code-unit | C24, C25 | known_bugs/guards.py:1037 |
 | compare.negative_zero_below_zero | osql | true | C14, C15 | engine/semantics.py:101, provider/physical_design.py:59 |
 | aggregate.ungrouped.empty_input.rows | osql | no-row | C267, C285 | concrete_syntax/query/path.py:25 |
 | match.undirected.self_loop.rows | osql | 2 | C127, C193 | concrete_syntax/query/traversal.py:314 |
@@ -36,12 +36,12 @@ baseline: 3.2.57, every check of a rule held
 | arithmetic.as_long.exact | osql | true | C341 | concrete_syntax/query/write.py:269 |
 | link.deleted_target.reads_null | osql | true | C342 | concrete_syntax/query/write.py:226 |
 | element.keys.defined_fields | osql | true | C343 | concrete_syntax/query/predicate.py:51 |
-| order.nulls.asc | osql | last | C12 | known_bugs/guards.py:428 |
-| order.nulls.asc | osql@index | last | C209 | known_bugs/guards.py:429 |
-| order.nulls.desc | osql | first | C13 | known_bugs/guards.py:430 |
-| order.nulls.desc | osql@index | first | C209 | known_bugs/guards.py:431 |
+| order.nulls.asc | osql | last | C12 | known_bugs/guards.py:430 |
+| order.nulls.asc | osql@index | last | C209 | known_bugs/guards.py:431 |
+| order.nulls.desc | osql | first | C13 | known_bugs/guards.py:432 |
+| order.nulls.desc | osql@index | first | C209 | known_bugs/guards.py:433 |
 | aggregate.max.empty_input | osql | null | C29 | concrete_syntax/query/traversal.py:139 |
-| aggregate.case_insensitive.collates | osql | false | C173, C174 | known_bugs/guards.py:1040 |
+| aggregate.case_insensitive.collates | osql | false | C173, C174 | known_bugs/guards.py:1042 |
 | let.nested.parent_is_enclosing_query | osql | true | C73 | concrete_syntax/query/traversal.py:610 |
 | path.link_list.maps_field_access | osql | true | C83 | concrete_syntax/query/traversal.py:141 |
 | index.unique.ignore_nulls.accepts_null_keys | osql@index | true | C121 | concrete_syntax/setup/common.py:153 |
@@ -69,7 +69,7 @@ baseline: 3.2.57, every check of a rule held
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
 | equivalent.correlated_let | osql | true | C37 | concrete_syntax/query/traversal.py:81 |
-| equivalent.correlated_let.indexed_group_by | osql@index | true | C40 | known_bugs/guards.py:74 |
+| equivalent.correlated_let.indexed_group_by | osql@index | true | C40 | known_bugs/guards.py:76 |
 | equivalent.pulled_up | osql | true | C70 | concrete_syntax/query/traversal.py:755 |
 | equivalent.let_first_element | osql | true | C72 | concrete_syntax/query/traversal.py:611 |
 | equivalent.unionall_inline | osql | true | C197 | concrete_syntax/query/traversal.py:395 |
@@ -97,40 +97,40 @@ baseline: 3.2.57, every check of a rule held
 
 | id | subject | reproduced by | on 3.2.57 | read by |
 |---|---|---|---|---|
-| O1 | osql@index | C38, C39, C41, C69 | reproduces | known_bugs/guards.py:70 |
-| O2 | osql@index | C42, C43, C47, C48, C49, C50, C53, C55, C57, C59, C60, C61, C64 | reproduces | known_bugs/guards.py:94 |
-| O5 | osql | C34, C71, C233, C265, C305, C307, C319 | reproduces | known_bugs/guards.py:727 |
-| O6 | osql@index | C24, C25 | reproduces | known_bugs/guards.py:1036 |
-| O7 | osql | C77, C185, C187, C228, C263 | reproduces | known_bugs/guards.py:127 |
-| O8 | osql | C80, C227, C343 | reproduces | known_bugs/guards.py:604 |
-| O9 | osql | C82 | reproduces | known_bugs/guards.py:615 |
-| O10 | osql@index | C85, C87, C215, C264 | reproduces | known_bugs/guards.py:243 |
+| O1 | osql@index | C38, C39, C41, C69 | reproduces | known_bugs/guards.py:72 |
+| O2 | osql@index | C42, C43, C47, C48, C49, C50, C53, C55, C57, C59, C60, C61, C64 | reproduces | known_bugs/guards.py:96 |
+| O5 | osql | C34, C71, C233, C265, C305, C307, C319 | reproduces | known_bugs/guards.py:729 |
+| O6 | osql@index | C24, C25 | reproduces | known_bugs/guards.py:1038 |
+| O7 | osql | C77, C185, C187, C228, C263 | reproduces | known_bugs/guards.py:129 |
+| O8 | osql | C80, C227, C343 | reproduces | known_bugs/guards.py:606 |
+| O9 | osql | C82 | reproduces | known_bugs/guards.py:617 |
+| O10 | osql@index | C85, C87, C215, C264 | reproduces | known_bugs/guards.py:245 |
 | O12 | osql | C92 | reproduces | concrete_syntax/query/predicate_sampling/forms.py:35 |
-| O13 | osql | C95 | reproduces | known_bugs/guards.py:497 |
-| O14 | osql@index | C98, C100, C102 | reproduces | known_bugs/guards.py:922 |
-| O15 | osql | C105 | reproduces | known_bugs/guards.py:592 |
-| O16 | osql@index | C114, C115, C116, C117, C118, C151, C152, C153, C158, C159, C216, C234 | reproduces | known_bugs/guards.py:314 |
-| O17 | osql | C110, C112, C113, C147, C306 | reproduces | known_bugs/guards.py:471 |
-| O18 | osql@index | C122, C123, C204, C205, C273, C287 | reproduces | known_bugs/guards.py:423 |
-| O19 | osql | C148, C202 | reproduces | known_bugs/guards.py:572 |
-| O20 | osql | C161, C162 | reproduces | known_bugs/guards.py:321 |
-| O21 | osql | C169, C170 | reproduces | known_bugs/guards.py:349 |
+| O13 | osql | C95 | reproduces | known_bugs/guards.py:499 |
+| O14 | osql@index | C98, C100, C102 | reproduces | known_bugs/guards.py:924 |
+| O15 | osql | C105 | reproduces | known_bugs/guards.py:594 |
+| O16 | osql@index | C114, C115, C116, C117, C118, C151, C152, C153, C158, C159, C216, C234 | reproduces | known_bugs/guards.py:316 |
+| O17 | osql | C110, C112, C113, C147, C306 | reproduces | known_bugs/guards.py:473 |
+| O18 | osql@index | C122, C123, C204, C205, C273, C287 | reproduces | known_bugs/guards.py:425 |
+| O19 | osql | C148, C202 | reproduces | known_bugs/guards.py:574 |
+| O20 | osql | C161, C162 | reproduces | known_bugs/guards.py:323 |
+| O21 | osql | C169, C170 | reproduces | known_bugs/guards.py:351 |
 | O22 | match | C189, C190 | reproduces | concrete_syntax/query/traversal.py:135 |
-| O23 | osql@index | C206, C207, C274 | reproduces | known_bugs/guards.py:424 |
+| O23 | osql@index | C206, C207, C274 | reproduces | known_bugs/guards.py:426 |
 | O24 | osql | C145 | reproduces | engine/semantics.py:189 |
-| O25 | osql | C176, C177, C179 | reproduces | known_bugs/guards.py:403 |
-| O26 | osql | C196, C198, C199 | reproduces | known_bugs/guards.py:686 |
-| O27 | osql | C221, C222 | reproduces | known_bugs/guards.py:379 |
-| O31 | script | C270, C271, C272, C276, C312, C320 | reproduces | known_bugs/guards.py:840 |
+| O25 | osql | C176, C177, C179 | reproduces | known_bugs/guards.py:405 |
+| O26 | osql | C196, C198, C199 | reproduces | known_bugs/guards.py:688 |
+| O27 | osql | C221, C222 | reproduces | known_bugs/guards.py:381 |
+| O31 | script | C270, C271, C272, C276, C312, C320 | reproduces | known_bugs/guards.py:842 |
 | O35 | osql | C280 | reproduces | concrete_syntax/query/path.py:26 |
-| O36 | osql@index | C91 | reproduces | known_bugs/guards.py:199 |
-| O37 | osql@index | C293, C294, C295 | reproduces | known_bugs/guards.py:1223 |
+| O36 | osql@index | C91 | reproduces | known_bugs/guards.py:201 |
+| O37 | osql@index | C293, C294, C295 | reproduces | known_bugs/guards.py:1225 |
 | O38 | script | C302 | reproduces | concrete_syntax/query/write.py:227 |
-| O39 | osql | C300 | reproduces | known_bugs/guards.py:624 |
+| O39 | osql | C300 | reproduces | known_bugs/guards.py:626 |
 | O40 | osql | C313 | reproduces | concrete_syntax/query/path.py:97 |
-| O41 | osql | C315 | reproduces | known_bugs/guards.py:1012 |
-| O43 | osql | C317 | reproduces | known_bugs/guards.py:512 |
-| O44 | traverse | C318 | reproduces | concrete_syntax/query/traversal.py:435, known_bugs/guards.py:535 |
+| O41 | osql | C315 | reproduces | known_bugs/guards.py:1014 |
+| O43 | osql | C317 | reproduces | known_bugs/guards.py:514 |
+| O44 | traverse | C318 | reproduces | concrete_syntax/query/traversal.py:435, known_bugs/guards.py:537 |
 | O45 | match | C132, C133, C138, C141 | reproduces | concrete_syntax/query/traversal.py:330 |
 | O46 | osql | C322 | reproduces | engine/dialect.py:28 |
 

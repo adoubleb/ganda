@@ -21,10 +21,12 @@ from ganda.orientdb.known_bugs.java_hash import distinct_collides
 from ganda.core.query.ir.select import TxWrite
 from ganda.core.data.model import FieldType, Instance, Schema
 from ganda.orientdb.engine.dialect import HASH_KINDS, RANGE_KINDS
-from ganda.orientdb.facade import predicates
+from ganda.core.query.ir import predicates
 from ganda.core.oracle.case import QueryCase
 from ganda.core.query.ir.traversal import REACH_PROJECTIONS, TraversalQuery
-from ganda.orientdb.facade.predicates import lossy_constant, Compound, Predicate
+from ganda.core.query.ir.predicates import Compound, Predicate
+from ganda.orientdb.concrete_syntax.query.predicate_sampling import lossy_constant
+from ganda.orientdb.concrete_syntax.query.predicate_sampling.predicate_steering import evaluate
 from ganda.orientdb.concrete_syntax.query.traversal import BRACKET, CORRELATED
 from ganda.core.rules.vocabulary import NullPlacement, StringOrder
 from ganda.orientdb.rules import assumes, works_around
@@ -581,7 +583,7 @@ def o19_shape(q: TraversalQuery, schema: Schema, instance: Instance, data_model:
     from ganda.core.query.ir.traversal import _projected_values, final_paths
 
     for n in instance.nodes_of(q.source_table):
-        if q.source_predicate is not None and not predicates.evaluate(n.values, q.source_predicate):
+        if q.source_predicate is not None and not evaluate(n.values, q.source_predicate):
             continue
         vals = [v for v in _projected_values(q, instance, final_paths(q, instance, n.record_id)) if v is not None]
         if vals and all(_int32(v) for v in vals) and not _int32(sum(vals)):

@@ -1,7 +1,8 @@
 import dataclasses
 from collections import Counter
 
-from ganda.orientdb.facade.generate import GeneratorConfig, build, initial_node_values, write_order_states
+from ganda.core.data.generator import initial_node_values, write_order_states
+from tests.orientdb.helpers import GeneratorConfig, build
 
 from ganda.core.data.model import FieldType, NodeDelete, NodeUpdate
 from ganda.orientdb.engine.dialect import is_valid_key
