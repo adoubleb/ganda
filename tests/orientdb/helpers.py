@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from ganda.core.data import generator
-from ganda.orientdb.config import OrientConfig as GeneratorConfig  # noqa: F401
+from ganda.orientdb.provider.config import OrientConfig as GeneratorConfig  # noqa: F401
 from ganda.orientdb.provider import PROVIDER
 
 

@@ -49,12 +49,12 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
   the engine gets it passed (`PROVIDER`); OrientDB's tests build instances through
   `tests/orientdb/helpers.build`, and `ganda.orientdb.Schema` is a `Schema` bound to
   OrientDB for hand-built schemas.
-- **Provider layout** (OrientDB; ArangoDB and HANA move to it in turn): `config.py` at
-  the top; `provider/` (`provider.py`, and `physical_design.py`: the index, storage and
-  write-form draws); `engine/` (connection, plan steps, limits, semantics, dialect; it imports nothing from `concrete_syntax/`);
+- **Provider layout** (OrientDB; ArangoDB and HANA move to it in turn): folders only at
+  the top; `provider/` (`provider.py`, `config.py`, and `physical_design.py`: the index,
+  storage and write-form draws); `engine/` (connection, plan steps, limits, semantics, dialect; it imports nothing from `concrete_syntax/`);
   `concrete_syntax/` (`setup/`, the instance as a setup plan; `query/`, the renderers and
   `predicate_sampling/`); `known_bugs/` (`predicate.py`, `traversal.py`, `select.py`, `write.py`), `mutation/` (`mutants.py`),
-  `code_coverage/` (JaCoCo), `scripts/`. ArangoDB and HANA still keep `provider.py` at the top, `storage/` (dialect,
+  `code_coverage/` (JaCoCo), `scripts/`. ArangoDB and HANA still keep `provider.py` and `config.py` at the top, `storage/` (dialect,
   physical design, `mapping/`), the renderers directly under `concrete_syntax/`, a single `known_bugs/guards.py`,
   and `oracle/` (semantics, `predicate_sampling`; HANA also `rewrites` until its port).
 - **Use conventional names** (the README glossary). New concepts get the textbook term.
@@ -111,7 +111,7 @@ in a fresh interpreter -- caught when an import fails (`assumes`, `works_around`
 generated setup plans and cases of 20 seeds change; a survivor is a record nothing
 decides on. The catalog holds no IR definition (the code compares no subject with the
 IR). `ganda orientdb rules --write` renders
-`ganda/orientdb/rules/RULES.md`; `tests/orientdb/test_rules.py` keeps them in step. Layout: `engine/dialect.py` (declared types, index kinds, key charset), `provider/physical_design.py` (the index, storage and write-form draws), `config.py`,
+`ganda/orientdb/rules/RULES.md`; `tests/orientdb/test_rules.py` keeps them in step. Layout: `engine/dialect.py` (declared types, index kinds, key charset), `provider/physical_design.py` (the index, storage and write-form draws), `provider/config.py`,
 `engine/limits.py` (what the engine can hold), `engine/connection.py`, `engine/plan.py` (the setup-plan steps it executes: `Sql`, `Script`, `Batch`), `engine/semantics.py` (value order, equality, arithmetic),
 `concrete_syntax/` (`setup/`: instance → setup plan, one mapper per data model; `query/`: `predicate`, `predicate_sampling/` (`operators`, `constants`, `forms`: the provider's `predicate_sampling` slot; `predicate_steering`: how a scan answers a predicate, `predicate_hit` / `evaluate`; the provider assembles both into its `OrientSemantics`), `traversal`, `select`, `path`, `write`, `support`),
 `known_bugs/` (most of O1..O46, one module per IR over the predicate guards; O4 retired, fixed in 3.2.57; O12, O22, O24, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/query/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `code_coverage/` (`collector.py`: the JaCoCo agent's probes during a run; `report.py` and `jacoco/`: line / branch reports from the `.exec` files),

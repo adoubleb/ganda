@@ -1,4 +1,5 @@
-"""The OrientDB provider (`provider.py`) and the physical design it draws instances with."""
+"""The OrientDB provider (`provider.py`), its campaign configuration (`config.py`) and
+the physical design it draws instances with (`physical_design.py`)."""
 from ganda.orientdb.provider.provider import PROVIDER
 
 __all__ = ["PROVIDER"]

@@ -165,7 +165,7 @@ attributes are **slots** the core reads; a slot may be an object or a module.
 
 | Slot | What the core asks it | Typical file |
 |---|---|---|
-| `name`, `title`, `data_models`, `config_class` | Identity, storage models in comparison order, configuration (each field becomes a CLI flag) | `provider.py`, `config.py` |
+| `name`, `title`, `data_models`, `config_class` | Identity, storage models in comparison order, configuration (each field becomes a CLI flag) | `provider.py`, `config.py` (OrientDB: both under `provider/`) |
 | `limits` | `StorageLimits`: longest string, record size, request size, ... | `engine/limits.py` |
 | `server()` → `Server` / `Session` | Start or attach; run a setup plan; execute a text; read stored state back | `engine/connection.py` |
 | `mappers[data model]` | Instance → setup plan | `storage/mapping/` |

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from ganda.core.engine.provider import Provider, Semantics
-from ganda.orientdb.config import OrientConfig
+from ganda.orientdb.provider.config import OrientConfig
 from ganda.orientdb.engine import semantics
 from ganda.orientdb.engine.limits import LIMITS
 from ganda.orientdb.concrete_syntax.query import predicate_sampling
