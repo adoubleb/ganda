@@ -110,7 +110,6 @@ ORIENT_TYPES = {
 # sub-field is not indexable, probed). The planner uses a composite index for a
 # predicate on its first field only, and a base class's index for a query on any
 # subclass; a query on the base class uses its subclasses' indexes in parallel (probed).
-INDEX_KINDS = ("NOTUNIQUE", "UNIQUE", "NOTUNIQUE_HASH_INDEX", "UNIQUE_HASH_INDEX", "DICTIONARY")
 UNIQUE_KINDS = ("UNIQUE", "UNIQUE_HASH_INDEX")
 HASH_KINDS = ("NOTUNIQUE_HASH_INDEX", "UNIQUE_HASH_INDEX")
 RANGE_KINDS = ("NOTUNIQUE", "UNIQUE", "DICTIONARY")

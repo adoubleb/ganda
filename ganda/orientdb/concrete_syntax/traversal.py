@@ -73,7 +73,6 @@ SYNTAXES = {
     "doc": ("path", "unwind", "let_expand", "inpath", "union"),
     "rel": ("let", "flat"),
 }
-DEFAULT_SYNTAX = {"graph": "chain", "doc": "path", "rel": "let"}
 # Concrete syntaxes whose text is a correlated subquery with `$parent.$current` in the outer
 # query's scope -- the ones O1 applies to when the outer query is index-served
 # (`traverse` roots its TRAVERSE at `$parent.$current`: campaign c60b, seeds 414, 428
@@ -88,11 +87,6 @@ BRACKET = {("graph", "chain"), ("graph", "bag"), ("graph", "edgescan"), ("doc", 
 
 _MULTI = ("ids", "field", "distinct_ids", "efield")
 _DISTINCT = ("distinct_ids", "distinct_count", "exists", "nexists")
-
-
-def _target_type(schema: Schema, hop: Hop) -> str:
-    et = schema.edge_type(hop.edge_type)
-    return et.to_type if hop.direction != "in" else et.from_type
 
 
 def _br(p) -> str:
@@ -591,7 +585,6 @@ assumes("unionall.absent_operand.empty", SQL, True)
 def _doc_union(q: TraversalQuery, schema: Schema, extra: tuple = ()) -> str:
     """The `both` direction: the outgoing path over the record's own list, unioned
     with the incoming subquery (`unionall` tolerates an absent list, probed)."""
-    h = q.hops[0]
     out_expr = _doc_expr(q.hops, q.edge_projection)
     if q.edge_projection:
         col = q.field
@@ -781,8 +774,3 @@ def render(q: TraversalQuery, schema: Schema, data_model: str, syntax: str, pull
     cols = "id" if q.projection in SET_PROJECTIONS else "id, v"
     return f"SELECT {cols} FROM ({inner}) WHERE {cond}"
 
-
-def is_folded(q: TraversalQuery, data_model: str, syntax: str) -> bool:
-    """Whether the concrete syntax answers with one row PER PATH rather than per start record
-    (the oracle folds those by id; a start record with no path is then absent)."""
-    return syntax in ("match", "edgescan", "unwind", "flat")

@@ -227,7 +227,7 @@ assumes("link.deleted_target.reads_null", SQL, True)
 works_around("O38")
 
 
-def _node_delete(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_model: str, schema: Schema, instance: Instance) -> Statements:
+def _node_delete(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_model: str, schema: Schema) -> Statements:
     where = _where(q, sp, rewrites)
     t = q.table
     victims_tables = {nt.name for nt in schema.node_types} if schema.is_base(t) else {t}
@@ -322,7 +322,7 @@ def render(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_model: 
     if q.op in EDGE_OPS:
         st = _edge_write(q, sp, rewrites, data_model, before, after)
     elif q.op == "delete":
-        st = _node_delete(q, sp, rewrites, data_model, before.schema, before)
+        st = _node_delete(q, sp, rewrites, data_model, before.schema)
     else:
         st = Statements(main=_node_update(q, sp, rewrites), door=sp.door)
     # every statement of the data model carries the filter's bind variables

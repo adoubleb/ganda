@@ -74,7 +74,6 @@ from ganda.orientdb.rules.catalog import (
     equivalent,
 )
 
-TRANSACTION_DOOR = Rule(equivalent("transaction_door"), SCRIPT, True)
 ORDER_BY_COLLATES = Rule(ORDER_BY_STRING, SQL, StringOrder.COLLATION)
 INDEX_WALK_CODE_UNITS = Rule(ORDER_BY_STRING, SQL_INDEX, StringOrder.UTF16_CODE_UNIT)
 

@@ -5,14 +5,8 @@ from __future__ import annotations
 
 
 from ganda.core.query.ir.select import TxWrite
-from ganda.core.data.model import FieldType, Instance
-from ganda.orientdb.facade import predicates
+from ganda.core.data.model import FieldType
 from ganda.core.query.generators.support import bfs_distances, composite_and as _composite_and, draw_tx, tx_binds, tx_rows  # noqa: F401
-
-
-
-def _hits(instance: Instance, table: str, p) -> list:
-    return [n for n in instance.nodes_of(table) if predicates.evaluate(n.values, p)]
 
 
 # Methods, each with a guard on the PRESENT values it is asked over (the query filters
