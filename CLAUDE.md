@@ -89,7 +89,7 @@ exact on every stored value).
 The engine rules are minimal records in `ganda/orientdb/rules/catalog.py`, as HANA's (the
 subjects are OrientDB SQL's execution paths: a scan, an index-served statement, MATCH,
 TRAVERSE, the script / transaction door, /batch); the defects O1..O46 that can still make two data models differ
-(O3, O4, O11, O28, O29, O30, O32, O33, O34, O42 retired) beside them; `rules/checks.py` lists the rules each probe check (173 of them, ids up to C338
+(O3, O4, O11, O28, O29, O30, O32, O33, O34, O42 retired) beside them; `rules/checks.py` lists the rules each probe check (178 of them, ids up to C343
 in `scripts/probe_osql.py`, never reused) asserts and the defects it reproduces (every defect has a check
 whose expected answer is the defect's). A failing check prints the rule that no
 longer holds, or the defect that no longer reproduces, and the code reading it. A rule

@@ -1,5 +1,5 @@
 """Which rules (and error classes) each probe check (`scripts/probe_osql.py`, ids up to
-C338, never reused) checks, and which defects it reproduces -- every check is listed: a check is listed against a rule only where it asserts that rule's
+C343, never reused) checks, and which defects it reproduces -- every check is listed: a check is listed against a rule only where it asserts that rule's
 answer, against a defect only where its expected answer is the defect's (not the
 controls beside it)."""
 from __future__ import annotations
@@ -24,7 +24,12 @@ from ganda.core.rules.vocabulary import (
 from ganda.orientdb.rules.catalog import (
     ABSENT_LIST_SIZE,
     ABSENT_SURVIVES_PROJECTION,
+    AS_LONG_EXACT,
     CI_OPERATORS,
+    DELETED_TARGET_NULL,
+    ELEMENT_KEYS_DEFINED,
+    LIST_POSITION_PAST_END,
+    LIST_POSITION_SETS,
     BINARY_ROUND_TRIP,
     CI_AGGREGATES_COLLATE,
     CLASSLESS_ALIAS_ROOT,
@@ -143,6 +148,11 @@ _RULE_CHECKS |= {
     "C329": (Rule(ABSENT_LIST_SIZE, SQL, 0),),
     "C331": (Rule(CI_OPERATORS, SQL, "= <> < <= > >="),),
     "C332": (Rule(ABSENT_SURVIVES_PROJECTION, SQL, False),),
+    "C339": (Rule(LIST_POSITION_SETS, SQL, True),),
+    "C340": (Rule(LIST_POSITION_PAST_END, SQL, True),),
+    "C341": (Rule(AS_LONG_EXACT, SQL, True),),
+    "C342": (Rule(DELETED_TARGET_NULL, SQL, True),),
+    "C343": (Rule(ELEMENT_KEYS_DEFINED, SQL, True),),
     "C330": ERRORS,
 }
 
@@ -152,7 +162,7 @@ REPRODUCED_BY = {
     "O5": ("C34", "C71", "C233", "C265", "C305", "C307", "C319"),
     "O6": ("C24", "C25"),
     "O7": ("C77", "C185", "C187", "C228", "C263"),
-    "O8": ("C80", "C227"),
+    "O8": ("C80", "C227", "C343"),
     "O9": ("C82",),
     "O10": ("C85", "C87", "C215", "C264"),
     "O12": ("C92",),

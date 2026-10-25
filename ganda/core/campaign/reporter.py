@@ -141,14 +141,14 @@ def _write_data(d: str, instance, plans: dict, embed_data: bool) -> None:
             json.dump(plan_to_dict(plan) if embed_data else plan_summary(plan), fh, indent=2, ensure_ascii=False, default=repr)
 
 
-def report_setup_problem(engine, out_dir: str, tag: str, seed: int, cfg, instance, plans: dict, errors: dict, diffs: dict, kind: str, write_step: "int | None" = None, embed_data: bool = True) -> str:
+def report_setup_problem(engine, out_dir: str, tag: str, seed: int, cfg, instance, plans: dict, errors: dict, diffs: dict, kind: str, write_step: "int | None" = None, embed_data: bool = True, keep_known_bugs: bool = False) -> str:
     d = os.path.join(out_dir, f"{tag}-{seed}-{kind}")
     os.makedirs(d, exist_ok=True)
     with open(os.path.join(d, "setup.json"), "w") as fh:
         json.dump({"kind": kind, "errors": errors, "state_diffs": {s: x.problems for s, x in diffs.items()}}, fh, indent=2, ensure_ascii=False, default=repr)
     _write_data(d, instance, plans, embed_data)
     with open(os.path.join(d, "repro.py"), "w") as fh:
-        fh.write(_repro_script(engine, seed, cfg, None, write_step))
+        fh.write(_repro_script(engine, seed, cfg, None, write_step, keep_known_bugs))
     with open(os.path.join(d, "README.md"), "w") as fh:
         lines = [f"# {kind} (seed {seed})", ""]
         for s, e in errors.items():
@@ -208,13 +208,13 @@ def _readme(seed, cfg, result, times_seen) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _repro_script(engine, seed: int, cfg, case, write_step: "int | None" = None) -> str:
+def _repro_script(engine, seed: int, cfg, case, write_step: "int | None" = None, keep_known_bugs: bool = False) -> str:
     cfg_json = json.dumps(dataclasses.asdict(cfg))
     key_variant = next((x for x in engine.data_models if x in case.queries), None) if case else None
     key = {"generator": case.generator_name, "shape": case.shape, "variant": key_variant, "text": case.queries[key_variant]} if case else None
     # a write-phase case (or a read-back after one) replays the phase up to its step
+    # a write-state problem's phase drew its writes guards off when the campaign did
     step = write_step
-    keep_known_bugs = False
     if case is not None and (case.generator_name == "ir_write" or "after_write" in case.params):
         step = case.params.get("step", case.params.get("after_write"))
         keep_known_bugs = case.params.get("keep_known_bugs", False)

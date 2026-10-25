@@ -6,6 +6,8 @@ own (`f1`, `in.f1`, `$n.f1`) via `prefix`."""
 from __future__ import annotations
 
 from ganda.orientdb.facade.predicates import MIRROR, NO_BIND_OPS, Compound
+from ganda.orientdb.rules import assumes
+from ganda.orientdb.rules.catalog import SQL
 from ganda.orientdb.storage.dialect import sql_op
 
 
@@ -29,13 +31,22 @@ def _pivot(p, suffix: str = "") -> str:
     return _literal(p.pivot[0 if suffix == "a" else 1] if suffix else p.pivot)
 
 
-def render_predicate(p, prefix: str = "") -> str:
+# `IS DEFINED` on a list element's field holds for an absent one (an O8 face): the
+# element's keys tell
+assumes("element.keys.defined_fields", SQL, True)
+
+
+def render_predicate(p, prefix: str = "", element: bool = False) -> str:
     """The OrientDB text of a predicate tree; a compound is always parenthesized so
-    the data models never rely on operator precedence."""
+    the data models never rely on operator precedence. With `element` the prefix is a
+    list element (`e[k].`), whose definedness tests read its keys."""
     if isinstance(p, Compound):
         if p.op == "NOT":
-            return f"NOT ({render_predicate(p.children[0], prefix)})"
-        return "(" + f" {p.op} ".join(render_predicate(c, prefix) for c in p.children) + ")"
+            return f"NOT ({render_predicate(p.children[0], prefix, element)})"
+        return "(" + f" {p.op} ".join(render_predicate(c, prefix, element) for c in p.children) + ")"
+    if element and p.op in ("IS PRESENT", "IS ABSENT") and p.key is None:
+        has = f"{prefix.removesuffix('.')}.keys() CONTAINS '{p.field}'"
+        return has if p.op == "IS PRESENT" else f"NOT ({has})"
     expr = prefix + p.field
     if p.sub is not None:
         t2, g, q, _scan = p.sub

@@ -503,6 +503,38 @@ def main() -> int:
             r = {i: s.sql_raw("INSERT INTO wd SET id = :id", {"id": f"d{i}"})[0]["@rid"] for i in range(3)}
             s.sql("UPDATE wd SET e1 = :l WHERE id = 'd0'", {"l": [{"target": r[1], "eid": "x0", "w": 1}, {"target": r[2], "eid": "x1", "w": 5}]})
 
+        # the doc data model's edge-attribute write and cascade: a list position at a time
+        for q in ["CREATE CLASS wpt", "CREATE PROPERTY wpt.id STRING", "CREATE CLASS wps", "CREATE PROPERTY wps.id STRING", "CREATE PROPERTY wps.e1 EMBEDDEDLIST"]:
+            s.sql(q)
+
+        def preset():
+            s.sql("DELETE FROM wps"); s.sql("DELETE FROM wpt")
+            r = {k: s.sql_raw("INSERT INTO wpt SET id = :id", {"id": k})[0]["@rid"] for k in ("t1", "t2", "t3")}
+            for sid, lst in (("a", [("x1", "t1", 5), ("x2", "t2", 2), ("x3", "t3", 7)]), ("b", [("y1", "t1", 1)]), ("c", [("z1", "t2", 6)])):
+                s.sql("INSERT INTO wps SET id = :id", {"id": sid})
+                s.sql("UPDATE wps SET e1 = :l WHERE id = :id", {"id": sid, "l": [{"eid": e, "target": r[t], "w": w} for e, t, w in lst]})
+
+        def pstate():
+            return {r["id"]: [list(x) for x in zip(r.get("eid") or [], r.get("w") or [])] for r in rows(s, "SELECT id, e1.eid AS eid, e1.w AS w FROM wps ORDER BY id")}
+
+        preset()
+        check("C339", "`SET e[k].f = ... WHERE e.size() > k AND p(e[k])` sets the matching element of each list in place, one count per matching record; `SET e[p].f = ...` answers its count and changes nothing",
+              ([rows(s, f"UPDATE wps SET e1[{k}].w = 9 WHERE e1.size() > {k} AND e1[{k}].w > :p", {"p": 4})[0]["count"] for k in range(3)], pstate(), (preset(), rows(s, "UPDATE wps SET e1[w > :p].w = 9", {"p": 4}), pstate())[1:]),
+              ([2, 0, 1], {"a": [["x1", 9], ["x2", 2], ["x3", 9]], "b": [["y1", 1]], "c": [["z1", 9]]}, ([{"count": 3}], {"a": [["x1", 5], ["x2", 2], ["x3", 7]], "b": [["y1", 1]], "c": [["z1", 6]]})))
+        preset()
+        check("C340", "a list position past the end counts the record and changes nothing", (rows(s, "UPDATE wps SET e1[2].w = 9 WHERE e1[2].w IS NULL"), pstate()["b"]), ([{"count": 2}], [["y1", 1]]))
+        s.sql("UPDATE wps SET e1[0].w = :v WHERE id = 'b'", {"v": 2**31 - 1})
+        check("C341", "an untyped embedded number that fits is an INTEGER, and `asLong()` arithmetic on it is the exact LONG",
+              (col(s, "SELECT e1[0].w.type() AS v FROM wps WHERE id = 'b'"), (s.sql("UPDATE wps SET e1[0].w = e1[0].w.asLong() + :d WHERE id = 'b'", {"d": 1}), col(s, "SELECT e1[0].w AS v FROM wps WHERE id = 'b'"))[1]),
+              (["INTEGER"], [2**31]))
+        s.sql("UPDATE wps SET e1 = :l WHERE id = 'b'", {"l": [{"eid": "y1", "w": 1}, {"eid": "y2"}, {"eid": "y3", "w": None}]})
+        check("C343", "O8: `e[k].f IS DEFINED` holds for a list element without f (and IS NOT DEFINED for none); `e[k].keys() CONTAINS 'f'` tells absent from null",
+              ([col(s, f"SELECT count(*) AS v FROM wps WHERE id = 'b' AND e1[{k}].w IS DEFINED")[0] for k in range(3)], [col(s, f"SELECT count(*) AS v FROM wps WHERE id = 'b' AND e1[{k}].keys() CONTAINS 'w'")[0] for k in range(3)]),
+              ([1, 1, 1], [1, 0, 1]))
+        preset()
+        check("C342", "after a DELETE a link to the record reads `target.id` null, and the bracket drops it (in a transaction too)",
+              (s.script("BEGIN; LET $r = DELETE FROM wpt WHERE id = 't1'; UPDATE wps SET e1 = e1[target.id IS NOT NULL] WHERE e1 CONTAINS (target.id IS NULL); COMMIT; RETURN $r"), pstate()),
+              ([{"count": 1}], {"a": [["x2", 2], ["x3", 7]], "b": [], "c": [["z1", 6]]}))
         dreset()
         check("C301", "a link list is rewritten through a bracket filter, the links stay typed; DELETE FROM leaves a LINK dangling (target.id null)", (rows(s, "UPDATE wd SET e1 = e1[target.id NOT IN :g] WHERE e1 CONTAINS (target.id IN :g)" + TW, {"g": ["d1"]}), col(s, "SELECT e1.target.id AS v FROM wd WHERE id = 'd0'"), (dreset(), rows(s, "DELETE FROM wd WHERE id = 'd1'"))[1], col(s, "SELECT e1.target.id AS v FROM wd WHERE id = 'd0'")), ([{"count": 1}], [["d2"]], [{"count": 1}], [[None, "d2"]]))
         dreset()

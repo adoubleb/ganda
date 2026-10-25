@@ -73,6 +73,11 @@ STRING_EXACT_ROUND_TRIP = Question("value.string.exact_round_trip", bool, COMPAR
 BINARY_ROUND_TRIP = Question("value.binary.base64_round_trip", bool, COMPARE)
 ABSENT_LIST_SIZE = Question("value.absent_list.size", int, COMPARE)
 CI_OPERATORS = Question("filter.case_insensitive.operators", str, COMPARE)
+LIST_POSITION_SETS = Question("update.list_position.sets_element", bool, COMPARE)
+LIST_POSITION_PAST_END = Question("update.list_position.past_end_counts_record", bool, COMPARE)
+AS_LONG_EXACT = Question("arithmetic.as_long.exact", bool, COMPARE)
+DELETED_TARGET_NULL = Question("link.deleted_target.reads_null", bool, COMPARE)
+ELEMENT_KEYS_DEFINED = Question("element.keys.defined_fields", bool, COMPARE)
 ABSENT_SURVIVES_PROJECTION = Question("projection.keeps_absent_field", bool, COMPARE)
 CI_AGGREGATES_COLLATE = Question("aggregate.case_insensitive.collates", bool, COMPARE)
 NESTED_LET_PARENT = Question("let.nested.parent_is_enclosing_query", bool, COMPARE)
@@ -116,6 +121,11 @@ COMPARE_RULES = (
     Rule(ABSENT_IS_NULL, SQL, True),
     Rule(CI_OPERATORS, SQL, "= <> < <= > >="),
     Rule(ABSENT_SURVIVES_PROJECTION, SQL, False),
+    Rule(LIST_POSITION_SETS, SQL, True),
+    Rule(LIST_POSITION_PAST_END, SQL, True),
+    Rule(AS_LONG_EXACT, SQL, True),
+    Rule(DELETED_TARGET_NULL, SQL, True),
+    Rule(ELEMENT_KEYS_DEFINED, SQL, True),
     Rule(NULLS_ASC, SQL, NullPlacement.LAST),
     Rule(NULLS_ASC, SQL_INDEX, NullPlacement.LAST),
     Rule(NULLS_DESC, SQL, NullPlacement.FIRST),

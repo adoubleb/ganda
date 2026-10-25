@@ -214,7 +214,7 @@ def _write_phase(run: _SeedRun, sessions: dict, rng) -> list:
         run.count("write_state_diffs")
         last = writes[-1] if writes else None
         wrote = {data_model: f"[{last.params['concrete_syntax'][data_model]}] {last.params['statements'][data_model]}" if last else "" for data_model in sessions}
-        d = run.report_state_problem(wrote, wp.diffs, f"write-state-{wp.failed_step}", instance=wp.instance, write_step=wp.failed_step)
+        d = run.report_state_problem(wrote, wp.diffs, f"write-state-{wp.failed_step}", instance=wp.instance, write_step=wp.failed_step, keep_known_bugs=args.no_known_bugs)
         print(f"[seed {run.seed}] write-state after {wp.stopped} -> {d}", flush=True)
     return wp.results
 

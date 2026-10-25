@@ -64,16 +64,28 @@ def test_syntaxes_per_model():
     assert g.main[0] == "DELETE VERTEX n1 WHERE f1 > :p" and not g.prelude
     r = render(d, WriteSyntax(), tw, "rel", inst, da)
     assert r.prelude[0][0].startswith("DELETE FROM e1 WHERE src_id IN (SELECT id FROM n1 WHERE f1 > :p) OR dst_id IN") and r.main[0] == "DELETE FROM n1 WHERE f1 > :p"
-    doc = render(d, WriteSyntax(form="eids"), tw, "doc", inst, da)
-    assert doc.prelude[0][1]["wg_e1"] == ["e1/e1"] and "eid NOT IN :wg_e1" in doc.prelude[0][0]
-    # the doc data model's edge-attribute write rewrites each source's list by id; it answers nothing compared
+    # the doc data model's cascade runs after the delete, in the engine: each source drops its dangling links
+    doc = render(d, WriteSyntax(), tw, "doc", inst, da)
+    assert doc.main[0] == "DELETE FROM n1 WHERE f1 > :p" and not doc.prelude
+    assert doc.postlude[0][0].startswith("UPDATE n1 SET e1 = e1[target.id IS NOT NULL] WHERE e1 CONTAINS (target.id IS NULL)")
+    assert doc.script().index("LET $r = DELETE") < doc.script().index("e1[target.id IS NOT NULL]")
+    # the doc data model's edge-attribute write: one statement per list position (as many
+    # as the database's longest list), the filter on the element; it answers nothing compared
     ew = WriteQuery("edge_set", edge_type="e1", where=Predicate("edge", "w", ">", "p", 0, ftype="int"), field="w", value=9)
     ea = apply(ew, inst)
-    dd = render(ew, WriteSyntax(form="rewrite"), tw, "doc", inst, ea)
-    assert dd.main is None and [p["wi0"] if "wi0" in p else p["wi1"] for _t, p in dd.prelude] == ["n1/r0", "n1/r1"]
+    dd = render(ew, WriteSyntax(form="position"), tw, "doc", inst, ea)
+    assert dd.main is None and not dd.prelude and dd.positions[0] == "SELECT max(e1.size()) AS n FROM n1"
+    at = dd.at_positions(2)
+    assert [t for t, _p in at.prelude] == [f"UPDATE n1 SET e1[{k}].w = :wv WHERE e1.size() > {k} AND (e1[{k}].w > :p) TIMEOUT 10000 EXCEPTION" for k in range(2)]
+    assert at.prelude[0][1] == {"p": 0, "wv": 9} and dd.params == {"p": 0, "wv": 9}
+    ar = WriteQuery("edge_arith", edge_type="e1", where=None, field="w", sym="+", value=1)
+    assert render(ar, WriteSyntax(form="position"), tw, "doc", inst, apply(ar, inst)).at_positions(1).prelude[0][0] == "UPDATE n1 SET e1[0].w = e1[0].w.asLong() + :wd WHERE e1.size() > 0 AND e1[0].w IS NOT NULL TIMEOUT 10000 EXCEPTION"
+    # a definedness test on an element reads its keys (IS DEFINED there holds for an absent field, O8)
+    dp = WriteQuery("edge_remove", edge_type="e1", where=Predicate("edge", "w", "IS ABSENT", "", None, ftype="int"), field="w")
+    assert "NOT (e1[0].keys() CONTAINS 'w')" in render(dp, WriteSyntax(form="position"), tw, "doc", inst, apply(dp, inst)).at_positions(1).prelude[0][0]
     assert render(ew, WriteSyntax(form="update_edge"), tw, "graph", inst, ea).main[0].startswith("UPDATE EDGE e1 SET w = :wv WHERE w > :p")
     assert not applicable(WriteQuery("set", table="n1", where=None, field="f1", value=1), WriteSyntax(target="nest"), tw, "doc")
-    assert not applicable(ew, WriteSyntax(form="rewrite", target="nest"), tw, "doc")
+    assert not applicable(ew, WriteSyntax(form="position", target="nest"), tw, "doc")
 
 
 def test_o37_guard_names_the_moving_write_through_a_served_range():

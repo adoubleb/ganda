@@ -59,7 +59,12 @@ def test_a_drawn_write_runs_through_the_door_its_syntax_names():
                     continue  # needs the record ids a live setup captures
                 s = _Recorder()
                 write_syntax.execute(s, st)
-                kinds = {kind for kind, _ in s.calls}
+                calls = s.calls
+                if st.positions is not None:
+                    # the doc data model's longest list, read before the write
+                    assert calls[0] == ("sql", st.positions[0])
+                    calls = calls[1:]
+                kinds = {kind for kind, _ in calls}
                 assert kinds <= ({"script"} if st.door == "tx" else {"sql"}), (st.door, s.calls)
                 doors.add(st.door)
             inst = after

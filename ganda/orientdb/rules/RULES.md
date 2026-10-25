@@ -18,12 +18,12 @@ baseline: 3.2.57, every check of a rule held
 | traverse.default_strategy | traverse | depth-first | C282 | concrete_syntax/traversal.py:440 |
 | match.optional.no_path.rows | match | one-row | C191 | concrete_syntax/traversal.py:333 |
 | expand.embedded.wrapped_under_value | osql | true | C333 | concrete_syntax/traversal.py:140 |
-| delete_vertex.cascades_edges | osql | true | C130 | concrete_syntax/write.py:213 |
+| delete_vertex.cascades_edges | osql | true | C130 | concrete_syntax/write.py:224 |
 | shortest_path.unreachable.result | osql | 0 | C279 | concrete_syntax/path.py:23 |
 | shortest_path.same_record.result | osql | 1 | C279 | concrete_syntax/path.py:24 |
-| delete.document.keeps_incoming_links | osql | true | C301 | concrete_syntax/write.py:214 |
-| statement.atomic | osql | false | C297 | concrete_syntax/write.py:318 |
-| statement.write.answers_row_count | osql | true | C291 | concrete_syntax/write.py:317 |
+| delete.document.keeps_incoming_links | osql | true | C301 | concrete_syntax/write.py:225 |
+| statement.atomic | osql | false | C297 | concrete_syntax/write.py:345 |
+| statement.write.answers_row_count | osql | true | C291 | concrete_syntax/write.py:344 |
 | value.double.exact_round_trip | osql | true | C2, C3 | storage/physical_design.py:62 |
 | value.string.exact_round_trip | osql | true | C22 | storage/physical_design.py:63 |
 | value.binary.base64_round_trip | osql | true | C321 | storage/dialect.py:61 |
@@ -31,6 +31,11 @@ baseline: 3.2.57, every check of a rule held
 | value.absent_is_null | osql | true | C10 | concrete_syntax/traversal.py:219 |
 | filter.case_insensitive.operators | osql | `= <> < <= > >=` | C331 | concrete_syntax/traversal.py:211, oracle/semantics.py:189 |
 | projection.keeps_absent_field | osql | false | C332 | concrete_syntax/traversal.py:217 |
+| update.list_position.sets_element | osql | true | C339 | concrete_syntax/write.py:265 |
+| update.list_position.past_end_counts_record | osql | true | C340 | concrete_syntax/write.py:266 |
+| arithmetic.as_long.exact | osql | true | C341 | concrete_syntax/write.py:269 |
+| link.deleted_target.reads_null | osql | true | C342 | concrete_syntax/write.py:226 |
+| element.keys.defined_fields | osql | true | C343 | concrete_syntax/predicate.py:36 |
 | order.nulls.asc | osql | last | C12 | known_bugs/guards.py:428 |
 | order.nulls.asc | osql@index | last | C209 | known_bugs/guards.py:429 |
 | order.nulls.desc | osql | first | C13 | known_bugs/guards.py:430 |
@@ -97,7 +102,7 @@ baseline: 3.2.57, every check of a rule held
 | O5 | osql | C34, C71, C233, C265, C305, C307, C319 | reproduces | known_bugs/guards.py:727 |
 | O6 | osql@index | C24, C25 | reproduces | known_bugs/guards.py:1036 |
 | O7 | osql | C77, C185, C187, C228, C263 | reproduces | known_bugs/guards.py:127 |
-| O8 | osql | C80, C227 | reproduces | known_bugs/guards.py:604 |
+| O8 | osql | C80, C227, C343 | reproduces | known_bugs/guards.py:604 |
 | O9 | osql | C82 | reproduces | known_bugs/guards.py:615 |
 | O10 | osql@index | C85, C87, C215, C264 | reproduces | known_bugs/guards.py:243 |
 | O12 | osql | C92 | reproduces | oracle/pivots.py:145 |
@@ -120,7 +125,7 @@ baseline: 3.2.57, every check of a rule held
 | O35 | osql | C280 | reproduces | concrete_syntax/path.py:26 |
 | O36 | osql@index | C91 | reproduces | known_bugs/guards.py:199 |
 | O37 | osql@index | C293, C294, C295 | reproduces | known_bugs/guards.py:1223 |
-| O38 | script | C302 | reproduces | known_bugs/guards.py:1266 |
+| O38 | script | C302 | reproduces | concrete_syntax/write.py:227 |
 | O39 | osql | C300 | reproduces | known_bugs/guards.py:624 |
 | O40 | osql | C313 | reproduces | concrete_syntax/path.py:97 |
 | O41 | osql | C315 | reproduces | known_bugs/guards.py:1012 |
@@ -135,4 +140,4 @@ baseline: 3.2.57, every check of a rule held
 |---|---|---|---|
 | timeout | any | `OTimeoutException`; `OCommandInterruptedException` | C330 |
 
-58 rules (0 IR definitions): 58 checked by a probe fact, 0 unchecked; 58 read by code, 0 unread; 36 defects (36 reproduced by a probe fact); 1 error classes
+63 rules (0 IR definitions): 63 checked by a probe fact, 0 unchecked; 63 read by code, 0 unread; 36 defects (36 reproduced by a probe fact); 1 error classes

@@ -1263,9 +1263,6 @@ def _poly_tables(schema: Schema, table: str) -> set:
     return tables
 
 
-works_around("O38")
-
-
 def write_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Instance) -> "str | None":
     """The known bug a WRITE IR concrete syntax on `data_model` would hit, or None. The filter
     is judged as a read of the same predicate would be (a finding there chooses the
@@ -1283,7 +1280,9 @@ def write_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Inst
             fid = node_case_known(q.table, eff, schema, instance).get(data_model)
         elif data_model != "doc":
             fid = edge_case_known(q.edge_type, eff, schema, instance).get(data_model)
-        elif sp.form == "bracket":
+        else:
+            # the bracket filter, or the filter on each position's element: untyped JSON
+            # on the doc data model, with no collation
             fid = edge_case_known(q.edge_type, eff, schema, instance).get("doc") or ("O25" if any(leaf.case_insensitive for leaf in _leaves(eff)) else None)
     if fid is None and o37_write(q, sp, data_model, eff, schema):
         fid = "O37"
@@ -1291,11 +1290,4 @@ def write_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Inst
         # the filter inside `id IN (SELECT ...)` (the nest target, the rel data model's
         # cascade) holds a CONTAINSVALUE leaf: O39's NPE
         fid = "O39"
-    if fid is None and q.op == "delete" and data_model == "doc" and sp.door == "tx" and sp.form == "deref":
-        # O38 (`issue-drafts/O38-...`): in a transaction, a list rewritten through a
-        # filter that dereferences its LINKs (`e[target.id NOT IN :gone]`) and a
-        # delete of a record a dropped link pointed to fail at COMMIT ("Cannot save
-        # document ... no class or cluster defined"); auto-commit, an attribute
-        # filter or the relationship-id form are fine (probed)
-        fid = "O38"
     return fid
