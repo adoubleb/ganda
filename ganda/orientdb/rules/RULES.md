@@ -10,7 +10,7 @@ baseline: 3.2.57, every check of a rule held
 |---|---|---|---|---|
 | order.string.order_by | osql | collation | C19, C26, C27 | known_bugs/guards.py:1036 |
 | order.string.order_by | osql@index | utf-16-code-unit | C24, C25 | known_bugs/guards.py:1037 |
-| compare.negative_zero_below_zero | osql | true | C14, C15 | engine/semantics.py:101, provider/physical_design.py:59 |
+| compare.negative_zero_below_zero | osql | true | C14, C15 | engine/semantics.py:103, provider/physical_design.py:59 |
 | aggregate.ungrouped.empty_input.rows | osql | no-row | C267, C285 | concrete_syntax/query/path.py:25 |
 | match.undirected.self_loop.rows | osql | 2 | C127, C193 | concrete_syntax/query/traversal.py:314 |
 | match.parallel_edges.rows | osql | 2 | C126 | concrete_syntax/query/traversal.py:313 |
@@ -27,7 +27,7 @@ baseline: 3.2.57, every check of a rule held
 | value.double.exact_round_trip | osql | true | C2, C3 | provider/physical_design.py:64 |
 | value.string.exact_round_trip | osql | true | C22 | provider/physical_design.py:65 |
 | value.binary.base64_round_trip | osql | true | C321 | engine/dialect.py:29 |
-| value.absent_list.size | osql | 0 | C31, C329 | concrete_syntax/query/traversal.py:122, engine/connection.py:90 |
+| value.absent_list.size | osql | 0 | C31, C329 | concrete_syntax/query/traversal.py:122, engine/connection.py:91 |
 | value.absent_is_null | osql | true | C10 | concrete_syntax/query/traversal.py:213 |
 | filter.case_insensitive.operators | osql | `= <> < <= > >=` | C331 | concrete_syntax/query/predicate_sampling/predicate_steering.py:58, concrete_syntax/query/traversal.py:205 |
 | projection.keeps_absent_field | osql | false | C332 | concrete_syntax/query/traversal.py:211 |
@@ -44,11 +44,11 @@ baseline: 3.2.57, every check of a rule held
 | aggregate.case_insensitive.collates | osql | false | C173, C174 | known_bugs/guards.py:1042 |
 | let.nested.parent_is_enclosing_query | osql | true | C73 | concrete_syntax/query/traversal.py:610 |
 | path.link_list.maps_field_access | osql | true | C83 | concrete_syntax/query/traversal.py:141 |
-| index.unique.ignore_nulls.accepts_null_keys | osql@index | true | C121 | concrete_syntax/setup/common.py:153 |
+| index.unique.ignore_nulls.accepts_null_keys | osql@index | true | C121 | concrete_syntax/setup/common.py:70 |
 | match.classless_alias.is_root | match | false | C134 | concrete_syntax/query/traversal.py:331 |
-| parameter.rid_string.becomes_link | osql | true | C143 | concrete_syntax/setup/document.py:42 |
+| parameter.rid_string.becomes_link | osql | true | C143 | concrete_syntax/setup/document.py:38 |
 | unionall.absent_operand.empty | osql | true | C194 | concrete_syntax/query/traversal.py:582 |
-| update_edge.content.keeps_endpoints | osql | true | C212 | concrete_syntax/setup/common.py:294 |
+| update_edge.content.keeps_endpoints | osql | true | C212 | concrete_syntax/setup/common.py:211 |
 | max_depth.reaches_bound | match | true | C281 | concrete_syntax/query/path.py:58 |
 | max_depth.reaches_bound | traverse | true | C281 | concrete_syntax/query/path.py:57 |
 | unwind.bracket_projection.row_per_element | osql | true | C310 | concrete_syntax/query/select.py:170 |
@@ -58,11 +58,11 @@ baseline: 3.2.57, every check of a rule held
 
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
-| accepts.update.arithmetic_parameter | osql | accepted | C211 | concrete_syntax/setup/common.py:225 |
-| accepts.create_class.clusters | osql | accepted | C213 | concrete_syntax/setup/common.py:126 |
-| accepts.rebuild_index.all | osql | accepted | C214 | concrete_syntax/setup/common.py:528 |
+| accepts.update.arithmetic_parameter | osql | accepted | C211 | concrete_syntax/setup/common.py:142 |
+| accepts.create_class.clusters | osql | accepted | C213 | concrete_syntax/setup/common.py:43 |
+| accepts.rebuild_index.all | osql | accepted | C214 | concrete_syntax/setup/common.py:445 |
 | accepts.match.end_at_edge_alias | match | accepted | C192 | concrete_syntax/query/traversal.py:332 |
-| accepts.map_parameter | batch | accepted | C337 | concrete_syntax/setup/common.py:408 |
+| accepts.map_parameter | batch | accepted | C337 | concrete_syntax/setup/common.py:325 |
 
 ## equivalent
 
@@ -78,14 +78,14 @@ baseline: 3.2.57, every check of a rule held
 
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
-| aggregate.sum.integer.exact_below | osql | 9223372036854775808 | C4, C28 | engine/semantics.py:165 |
-| exact.sum.int32.below | osql | 2147483648 | C148 | engine/semantics.py:165 |
-| exact.sum.decimal | osql | true | C165 | engine/semantics.py:153 |
-| exact.parameter.long.below | osql | 9223372036854775808 | C1 | concrete_syntax/setup/common.py:226 |
+| aggregate.sum.integer.exact_below | osql | 9223372036854775808 | C4, C28 | engine/semantics.py:167 |
+| exact.sum.int32.below | osql | 2147483648 | C148 | engine/semantics.py:167 |
+| exact.sum.decimal | osql | true | C165 | engine/semantics.py:155 |
+| exact.parameter.long.below | osql | 9223372036854775808 | C1 | concrete_syntax/setup/common.py:143 |
 | exact.index_key.bytes.max | osql@index | 10240 | C324 | engine/limits.py:42 |
 | exact.request.bytes.max | osql | 67108864 | C325 | engine/limits.py:15 |
 | exact.statements.per_request.max | script | 500 | C326 | engine/limits.py:47 |
-| exact.in_list.ids.max | osql | 500 | C327, C328 | engine/connection.py:78 |
+| exact.in_list.ids.max | osql | 500 | C327, C328 | engine/connection.py:79 |
 
 ## divergences
 
@@ -117,7 +117,7 @@ baseline: 3.2.57, every check of a rule held
 | O21 | osql | C169, C170 | reproduces | known_bugs/guards.py:351 |
 | O22 | match | C189, C190 | reproduces | concrete_syntax/query/traversal.py:135 |
 | O23 | osql@index | C206, C207, C274 | reproduces | known_bugs/guards.py:426 |
-| O24 | osql | C145 | reproduces | engine/semantics.py:189 |
+| O24 | osql | C145 | reproduces | engine/semantics.py:220 |
 | O25 | osql | C176, C177, C179 | reproduces | known_bugs/guards.py:405 |
 | O26 | osql | C196, C198, C199 | reproduces | known_bugs/guards.py:688 |
 | O27 | osql | C221, C222 | reproduces | known_bugs/guards.py:381 |

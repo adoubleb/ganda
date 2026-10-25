@@ -20,20 +20,16 @@ removed record would dereference to null (probed), which is exactly what the
 """
 from __future__ import annotations
 
+from ganda.core.data.generator import initial_node_values, initial_nodes
+from ganda.core.engine.setup_plan import Ref, churned_away_edges, initial_edge_values, initial_edges
 from ganda.orientdb.concrete_syntax.setup.common import (
-    Ref,
-    Sql,
-    churned_away_edges,
     finalize,
-    initial_edge_values,
-    initial_edges,
-    initial_node_values,
-    initial_nodes,
     insert_step,
     node_ddl,
     node_document,
     node_update_steps,
 )
+from ganda.orientdb.engine.plan import Sql
 from ganda.core.data.model import EdgeUpdate, Instance, NodeDelete
 from ganda.orientdb.rules import assumes
 from ganda.orientdb.rules.catalog import SQL

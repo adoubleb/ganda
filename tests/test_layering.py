@@ -107,6 +107,6 @@ def test_every_providers_setup_steps_load_side_by_side():
         engine = provider(name)
         if engine.has_generators:
             assert engine.mappers
-    from ganda.orientdb.concrete_syntax.setup.common import Sql as OrientSql
+    from ganda.orientdb.engine.plan import Sql as OrientSql
 
     assert type(plan_from_dict(plan_to_dict([OrientSql("SELECT 1")]))[0]) is OrientSql

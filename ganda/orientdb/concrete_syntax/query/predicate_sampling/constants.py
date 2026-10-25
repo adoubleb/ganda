@@ -1,45 +1,12 @@
 """OrientDB's predicate constants: the cross-type and boundary constants that sit
-where an index lookup and a scan can disagree.
+where an index lookup and a scan can disagree (`engine.semantics.lossy_constant`).
 """
 from __future__ import annotations
 
 import math
 import random
 
-from ganda.core.constants import I32_MAX, I32_MIN
-from ganda.core.data.neighbours import _f32
 from ganda.core.data.model import DATE_TYPES, FieldType
-
-
-def lossy_constant(ftype: FieldType, v) -> bool:
-    """Whether converting `v` to the column's type changes it -- the constants an index
-    lookup (which converts the key) and a scan (which compares as the wider box)
-    can disagree on: a double with a fractional part or at/after 2^53 on a LONG
-    column; on an INTEGER column that, or a Long outside int32 (wrapped); a double
-    that is not float32-exact on a FLOAT column; on a DECIMAL column a double whose
-    binary expansion is not its decimal string (every non-dyadic one)."""
-    if isinstance(v, bool) or v is None:
-        return False
-    if ftype is FieldType.INT:
-        return isinstance(v, float) and math.isfinite(v) and (v != int(v) or abs(v) >= 2**53)
-    if ftype is FieldType.INT32:
-        if isinstance(v, float):
-            return not math.isfinite(v) or v != int(v) or not (I32_MIN <= v <= I32_MAX)
-        return isinstance(v, int) and not (I32_MIN <= v <= I32_MAX)
-    if ftype is FieldType.FLOAT32:
-        return isinstance(v, float) and _f32(v) != v
-    if ftype is FieldType.DECIMAL:
-        if not isinstance(v, float) or not math.isfinite(v):
-            return False
-        from decimal import Decimal
-
-        return Decimal(v) != Decimal(repr(v))
-    if ftype in DATE_TYPES:
-        # a string the format only partially matches: the engine compares it as the
-        # date's midnight (O27); a date-only string or an epoch integer converts
-        # faithfully
-        return isinstance(v, str) and ("T" in v or (len(v) == 16 and v[10] == " "))
-    return False
 
 
 def cross_type(rng: random.Random, ftype: FieldType, v):

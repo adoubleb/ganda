@@ -1,8 +1,9 @@
 """OrientDB's value semantics (live-probed 3.2.56, `scripts/probe_osql.py`): the value
 order and equality the oracle and the state check compare answers under, and the
 arithmetic the generators and the guards walk the `Instance` with. How a scan answers
-a predicate is `concrete_syntax/query/predicate_sampling/predicate_steering.py`. No
-answer is predicted from them. The rules:
+a predicate is `concrete_syntax/query/predicate_sampling/predicate_steering.py`; the
+provider assembles both into the core's `Semantics` (`OrientSemantics`). No answer is
+predicted from them. The rules:
 
 - **Order.** LONG / INTEGER are Java integer order. DOUBLE / FLOAT are
   `Double.compare`: `-0.0 < 0.0`, so `d = 0` misses a stored `-0.0`, `d < 0` finds it,
@@ -34,8 +35,9 @@ import struct
 from decimal import Decimal
 from typing import Any
 
-from ganda.core.data.neighbours import shift_date
-from ganda.core.engine.provider import Semantics
+from ganda.core.constants import I32_MAX, I32_MIN
+from ganda.core.data.model import DATE_TYPES, FieldType
+from ganda.core.data.neighbours import _f32, shift_date
 from ganda.orientdb.rules import answer, assumes, works_around
 from ganda.orientdb.rules.catalog import SQL
 
@@ -184,6 +186,35 @@ def apply_arith(v, sym: str, c, ftype: "str | None"):
 
 
 
+def lossy_constant(ftype: FieldType, v) -> bool:
+    """Whether converting `v` to the column's type changes it -- the constants an index
+    lookup (which converts the key) and a scan (which compares as the wider box)
+    can disagree on: a double with a fractional part or at/after 2^53 on a LONG
+    column; on an INTEGER column that, or a Long outside int32 (wrapped); a double
+    that is not float32-exact on a FLOAT column; on a DECIMAL column a double whose
+    binary expansion is not its decimal string (every non-dyadic one)."""
+    if isinstance(v, bool) or v is None:
+        return False
+    if ftype is FieldType.INT:
+        return isinstance(v, float) and math.isfinite(v) and (v != int(v) or abs(v) >= 2**53)
+    if ftype is FieldType.INT32:
+        if isinstance(v, float):
+            return not math.isfinite(v) or v != int(v) or not (I32_MIN <= v <= I32_MAX)
+        return isinstance(v, int) and not (I32_MIN <= v <= I32_MAX)
+    if ftype is FieldType.FLOAT32:
+        return isinstance(v, float) and _f32(v) != v
+    if ftype is FieldType.DECIMAL:
+        if not isinstance(v, float) or not math.isfinite(v):
+            return False
+        return Decimal(v) != Decimal(repr(v))
+    if ftype in DATE_TYPES:
+        # a string the format only partially matches: the engine compares it as the
+        # date's midnight (O27); a date-only string or an epoch integer converts
+        # faithfully
+        return isinstance(v, str) and ("T" in v or (len(v) == 16 and v[10] == " "))
+    return False
+
+
 # an out-of-range write into an INTEGER column is stored wrapped (O24): a write whose
 # result leaves int32 is never drawn
 works_around("O24")
@@ -194,9 +225,7 @@ def arith_exact(v, sym: str, c, ftype) -> bool:
     `FieldType`): an int (a write stores an out-of-range result wrapped, O24), a long,
     a float32-exact float, a double scaled by a power of two, a decimal with at most
     three places, a date inside the format's range."""
-    from ganda.core.constants import I32_MAX, I32_MIN, I64_MAX, I64_MIN
-    from ganda.core.data.model import DATE_TYPES, FieldType
-    from ganda.orientdb.concrete_syntax.query.predicate_sampling.constants import lossy_constant
+    from ganda.core.constants import I64_MAX, I64_MIN
 
     if v is None:
         return True
@@ -220,23 +249,3 @@ def arith_exact(v, sym: str, c, ftype) -> bool:
         # seed 1101)
         return isinstance(r, str) and r != v and "1900-01-01 00:00:00" <= r <= "9999-12-31 23:59:59"
     return False
-
-
-# the predicate logic reads this module's order and equality, so it is imported once
-# they are defined
-from ganda.orientdb.concrete_syntax.query.predicate_sampling.predicate_steering import evaluate, predicate_hit  # noqa: E402
-
-
-class OrientSemantics(Semantics):
-    """OrientDB's value semantics as the core's `Semantics`: this module's functions."""
-
-    key = staticmethod(orient_key)
-    eq = staticmethod(eq)
-    lt = staticmethod(lt)
-    predicate_hit = staticmethod(predicate_hit)
-    evaluate = staticmethod(evaluate)
-    apply_arith = staticmethod(apply_arith)
-    arith_exact = staticmethod(arith_exact)
-    sum_is_exact = staticmethod(sum_is_exact)
-
-SEMANTICS = OrientSemantics()

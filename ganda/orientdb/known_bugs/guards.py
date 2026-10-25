@@ -25,7 +25,7 @@ from ganda.core.query.ir import predicates
 from ganda.core.oracle.case import QueryCase
 from ganda.core.query.ir.traversal import REACH_PROJECTIONS, TraversalQuery
 from ganda.core.query.ir.predicates import Compound, Predicate
-from ganda.orientdb.concrete_syntax.query.predicate_sampling import lossy_constant
+from ganda.orientdb.engine.semantics import lossy_constant
 from ganda.orientdb.concrete_syntax.query.predicate_sampling.predicate_steering import evaluate
 from ganda.orientdb.concrete_syntax.query.traversal import BRACKET, CORRELATED
 from ganda.core.rules.vocabulary import NullPlacement, StringOrder

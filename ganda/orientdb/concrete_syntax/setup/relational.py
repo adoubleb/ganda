@@ -14,21 +14,19 @@ explicitly (there is nothing to cascade) before its own record.
 """
 from __future__ import annotations
 
+from ganda.core.data.generator import initial_node_values, initial_nodes
+from ganda.core.engine.setup_plan import initial_edge_values, initial_edges
 from ganda.orientdb.concrete_syntax.setup.common import (
-    Sql,
     class_steps,
     edge_index_steps,
     edge_update_steps,
     finalize,
-    initial_edge_values,
-    initial_edges,
-    initial_node_values,
-    initial_nodes,
     insert_step,
     node_ddl,
     node_document,
     node_update_steps,
 )
+from ganda.orientdb.engine.plan import Sql
 from ganda.core.data.model import EdgeDelete, Instance, NodeDelete
 
 

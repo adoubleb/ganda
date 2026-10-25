@@ -1,11 +1,30 @@
 """The OrientDB provider: this package's modules behind the core's contract."""
 from __future__ import annotations
 
-from ganda.core.engine.provider import Provider
+from ganda.core.engine.provider import Provider, Semantics
 from ganda.orientdb.config import OrientConfig
+from ganda.orientdb.engine import semantics
 from ganda.orientdb.engine.limits import LIMITS
 from ganda.orientdb.concrete_syntax.query import predicate_sampling
-from ganda.orientdb.engine.semantics import SEMANTICS
+from ganda.orientdb.concrete_syntax.query.predicate_sampling import predicate_steering
+
+
+class OrientSemantics(Semantics):
+    """OrientDB's value semantics as the core's `Semantics`: the value order, equality
+    and arithmetic of `engine.semantics`, and how a scan answers a predicate
+    (`predicate_steering`)."""
+
+    key = staticmethod(semantics.orient_key)
+    eq = staticmethod(semantics.eq)
+    lt = staticmethod(semantics.lt)
+    predicate_hit = staticmethod(predicate_steering.predicate_hit)
+    evaluate = staticmethod(predicate_steering.evaluate)
+    apply_arith = staticmethod(semantics.apply_arith)
+    arith_exact = staticmethod(semantics.arith_exact)
+    sum_is_exact = staticmethod(semantics.sum_is_exact)
+
+
+SEMANTICS = OrientSemantics()
 
 
 class OrientDBProvider(Provider):
