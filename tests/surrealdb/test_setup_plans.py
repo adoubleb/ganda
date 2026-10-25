@@ -33,7 +33,7 @@ def test_every_record_of_the_instance_is_written_on_every_data_model():
             for n in inst.nodes:
                 assert engine_id(n.record_id) in text, (seed, data_model, n.record_id)
             for e in inst.edges:
-                needle = f'"{e.record_id}"' if data_model == "doc" else engine_id(e.record_id)
+                needle = f'eid: "{e.key}"' if data_model == "doc" else engine_id(e.record_id)
                 assert needle in text, (seed, data_model, e.record_id)
 
 

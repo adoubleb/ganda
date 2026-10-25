@@ -296,10 +296,9 @@ def wrap_data(statements: list, form: WriteForm) -> list:
     return out
 
 
-# an index defined inside a transaction after its data stays empty (F21), and a REMOVE
-# INDEX inside one fails the commit (F22): index DDL travels outside the data's door
+# an index defined inside a transaction after its data stays empty (F21): index DDL
+# travels outside the data's door (a REMOVE INDEX inside one, the legacy F22, commits on 3.3.4)
 works_around("F21")
-works_around("F22")
 
 
 def finalize(ddl: list, data: list, tail: list, instance: Instance, data_model: str, form: WriteForm, indexes: "list | None" = None) -> list:

@@ -199,7 +199,7 @@ class SurrealSession(Session):
             for r in rows:
                 for link in r.get("links") or []:
                     if isinstance(link, dict):
-                        out.append((link.get("eid"), logical_id(r.get("id")), logical_id(link.get("target")), self._attrs(et, link)))
+                        out.append((f"{et.name}/{link.get('eid')}", logical_id(r.get("id")), logical_id(link.get("target")), self._attrs(et, link)))
         return out
 
     def count_edges(self, data_model: str, instance, et) -> int:

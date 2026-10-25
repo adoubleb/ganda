@@ -49,8 +49,6 @@ class SurrealDBProvider(Provider):
     # a hop the doc data model cannot ask (an incoming hop with multiplicity) stays a
     # graph-vs-rel case
     partial_traversals = True
-    # the connection layer only, until the renderers land
-    has_generators = False
 
     # The modules below import this one's siblings; they are looked up on first use.
 

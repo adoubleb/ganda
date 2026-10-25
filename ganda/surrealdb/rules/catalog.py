@@ -107,7 +107,6 @@ ASK_RULES = (
     Rule(accepts("define_field.option_or_null"), SURQL, ACCEPTED),
     Rule(accepts("relate.explicit_edge_id"), GRAPH, ACCEPTED),
     Rule(accepts("select.several_tables"), SURQL, ACCEPTED),
-    Rule(accepts("shortest.bounded_depth"), RECURSION, REFUSED),
 )
 
 # --- exact: where a value compares exactly ------------------------------------------------------
@@ -124,8 +123,9 @@ RULES = COMPARE_RULES + ASK_RULES + EXACT_RULES
 # the legacy port's defects (`known_bugs/issue-drafts/`) that can make two data models
 # differ or a setup fail, re-probed on this build
 DEFECTS = (
+    Defect("F28", SURQL_INDEX),  # an index over an array field answers a whole-array equality from element keys: nothing
+    Defect("F6", RECURSION),  # a bounded `{..k+shortest=x}` below the distance answers nested paths, not NONE
     Defect("F21", TRANSACTION),  # an index defined in a transaction after its data stays empty
-    Defect("F22", TRANSACTION),  # REMOVE INDEX in a transaction fails the commit with a write conflict
 )
 
 ERRORS = (

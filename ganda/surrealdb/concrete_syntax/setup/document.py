@@ -4,7 +4,7 @@ relationship's logical id under `eid`, and the relationship's own attributes -- 
 denormalized "links inside the document" pattern, with the engine's own record link as
 the foreign reference:
 
-    n1:r0 { f1: "a", e1: [ { eid: "e1/e0", target: n2:r3, w: 3 }, ... ] }
+    n1:r0 { f1: "a", e1: [ { eid: "e0", target: n2:r3, w: 3 }, ... ] }
 
 A hop is `(e1 ?? []).target`, dereferenced as `.target.f1`; a SCHEMAFULL class declares
 the array as `option<array<object>> FLEXIBLE`.
@@ -39,8 +39,9 @@ assumes("link.deleted_target.field_reads_none", SURQL, True)
 
 
 def link_entry(schema, edge, values: "dict | None" = None) -> str:
-    """One link as an object literal: `{ eid: "e1/e0", target: n2:r3, w: 3 }`."""
-    literals = {"eid": f'"{edge.record_id}"', "target": rid(edge.to_record)}
+    """One link as an object literal: `{ eid: "e0", target: n2:r3, w: 3 }` (the
+    relationship's key, as the edge and junction rows hold it in their record ids)."""
+    literals = {"eid": f'"{edge.key}"', "target": rid(edge.to_record)}
     literals.update(typed(schema, edge.type_name, edge.values if values is None else values, edge=True))
     return object_literal(literals)
 
