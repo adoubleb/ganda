@@ -35,13 +35,13 @@ INDEX_KINDS = ("standard", "unique")
 UNIQUE_KINDS = ("unique",)
 
 _BARE_KEY = re.compile(r"^[A-Za-z0-9_]+$")
-# what a custom key may not hold: the quoting characters, and an all-digit key (the
-# engine would read it as an integer key)
+# what a custom key may not hold: the quoting characters (an all-digit key is written
+# in backticks, which keeps it a string key)
 _KEY_FORBIDDEN = set("`\\⟨⟩\n\r\t\x00")
 
 
 def is_valid_key(key: str) -> bool:
-    return bool(key) and not key.isdigit() and not (_KEY_FORBIDDEN & set(key))
+    return bool(key) and not (_KEY_FORBIDDEN & set(key))
 
 
 def render_id_key(key: str) -> str:

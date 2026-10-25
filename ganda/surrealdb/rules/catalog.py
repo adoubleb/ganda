@@ -122,8 +122,11 @@ EXACT_RULES = (
 RULES = COMPARE_RULES + ASK_RULES + EXACT_RULES
 
 # the legacy port's defects (`known_bugs/issue-drafts/`) that can make two data models
-# differ, re-probed on this build; filled in as the guards land
-DEFECTS: tuple = ()
+# differ or a setup fail, re-probed on this build
+DEFECTS = (
+    Defect("F21", TRANSACTION),  # an index defined in a transaction after its data stays empty
+    Defect("F22", TRANSACTION),  # REMOVE INDEX in a transaction fails the commit with a write conflict
+)
 
 ERRORS = (
     ErrorClass(ErrorKind.TIMEOUT, marks=("exceeded the timeout",)),
