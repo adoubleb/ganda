@@ -96,13 +96,13 @@ they need not be equivalent, and need not be derived at all.
 **5a. Remove the equivalence machinery** (`31872de`): the `IS NOT NULL` / `OR IS NULL`
 wrappers, the refusals that kept a rewrite exact (signed zeros, case-insensitive `IN` /
 `BETWEEN`, inexact arithmetic), `LOWER=`, and the rules read only there. Keep what keeps a
-statement **valid**: every variant's parameters travel in one request, so a pivot the
+statement **valid**: every variant's parameters travel in one request, so a constant the
 engine cannot take (a non-finite double, an integer past the long range) fails all of
 them.
 
 **5b. Draw each leaf's form** (`7ef1666`). The core predicate generator calls the engine's
 optional `predicate_sampling.leaf_form(rng, leaf)` after drawing a leaf; OrientDB's draws reversed
-operands, the field under arithmetic (the drawn pivot shifted alike), a literal pivot, a
+operands, the field under arithmetic (the drawn constant shifted alike), a literal, a
 parameter-keyed map entry. `rw` needs no replacement: the generator already draws its
 shapes (`IN [x]`, `NOT (...)`, ranges, De Morgan) as ordinary compounds. Every IR gets the
 forms (select, traversal, path, write, semi-join subqueries). Then remove:
@@ -206,7 +206,7 @@ Then two campaigns on mousedeer (synced to their own directory, deleted after):
   every data model disagree with the Instance alike (invisible to the oracle, by design).
   Nothing a data model sends may depend on it (step 7); it may only steer generation.
 - **Validity is not equivalence.** Removing the equivalence conditions exposed parameters
-  no engine takes (an infinite pivot, an integer past the long range); keep those checks.
+  no engine takes (an infinite constant, an integer past the long range); keep those checks.
 - **Replays must draw as the campaign drew.** A write-state bundle now records
   `keep_known_bugs` for a guards-off campaign; before, its repro drew other writes.
 - **Probe every form before relying on it**, and record what you rely on as a rule with a

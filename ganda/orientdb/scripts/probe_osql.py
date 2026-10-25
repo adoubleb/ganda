@@ -227,7 +227,7 @@ def main() -> int:
         s.sql("INSERT INTO m1 SET e1 = :l", {"l": [{"w": 3}, {"w": 2**40}]})
         check("C105", "O15: max over an embedded list mixing Integer and Long is a ClassCastException", err(s, "SELECT max(e1.w) AS v FROM m1"), "internal:ClassCast")
 
-        print("--- cross-type pivots (O16, O17)")
+        print("--- cross-type constants (O16, O17)")
         s.sql("CREATE CLASS c1"); s.sql("CREATE PROPERTY c1.id STRING"); s.sql("CREATE PROPERTY c1.f1 LONG"); s.sql("CREATE PROPERTY c1.e1 EMBEDDEDLIST")
         for i, v in (("a", 0), ("b", 1), ("c", 5), ("d", 6), ("f", 2**53 + 1)):
             s.sql("INSERT INTO c1 SET id = :id, f1 = :v, e1 = :l", {"id": i, "v": v, "l": [{"w": v}]})
@@ -384,14 +384,14 @@ def main() -> int:
         s.sql("CREATE CLASS dt"); s.sql("CREATE PROPERTY dt.id STRING"); s.sql("CREATE PROPERTY dt.t DATETIME"); s.sql("CREATE PROPERTY dt.d DATE")
         for i, t, d in (("a", "2024-01-01 00:00:00", "2024-01-01"), ("b", "2024-01-01 12:34:56", "2024-01-02")):
             s.sql("INSERT INTO dt SET id = :id, t = :t, d = :d", {"id": i, "t": t, "d": d})
-        check("C221", "O27: an ISO 'T' pivot is compared as the date's midnight", col(s, "SELECT id AS v FROM dt WHERE t = :p", {"p": "2024-01-01T12:34:56"}), ["a"])
-        check("C222", "O27: ... so is a pivot without seconds", col(s, "SELECT id AS v FROM dt WHERE t = :p", {"p": "2024-01-01 12:34"}), ["a"])
+        check("C221", "O27: an ISO 'T' constant is compared as the date's midnight", col(s, "SELECT id AS v FROM dt WHERE t = :p", {"p": "2024-01-01T12:34:56"}), ["a"])
+        check("C222", "O27: ... so is a constant without seconds", col(s, "SELECT id AS v FROM dt WHERE t = :p", {"p": "2024-01-01 12:34"}), ["a"])
         s.sql("CREATE CLASS mp"); s.sql("CREATE PROPERTY mp.id STRING"); s.sql("CREATE PROPERTY mp.m EMBEDDEDMAP LONG")
         for i, m in (("a", {"k1": 1, "k2": 2}), ("b", {"k2": 5, "k3": 2**40}), ("c", {})):
             s.sql("INSERT INTO mp SET id = :id, m = :m", {"id": i, "m": m})
         s.sql("INSERT INTO mp SET id = 'h'")
         check("C227", "O8: IS DEFINED through a dotted map key holds for every record", sorted(col(s, "SELECT id AS v FROM mp WHERE m.k3 IS DEFINED")), ["a", "b", "c", "h"])
-        check("C228", "O7: CONTAINSVALUE with an Integer-boxed pivot misses the Long values; m.values() CONTAINS coerces", (col(s, "SELECT id AS v FROM mp WHERE m CONTAINSVALUE :p", {"p": 2}), col(s, "SELECT id AS v FROM mp WHERE m.values() CONTAINS :p", {"p": 2}), col(s, "SELECT id AS v FROM mp WHERE m CONTAINSVALUE :p", {"p": 2**40})), ([], ["a"], ["b"]))
+        check("C228", "O7: CONTAINSVALUE with an Integer-boxed constant misses the Long values; m.values() CONTAINS coerces", (col(s, "SELECT id AS v FROM mp WHERE m CONTAINSVALUE :p", {"p": 2}), col(s, "SELECT id AS v FROM mp WHERE m.values() CONTAINS :p", {"p": 2}), col(s, "SELECT id AS v FROM mp WHERE m CONTAINSVALUE :p", {"p": 2**40})), ([], ["a"], ["b"]))
         s.sql("CREATE INDEX mp_mv ON mp (m BY VALUE) NOTUNIQUE METADATA {ignoreNullValues: true}")
         s.sql("CREATE INDEX mp_mk ON mp (m BY KEY) NOTUNIQUE METADATA {ignoreNullValues: true}")
         check("C233", "O5: ... a BETWEEN through a hash index's door is a 501", err(s, "SELECT rid.id AS v FROM index:c1_f1h WHERE key BETWEEN :a AND :b", {"a": 0, "b": 5}), "internal:unsupported")
@@ -642,7 +642,7 @@ def main() -> int:
         s.sql("INSERT INTO q5a SET b1 = false, f1 = '1980-01-01', f2 = '2024-08-18 08:18:40', m = {'k': 5}")
         s.sql("INSERT INTO q5b SET b1 = false, f1 = true, f2 = [1, 2]")
         D = {"a": "1978-07-01", "b": "2000-02-28"}
-        check("C319", "O5's sibling faces: a subclass query a base-class index serves filters the siblings' records before the class (a BETWEEN under an OR throws on a sibling's BOOLEAN), a base query converts the pivot through a sibling's index, CONTAINSVALUE through a hash BY VALUE map index is a 501",
+        check("C319", "O5's sibling faces: a subclass query a base-class index serves filters the siblings' records before the class (a BETWEEN under an OR throws on a sibling's BOOLEAN), a base query converts the constant through a sibling's index, CONTAINSVALUE through a hash BY VALUE map index is a 501",
               (err(s, "SELECT FROM q5a WHERE b1 = false AND (b1 = true OR f1 BETWEEN :a AND :b)", D), err(s, "SELECT FROM q5a WHERE b1 = false AND f1 BETWEEN :a AND :b", D),
                err(s, "SELECT FROM q5 WHERE @class = 'q5a' AND f2 = :p", {"p": "2024-08-18 08:18:40"}), err(s, "SELECT FROM q5a WHERE m CONTAINSVALUE :p", {"p": 5}), err(s, "SELECT FROM q5a WHERE m CONTAINSKEY :p", {"p": "k"})),
               ("internal:other", "ok", "internal:other", "internal:unsupported", "ok"))

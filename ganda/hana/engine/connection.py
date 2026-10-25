@@ -83,7 +83,7 @@ def resolve(name: str, binds: dict):
 
 
 def sql_literal(v) -> str:
-    """A bind value as a SQL constant meaning the same (probe R22): an integer as its
+    """A bind value as a SQL literal meaning the same (probe R22): an integer as its
     digits, a double as an approximate numeric literal (`repr` with an exponent: without
     one the text is an exact numeric literal, a DECIMAL), a string as `N'...'` (the quote
     doubled), a boolean `TRUE` / `FALSE`, None `NULL`, a Decimal as its digits."""
@@ -104,7 +104,7 @@ def sql_literal(v) -> str:
 
 
 def inline_binds(text: str, binds: "dict | None") -> str:
-    """The statement with every `:name` marker replaced by its value's SQL constant (the
+    """The statement with every `:name` marker replaced by its value's SQL literal (the
     `inline` position: the same question with the values in the text, where the plan
     cache keys and the parser's typing differ from the bound statement's); a list after
     `IN` becomes `(c1, c2, ...)`, an empty one `(NULL)`. Quoted strings and identifiers

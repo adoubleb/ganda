@@ -11,12 +11,12 @@ from ganda.orientdb.rules.catalog import SQL
 from ganda.orientdb.storage.dialect import sql_op
 
 
-# a pivot is bound unless the leaf writes it into the text, and a bound double compares
+# a constant is bound unless the leaf writes it into the text, and a bound double compares
 # exactly
 
 
 def _literal(v) -> str:
-    """A NUMERIC pivot as SQL text -- the one kind of value that is safe to interpolate
+    """A NUMERIC constant as SQL text -- the one kind of value that is safe to interpolate
     (a string never is). A float keeps its full repr."""
     if isinstance(v, list):
         return "[" + ", ".join(_literal(x) for x in v) + "]"
@@ -25,10 +25,10 @@ def _literal(v) -> str:
     return repr(v)
 
 
-def _pivot(p, suffix: str = "") -> str:
+def _constant(p, suffix: str = "") -> str:
     if not p.literal:
         return f":{p.bind}{suffix}"
-    return _literal(p.pivot[0 if suffix == "a" else 1] if suffix else p.pivot)
+    return _literal(p.constant[0 if suffix == "a" else 1] if suffix else p.constant)
 
 
 # `IS DEFINED` on a list element's field holds for an absent one (an O8 face): the
@@ -57,12 +57,12 @@ def render_predicate(p, prefix: str = "", element: bool = False) -> str:
         expr = f"({expr} {p.arith.sym} :{p.arith.bind})"
     if p.rev:
         if p.op == "HAS":
-            return f"{_pivot(p)} IN {expr}"
-        return f"{_pivot(p)} {MIRROR[p.op]} {expr}"
+            return f"{_constant(p)} IN {expr}"
+        return f"{_constant(p)} {MIRROR[p.op]} {expr}"
     if p.op in NO_BIND_OPS:
         return f"{expr} {sql_op(p.op)}"
     if p.op == "BETWEEN":
-        return f"{expr} BETWEEN {_pivot(p, 'a')} AND {_pivot(p, 'b')}"
+        return f"{expr} BETWEEN {_constant(p, 'a')} AND {_constant(p, 'b')}"
     if p.op == "VALUES HAS":
-        return f"{expr}.values() CONTAINS {_pivot(p)}"
-    return f"{expr} {sql_op(p.op)} {_pivot(p)}"
+        return f"{expr}.values() CONTAINS {_constant(p)}"
+    return f"{expr} {sql_op(p.op)} {_constant(p)}"

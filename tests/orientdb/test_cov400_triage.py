@@ -96,7 +96,7 @@ def test_o5_sibling_faces():
     assert o5_sibling_filter(served, "n1", tree, "doc")
     assert not o5_sibling_filter(served, "n1", flat, "doc")
     assert not o5_sibling_filter(_inheritance_schema([]), "n1", tree, "doc")
-    # a sibling's LIST index on the same-named field converts a date pivot
+    # a sibling's LIST index on the same-named field converts a date constant
     eq = Predicate("source", "f2", "=", "p", "2024-08-18 08:18:40", ftype="datetime")
     both = [IndexSpec("n1", "f2", data_model="graph", kind="NOTUNIQUE"), IndexSpec("n2", "f2", data_model="graph", kind="NOTUNIQUE")]
     assert o5_poly_sibling_index(_inheritance_schema(both), "n1", eq, "graph")

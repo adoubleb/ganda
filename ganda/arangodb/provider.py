@@ -8,7 +8,7 @@ last verified."""
 from __future__ import annotations
 
 from ganda.core.engine.provider import Provider
-from ganda.arangodb.oracle import pivots
+from ganda.arangodb.oracle import predicate_sampling
 from ganda.arangodb.config import ArangoConfig
 from ganda.arangodb.engine.limits import LIMITS
 from ganda.arangodb.oracle.semantics import SEMANTICS
@@ -21,7 +21,7 @@ class ArangoDBProvider(Provider):
     config_class = ArangoConfig
     limits = LIMITS
     semantics = SEMANTICS
-    predicate_sampling = pivots
+    predicate_sampling = predicate_sampling
     coverage_levels = ("off",)
 
     # The modules below import this one's siblings; they are looked up on first use.

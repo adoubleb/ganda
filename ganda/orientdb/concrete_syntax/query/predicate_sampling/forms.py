@@ -38,7 +38,7 @@ works_around("O12")
 def leaf_form(rng: random.Random, p):
     """The drawn leaf `p` in one of OrientDB SQL's forms, each another question asked
     alike on every data model: reversed operands (`:p > f`), the field under
-    arithmetic (`(f * :c) > :p`, the drawn pivot shifted alike), a literal pivot (`f >
+    arithmetic (`(f * :c) > :p`, the drawn constant shifted alike), a literal (`f >
     5`), a map entry keyed by a parameter (`m[:k] = :p`); or `p` as drawn. A
     relationship attribute takes neither arithmetic nor a literal (the doc data
     model holds it as untyped JSON, where the box an operand gets differs from the
@@ -66,7 +66,7 @@ def _arithmetic(rng: random.Random, p):
     if p.on == "edge" or p.op not in _MIRROR or p.key is not None or p.case_insensitive or p.ftype is None:
         return None
     ftype = FieldType(p.ftype)
-    pv = p.pivot
+    pv = p.constant
     if ftype not in _ARITH_CHOICES or isinstance(pv, bool) or pv is None or (ftype in DATE_TYPES) != isinstance(pv, str):
         return None
     sym, c = rng.choice(_ARITH_CHOICES[ftype])
@@ -74,21 +74,21 @@ def _arithmetic(rng: random.Random, p):
         pc = apply_arith(pv, sym, c, ftype.value)
     except (ValueError, OverflowError, TypeError):
         return None
-    # every variant's parameters travel in one request: a pivot the engine takes
+    # every variant's parameters travel in one request: a constant the engine takes
     if isinstance(pc, float) and not math.isfinite(pc) or isinstance(pc, int) and not I64_MIN <= pc <= I64_MAX:
         return None
     op = p.op if (c > 0 or sym != "*") else _MIRROR[p.op]
-    return dataclasses.replace(p, op=op, pivot=pc, arith=Arith(sym, f"{p.bind}c", c))
+    return dataclasses.replace(p, op=op, constant=pc, arith=Arith(sym, f"{p.bind}c", c))
 
 
 def _literal_ok(p) -> bool:
-    """Whether every pivot of `p` can be written into the text: numbers and booleans
+    """Whether every constant of `p` can be written into the text: numbers and booleans
     only (a string never is interpolated), on a declared column."""
     from ganda.core.query.ir.predicates import MAP_OPS, NO_BIND_OPS
 
     if p.on == "edge" or p.key is not None or p.sub is not None or p.op in MAP_OPS or p.op in NO_BIND_OPS or p.op == "LIKE":
         return False
-    pivots = p.pivot if isinstance(p.pivot, list) else [p.pivot]
-    if not all(isinstance(v, (int, float)) for v in pivots):
+    constants = p.constant if isinstance(p.constant, list) else [p.constant]
+    if not all(isinstance(v, (int, float)) for v in constants):
         return False
-    return all(not isinstance(v, float) or (math.isfinite(v) and _f32(v) == v) for v in pivots)
+    return all(not isinstance(v, float) or (math.isfinite(v) and _f32(v) == v) for v in constants)

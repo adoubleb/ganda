@@ -474,7 +474,7 @@ def _has_agg(e) -> bool:
 
 
 def _str_literal(text: str) -> str:
-    """A cypher string constant ('...' with \\' and \\\\) as a SQL literal."""
+    """A cypher string literal ('...' with \\' and \\\\) as a SQL literal."""
     body = text[1:-1]
     out = []
     i = 0

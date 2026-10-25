@@ -48,12 +48,12 @@ _ARITH_CHOICES = {
 
 
 def arithmetic(p, rng: random.Random, bind: str, ftype: FieldType, values: list):
-    """`f op :p` as `(f <sym> :c) op' :pc`, the pivot shifted the same way and the
+    """`f op :p` as `(f <sym> :c) op' :pc`, the constant shifted the same way and the
     operator mirrored under a negative factor; None unless the arithmetic is exact on
-    every stored value and on the pivot."""
+    every stored value and on the constant."""
     if not isinstance(p, Predicate) or p.op not in MIRROR or not p.plain or p.sub is not None or ftype not in _ARITH_CHOICES:
         return None
-    pv = p.pivot
+    pv = p.constant
     if isinstance(pv, bool) or pv is None:
         return None
     if ftype is FieldType.INT and not isinstance(pv, int):
@@ -81,11 +81,11 @@ def rewrite(p, rng: random.Random, bind: str):
             if isinstance(c, Compound):
                 return c.children[0]  # NOT NOT a
             if c.op in _COMPLEMENT and c.plain and c.sub is None:
-                return Predicate(c.on, c.field, _COMPLEMENT[c.op], c.bind if c.op not in ("IS NULL", "IS NOT NULL") else "", c.pivot, c.ftype)
+                return Predicate(c.on, c.field, _COMPLEMENT[c.op], c.bind if c.op not in ("IS NULL", "IS NOT NULL") else "", c.constant, c.ftype)
             return None
         # a AND b == NOT (NOT a OR NOT b)
         return Compound(p.on, "NOT", (Compound(p.on, "OR" if p.op == "AND" else "AND", tuple(Compound(p.on, "NOT", (c,)) for c in p.children)),))
-    f, op, pv, on = p.field, p.op, p.pivot, p.on
+    f, op, pv, on = p.field, p.op, p.constant, p.on
 
     def leaf(o, b, v):
         return Predicate(on, f, o, b, v, p.ftype)

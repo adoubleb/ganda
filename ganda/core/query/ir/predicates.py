@@ -12,7 +12,7 @@ COMPOUND_OPS = tuple(CompoundOp)
 
 
 class Arith(NamedTuple):
-    """Arithmetic on the field before the comparison: `(field <sym> :bind) op :pivot`."""
+    """Arithmetic on the field before the comparison: `(field <sym> :bind) op :constant`."""
     sym: str  # `+`, `-`, `*`
     bind: str  # the bind-variable name carrying the constant
     value: Any
@@ -30,16 +30,16 @@ class Predicate:
     on: On
     field: str
     op: str
-    bind: str  # the bind-variable name carrying the pivot ("" for a null op)
-    pivot: Any
+    bind: str  # the bind-variable name carrying the constant ("" for a null op)
+    constant: Any
     ftype: "str | None" = None  # the column's `FieldType.value`; None for an untyped embedded value
     case_insensitive: bool = False  # the column has a case-insensitive collation
     key: "str | None" = None  # a map entry: the leaf compares `field.key` (or `field[:kb]` when `key_bind`)
     key_bind: str = "" 
     rev: bool = False # reverse operand positions
     arith: "Arith | None" = None
-    sub: "SubQuery | None" = None  # a semi-join (`INSUB`): the pivot is the answered `field` list, nulls included
-    literal: bool = False  # the pivot written into the text instead of bound
+    sub: "SubQuery | None" = None  # a semi-join (`INSUB`): the constant is the answered `field` list, nulls included
+    literal: bool = False  # the constant written into the text instead of bound
 
     def __post_init__(self):
         object.__setattr__(self, "on", On(self.on))
@@ -49,7 +49,7 @@ class Predicate:
             object.__setattr__(self, "sub", SubQuery(*self.sub))
 
     def to_dict(self) -> dict:
-        d = {"on": self.on, "field": self.field, "op": self.op, "bind": self.bind, "pivot": self.pivot, "ftype": self.ftype, "case_insensitive": self.case_insensitive, "key": self.key, "key_bind": self.key_bind}
+        d = {"on": self.on, "field": self.field, "op": self.op, "bind": self.bind, "constant": self.constant, "ftype": self.ftype, "case_insensitive": self.case_insensitive, "key": self.key, "key_bind": self.key_bind}
         if self.rev:
             d["rev"] = True
         if self.arith is not None:
@@ -72,7 +72,8 @@ class Predicate:
         if d.get("sub"):
             x = d["sub"]
             sub = SubQuery(x["table"], x["field"], Predicate.from_dict(x["pred"]), x["scan"])
-        return Predicate(d["on"], d["field"], d["op"], d["bind"], d["pivot"], d.get("ftype"), d.get("case_insensitive", d.get("ci", False)), d.get("key"), d.get("key_bind", ""), d.get("rev", False), arith, sub, d.get("literal", False))
+        constant = d["constant"] if "constant" in d else d["pivot"]  # "pivot": a bundle written before 2026-10-25
+        return Predicate(d["on"], d["field"], d["op"], d["bind"], constant, d.get("ftype"), d.get("case_insensitive", d.get("ci", False)), d.get("key"), d.get("key_bind", ""), d.get("rev", False), arith, sub, d.get("literal", False))
 
     @property
     def bind_vars(self) -> dict:
@@ -84,9 +85,9 @@ class Predicate:
         if self.op in NO_BIND_OPS or self.literal:
             return out
         if self.op == "BETWEEN":
-            out.update({self.bind + "a": self.pivot[0], self.bind + "b": self.pivot[1]})
+            out.update({self.bind + "a": self.constant[0], self.bind + "b": self.constant[1]})
         else:
-            out[self.bind] = self.pivot
+            out[self.bind] = self.constant
         return out
 
     def leaves(self) -> list:
@@ -168,7 +169,7 @@ def sub_values(instance, table: str, field_name: str, q) -> list:
 
 
 def resolve_subs(p, instance):
-    """`p` with every semi-join's pivot recomputed over `instance` (a tree drawn over
+    """`p` with every semi-join's constant recomputed over `instance` (a tree drawn over
     one Instance evaluated over another: the transaction door's)."""
     if p is None:
         return None
@@ -177,7 +178,7 @@ def resolve_subs(p, instance):
     if p.sub is None:
         return p
     s = p.sub
-    return dataclasses.replace(p, pivot=sub_values(instance, s.table, s.field, resolve_subs(s.pred, instance)))
+    return dataclasses.replace(p, constant=sub_values(instance, s.table, s.field, resolve_subs(s.pred, instance)))
 
 
 def evaluate(values: dict, p, semantics) -> bool:

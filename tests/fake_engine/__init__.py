@@ -45,7 +45,7 @@ class FakeSemantics(Semantics):
     def lt(self, a, b) -> bool:
         return self.key(a) < self.key(b)
 
-    def predicate_hit(self, present, v, op, pivot, ftype=None, ci=False, key=None) -> bool:
+    def predicate_hit(self, present, v, op, constant, ftype=None, ci=False, key=None) -> bool:
         if key is not None:
             present = isinstance(v, dict) and key in v
             v = v.get(key) if isinstance(v, dict) else None
@@ -59,36 +59,36 @@ class FakeSemantics(Semantics):
         if op == "IS ABSENT":
             return not present
         if op == "HAS KEY":
-            return isinstance(v, dict) and pivot in v
+            return isinstance(v, dict) and constant in v
         if op in ("VALUES HAS", "HAS VALUE"):
-            return isinstance(v, dict) and any(self.eq(x, pivot) for x in v.values())
-        if null or pivot is None:
+            return isinstance(v, dict) and any(self.eq(x, constant) for x in v.values())
+        if null or constant is None:
             return False
         if op == "=":
-            return self.eq(v, pivot)
+            return self.eq(v, constant)
         if op == "<>":
-            return not self.eq(v, pivot)
+            return not self.eq(v, constant)
         if op == "IN":
-            return any(self.eq(v, p) for p in pivot)
+            return any(self.eq(v, p) for p in constant)
         if op == "BETWEEN":
-            return not self.lt(v, pivot[0]) and not self.lt(pivot[1], v)
+            return not self.lt(v, constant[0]) and not self.lt(constant[1], v)
         if op == "LIKE":
-            rx = "".join(".*" if c == "%" else re.escape(c) for c in pivot)
+            rx = "".join(".*" if c == "%" else re.escape(c) for c in constant)
             return isinstance(v, str) and re.fullmatch(rx, v, re.S) is not None
         if op == "HAS":
-            return isinstance(v, list) and any(self.eq(x, pivot) for x in v)
+            return isinstance(v, list) and any(self.eq(x, constant) for x in v)
         if op == "HAS ANY":
-            return isinstance(v, list) and any(self.eq(x, p) for p in pivot for x in v)
+            return isinstance(v, list) and any(self.eq(x, p) for p in constant for x in v)
         if op == "HAS ALL":
-            return isinstance(v, list) and all(any(self.eq(x, p) for x in v) for p in pivot)
+            return isinstance(v, list) and all(any(self.eq(x, p) for x in v) for p in constant)
         if op == "<":
-            return self.lt(v, pivot)
+            return self.lt(v, constant)
         if op == "<=":
-            return not self.lt(pivot, v)
+            return not self.lt(constant, v)
         if op == ">":
-            return self.lt(pivot, v)
+            return self.lt(constant, v)
         if op == ">=":
-            return not self.lt(v, pivot)
+            return not self.lt(v, constant)
         raise ValueError(op)
 
     def evaluate(self, values, p) -> bool:
@@ -97,8 +97,8 @@ class FakeSemantics(Semantics):
                 return not self.evaluate(values, p.children[0])
             return (all if p.op == "AND" else any)(self.evaluate(values, c) for c in p.children)
         if p.sub is not None:
-            return self.predicate_hit(p.field in values, values.get(p.field), "IN", p.pivot)
-        return self.predicate_hit(p.field in values, values.get(p.field), p.op, p.pivot, p.ftype, p.case_insensitive, p.key)
+            return self.predicate_hit(p.field in values, values.get(p.field), "IN", p.constant)
+        return self.predicate_hit(p.field in values, values.get(p.field), p.op, p.constant, p.ftype, p.case_insensitive, p.key)
 
     def apply_arith(self, v, sym, c, ftype):
         return {"+": v + c, "-": v - c, "*": v * c}[sym]
@@ -343,14 +343,14 @@ class _WriteSyntax:
         return {}
 
 
-class _Pivots:
+class _PredicateSampling:
     NULL_OPS = ("IS NULL", "IS NOT NULL")
     ORDERED_OPS = ("=", "<>", ">", ">=", "<", "<=", "IN", "BETWEEN")
     LIKE_WILDCARDS = "%"
 
     @staticmethod
     def ordered_ops(ftype):
-        return _Pivots.ORDERED_OPS
+        return _PredicateSampling.ORDERED_OPS
 
     @staticmethod
     def cross_type(rng, ftype, v):
@@ -441,7 +441,7 @@ class FakeProvider(Provider):
     )
     semantics = FakeSemantics()
 
-    predicate_sampling = _Pivots
+    predicate_sampling = _PredicateSampling
     physical_design = _PhysicalDesign
     mappers = {data_model: (lambda instance: [Load(dataclasses.replace(instance))]) for data_model in DATA_MODELS}
     traversal_syntax = _TraversalSyntax

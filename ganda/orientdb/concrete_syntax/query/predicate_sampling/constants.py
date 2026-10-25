@@ -11,8 +11,8 @@ from ganda.core.data.neighbours import _f32
 from ganda.core.data.model import DATE_TYPES, FieldType
 
 
-def lossy_pivot(ftype: FieldType, v) -> bool:
-    """Whether converting `v` to the column's type changes it -- the pivots an index
+def lossy_constant(ftype: FieldType, v) -> bool:
+    """Whether converting `v` to the column's type changes it -- the constants an index
     lookup (which converts the key) and a scan (which compares as the wider box)
     can disagree on: a double with a fractional part or at/after 2^53 on a LONG
     column; on an INTEGER column that, or a Long outside int32 (wrapped); a double
@@ -43,12 +43,12 @@ def lossy_pivot(ftype: FieldType, v) -> bool:
 
 
 def cross_type(rng: random.Random, ftype: FieldType, v):
-    """The same pivot rendered in a form the column does not hold exactly: a LONG
-    pivot as an exact double (`5.0`) or a half-step off it (`5.5`, where an index key
-    conversion that truncates would bite); an INTEGER pivot as that, or as a Long
-    that wraps onto it (`v + 2^32`) or lies just outside int32; a DOUBLE pivot as
-    the integer it truncates to; a FLOAT pivot as its integer or as the next double
-    (not float32-exact, so an index rounds it back onto the value); a DECIMAL pivot
+    """The same constant rendered in a form the column does not hold exactly: a LONG
+    constant as an exact double (`5.0`) or a half-step off it (`5.5`, where an index key
+    conversion that truncates would bite); an INTEGER constant as that, or as a Long
+    that wraps onto it (`v + 2^32`) or lies just outside int32; a DOUBLE constant as
+    the integer it truncates to; a FLOAT constant as its integer or as the next double
+    (not float32-exact, so an index rounds it back onto the value); a DECIMAL constant
     as its integer or left as the stored value (non-dyadic: a scan then compares its
     binary expansion, O20)."""
     if ftype is FieldType.INT:
@@ -93,8 +93,8 @@ def cross_type(rng: random.Random, ftype: FieldType, v):
     return v
 
 
-def _decimal_pivot(rng: random.Random, v):
-    """A DECIMAL pivot: half the time the stored value itself (a non-dyadic double,
+def _decimal_constant(rng: random.Random, v):
+    """A DECIMAL constant: half the time the stored value itself (a non-dyadic double,
     which a scan compares through its binary expansion, O20), otherwise the nearest
     dyadic multiple of 1/8 (exact in both representations)."""
     if isinstance(v, float) and math.isfinite(v) and rng.random() < 0.5:
@@ -103,5 +103,5 @@ def _decimal_pivot(rng: random.Random, v):
 
 
 def refine(rng: random.Random, ftype: FieldType, v):
-    """A same-type pivot as this engine wants it asked (a DECIMAL: `_decimal_pivot`)."""
-    return _decimal_pivot(rng, v) if ftype is FieldType.DECIMAL else v
+    """A same-type constant as this engine wants it asked (a DECIMAL: `_decimal_constant`)."""
+    return _decimal_constant(rng, v) if ftype is FieldType.DECIMAL else v

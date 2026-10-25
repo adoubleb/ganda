@@ -15,7 +15,7 @@ answers its id where the variant's text is the bug's shape
          An rdf average is compared only where the two agree: a sum below 2^53 and a
          quotient exact in six places.
 
-H1, H2, H3, A8 (no double constant in a cypher text) and A9 (one parameter type per
+H1, H2, H3, A8 (no double literal in a cypher text) and A9 (one parameter type per
 OPENCYPHER_TABLE call) are worked around in the renderings instead (`rules/catalog.py`), so no
 variant meets them."""
 from __future__ import annotations

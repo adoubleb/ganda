@@ -22,7 +22,7 @@ No answer is predicted from them. The rules:
 - **Cross-type comparison on a scan** (`castComparableNumber`: the wider Java box,
   Integer < Long < Float < Double): a LONG or INTEGER against a double literal goes
   through double (`2^53 + 1 = 9007199254740992.0` is true); a FLOAT against an
-  integral pivot goes through FLOAT (`16777216.0f = 16777217`), against a double
+  integral constant goes through FLOAT (`16777216.0f = 16777217`), against a double
   through double (a FLOAT value is its exact widening); a DECIMAL against an integer
   exactly and against a double through `new BigDecimal(double)`, the double's binary
   expansion (`0.1 = 0.1` is FALSE on a scan; O20 -- an index and a BETWEEN bound use
@@ -33,7 +33,7 @@ No answer is predicted from them. The rules:
   case-insensitive on EVERY string column, collated or not (probed), with `%` any
   run and `?` one character (`_` is a literal).
 - **Dates.** A DATETIME / DATE value is its `yyyy-MM-dd HH:mm:ss` string (UTC; a
-  DATE at midnight), on which lexicographic order is chronological order. A pivot
+  DATE at midnight), on which lexicographic order is chronological order. A constant
   is normalized the way the engine converts it: a date-only string is that day's
   midnight, an epoch-millisecond integer its second (millis dropped, as the write
   path drops them); a string the format only partially matches (an ISO `T`, no
@@ -41,7 +41,7 @@ No answer is predicted from them. The rules:
   withheld.
 - **Maps.** A dotted map key (`m.k2 op :p`) reads the entry, a missing key or a
   missing map being null under the usual null rules; `CONTAINSKEY` tests the key,
-  `m.values() CONTAINS` an element; `CONTAINSVALUE` with an Integer-boxed pivot on
+  `m.values() CONTAINS` an element; `CONTAINSVALUE` with an Integer-boxed constant on
   an `EMBEDDEDMAP LONG` matches nothing (an O7 face, withheld).
 """
 from __future__ import annotations
@@ -82,7 +82,7 @@ def decimal_of(v) -> Decimal:
 
 
 def decimal_binary(v) -> Decimal:
-    """What a scan compares a double pivot as: `new BigDecimal(double)`, the exact
+    """What a scan compares a double constant as: `new BigDecimal(double)`, the exact
     binary expansion (O20)."""
     if isinstance(v, float):
         return Decimal(v)
@@ -95,7 +95,7 @@ _EPOCH = _dt.datetime(1970, 1, 1)
 
 
 def canonical_date(v: Any) -> Any:
-    """A date pivot as the engine converts it for a DATETIME / DATE column: a
+    """A date constant as the engine converts it for a DATETIME / DATE column: a
     canonical string stays; a date-only string becomes midnight; an epoch
     millisecond integer becomes its second; an ISO `T` separator or a `Z` /
     fractional-second suffix is parsed as what it says (the engine parses the `T`
@@ -189,20 +189,20 @@ def like_hit(value: str, pattern: str) -> bool:
 _CI_OPS = tuple(answer("filter.case_insensitive.operators", SQL).split())
 
 
-def _convert(v: Any, pivot: Any, ftype: "str | None", ci: bool, op: str):
-    """(stored, pivot) as the SCAN compares them for a column of `ftype`."""
-    if ci and isinstance(v, str) and isinstance(pivot, str) and op in _CI_OPS:
-        return v.lower(), pivot.lower()
+def _convert(v: Any, constant: Any, ftype: "str | None", ci: bool, op: str):
+    """(stored, constant) as the SCAN compares them for a column of `ftype`."""
+    if ci and isinstance(v, str) and isinstance(constant, str) and op in _CI_OPS:
+        return v.lower(), constant.lower()
     if ftype in ("datetime", "date"):
-        return v, canonical_date(pivot)
-    if ftype == "float32" and _is_number(pivot) and not isinstance(pivot, float):
-        # an integral pivot against a Float compares through FLOAT
-        return v, f32(float(pivot))
+        return v, canonical_date(constant)
+    if ftype == "float32" and _is_number(constant) and not isinstance(constant, float):
+        # an integral constant against a Float compares through FLOAT
+        return v, f32(float(constant))
     if ftype == "decimal" and _is_number(v):
         if op == "BETWEEN":
-            return decimal_of(v), decimal_of(pivot)
-        return decimal_of(v), decimal_binary(pivot)
-    return v, pivot
+            return decimal_of(v), decimal_of(constant)
+        return decimal_of(v), decimal_binary(constant)
+    return v, constant
 
 
 # `IN` over a long list (a semi-join's answered values: thousands of them over a large
@@ -210,25 +210,25 @@ def _convert(v: Any, pivot: Any, ftype: "str | None", ci: bool, op: str):
 # inside one declared type `eq` IS set membership -- an int or a string or a bool by
 # itself, a double by `orient_key` (which keeps `-0.0` apart from `0.0`), a decimal by
 # the converted `Decimal` the scan compares -- and a list that mixes kinds (a cross-type
-# pivot) keeps the element-by-element path.
+# constant) keeps the element-by-element path.
 _IN_INDEX: dict = {}
 _IN_INDEX_MAX = 64
 _IN_INDEX_MIN = 8
 
 
-def _in_index(pivot: list, ftype: "str | None", ci: bool):
-    cache_key = (id(pivot), ftype, ci)
+def _in_index(constant: list, ftype: "str | None", ci: bool):
+    cache_key = (id(constant), ftype, ci)
     hit = _IN_INDEX.get(cache_key)
-    if hit is not None and hit[0] is pivot:
+    if hit is not None and hit[0] is constant:
         return hit[1]
-    present = [p for p in pivot if p is not None]
+    present = [p for p in constant if p is not None]
     index = None
     try:
         if ftype == "decimal":
             if all(_is_number(p) for p in present):
                 index = ("decimal", {decimal_binary(p) for p in present})
         else:
-            # the pivot's conversion for a non-decimal column reads nothing of the
+            # the constant's conversion for a non-decimal column reads nothing of the
             # stored value (`IN` is not collated: O21)
             converted = [_convert(None, p, ftype, ci, "IN")[1] for p in present]
             if all(isinstance(c, bool) for c in converted):
@@ -246,14 +246,14 @@ def _in_index(pivot: list, ftype: "str | None", ci: bool):
 
     if len(_IN_INDEX) >= _IN_INDEX_MAX:
         _IN_INDEX.clear()
-    _IN_INDEX[cache_key] = (pivot, index)
+    _IN_INDEX[cache_key] = (constant, index)
     return index
 
 
-def _in_hit(v: Any, pivot: list, ftype: "str | None", ci: bool) -> bool:
-    """`v IN pivot` on a scan: a null element matches nothing."""
-    if len(pivot) >= _IN_INDEX_MIN:
-        index = _in_index(pivot, ftype, ci)
+def _in_hit(v: Any, constant: list, ftype: "str | None", ci: bool) -> bool:
+    """`v IN constant` on a scan: a null element matches nothing."""
+    if len(constant) >= _IN_INDEX_MIN:
+        index = _in_index(constant, ftype, ci)
         if index is not None:
             kind, members = index
             if kind == "int" and isinstance(v, int) and not isinstance(v, bool):
@@ -266,14 +266,14 @@ def _in_hit(v: Any, pivot: list, ftype: "str | None", ci: bool) -> bool:
                 return v in members
             if kind == "decimal" and _is_number(v):
                 return decimal_of(v) in members
-    return any(p is not None and eq(*_convert(v, p, ftype, ci, "IN")) for p in pivot)
+    return any(p is not None and eq(*_convert(v, p, ftype, ci, "IN")) for p in constant)
 
 
-def predicate_hit(present: bool, v: Any, op: str, pivot: Any, ftype: "str | None" = None, ci: bool = False, key: "str | None" = None) -> bool:
+def predicate_hit(present: bool, v: Any, op: str, constant: Any, ftype: "str | None" = None, ci: bool = False, key: "str | None" = None) -> bool:
     """What a class SCAN answers (probed 3.2.56) for a column of `ftype`
     (`FieldType.value`; None for an untyped embedded value) with collation `ci`.
     The null rules: a null or absent `v` satisfies `IS NULL` and `<>` and nothing
-    else; a null PIVOT (a bound value that is null, as a value join binds) satisfies
+    else; a null CONSTANT (a bound value that is null, as a value join binds) satisfies
     `<>` for every row, `<=` / `>=` for the null rows only (`null <= null` holds
     where `null = null` does not), and nothing else; a null element of an `IN` list
     matches nothing; a null `BETWEEN` bound matches nothing. With `key`, `v` is a
@@ -287,15 +287,15 @@ def predicate_hit(present: bool, v: Any, op: str, pivot: Any, ftype: "str | None
         v = v.get(key) if isinstance(v, dict) else None
         ftype = "int"
     if op == "HAS KEY":
-        return isinstance(v, dict) and pivot in v
+        return isinstance(v, dict) and constant in v
     if op == "VALUES HAS":
-        return isinstance(v, dict) and any(x is not None and eq(x, pivot) for x in v.values())
+        return isinstance(v, dict) and any(x is not None and eq(x, constant) for x in v.values())
     if op == "HAS VALUE":
-        # the declared LONG values are Long boxes; an Integer-boxed pivot never
+        # the declared LONG values are Long boxes; an Integer-boxed constant never
         # equals one (O7's map face); a Long or a double compares through its box
-        if isinstance(pivot, int) and not isinstance(pivot, bool) and -(2**31) <= pivot < 2**31:
+        if isinstance(constant, int) and not isinstance(constant, bool) and -(2**31) <= constant < 2**31:
             return False
-        return isinstance(v, dict) and any(x is not None and eq(x, pivot) for x in v.values())
+        return isinstance(v, dict) and any(x is not None and eq(x, constant) for x in v.values())
     if op == "IS NULL":
         return not present or v is None
     if op == "IS NOT NULL":
@@ -306,40 +306,40 @@ def predicate_hit(present: bool, v: Any, op: str, pivot: Any, ftype: "str | None
         return not present
     null_v = not present or v is None
     if op == "<>":
-        if null_v or pivot is None:
+        if null_v or constant is None:
             return True
-        a, b = _convert(v, pivot, ftype, ci, op)
+        a, b = _convert(v, constant, ftype, ci, op)
         return not eq(a, b)
-    if op in ("<=", ">=") and pivot is None:
+    if op in ("<=", ">=") and constant is None:
         return null_v
-    if null_v or pivot is None:
+    if null_v or constant is None:
         return False
     if op == "=":
-        a, b = _convert(v, pivot, ftype, ci, op)
+        a, b = _convert(v, constant, ftype, ci, op)
         return eq(a, b)
     if op == "IN":
-        return _in_hit(v, pivot, ftype, ci)
+        return _in_hit(v, constant, ftype, ci)
     if op == "NOT IN":
-        return not _in_hit(v, pivot, ftype, ci)
+        return not _in_hit(v, constant, ftype, ci)
 
     if op == "BETWEEN":
-        lo, hi = pivot
+        lo, hi = constant
         if lo is None or hi is None:
             return False
         a, lo = _convert(v, lo, ftype, ci, op)
         _, hi = _convert(v, hi, ftype, ci, op)
         return not lt(a, lo) and not lt(hi, a)
     if op == "LIKE":
-        return isinstance(v, str) and like_hit(v, pivot)
+        return isinstance(v, str) and like_hit(v, constant)
     if op == "HAS":
-        return isinstance(v, list) and any(eq(x, pivot) for x in v)
+        return isinstance(v, list) and any(eq(x, constant) for x in v)
     if op == "HAS ANY":
-        return isinstance(v, list) and any(eq(x, pv) for pv in pivot for x in v)
+        return isinstance(v, list) and any(eq(x, pv) for pv in constant for x in v)
     if op == "HAS ALL":
-        # vacuous over an empty pivot list (probed: `f CONTAINSALL []` holds for
+        # vacuous over an empty constant list (probed: `f CONTAINSALL []` holds for
         # every non-null list)
-        return isinstance(v, list) and all(any(eq(x, pv) for x in v) for pv in pivot)
-    a, b = _convert(v, pivot, ftype, ci, op)
+        return isinstance(v, list) and all(any(eq(x, pv) for x in v) for pv in constant)
+    a, b = _convert(v, constant, ftype, ci, op)
     if op == ">":
         return lt(b, a)
     if op == ">=":
@@ -398,10 +398,10 @@ def evaluate(values: dict, p) -> bool:
         # type, compared as stored (a DECIMAL against a BigDecimal, not through a
         # double's expansion; a ci column code unit by code unit, as a scan's `IN`
         # does): no conversion (the semi-join leaf's reference)
-        return predicate_hit(present, v, "IN", p.pivot)
+        return predicate_hit(present, v, "IN", p.constant)
     if p.arith is not None and v is not None and p.key is None:
         v = apply_arith(v, p.arith.sym, p.arith.value, p.ftype)
-    return predicate_hit(present, v, p.op, p.pivot, p.ftype, p.case_insensitive, p.key)
+    return predicate_hit(present, v, p.op, p.constant, p.ftype, p.case_insensitive, p.key)
 
 
 # an out-of-range write into an INTEGER column is stored wrapped (O24): a write whose
@@ -416,7 +416,7 @@ def arith_exact(v, sym: str, c, ftype) -> bool:
     three places, a date inside the format's range."""
     from ganda.core.constants import I32_MAX, I32_MIN, I64_MAX, I64_MIN
     from ganda.core.data.model import DATE_TYPES, FieldType
-    from ganda.orientdb.concrete_syntax.query.predicate_sampling.constants import lossy_pivot
+    from ganda.orientdb.concrete_syntax.query.predicate_sampling.constants import lossy_constant
 
     if v is None:
         return True
@@ -433,7 +433,7 @@ def arith_exact(v, sym: str, c, ftype) -> bool:
     if ftype is FieldType.FLOAT:
         return math.isfinite(r) and r != 0 or v == 0
     if ftype is FieldType.DECIMAL:
-        return math.isfinite(r) and not lossy_pivot(FieldType.DECIMAL, r) and abs(r) < 1e15
+        return math.isfinite(r) and not lossy_constant(FieldType.DECIMAL, r) and abs(r) < 1e15
     if ftype in DATE_TYPES:
         # `_shift_date` answers its input unchanged past year 9999: that is no shift
         # (`f + 1000 <> '9999-12-31 23:59:59'` is not `f <> ...`, smoke sel-smoke4

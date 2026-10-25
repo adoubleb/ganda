@@ -16,7 +16,7 @@ two independent choices, and every applicable combination is an equivalent text:
                          `f < $parent.$current.f`): never index-served either
 
 The filter is the drawn predicate's own text (`predicate.render_predicate`): its leaves'
-forms -- reversed operands, arithmetic, a literal pivot -- are drawn with the predicate
+forms -- reversed operands, arithmetic, a literal -- are drawn with the predicate
 (`predicate_sampling/forms.leaf_form`), never derived from another filter.
 
 A data model's name is `<data_model>:<tag>`, the tag the non-default choices joined by `+` in the
@@ -43,7 +43,7 @@ per data model (`select_support.tx_write`: the graph data model's `CREATE VERTEX
 VERTEX`), so the pairs compare transaction views alike.
 
 Facts (probed 3.2.56): a subquery target's records keep their class's semantics
-(a `ci` comparison, a DATETIME against a string pivot, a DECIMAL, `IS [NOT] DEFINED`
+(a `ci` comparison, a DATETIME against a string constant, a DECIMAL, `IS [NOT] DEFINED`
 on an absent field); `ORDER BY` over a subquery sorts where the same ORDER BY on the
 class walks an index (`FROM t ORDER BY f DESC` over an index ignoring nulls lacks the
 null records, O18 -- also under a WHERE on another field); GROUP BY, DISTINCT, UNWIND,

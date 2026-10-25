@@ -78,7 +78,7 @@ MEDIAN_FUNCTION_INTEGER = Question("aggregate.median_function.integer.result", M
 PERCENTILE_CONT_INTEGER = Question("aggregate.percentile_cont_half.integer.result", MedianResult, COMPARE)
 UNLABELLED_VERTEX_SPANS = Question("match.unlabelled_vertex.spans_all_tables", bool, COMPARE)
 NODE_WITH_TWO_TYPES_ROWS = Question("query.node_with_two_types.rows", int, COMPARE)
-CROSS_TYPE_EXACT_BELOW = exact("cross_type_numeric_pivot.below", int)
+CROSS_TYPE_EXACT_BELOW = exact("cross_type_numeric_constant.below", int)
 
 # --- compare: subjects answering differently are not compared where the question is exercised ---
 COMPARE_RULES = (
@@ -133,7 +133,7 @@ ASK_RULES = (
     Rule(accepts("filter.bare_parameter"), COLLECTION, REFUSED),
     Rule(accepts("filter.in_list_parameter"), COLLECTION, REFUSED),
     Rule(accepts("like.parameter"), COLLECTION, REFUSED),
-    Rule(accepts("query.boolean_constant"), COLLECTION, REFUSED),
+    Rule(accepts("query.boolean_literal"), COLLECTION, REFUSED),
     Rule(accepts("update.set_expression"), COLLECTION, REFUSED),
     Rule(accepts("update.set_unset_without_comma"), COLLECTION, REFUSED),
     Rule(accepts("aggregate.max_min.string_field"), COLLECTION, REFUSED),
@@ -176,13 +176,13 @@ EXACT_RULES = (
     Rule(CROSS_TYPE_EXACT_BELOW, COLLECTION, 10**12),
     Rule(CROSS_TYPE_EXACT_BELOW, SPARQL, 10**12),
     Rule(CROSS_TYPE_EXACT_BELOW, OPENCYPHER, 10**12),
-    Rule(exact("constant.double"), SQL, True),
-    Rule(exact("constant.double"), OPENCYPHER, False),
-    Rule(exact("constant.integer"), SQL, True),
-    Rule(exact("constant.integer"), OPENCYPHER, True),
-    Rule(exact("constant.string"), SQL, True),
-    Rule(exact("constant.string"), OPENCYPHER, True),
-    Rule(exact("constant.boolean"), SQL, True),
+    Rule(exact("literal.double"), SQL, True),
+    Rule(exact("literal.double"), OPENCYPHER, False),
+    Rule(exact("literal.integer"), SQL, True),
+    Rule(exact("literal.integer"), OPENCYPHER, True),
+    Rule(exact("literal.string"), SQL, True),
+    Rule(exact("literal.string"), OPENCYPHER, True),
+    Rule(exact("literal.boolean"), SQL, True),
     Rule(exact("custom_key"), SQL, True),
     Rule(exact("custom_key"), COLLECTION, True),
     Rule(exact("custom_key"), SPARQL, True),

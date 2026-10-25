@@ -13,7 +13,7 @@ generators walk the `Instance` with. No answer is predicted from them.
 - **Strings** compare for equality code point by code point (no Unicode
   normalization); their ORDER is ICU collation, which Python does not reproduce, so
   the generators' filters never hold an ordered comparison on a string column
-  (`pivots.ordered_ops`); `key` orders strings by code point for the oracle's own
+  (`predicate_sampling.ordered_ops`); `key` orders strings by code point for the oracle's own
   canonical forms only. The model's DATETIME / DATE values are strings of one fixed
   shape, on which ICU and code-point order agree digit by digit.
 - **`LIKE`** is case-sensitive, `%` any run and `_` one character, across a newline
@@ -152,13 +152,13 @@ def like_hit(value: Any, pattern: str) -> bool:
     return re.fullmatch("".join(rx), value) is not None
 
 
-def _in_hit(v: Any, pivot: list) -> bool:
-    return any(eq(v, p) for p in pivot)
+def _in_hit(v: Any, constant: list) -> bool:
+    return any(eq(v, p) for p in constant)
 
 
-def predicate_hit(present: bool, v: Any, op: str, pivot: Any, ftype: "str | None" = None, ci: bool = False, key: "str | None" = None) -> bool:
+def predicate_hit(present: bool, v: Any, op: str, constant: Any, ftype: "str | None" = None, ci: bool = False, key: "str | None" = None) -> bool:
     """What a collection scan answers for a stored value (absent when not `present`)
-    under `op pivot`. The collation flag plays no part (no per-attribute collation);
+    under `op constant`. The collation flag plays no part (no per-attribute collation);
     with `key`, `v` is a map and the comparison reads its entry (a missing map or key
     being null)."""
     if key is not None:
@@ -167,9 +167,9 @@ def predicate_hit(present: bool, v: Any, op: str, pivot: Any, ftype: "str | None
         present = isinstance(v, dict) and key in v
         v = v.get(key) if isinstance(v, dict) else None
     if op == "HAS KEY":
-        return isinstance(v, dict) and pivot in v
+        return isinstance(v, dict) and constant in v
     if op in ("VALUES HAS", "HAS VALUE"):
-        return isinstance(v, dict) and any(eq(x, pivot) for x in v.values())
+        return isinstance(v, dict) and any(eq(x, constant) for x in v.values())
     if op == "IS NULL":
         return not present or v is None
     if op == "IS NOT NULL":
@@ -181,32 +181,32 @@ def predicate_hit(present: bool, v: Any, op: str, pivot: Any, ftype: "str | None
     if not present:
         v = None
     if op == "=":
-        return eq(v, pivot)
+        return eq(v, constant)
     if op == "<>":
-        return not eq(v, pivot)
+        return not eq(v, constant)
     if op == "IN":
-        return _in_hit(v, pivot)
+        return _in_hit(v, constant)
     if op == "NOT IN":
-        return not _in_hit(v, pivot)
+        return not _in_hit(v, constant)
     if op == "BETWEEN":
-        lo, hi = pivot
+        lo, hi = constant
         return not lt(v, lo) and not lt(hi, v)
     if op == "LIKE":
-        return like_hit(v, pivot)
+        return like_hit(v, constant)
     if op == "HAS":
-        return isinstance(v, list) and any(eq(x, pivot) for x in v)
+        return isinstance(v, list) and any(eq(x, constant) for x in v)
     if op == "HAS ANY":
-        return isinstance(v, list) and any(eq(x, p) for p in pivot for x in v)
+        return isinstance(v, list) and any(eq(x, p) for p in constant for x in v)
     if op == "HAS ALL":
-        return isinstance(v, list) and all(any(eq(x, p) for x in v) for p in pivot)
+        return isinstance(v, list) and all(any(eq(x, p) for x in v) for p in constant)
     if op == "<":
-        return lt(v, pivot)
+        return lt(v, constant)
     if op == "<=":
-        return not lt(pivot, v)
+        return not lt(constant, v)
     if op == ">":
-        return lt(pivot, v)
+        return lt(constant, v)
     if op == ">=":
-        return not lt(v, pivot)
+        return not lt(v, constant)
     raise ValueError(op)
 
 
@@ -265,12 +265,12 @@ def evaluate(values: dict, p) -> bool:
     if p.sub is not None:
         # the answered values of the same column, compared with `==` (a null answered
         # for a record lacking `g` matches a record lacking `f`)
-        return predicate_hit(present, v, "IN", p.pivot)
+        return predicate_hit(present, v, "IN", p.constant)
     if p.arith is not None and p.key is None:
         # `(n.f + @c)` over a null or absent f is `0 + c`: a number, present
         v = apply_arith(0 if v is None or isinstance(v, bool) else v, p.arith.sym, p.arith.value, p.ftype) if not isinstance(v, (str, list, dict)) else v
         present = True
-    return predicate_hit(present, v, p.op, p.pivot, p.ftype, p.case_insensitive, p.key)
+    return predicate_hit(present, v, p.op, p.constant, p.ftype, p.case_insensitive, p.key)
 
 
 def canonical(value):

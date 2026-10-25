@@ -149,14 +149,14 @@ def test_both_direction_nexists_and_optional_match():
 def test_narrow_types_in_the_predicate_logic():
     from ganda.orientdb.oracle.semantics import predicate_hit, sum_is_exact
 
-    # an INTEGER column: a Long pivot compares exactly on a scan; the wrap is the index's (O16)
+    # an INTEGER column: a Long constant compares exactly on a scan; the wrap is the index's (O16)
     assert not predicate_hit(True, 5, "=", 2**32 + 5, "int32")
     assert predicate_hit(True, 5, "<", 2**31, "int32")
-    # a FLOAT column: an integral pivot compares through float, a double through double
+    # a FLOAT column: an integral constant compares through float, a double through double
     assert predicate_hit(True, 16777216.0, "=", 16777217, "float32")
     assert not predicate_hit(True, 16777216.0, "=", 16777217.0, "float32")
     assert not predicate_hit(True, 0.125, "=", 0.1, "float32")
-    # a DECIMAL column: a double pivot through its binary expansion, BETWEEN through its string
+    # a DECIMAL column: a double constant through its binary expansion, BETWEEN through its string
     assert not predicate_hit(True, 0.1, "=", 0.1, "decimal")
     assert predicate_hit(True, 0.5, "=", 0.5, "decimal")
     assert predicate_hit(True, 0.1, "BETWEEN", [0.1, 0.5], "decimal")

@@ -137,7 +137,7 @@ def _keys(q: SelectQuery, rows: list, sem) -> list:
 
 def _join(q: SelectQuery, instance: Instance, rows: list) -> dict:
     """Per kept record, the records of the class (every one: the LET subquery has no
-    filter of its own) whose `f` compares to its own -- the pivot is the record's
+    filter of its own) whose `f` compares to its own -- the constant is the record's
     STORED value (never a converted parameter), so the column type plays no part;
     the collation does (a ci value join is case-insensitive, probed)."""
     predicate_hit = instance.schema.engine.semantics.predicate_hit
@@ -146,8 +146,8 @@ def _join(q: SelectQuery, instance: Instance, rows: list) -> dict:
     inner = records(q, view(q, instance))
     out = {}
     for n in rows:
-        pivot = n.values.get(f)
-        m = [x for x in inner if predicate_hit(f in x.values, x.values.get(f), op, pivot, None, ci)]
+        constant = n.values.get(f)
+        m = [x for x in inner if predicate_hit(f in x.values, x.values.get(f), op, constant, None, ci)]
         out[n.record_id] = len(m) if q.arg == "count" else [x.record_id for x in m]
     return out
 

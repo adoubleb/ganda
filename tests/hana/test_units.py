@@ -79,8 +79,8 @@ def test_sparql_literals():
 # --- semantics and rewrites -------------------------------------------------------------------
 
 
-def _leaf(field, op, pivot=None, ftype="int"):
-    return Predicate("source", field, op, "" if op in ("IS NULL", "IS NOT NULL") else f"b{field}", pivot, ftype)
+def _leaf(field, op, constant=None, ftype="int"):
+    return Predicate("source", field, op, "" if op in ("IS NULL", "IS NOT NULL") else f"b{field}", constant, ftype)
 
 
 def test_three_valued_logic():
@@ -111,16 +111,16 @@ def _random_tree(rng, depth=0):
     f = rng.choice(list(fields))
     if fields[f] is FieldType.LIST:
         op = rng.choice(("HAS", "HAS ANY", "HAS ALL", "=", "IS NULL"))
-        pivot = {"HAS": rng.randint(0, 3), "=": [rng.randint(0, 3)], "IS NULL": None}.get(op, [rng.randint(0, 3) for _ in range(2)])
-        return _leaf(f, op, pivot, "list")
+        constant = {"HAS": rng.randint(0, 3), "=": [rng.randint(0, 3)], "IS NULL": None}.get(op, [rng.randint(0, 3) for _ in range(2)])
+        return _leaf(f, op, constant, "list")
     op = rng.choice(("=", "<>", "<", "<=", ">", ">=", "IN", "NOT IN", "BETWEEN", "IS NULL", "IS NOT NULL"))
 
     def num():
-        # an integer, or a cross-type pivot (a double half a unit off: `pivots.cross_type`)
+        # an integer, or a cross-type constant (a double half a unit off: `predicate_sampling.cross_type`)
         return rng.randint(0, 3) + (0.5 if rng.random() < 0.3 else 0)
 
-    pivot = {"IN": [num(), num()], "NOT IN": [num(), num()], "BETWEEN": sorted([num(), num()])}.get(op, num() if op not in ("IS NULL", "IS NOT NULL") else None)
-    return _leaf(f, op, pivot)
+    constant = {"IN": [num(), num()], "NOT IN": [num(), num()], "BETWEEN": sorted([num(), num()])}.get(op, num() if op not in ("IS NULL", "IS NOT NULL") else None)
+    return _leaf(f, op, constant)
 
 
 def _records():
@@ -157,35 +157,35 @@ def test_the_arithmetic_rewrite_keeps_every_answer():
             assert tri({"a": v}, p) == tri({"a": v}, r)
 
 
-def test_cross_type_pivots_stay_inside_the_bound_and_render_typed_on_every_data_model():
-    from ganda.hana.oracle import pivots
+def test_cross_type_constants_stay_inside_the_bound_and_render_typed_on_every_data_model():
+    from ganda.hana.oracle import predicate_sampling
     from ganda.hana.concrete_syntax import document, graph, predicate
 
     rng = random.Random(5)
-    assert pivots.cross_type(rng, FieldType.INT, 7) in (6.5, 7.5) and pivots.cross_type(rng, FieldType.FLOAT, 2.6) == 3
+    assert predicate_sampling.cross_type(rng, FieldType.INT, 7) in (6.5, 7.5) and predicate_sampling.cross_type(rng, FieldType.FLOAT, 2.6) == 3
     for v in (None, True, 10**12, -(10**12), 2**63 - 1, 1e300):
-        assert pivots.cross_type(rng, FieldType.INT, v) is v or pivots.cross_type(rng, FieldType.INT, v) == v
-    assert "NOT IN" in pivots.ORDERED_OPS
+        assert predicate_sampling.cross_type(rng, FieldType.INT, v) is v or predicate_sampling.cross_type(rng, FieldType.INT, v) == v
+    assert "NOT IN" in predicate_sampling.ORDERED_OPS
     schema = E.schema((NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f5", FieldType.FLOAT))),), ())
     gt = Predicate("source", "f1", ">", "p", 1.5, "int")
     isin = Predicate("source", "f1", "IN", "p", [1.5, 2], "int")
     btw = Predicate("source", "f1", "BETWEEN", "p", [0.5, 2.5], "int")
     rev = Predicate("source", "f1", "<", "p", 1.5, "int", rev=True)
     fint = Predicate("source", "f5", "=", "p", 2, "float")
-    # SQL types the parameter by the pivot (a bare `?` would take BIGINT and truncate)
+    # SQL types the parameter by the constant (a bare `?` would take BIGINT and truncate)
     assert predicate.sql(gt, "t", "n1") == "t.f1 > CAST(:p AS DOUBLE)"
     assert predicate.sql(isin, "t", "n1") == "t.f1 IN (CAST(:p__0 AS DOUBLE), :p__1)"
     assert predicate.sql(btw, "t", "n1") == "t.f1 BETWEEN CAST(:pa AS DOUBLE) AND CAST(:pb AS DOUBLE)"
     assert predicate.sql(rev, "t", "n1") == "CAST(:p AS DOUBLE) > t.f1"
     assert predicate.sql(fint, "t", "n1") == "t.f5 = :p"
-    # the collection filter casts the pivot; a double against an integer field as DOUBLE
+    # the collection filter casts the constant; a double against an integer field as DOUBLE
     assert document.doc_pred(gt) == '$."f1" > CAST(:p AS DOUBLE)' and document.doc_pred(fint) == '$."f5" = CAST(:p__dec AS DECIMAL)'
-    # SPARQL: literals of the pivot's own type, compared numerically -- except an integer
-    # pivot on a FLOAT field, written as the double it is (rdflib's IN compares by term)
+    # SPARQL: literals of the constant's own type, compared numerically -- except an integer
+    # constant on a FLOAT field, written as the double it is (rdflib's IN compares by term)
     assert predicate.sparql_filter(gt, "r") == 'OPTIONAL { ?r p:f1 ?r_f1 } FILTER ((BOUND(?r_f1) && (?r_f1 > "1.5"^^xsd:double)))'
     assert predicate.sparql_filter(fint, "r").endswith('(?r_f5 = "2.0"^^xsd:double)))')
     assert predicate.sparql_filter(Predicate("source", "f5", "IN", "p", [2, 3.5], "float"), "r").endswith('(?r_f5 IN ("2.0"^^xsd:double, "3.5"^^xsd:double))))')
-    # openCypher: both sides doubles, the pivot as TOFLOAT of its text (G36), no parameter
+    # openCypher: both sides doubles, the constant as TOFLOAT of its text (G36), no parameter
     for leaf, text in ((gt, "(TOFLOAT(t.N1_F1) > TOFLOAT('1.5'))"), (isin, "(TOFLOAT(t.N1_F1) = TOFLOAT('1.5') OR t.N1_F1 = 2)"), (btw, "(TOFLOAT(t.N1_F1) >= TOFLOAT('0.5') AND TOFLOAT(t.N1_F1) <= TOFLOAT('2.5'))"), (rev, "(TOFLOAT('1.5') > TOFLOAT(t.N1_F1))"), (fint, "(t.N1_F5 = TOFLOAT('2'))")):
         params = graph.Params()
         assert graph.cypher_filter(leaf, "t", "n1", schema, params) == text and not params.items
@@ -207,7 +207,7 @@ def test_not_in_renders_on_every_data_model_and_rewrites_three_valued():
     r = rewrites.rewrite(p, rng, "q")
     assert isinstance(r, Compound) and r.op == "NOT" and r.children[0].op == "IN"
     back = rewrites.rewrite(r, rng, "q")
-    assert back.op == "NOT IN" and back.pivot == [1, 2]
+    assert back.op == "NOT IN" and back.constant == [1, 2]
 
 
 def test_the_value_pools_hold_what_every_data_model_keeps_alike():
@@ -532,7 +532,7 @@ def test_graph_texts_are_well_formed(seed):
     for c, v, t in _graph_texts(seed):
         # every NATIVE graph variant of a case is its own text -- except that a `rw`
         # variant may coincide with its base (a rewrite of `IN [x]` as `= x` inlines the
-        # same constant); the views family inherits rel's own coincidences (join / scalar
+        # same literal); the views family inherits rel's own coincidences (join / scalar
         # on a reach question)
         native = "g_" not in t and "rw" not in v.split(":", 1)[-1].split("+")
         by_case.setdefault(id(c), []).append(t if native else None)
@@ -545,7 +545,7 @@ def test_graph_texts_are_well_formed(seed):
             if "SUM(" in lit:
                 assert "COUNT(" in lit and "THEN NULL ELSE" in t, t
             declared = set(re.findall(r"'(\w+)' = :", t))
-            outside_strings = re.sub(r"'(?:[^'\\]|\\.)*'", "''", lit)  # a constant may hold a `$`
+            outside_strings = re.sub(r"'(?:[^'\\]|\\.)*'", "''", lit)  # a literal may hold a `$`
             assert set(re.findall(r"\$(\w+)", outside_strings)) <= declared, (lit, declared)
     for texts in by_case.values():
         texts = [t for t in texts if t is not None]
@@ -558,7 +558,7 @@ def test_cypher_literals_escape_and_refuse():
     assert graph.cypher_string("it's\\") == "'it\\'s\\\\'"
     assert graph.literal(2**63 - 1) == "9223372036854775807" and graph.literal(-5) == "-5" and graph.literal("it's") == "'it\\'s'"
     assert graph.literal([1, 2]) == "'[1,2]'"
-    # a double has no constant (the parser keeps ~15 digits, A8): bound instead
+    # a double has no literal (the parser keeps ~15 digits, A8): bound instead
     for bad in ("a\nb", 0.1, -2.0, 1e-05, float("inf"), True, None):
         with pytest.raises(graph.Unsupported):
             graph.literal(bad)
@@ -590,8 +590,8 @@ def test_cypher_filter_mirrors_the_sql_binds_and_refuses_what_has_no_form():
         texts[name] = graph.cypher_filter(leaf, "t", "n1", schema, params)
         assert set(re.findall(r"\$(\w+)", texts[name])) == set(params.items)
         sql_binds = set(re.findall(r":(\w+)", predicate.sql(leaf, "t", "n1")))
-        # a DOUBLE pivot binds under the SQL bind's name (an IN list one marker per
-        # element, the session's `name__k`); every other pivot is a constant (A9)
+        # a DOUBLE constant binds under the SQL bind's name (an IN list one marker per
+        # element, the session's `name__k`); every other constant is a literal (A9)
         expected = {"fcmp": sql_binds, "fin": {"p__0", "p__1"}, "farith": sql_binds}.get(name, set())
         assert set(params.items) == expected, (name, texts[name])
     assert texts["cmp"] == "(t.N1_F1 > 1)" and texts["rev"] == "(1 > t.N1_F1)" and texts["str"] == "(t.N1_F2 = 'it\\'s')"
@@ -856,7 +856,7 @@ def test_the_repeat_twin_and_the_hinted_collection_query(seed):
     assert collection_hinted > 10
 
 
-def test_the_inline_position_writes_every_bound_value_as_a_constant():
+def test_the_inline_position_writes_every_bound_value_as_a_literal():
     from ganda.hana.engine.connection import inline_binds, sql_literal
 
     assert sql_literal(5) == "5" and sql_literal(-(2**63)) == "-9223372036854775808" and sql_literal(True) == "TRUE" and sql_literal(None) == "NULL"
@@ -865,7 +865,7 @@ def test_the_inline_position_writes_every_bound_value_as_a_constant():
     text = "SELECT t.id AS id FROM n1 t WHERE t.f1 > :p AND t.f2 IN :q AND t.f3 = :l__json AND t.f4 = :b AND t.f5 BETWEEN :ra AND :rb AND t.f6 IN :e AND t.s = 'a :not_a_bind'"
     binds = {"p": 1.5, "q": [1, 2], "l": [3], "b": False, "ra": "x", "rb": "it's", "e": []}
     assert inline_binds(text, binds) == "SELECT t.id AS id FROM n1 t WHERE t.f1 > 1.5E0 AND t.f2 IN (1, 2) AND t.f3 = N'[3]' AND t.f4 = FALSE AND t.f5 BETWEEN N'x' AND N'it''s' AND t.f6 IN (NULL) AND t.s = 'a :not_a_bind'"
-    # the variant: the rel base text with its constants in, no marker left
+    # the variant: the rel base text with its literals in, no marker left
     for seed in (1, 2):
         _schema, _instance, cases = _cases(seed)
         seen = 0

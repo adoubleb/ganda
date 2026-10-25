@@ -27,7 +27,7 @@ combination is an equivalent text.
                             written (`NOT (...)`, `NOT (FOR ANY ...)`) instead of pushed
                             down to the leaves
               again         rel: the base text a second time (through the plan cache)
-              inline        rel: every bound value a SQL constant in the text
+              inline        rel: every bound value a SQL literal in the text
                             (`connection.inline_binds`)
               block         rel: the statement inside a SQLScript anonymous block, its
                             binds typed in the header, assigned to a table variable
@@ -90,7 +90,7 @@ DATA_MODELS = ("doc", "rel", "graph", "rdf")
 _POSITIONS_OF = {
     # `again`: the base text a second time, after the base has run -- the second execution
     # goes through the plan cache (beside the `plan_cache` hint profile, which ignores it).
-    # `inline`: the same statement with every bound value written as a SQL constant
+    # `inline`: the same statement with every bound value written as a SQL literal
     # (`connection.inline_binds`, probe R22): the parser's typing and the plan cache's
     # key differ from the bound statement's. `block` / `block_ni`: the statement inside
     # a SQLScript anonymous block, its binds typed in the header, assigned to a table
@@ -157,16 +157,16 @@ def all_syntaxes(hint: str = "") -> list:
 
 # the twin forms of a question, a mismatch between which is a finding: the set-operation
 # form `tlp`, the collection filter's NOT kept as written (`neg`), `FROM <g>` (`from`), the
-# SQLScript block (`block`), constants written into the text (`inline`)
+# SQLScript block (`block`), literals written into the text (`inline`)
 assumes("equivalent.set_operation_partition", SQL, True)
 assumes("equivalent.set_operation_partition", SQL_DOC, True)
 assumes("equivalent.not_kept_as_written", COLLECTION, True)
 assumes("equivalent.from_graph_clause", SPARQL, True)
 assumes("equivalent.anonymous_block", SQLSCRIPT, True)
-assumes("exact.constant.double", SQL, True)
-assumes("exact.constant.integer", SQL, True)
-assumes("exact.constant.string", SQL, True)
-assumes("exact.constant.boolean", SQL, True)
+assumes("exact.literal.double", SQL, True)
+assumes("exact.literal.integer", SQL, True)
+assumes("exact.literal.string", SQL, True)
+assumes("exact.literal.boolean", SQL, True)
 
 def collection_asks(q: SelectQuery, schema: Schema, pred, keep_not: bool = False) -> bool:
     """Whether the document store asks the question itself: no semi-join, no join, no
@@ -232,15 +232,15 @@ def _rewrite_changes_text(q: SelectQuery, schema: "Schema | None", sp: SelectSyn
         return True
 
 
-def _string_pivots(pred) -> list:
-    """Every string pivot a tree binds, the semi-joins' inner trees included."""
+def _string_constants(pred) -> list:
+    """Every string constant a tree binds, the semi-joins' inner trees included."""
     out: list = []
     for leaf in pred.leaves():
         if leaf.sub is not None:
             if leaf.sub[2] is not None:
-                out.extend(_string_pivots(leaf.sub[2]))
+                out.extend(_string_constants(leaf.sub[2]))
             continue
-        for v in leaf.pivot if isinstance(leaf.pivot, list) else [leaf.pivot]:
+        for v in leaf.constant if isinstance(leaf.constant, list) else [leaf.constant]:
             if isinstance(v, str):
                 out.append(v)
     return out
@@ -276,9 +276,9 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
         # the plain base text once more, nothing else about it
         return sp == SelectSyntax(position="again")
     if sp.position == "inline":
-        # a string pivot holding a control character (the code-unit successor of a stored
-        # value appends U+0000) has no constant the probe vouches for
-        return pred is not None and bool(pred.bind_vars) and not any(any(ord(ch) < 32 for ch in v) for v in _string_pivots(pred))
+        # a string constant holding a control character (the code-unit successor of a stored
+        # value appends U+0000) has no literal the probe vouches for
+        return pred is not None and bool(pred.bind_vars) and not any(any(ord(ch) < 32 for ch in v) for v in _string_constants(pred))
     if sp.position == "block_ni" and sp.hint:
         # one hint clause on the assignment: NO_INLINE, not the question's profile too
         return False

@@ -7,7 +7,7 @@ becomes `(?, ?, ...)` after `IN`, and `:name__json` is the canonical JSON text o
 list bound as `name`). A LIST column compares its text for `=` and asks its child table
 for membership through `EXISTS`, which is two-valued as the semantics says. A bare
 parameter takes the COLUMN's type (a BIGINT column's `?` truncates 1.5 to 1), so a
-cross-type pivot -- a double against an INT column (`pivots.cross_type`) -- is written
+cross-type constant -- a double against an INT column (`predicate_sampling.cross_type`) -- is written
 `CAST(:name AS DOUBLE)`, one cast per element of an IN list (`:name__k`), and the column
 converts to DOUBLE for the comparison (probe R21).
 
@@ -65,12 +65,12 @@ REL = Names()
 
 
 def crosses(p) -> bool:
-    """Whether a leaf's pivot is of the other numeric type than its INT column (a double
-    pivot on an int column; an integer pivot on a DOUBLE column needs no cast: the
+    """Whether a leaf's constant is of the other numeric type than its INT column (a double
+    constant on an int column; an integer constant on a DOUBLE column needs no cast: the
     parameter takes the column's type exactly)."""
     if p.ftype != "int" or p.op in ("IS NULL", "IS NOT NULL") or p.sub is not None:
         return False
-    pv = p.pivot if isinstance(p.pivot, list) else [p.pivot]
+    pv = p.constant if isinstance(p.constant, list) else [p.constant]
     return any(isinstance(v, float) for v in pv)
 
 
@@ -101,24 +101,24 @@ def sql(p, alias: str = "", table: str = "", key: str = "id", names: Names = REL
         if p.op == "HAS ANY":
             return f"EXISTS (SELECT 1 FROM {child} x WHERE {member} AND x.v IN :{p.bind})"
         if not names.count_membership:
-            if not p.pivot:
+            if not p.constant:
                 return "1 = 1"
-            return "(" + " AND ".join(f"EXISTS (SELECT 1 FROM {child} x WHERE {member} AND x.v = :{p.bind}__{k})" for k in range(len(p.pivot))) + ")"
-        return f"(SELECT COUNT(DISTINCT x.v) FROM {child} x WHERE {member} AND x.v IN :{p.bind}) = {len(set(p.pivot))}"
+            return "(" + " AND ".join(f"EXISTS (SELECT 1 FROM {child} x WHERE {member} AND x.v = :{p.bind}__{k})" for k in range(len(p.constant))) + ")"
+        return f"(SELECT COUNT(DISTINCT x.v) FROM {child} x WHERE {member} AND x.v IN :{p.bind}) = {len(set(p.constant))}"
     expr = col
     if p.arith is not None:
         expr = f"({col} {p.arith.sym} :{p.arith.bind})"
     if p.op in ("IS NULL", "IS NOT NULL"):
         return f"{expr} {p.op}"
     cross = crosses(p)
-    value = f":{p.bind}__json" if p.ftype == "list" and p.op in MIRROR else _param(p.bind, p.pivot, cross)
+    value = f":{p.bind}__json" if p.ftype == "list" and p.op in MIRROR else _param(p.bind, p.constant, cross)
     if p.rev:
         return f"{value} {MIRROR[p.op]} {expr}"
     if p.op == "BETWEEN":
-        return f"{expr} BETWEEN {_param(p.bind + 'a', p.pivot[0], cross)} AND {_param(p.bind + 'b', p.pivot[1], cross)}"
+        return f"{expr} BETWEEN {_param(p.bind + 'a', p.constant[0], cross)} AND {_param(p.bind + 'b', p.constant[1], cross)}"
     if p.op in ("IN", "NOT IN"):
         if cross:
-            return f"{expr} {p.op} (" + ", ".join(_param(f"{p.bind}__{k}", v, True) for k, v in enumerate(p.pivot)) + ")"
+            return f"{expr} {p.op} (" + ", ".join(_param(f"{p.bind}__{k}", v, True) for k, v in enumerate(p.constant)) + ")"
         return f"{expr} {p.op} :{p.bind}"
     return f"{expr} {p.op} {value}"
 
@@ -165,8 +165,8 @@ def _like(v: str, pattern: str, regex: bool) -> str:
 
 
 def _lit(p, value) -> str:
-    """A pivot as a SPARQL literal: its own type -- except an integer pivot against a
-    FLOAT field (`pivots.cross_type`), written as the double it equals: the triple store
+    """A constant as a SPARQL literal: its own type -- except an integer constant against a
+    FLOAT field (`predicate_sampling.cross_type`), written as the double it equals: the triple store
     compares `IN` by numeric promotion either way (probe K24), the offline stand-in
     (rdflib) compares `IN` by term, so the same-typed literal keeps the two in step
     while the SQL, collection and cypher texts still ask the cross-type question."""
@@ -187,11 +187,11 @@ def _leaf(p, record: str, regex: bool, native: bool) -> "tuple[str, str | None]"
         items = f"?{record} i:{p.field}"
         if p.op == "HAS":
             if p.rev:
-                return f"EXISTS {{ {items} ?gx . FILTER ({sparql_literal(p.pivot)} = ?gx) }}", None
-            return f"EXISTS {{ {items} {sparql_literal(p.pivot)} }}", None
+                return f"EXISTS {{ {items} ?gx . FILTER ({sparql_literal(p.constant)} = ?gx) }}", None
+            return f"EXISTS {{ {items} {sparql_literal(p.constant)} }}", None
         if p.op == "HAS ANY":
-            return f"EXISTS {{ {items} ?gx . FILTER (?gx IN ({', '.join(sparql_literal(x) for x in p.pivot)})) }}", None
-        return "(" + " && ".join(f"EXISTS {{ {items} {sparql_literal(x)} }}" for x in p.pivot) + ")", None
+            return f"EXISTS {{ {items} ?gx . FILTER (?gx IN ({', '.join(sparql_literal(x) for x in p.constant)})) }}", None
+        return "(" + " && ".join(f"EXISTS {{ {items} {sparql_literal(x)} }}" for x in p.constant) + ")", None
     if p.op == "IS NULL":
         return f"!BOUND({v})", None
     if p.op == "IS NOT NULL":
@@ -202,14 +202,14 @@ def _leaf(p, record: str, regex: bool, native: bool) -> "tuple[str, str | None]"
         c = float(p.arith.value) if p.ftype == "float" else p.arith.value
         expr = f"({v} {p.arith.sym} {sparql_literal(c)})"
     if p.op == "LIKE":
-        return _like(expr, p.pivot, regex), v
+        return _like(expr, p.constant, regex), v
     if p.op == "BETWEEN":
-        return f"({expr} >= {_lit(p, p.pivot[0])} && {expr} <= {_lit(p, p.pivot[1])})", v
+        return f"({expr} >= {_lit(p, p.constant[0])} && {expr} <= {_lit(p, p.constant[1])})", v
     if p.op in ("IN", "NOT IN"):
-        listed = ", ".join(_lit(p, x) for x in p.pivot)
+        listed = ", ".join(_lit(p, x) for x in p.constant)
         return f"({expr} {p.op} ({listed}))", v
     op = "!=" if p.op == "<>" else p.op
-    lit = _lit(p, p.pivot)
+    lit = _lit(p, p.constant)
     if p.rev:
         mirrored = "!=" if MIRROR[p.op] == "<>" else MIRROR[p.op]
         return f"({lit} {mirrored} {expr})", v

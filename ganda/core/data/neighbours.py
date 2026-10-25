@@ -1,8 +1,8 @@
 """The neighbours of a stored value: the value one step above or below it, within the
 type's range, and the bounds of the integer types.
 
-A pivot "ADJACENT" to a stored value (bugs live at boundaries) is built here, as are the
-providers' own pivot and semantics code, which share the 32/64-bit bounds, the float32
+A constant "ADJACENT" to a stored value (bugs live at boundaries) is built here, as are the
+providers' own constant and semantics code, which share the 32/64-bit bounds, the float32
 narrowing and the date shift. Every function is pure and engine-free.
 """
 from __future__ import annotations

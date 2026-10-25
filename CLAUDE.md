@@ -49,7 +49,7 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
   `generate.py`) and `ganda.orientdb.Schema`. Core code never uses these.
 - **Provider layout** (OrientDB, ArangoDB, HANA alike): `provider.py` and `config.py`
   at the top; `engine/` (connection, limits), `storage/` (dialect, physical design,
-  `mapping/`), `oracle/` (semantics, pivots; ArangoDB and HANA keep `rewrites` until
+  `mapping/`), `oracle/` (semantics; ArangoDB and HANA also `predicate_sampling`, which OrientDB keeps under `concrete_syntax/query/`; ArangoDB and HANA keep `rewrites` until
   their port), `concrete_syntax/`,
   `known_bugs/` (`guards.py`), `mutation/` (`mutants.py`), `scripts/`.
 - **Use conventional names** (the README glossary). New concepts get the textbook term.
@@ -82,7 +82,7 @@ removed 2026-10-24). A pair differs in data model, never in spelling alone (the 
 the base class positions are compared across data models only); each data model keeps its
 own physical design. A filter is never derived from another: the predicate generator draws
 each leaf's form itself (`concrete_syntax/query/predicate_sampling/forms.leaf_form`: reversed operands, the field under
-arithmetic, a literal pivot, a parameter-keyed map entry; since 2026-10-25), so every IR
+arithmetic, a literal, a parameter-keyed map entry; since 2026-10-25), so every IR
 asks them, writes included (the write generator keeps an arithmetic leaf only where it is
 exact on every stored value).
 
@@ -126,7 +126,7 @@ position, filter or form exists only to make a data model use or avoid an index 
 `noopt` filter, the `scan` / `nest` / `noindex` / `hint` positions, the `jscan` form and
 the semi-join's subquery-target rewrite are gone, with the rules and probe facts S5, S9,
 S10 that held them equivalent); the rewrites became drawn leaf forms
-(`oracle/pivots.leaf_form`: reversed operands, arithmetic, a parameter-keyed map entry;
+(`oracle/predicate_sampling.leaf_form`: reversed operands, arithmetic, a parameter-keyed map entry;
 `oracle/rewrites.py` is gone, `arith_exact` is `ArangoSemantics`'); writes share one target
 and door (`write_syntax.spelling`); and every doc write states its filter -- an attribute
 write rebuilds each source's array in the engine, `arr[* RETURN p ? MERGE(CURRENT, {...}) :
@@ -161,7 +161,7 @@ pools), `config.py`, `engine/limits.py`, `engine/connection.py` (the cursor API,
 transactions, `maxRuntime` as the timeout), `engine/tx.py` (the transaction door's script
 text), `storage/mapping/` (bulk inserts chunked under half the request bound, `mergeObjects:
 false` on every update door), `oracle/semantics.py` (the total type order, exact numbers, code
-point string equality, `LIKE` as an ICU regex), `oracle/pivots.py` (`ordered_ops`: a string
+point string equality, `LIKE` as an ICU regex), `oracle/predicate_sampling.py` (`ordered_ops`: a string
 column takes the equality family only -- ICU collation orders them; `leaf_form`),
 `concrete_syntax/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),
 `known_bugs/guards.py` (A25, A42 and A43 guarded), `mutation/mutants.py` (the core's instance mutants,
@@ -221,7 +221,7 @@ four IRs rendered per data model, the purely differential oracle) is the one por
   19 of 21 caught, mean rate 0.833. `rel_index_null_keys` 2/2 and `doc_index_desc_walk` 1/2
   show the index path is seen; `graph_index_range_inclusive` 0/2 had little to corrupt on
   these seeds (a strict bound turned inclusive changes the answer only where a stored value
-  sits on the pivot: 4 cases on seed 1, none on seed 2), and `graph_stale_edge_update` 0/2
+  sits on the constant: 4 cases on seed 1, none on seed 2), and `graph_stale_edge_update` 0/2
   needs edge-update churn, as on 2026-10-09.
 
 ## Live verification at the large scale (2026-10-24, ArangoDB 3.12.11 on mousedeer)
@@ -286,7 +286,7 @@ it (compare, ask, equivalent, exact); the defects A1-A10 and the error classes b
 them. `rules/checks.py` lists the rules each probe fact's check asserts; the rest are
 unchecked. The code reads the rules through `ganda.hana.rules` (`ganda/core/rules/lookup.py`):
 `answer` / `refused` / `alike` where it branches on an answer (the switches of
-`concrete_syntax/graph.py` and the offline translator, `select._cypher_asks`, the pivot
+`concrete_syntax/graph.py` and the offline translator, `select._cypher_asks`, the constant
 and sum bounds, `connection._error`), and `assumes(question, subject, expected)` /
 `works_around(defect)` where it has no branch for another answer (a changed catalog then
 fails the import). `ganda hana rules --write` renders `ganda/hana/rules/RULES.md` with
@@ -330,7 +330,7 @@ The 12-hour campaign of 2026-10-12 (its first ninety minutes, 25 bundles) added 
 DOUBLE constant in a cypher text is parsed to ~15 significant digits; bound doubles are
 exact) and **A9** (two OPENCYPHER_TABLE calls in one statement type the second call's bare
 parameters in the wrong order when they mix a string and a number): the graph renderings
-now bind DOUBLE pivots only and inline every other pivot as a constant, and the `literal`
+now bind DOUBLE constants only and inline every other constant as a literal, and the `literal`
 variant is gone. Also found: HANA SQL's `AVG(BIGINT)` is `DECIMAL(25,6)` TRUNCATED to six
 places while the triple store's AVG computes in double (B13,
 guarded in `known_bugs`); a BOOLEAN is refused inside COUNT and in a comparison (B14).
@@ -340,8 +340,8 @@ other providers keep off: `partial_traversals`
 (a traversal the doc views cannot ask stays a partial case instead of being dropped
 everywhere) and `compare_despite_errors` (the variants that answered are compared when
 another one errored; the finding key names the mismatching pairs and the error's code
-through `error_signature`). Cross-type numeric pivots and `NOT IN` are drawn
-(`hana/oracle/pivots.py`), each typed per data model (`exact.cross_type_numeric_pivot.below`); no variant repeats
+through `error_signature`). Cross-type numeric constants and `NOT IN` are drawn
+(`hana/oracle/predicate_sampling.py`), each typed per data model (`exact.cross_type_numeric_constant.below`); no variant repeats
 another's text on its data model; a decoding failure is an internal `EngineError`.
 More engine paths per question (track 2, 2026-10-12): `rel:again` (the base text a second
 time), the profile `plan_cache`, the hinted collection query, `rel:inline` (constants in the

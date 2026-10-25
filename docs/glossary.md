@@ -23,7 +23,7 @@ README's "Vocabulary" table maps them.
 | **Shape** | The structural signature of a question; the deduplication and coverage key. | `shape_signature` in each IR |
 | **Oracle** | Runs every variant and compares every pair. | `core/oracle/oracle.py` |
 | **Semantics** | The engine's value rules: the order and equality answers compare under, and the predicate logic generation walks the Instance with. | `<engine>/semantics.py` |
-| **Pivot** | The constant a predicate compares against, drawn on, next to or outside stored values. | `core/query/ir/predicates.py`, `<engine>/pivots.py` |
+| **Constant** | The value a predicate compares against, drawn on, next to or outside stored values (formerly *pivot*; not PQS's pivot row). Bound as a parameter, or written into the text as a **literal**. | `core/query/ir/predicates.py`, `<engine>`'s `predicate_sampling` |
 | **Finding** | A case that is not ok: `internal_error`, `error_asymmetry`, `duplicate_id_rows`, `mismatch`. | `CaseResult.finding_class` |
 | **Failing pairs** | Which variant pairs disagreed, e.g. `graph/graph:match`. | `CaseResult.failing_pairs` |
 | **Symmetric error** | Every variant rejected the question. Not a finding. | `CaseResult.symmetric_error` |

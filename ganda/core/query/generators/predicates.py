@@ -1,10 +1,10 @@
 """The predicate sampler: leaves and compounds drawn over a record's fields.
 
-A LEAF's pivot sits ON a stored value, ADJACENT to one (`neighbours.offset`) or OUTSIDE
-the range; with `cross_type_probability` it is a cross-type numeric pivot drawn by the
+A LEAF's constant sits ON a stored value, ADJACENT to one (`neighbours.offset`) or OUTSIDE
+the range; with `cross_type_probability` it is a cross-type numeric constant drawn by the
 engine's `predicate_sampling.cross_type`. An engine whose `predicate_sampling` has `leaf_form(rng, leaf)`
 then draws the leaf's form (reversed operands, the field under arithmetic, a literal
-pivot, ...): another question, asked alike on every data model. A compound (`AND` / `OR` / `NOT`) is built over leaves, at
+constant, ...): another question, asked alike on every data model. A compound (`AND` / `OR` / `NOT`) is built over leaves, at
 most two levels deep. The engine arrives as an explicit argument (`engine.predicate_sampling`,
 `engine.semantics`) or on the schema.
 
@@ -39,14 +39,14 @@ def draw(rng: random.Random, on: str, f: FieldSpec, values: list, bind: str, eng
 def _draw(rng: random.Random, on: str, f: FieldSpec, values: list, bind: str, engine, cross_type_probability: float) -> "Predicate | None":
     present = [v for v in values if v is not None]
     ft, ci = f.type.value, f.case_insensitive
-    pivots_of, _sort_key = engine.predicate_sampling, engine.semantics.key
+    sampling, _sort_key = engine.predicate_sampling, engine.semantics.key
 
-    def leaf(op, pivot):
-        return Predicate(on, f.name, op, "" if op in NO_BIND_OPS else bind, pivot, ft, ci)
+    def leaf(op, constant):
+        return Predicate(on, f.name, op, "" if op in NO_BIND_OPS else bind, constant, ft, ci)
 
     roll = rng.random()
     if roll < 0.12:
-        return leaf(rng.choice(pivots_of.NULL_OPS), None)
+        return leaf(rng.choice(sampling.NULL_OPS), None)
     if not present:
         return None
     if f.type is FieldType.BINARY:
@@ -64,56 +64,56 @@ def _draw(rng: random.Random, on: str, f: FieldSpec, values: list, bind: str, en
             return None
         if roll < 0.45:
             k = rng.randint(1, min(2, len(elems)))
-            pivots = [rng.choice(elems) for _ in range(k)]
+            constants = [rng.choice(elems) for _ in range(k)]
             if rng.random() < 0.3:
-                # a pivot just past a stored element -- inside the 64-bit range, or
+                # a constant just past a stored element -- inside the 64-bit range, or
                 # the value could not travel as an integer at all
-                pivots[-1] = pivots[-1] + 1 if pivots[-1] < I64_MAX else pivots[-1] - 1
-            return leaf(rng.choice(("HAS ANY", "HAS ALL")), pivots)
+                constants[-1] = constants[-1] + 1 if constants[-1] < I64_MAX else constants[-1] - 1
+            return leaf(rng.choice(("HAS ANY", "HAS ALL")), constants)
         return leaf("HAS", rng.choice(elems))
     if f.type is FieldType.MAP:
         return _draw_map(rng, on, f, present, bind, leaf, engine)
     if f.type is FieldType.BOOL:
         return leaf(rng.choice(_EQUALITY_OPS[:2]), rng.choice(present))
     if f.type is FieldType.STRING and rng.random() < 0.15:
-        safe = [v for v in present if v != "" and not any(c in v for c in pivots_of.LIKE_WILDCARDS)]
+        safe = [v for v in present if v != "" and not any(c in v for c in sampling.LIKE_WILDCARDS)]
         if safe:
             v = rng.choice(safe)
             k = rng.randint(1, len(v))
             form = rng.choice(("prefix", "suffix", "infix", "exact"))
             pat = {"prefix": v[:k] + "%", "suffix": "%" + v[-k:], "infix": "%" + v[:k] + "%", "exact": v}[form]
             return leaf("LIKE", pat)
-    op = rng.choice(pivots_of.ordered_ops(f.type))
+    op = rng.choice(sampling.ordered_ops(f.type))
     distinct = list({repr(v): v for v in present}.values())
     cross = f.type in NUMERIC_TYPES and rng.random() < cross_type_probability
     if op in ("IN", "NOT IN"):
         k = rng.randint(1, min(3, len(distinct)))
-        pivots = rng.sample(distinct, k)
+        constants = rng.sample(distinct, k)
         if cross:
-            pivots = [pivots_of.cross_type(rng, f.type, v) if rng.random() < 0.6 else v for v in pivots]
+            constants = [sampling.cross_type(rng, f.type, v) if rng.random() < 0.6 else v for v in constants]
         else:
-            pivots = [pivots_of.refine(rng, f.type, v) for v in pivots]
-        return leaf(op, pivots)
+            constants = [sampling.refine(rng, f.type, v) for v in constants]
+        return leaf(op, constants)
     if op == "BETWEEN":
         a, b = sorted(rng.sample(distinct, 2) if len(distinct) >= 2 else [distinct[0], distinct[0]], key=_sort_key)
         if rng.random() < 0.3:
             b = offset(f.type, b, -1)
         if cross:
-            a, b = sorted([pivots_of.cross_type(rng, f.type, a) if rng.random() < 0.6 else a, pivots_of.cross_type(rng, f.type, b) if rng.random() < 0.6 else b], key=_sort_key)
+            a, b = sorted([sampling.cross_type(rng, f.type, a) if rng.random() < 0.6 else a, sampling.cross_type(rng, f.type, b) if rng.random() < 0.6 else b], key=_sort_key)
         return leaf(op, [a, b])
-    pivot = rng.choice(distinct)
+    constant = rng.choice(distinct)
     roll = rng.random()
     if roll < 0.3:
-        pivot = offset(f.type, pivot, rng.choice((-1, 1)))
+        constant = offset(f.type, constant, rng.choice((-1, 1)))
     elif roll < 0.4:
         top = max(distinct, key=_sort_key)
         bottom = min(distinct, key=_sort_key)
-        pivot = offset(f.type, top, 1) if rng.random() < 0.5 else offset(f.type, bottom, -1)
+        constant = offset(f.type, top, 1) if rng.random() < 0.5 else offset(f.type, bottom, -1)
     if cross:
-        pivot = pivots_of.cross_type(rng, f.type, pivot)
+        constant = sampling.cross_type(rng, f.type, constant)
     else:
-        pivot = pivots_of.refine(rng, f.type, pivot)
-    return leaf(op, pivot)
+        constant = sampling.refine(rng, f.type, constant)
+    return leaf(op, constant)
 
 
 def _draw_map(rng: random.Random, on: str, f: FieldSpec, present: list, bind: str, leaf, engine):
@@ -137,7 +137,7 @@ def _draw_map(rng: random.Random, on: str, f: FieldSpec, present: list, bind: st
     inner = _draw(rng, on, spec, kvals, bind, engine, CROSS_TYPE_PROBABILITY) if kvals else None
     if inner is None or inner.op in ("IS PRESENT", "IS ABSENT"):
         return Predicate(on, f.name, rng.choice(("IS NULL", "IS NOT NULL")), "", None, "int", False, k)
-    return Predicate(on, f.name, inner.op, inner.bind, inner.pivot, "int", False, k)
+    return Predicate(on, f.name, inner.op, inner.bind, inner.constant, "int", False, k)
 
 
 def draw_insub(rng: random.Random, schema, instance, table: str, bind: str) -> "Predicate | None":

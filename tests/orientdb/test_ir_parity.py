@@ -53,8 +53,8 @@ def _fixture(indexes=(), edge_indexes=()):
     return schema, Instance(schema, nodes, edges)
 
 
-def _insub(q=None, scan=False, pivot=None):
-    return Predicate("source", "f1", "INSUB", "", pivot if pivot is not None else [], "int", False, sub=("n2", "g1", q, scan))
+def _insub(q=None, scan=False, constant=None):
+    return Predicate("source", "f1", "INSUB", "", constant if constant is not None else [], "int", False, sub=("n2", "g1", q, scan))
 
 
 # --- the semi-join leaf -----------------------------------------------------------------------
@@ -64,14 +64,14 @@ def test_insub_renders_evaluates_and_round_trips():
     schema, inst = _fixture()
     q = Predicate("source", "g1", ">", "ps", 1, ftype="int")
     p = predicates.resolve_subs(_insub(q), inst)
-    assert p.pivot == [2, 7]
+    assert p.constant == [2, 7]
     assert render(p) == "f1 IN (SELECT g1 FROM n2 WHERE g1 > :ps)"
     assert p.bind_vars == {"ps": 1}
     assert [n.record_id for n in inst.nodes_of("n1") if predicates.evaluate(n.values, p)] == ["n1/r1", "n1/r2"]
     assert Predicate.from_dict(p.to_dict()) == p
     # an unfiltered subquery answers a null for a record without the field
     whole = predicates.resolve_subs(_insub(), inst)
-    assert whole.pivot == [2, 7, None] and whole.bind_vars == {}
+    assert whole.constant == [2, 7, None] and whole.bind_vars == {}
 
 
 def test_insub_guards():
@@ -84,7 +84,7 @@ def test_insub_guards():
     assert select_known(q, BASE, Rewrites(), "doc", schema, inst) is None
     # O39: a CONTAINSVALUE in the inner predicate, on every data model
     cv = Predicate("source", "g1", "HAS VALUE", "ps", 2**40, ftype="map")
-    q39 = SelectQuery("n1", _insub(cv, pivot=[]), "ids")
+    q39 = SelectQuery("n1", _insub(cv, constant=[]), "ids")
     assert {select_known(q39, BASE, Rewrites(), s, schema, inst) for s in ("doc", "rel")} == {"O39"}
 
 

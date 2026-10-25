@@ -52,7 +52,7 @@ def _variants(case, data_model: str, fn):
 def _strict_to_inclusive(text: str) -> str:
     """The first strict comparison of a SQL text served inclusively: against a bound
     parameter (`> :p`), a cast one (the collection filter's `> CAST(:p AS BIGINT)`, the
-    cross-type pivot's `> CAST(:p AS DOUBLE)`)."""
+    cross-type constant's `> CAST(:p AS DOUBLE)`)."""
     hits = [(text.index(a), a, b) for a, b in ((" > :", " >= :"), (" < :", " <= :"), (" > CAST(:", " >= CAST(:"), (" < CAST(:", " <= CAST(:")) if a in text]
     if not hits:
         return text
@@ -62,7 +62,7 @@ def _strict_to_inclusive(text: str) -> str:
 
 def _cypher_strict_to_inclusive(text: str) -> str:
     """The first strict comparison of a graph text served inclusively: a cypher one
-    (`> $p` for a bound double, `> 5` / `> 'x'` for an inlined constant) where the text
+    (`> $p` for a bound double, `> 5` / `> 'x'` for an inlined literal) where the text
     has it, else a SQL one (the views family)."""
     m = re.search(r" ([<>]) (\$\w+|-?\d|')", text)
     if m:

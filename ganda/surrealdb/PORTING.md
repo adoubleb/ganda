@@ -20,7 +20,7 @@ core's IRs and keeping what does not fit as extra generators.
 | `mappers` | `materialize/{common,document,graph,relational}.py` | a setup is one SurrealQL script per data model: one `@step` class holding text is enough; `relational` is opt-in in the legacy port and a full data model here (`rel`) |
 | `Session.read_nodes` / `read_edges` | new | `SELECT * FROM <table>`; record ids are `table:key`, the logical id is `table/key` |
 | `semantics` | `reference.py` (`predicate_hit`: NONE sorts below every value and an absent field satisfies `<`, `<=`, `!=`; decimals in an 80-digit context; `_decimal_sum_text`; only what the generators and the comparison need) | durations have no semantics yet |
-| `pivots` | `queries/templates.py`, `queries/catalogs.py` | operators are SurrealQL's (`CONTAINS`, `INSIDE`, `?=`, ...): map the IR's operator names in the renderer |
+| `predicate_sampling` | `queries/templates.py`, `queries/catalogs.py` | operators are SurrealQL's (`CONTAINS`, `INSIDE`, `?=`, ...): map the IR's operator names in the renderer |
 | literals | `materialize/common.surql_literal` | SurrealQL takes literals: the concrete syntax interpolates `bind_vars` through `surql_literal` rather than binding (`SurrealSession.execute` sends leftover binds as `LET`) |
 | `traversal_syntax` | `ir.py` (`render_doc`, `render_graph`, `render_relational`) | one syntax per data model today; the graph arrow path, the link-array path and the `$parent` subquery |
 | `select_syntax` | the node families of `queries/templates.py` | there is no select IR in the legacy port: the families that ask a filter + ids / count / aggregate / group / order become syntaxes of `SelectQuery`'s kinds |
@@ -50,7 +50,7 @@ core's IRs and keeping what does not fit as extra generators.
 
 1. `doctor` live, then `mappers` and the two `read_*` methods until `compare_states`
    passes.
-2. `semantics` + `pivots` + `traversal_syntax` (the three renderers already exist),
+2. `semantics` + `predicate_sampling` + `traversal_syntax` (the three renderers already exist),
    then a campaign.
 3. `select_syntax` from the node families, `known_bugs`.
 4. Everything SurrealDB-only as extra generators, family by family, each checked

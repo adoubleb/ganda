@@ -17,7 +17,7 @@ syntax is two independent choices, each asked alike on every data model:
 
 The filter is the drawn predicate's own text (`predicate.render_predicate`): its leaves'
 forms -- reversed operands, arithmetic, a parameter-keyed map entry -- are drawn with the
-predicate (`oracle/pivots.leaf_form`). A variant's name is `<data model>:<tag>`, the tag
+predicate (`oracle/predicate_sampling.leaf_form`). A variant's name is `<data model>:<tag>`, the tag
 the non-default choices joined by `+` in the order form, position. No choice exists only
 to make a data model use or avoid an index: a pair differs in data model, each with its
 own physical design.

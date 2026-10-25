@@ -10,7 +10,7 @@ bytes read through two engines."""
 from __future__ import annotations
 
 from ganda.core.engine.provider import Provider
-from ganda.hana.oracle import pivots
+from ganda.hana.oracle import predicate_sampling
 from ganda.hana.config import HanaConfig, refuse_unsupported
 from ganda.hana.engine.limits import LIMITS
 from ganda.hana.oracle.semantics import SEMANTICS
@@ -23,7 +23,7 @@ class HanaProvider(Provider):
     config_class = HanaConfig
     limits = LIMITS
     semantics = SEMANTICS
-    predicate_sampling = pivots
+    predicate_sampling = predicate_sampling
     coverage_levels = ("off",)
     # an error on one variant (a refusal of one engine path) must not hide a wrong answer
     # among the variants that answered: they are compared, and the finding key names them

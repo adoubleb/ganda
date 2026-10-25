@@ -178,11 +178,11 @@ def r20(p: Probe):
 
 
 def r21(p: Probe):
-    """A pivot of the other numeric type (`pivots.cross_type`): a BIGINT column against
+    """A constant of the other numeric type (`predicate_sampling.cross_type`): a BIGINT column against
     `CAST(? AS DOUBLE)` and a DOUBLE column against a bound integer compare as Python
     compares an int with a float -- exactly, over the whole BIGINT range, for a double
-    pivot below 10^12 (the provider's bound). Recorded: a bare `?` holding 1.5 against
-    BIGINT (what the provider avoids), and a double pivot of 2^63 against 2^63 - 1 (the
+    constant below 10^12 (the provider's bound). Recorded: a bare `?` holding 1.5 against
+    BIGINT (what the provider avoids), and a double constant of 2^63 against 2^63 - 1 (the
     column converts to DOUBLE there, so the engine and Python part)."""
     p.run("CREATE COLUMN TABLE pct (id NVARCHAR(256) PRIMARY KEY, i BIGINT, d DOUBLE)")
     rows = {"a": (1, 0.5), "b": (2, 2.0), "c": (-3, -3.0), "d": (2**63 - 1, 1e300), "e": (-(2**63), -1e300), "f": (None, None), "g": (2**53 + 1, 0.0)}
@@ -208,10 +208,10 @@ def r21(p: Probe):
 
 
 def r22(p: Probe):
-    """Constants written into a SQL text (the `inline` position) mean what the bound
+    """Literals written into a SQL text (the `inline` position) mean what the bound
     parameter means: a DOUBLE as an approximate numeric literal (`repr` with an exponent)
     over the boundary pool, BIGINT's two ends, `N'...'` strings (a quote, an astral code
-    point, 5000 characters), TRUE / FALSE. Recorded: a DOUBLE constant without an exponent
+    point, 5000 characters), TRUE / FALSE. Recorded: a DOUBLE literal without an exponent
     (an exact numeric literal, a DECIMAL) against the stored double."""
     p.run("CREATE COLUMN TABLE plit (id NVARCHAR(256) PRIMARY KEY, i BIGINT, d DOUBLE, s NVARCHAR(5000), b BOOLEAN)")
     doubles = [0.1, 0.30000000000000004, 1e-300, 1.7976931348623157e308, float(2**53) + 2, 2.5e-308, 123456789.123456789, 1.0]
@@ -248,7 +248,7 @@ def r22(p: Probe):
     ops = sorted(r["id"] for r in p.sql(f"SELECT id AS id FROM plit WHERE d > 0.2E0 AND d < {_sql_double(1e300)} AND d IN (0.30000000000000004E0, 1.0E0, 2.0E0)"))
     if ops != ["d1", "d7"]:
         bad.append(f"ranges and IN over double literals: {ops}")
-    return not bad, (f"{len(doubles)} doubles, {len(strings)} strings, {len(ints)} integers, TRUE / FALSE, ranges: constants mean the bound value" if not bad else " | ".join(bad)) + "; without an exponent: " + ", ".join(plain)
+    return not bad, (f"{len(doubles)} doubles, {len(strings)} strings, {len(ints)} integers, TRUE / FALSE, ranges: literals mean the bound value" if not bad else " | ".join(bad)) + "; without an exponent: " + ", ".join(plain)
 
 
 def r23(p: Probe):
@@ -325,8 +325,8 @@ R = [
     Fact("R17", "a unique violation is error 301 (a rejection, not an internal error)", lambda p: (lambda e: (" 301]" in e or "[301]" in e, e[:120]))(p.error(lambda: p.run("INSERT INTO pt (id) VALUES ('a')")))),    Fact("R18", "custom keys: an astral emoji, a combining sequence, quotes, spaces, `%`, a 193-character key and a 19-digit one round-trip through an NVARCHAR(256) key, by equality and in UTF-16 order (the `custom_key_probability` axis)", r18),
     Fact("R19", "the base class as a UNION ALL view over the subclass tables (the inheritance axis): filtered, joined to itself, a LIST base field's child-table union inside EXISTS, an index per subclass table; a DELETE through the tables is what the view then shows", r19),
     Fact("R20", "AVG over BIGINT answers DECIMAL(25,6): the exact quotient TRUNCATED to six places (7/128 is 0.054687; the offline stand-in's `hana_avg`)", r20),
-    Fact("R21", "a cross-type numeric pivot: a BIGINT column against CAST(? AS DOUBLE) and a DOUBLE column against a bound integer compare exactly, as Python does, for a double pivot below 10^12 (`pivots.cross_type`); a bare ? and a pivot of 2^63 recorded", r21),
-    Fact("R22", "constants in a SQL text mean the bound value: DOUBLE as an approximate literal (with an exponent) over the boundary pool, BIGINT's ends, N'...' strings (a quote, an astral code point, 5000 characters), TRUE / FALSE (the `inline` position); without an exponent recorded", r22),
+    Fact("R21", "a cross-type numeric constant: a BIGINT column against CAST(? AS DOUBLE) and a DOUBLE column against a bound integer compare exactly, as Python does, for a double constant below 10^12 (`predicate_sampling.cross_type`); a bare ? and a constant of 2^63 recorded", r21),
+    Fact("R22", "literals in a SQL text mean the bound value: DOUBLE as an approximate literal (with an exponent) over the boundary pool, BIGINT's ends, N'...' strings (a quote, an astral code point, 5000 characters), TRUE / FALSE (the `inline` position); without an exponent recorded", r22),
     Fact("R23", "the set-operation form: a filter's records are every record EXCEPT the false ones EXCEPT the unknown ones (CASE over the predicate IS NULL), for comparisons, LIKE under OR, IN, NOT IN, NOT with EXISTS, IS NULL; counted too (the `tlp` form)", r23),
     Fact("R24", "another connection sees none of this one's uncommitted INSERT / UPDATE / DELETE while the transaction is open, and the committed state after the rollback (the transaction door's peer check)", r24),
 ]
@@ -419,10 +419,10 @@ _PCX_DBLS = {"a": 0.5, "b": 2.0, "c": -3.0, "d": 1e300}
 
 
 def d24(p: Probe):
-    """A cross-type pivot in a collection filter: an integer field against `CAST(? AS
+    """A cross-type constant in a collection filter: an integer field against `CAST(? AS
     DOUBLE)` and a fractional field against `CAST(? AS BIGINT)` compare as Python does
-    (the store compares integer and number as one type, D4) for a double pivot below
-    10^12; recorded: `CAST(? AS DECIMAL)` for the same pivots, and a double pivot of 2^53
+    (the store compares integer and number as one type, D4) for a double constant below
+    10^12; recorded: `CAST(? AS DECIMAL)` for the same constants, and a double constant of 2^53
     against 2^53 + 1."""
     _pcx(p)
     checks = []
@@ -533,14 +533,14 @@ D = [
     Fact("D13", "UPDATE ... UNSET $.\"g\" WHERE ... (standalone, as the provider emits it, not combined with SET); SET $.\"f\" = CAST(? AS BIGINT) with a CONSTANT value (the doc store allows only constant expressions in SET, so an arithmetic write binds the value computed per row, never `f = f + c`)", lambda p: (p.run('UPDATE pc SET $."i" = CAST(:v AS BIGINT) WHERE $."id" = CAST(:k AS NVARCHAR(256))', {"v": 15, "k": "a"}), p.run('UPDATE pc UNSET $."s" WHERE $."id" = CAST(:k AS NVARCHAR(256))', {"k": "a"}), (lambda d: (d["a"].get("i") == 15 and "s" not in d["a"], json.dumps(d["a"])))(_docs(p)))[-1]),
     Fact("D14", "UPDATE ... SET \"arr\" = PARSE_JSON(?) and SET pc.$ = PARSE_JSON(?) (the whole document)", lambda p: (p.run('UPDATE pc SET "links" = PARSE_JSON(:v) WHERE "id" = CAST(:k AS NVARCHAR(256))', {"v": "[]", "k": "a"}), p.run('UPDATE pc SET pc.$ = PARSE_JSON(:v) WHERE "id" = CAST(:k AS NVARCHAR(256))', {"v": '{"id": "c", "i": 4}', "k": "c"}), (lambda d: (d["a"].get("links") == [] and d["c"] == {"id": "c", "i": 4}, json.dumps([d["a"], d["c"]])))(_docs(p)))[-1]),
     Fact("D15", "CREATE HASH INDEX on a field; an UPDATE / DELETE answers its row count", lambda p: (p.run('CREATE HASH INDEX ix_pc_i ON pc("i")'), _eq(p.run('DELETE FROM pc WHERE "id" = CAST(:k AS NVARCHAR(256))', {"k": "c"}), 1))[-1]),
-    Fact("D16", "a WITH view over a collection joins SQL; the boolean CASE lives one CTE removed from the collection (the doc store rejects a BOOLEAN constant in a query that reads a collection)", lambda p: _eq(p.one("WITH raw AS (SELECT \"id\" AS id, \"b\" AS b FROM pc), v AS (SELECT id, CASE b WHEN 'true' THEN TRUE WHEN 'false' THEN FALSE END AS b FROM raw) SELECT COUNT(*) AS v FROM v x JOIN v y ON x.id = y.id WHERE x.b = TRUE"), 2)),
+    Fact("D16", "a WITH view over a collection joins SQL; the boolean CASE lives one CTE removed from the collection (the doc store rejects a BOOLEAN literal in a query that reads a collection)", lambda p: _eq(p.one("WITH raw AS (SELECT \"id\" AS id, \"b\" AS b FROM pc), v AS (SELECT id, CASE b WHEN 'true' THEN TRUE WHEN 'false' THEN FALSE END AS b FROM raw) SELECT COUNT(*) AS v FROM v x JOIN v y ON x.id = y.id WHERE x.b = TRUE"), 2)),
     Fact("D17", "a collection's INSERT rolls back with the transaction", lambda p: (p.s._transaction(lambda: p.run("INSERT INTO pc VALUES(:doc)", {"doc": '{"id": "z"}'}), commit=False), _eq(p.one('SELECT COUNT(*) AS v FROM pc WHERE "id" = CAST(:k AS NVARCHAR(256))', {"k": "z"}), 0))[-1]),
-    Fact("D18", "LIKE on a string field: its right-hand side is a constant string literal (the doc store refuses a parameter there), so the provider inlines the pattern", lambda p: _eq([r["id"] for r in p.sql('SELECT $."id" AS id FROM pc WHERE $."s" LIKE \'y%\'')], ["b"])),
+    Fact("D18", "LIKE on a string field: its right-hand side is a string literal (the doc store refuses a parameter there), so the provider inlines the pattern", lambda p: _eq([r["id"] for r in p.sql('SELECT $."id" AS id FROM pc WHERE $."s" LIKE \'y%\'')], ["b"])),
     Fact("D19", "NOT kept as written in a collection filter is three-valued as SQL: NOT (i = 1) drops an absent and a null i; NOT (i = 1 OR i IS NULL), NOT (NOT (i > 1)), NOT (s LIKE 'a%') likewise (the `neg` position)", d19),
     Fact("D20", "NOT over FOR ANY and over a disjunction holding one: NOT (FOR ANY ...) holds for an absent array (FOR ANY is false there, D8); NOT (FOR ANY ... OR i = 2) drops a document where the OR is unknown", d20),
     Fact("D22", "custom keys in a collection: every style found by $.\"id\" = CAST(? AS NVARCHAR(256)); ORDER BY $.\"id\" against UTF-16 order (recorded)", d22),
     Fact("D23", "the base class over collections: the views of two collections UNION ALLed in a CTE, filtered and counted in SQL (how the provider reads the base class on doc); a UNION ALL of two collection queries themselves (recorded)", d23),
-    Fact("D24", "a cross-type pivot in a collection filter: an integer field against CAST(? AS DOUBLE), a fractional field against CAST(? AS BIGINT), exactly as Python for a double pivot below 10^12 (`pivots.cross_type`); CAST(? AS DECIMAL) and a pivot of 2^53 recorded", d24),
+    Fact("D24", "a cross-type constant in a collection filter: an integer field against CAST(? AS DOUBLE), a fractional field against CAST(? AS BIGINT), exactly as Python for a double constant below 10^12 (`predicate_sampling.cross_type`); CAST(? AS DECIMAL) and a constant of 2^53 recorded", d24),
     Fact("D25", "the set-operation form over the collection views: EXCEPT the false EXCEPT the unknown equals the direct filter and its count (the `tlp` form on doc); EXCEPT of two collection queries recorded", d25),
     Fact("D26", "another connection sees none of this one's uncommitted collection INSERT / UPDATE / DELETE, and the committed documents after the rollback (the transaction door's peer check)", d26),
     Fact("D27", "the collection query under every hint profile answers its plain rows: a filter with LIKE, an ordering with LIMIT, a count, a GROUP BY (the hinted `doc:<profile>` variant)", d27),
@@ -631,9 +631,9 @@ def _k_ids(p: Probe, cls: str, pattern: str, filt: str) -> list:
 
 
 def k24(p: Probe):
-    """A cross-type pivot in SPARQL: an xsd:long value against an xsd:double literal and
+    """A cross-type constant in SPARQL: an xsd:long value against an xsd:double literal and
     an xsd:double value against an integer literal compare numerically, as Python does,
-    for a double pivot below 10^12; recorded: a double pivot of 2^63 against 2^63 - 1."""
+    for a double constant below 10^12; recorded: a double constant of 2^63 against 2^63 - 1."""
     ints = {"a": 1, "b": 2, "c": -3, "d": 2**63 - 1, "g": 2**53 + 1}
     dbls = {"a": 0.5, "b": 2.0, "d": 1e300}
     nodes = {k: {} for k in "abcdeg"}
@@ -777,7 +777,7 @@ K = [
     Fact("K21", "custom keys as percent-encoded IRIs (`dialect.record_iri`) and `p:id` literals: every style round-trips, and ORDER BY ?id (code points) is the UTF-16 order on the key pool (no key holds U+E000..U+FFFF)", k21),
     Fact("K22", "a node typed with its class AND the base class (`a c:n1, c:N0`, the inheritance axis): a query on either class sees it once; the per-class count is unchanged; a DELETE WHERE { ?n ?p ?o } removes both types", k22),
     Fact("K23", "an average of longs: AVG(?w) and SUM(?w) / COUNT(?w) compute in DOUBLE (B13: a sum above 2^53 loses its last bit, the quotient keeps every double digit, unlike SQL's DECIMAL(25,6)); recorded", k23, required=False),
-    Fact("K24", "a cross-type pivot in SPARQL: xsd:long against an xsd:double literal and xsd:double against an integer literal compare numerically, exactly as Python for a double pivot below 10^12 (`pivots.cross_type`); a pivot of 2^63 recorded", k24),
+    Fact("K24", "a cross-type constant in SPARQL: xsd:long against an xsd:double literal and xsd:double against an integer literal compare numerically, exactly as Python for a double constant below 10^12 (`predicate_sampling.cross_type`); a constant of 2^63 recorded", k24),
     Fact("K25", "an average of longs in xsd:decimal (the sum cast before the division) and its truncation to six places: whether SQL's DECIMAL(25,6) value is reachable in SPARQL on the campaign's groups (B13; recorded, decides the rdf `avg` rendering)", k25, required=False),
     Fact("K26", "the set-operation form in SPARQL: a filter's solutions are every solution MINUS the false ones MINUS the error ones (COALESCE(IF(p, 1, 0), 2) = 2), equal to the direct FILTER; counted too (the `tlp` form on rdf)", k26),
     Fact("K27", "another connection sees none of this one's uncommitted SPARQL INSERT DATA / DELETE-INSERT / DELETE WHERE, and the committed triples after the rollback (the transaction door's peer check)", k27),
@@ -939,14 +939,14 @@ def g29(p: Probe):
 
 
 def g30(p: Probe):
-    """Integer constants parse exactly (2^63 - 1, -5)."""
+    """Integer literals parse exactly (2^63 - 1, -5)."""
     big = _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F1 = 9223372036854775807 RETURN a.ID AS ID")
     neg = _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F1 = -5 RETURN a.ID AS ID")
     return _eq((big, neg), (["b"], ["d"]))
 
 
 def g31(p: Probe):
-    """A DOUBLE constant in the query text is parsed to about fifteen significant digits
+    """A DOUBLE literal in the query text is parsed to about fifteen significant digits
     (one and two ulps above 0.5 match the stored 0.5: A8), while a bound parameter one
     or two ulps away does not match. Over pv1.d = 0.5 (a), 2^53 (b), 1e-300 (d)."""
     import math
@@ -958,7 +958,7 @@ def g31(p: Probe):
     l_one = _oc_ids(p, f"MATCH (a:pv1) WHERE a.PV1_D = {one_ulp!r} RETURN a.ID AS ID")
     l_two = _oc_ids(p, f"MATCH (a:pv1) WHERE a.PV1_D = {two_ulp!r} RETURN a.ID AS ID")
     l_far = _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_D = 0.5000000001 RETURN a.ID AS ID")
-    return p_one == [] and p_two == [], f"param one ulp above 0.5: {p_one}, two ulps: {p_two} (want []: bound doubles compare exactly); constant {one_ulp!r}: {l_one}, {two_ulp!r}: {l_two}, 0.5000000001: {l_far} (a constant matching 'a' is A8: the renderings never write one)"
+    return p_one == [] and p_two == [], f"param one ulp above 0.5: {p_one}, two ulps: {p_two} (want []: bound doubles compare exactly); literal {one_ulp!r}: {l_one}, {two_ulp!r}: {l_two}, 0.5000000001: {l_far} (a literal matching 'a' is A8: the renderings never write one)"
 
 
 def g32(p: Probe):
@@ -983,7 +983,7 @@ def g33(p: Probe):
 
 
 def g34(p: Probe):
-    """String constants in the filter: a quote, a 5000-character value and a LIST's JSON
+    """String literals in the filter: a quote, a 5000-character value and a LIST's JSON
     text inline exactly (the renderings bind no string: A9)."""
     long = "x" * 4999 + "y"
     p.run("INSERT INTO pv2 (id, f1) VALUES ('g34', :v)", {"v": long})
@@ -1061,11 +1061,11 @@ def g35(p: Probe):
 
 
 def g36(p: Probe):
-    """A cross-type pivot in openCypher: the engine refuses a BIGINT attribute against a
+    """A cross-type constant in openCypher: the engine refuses a BIGINT attribute against a
     float outright (`Type mismatch between bigint and float`, recorded), so both sides
     are doubles -- `TOFLOAT(a.F) > TOFLOAT('<repr>')` (exact: a BIGINT below 2^53
-    converts exactly, and a pivot below 10^12 orders the same against any BIGINT) -- and
-    an integer pivot against a DOUBLE attribute is `TOFLOAT('<int>')`; recorded: a bound
+    converts exactly, and a constant below 10^12 orders the same against any BIGINT) -- and
+    an integer constant against a DOUBLE attribute is `TOFLOAT('<int>')`; recorded: a bound
     double parameter against a BIGINT attribute."""
     checks = [
         ("f1 > 0.5", _oc_ids(p, "MATCH (a:pv1) WHERE TOFLOAT(a.PV1_F1) > TOFLOAT('0.5') RETURN a.ID AS ID"), ["a", "b"]),
@@ -1084,7 +1084,7 @@ def g36(p: Probe):
     mixed = _try(lambda: _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F1 > TOFLOAT('0.5') RETURN a.ID AS ID"), 70)
     plain_int = _try(lambda: _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_D > 0 RETURN a.ID AS ID"), 70)
     bound = _try(lambda: _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F1 >= $p RETURN a.ID AS ID", {"p": 1.5}, {"p": ":p"}), 70)
-    return not bad, (f"{len(checks)} comparisons exact with both sides TOFLOAT" if not bad else " | ".join(bad)) + f"; BIGINT attribute against TOFLOAT: {mixed}; DOUBLE attribute against an integer constant: {plain_int}; f1 >= $p with 1.5 bound: {bound}"
+    return not bad, (f"{len(checks)} comparisons exact with both sides TOFLOAT" if not bad else " | ".join(bad)) + f"; BIGINT attribute against TOFLOAT: {mixed}; DOUBLE attribute against an integer literal: {plain_int}; f1 >= $p with 1.5 bound: {bound}"
 
 
 def g37(p: Probe):
@@ -1131,7 +1131,7 @@ GF = [
     Fact("G12", "OPENCYPHER_TABLE sees the transaction's own uncommitted INSERT, gone after ROLLBACK (the transaction door, the cancelled junk)", g12),
     Fact("G13", "an UPDATE in auto-commit, then MERGE DELTA OF, is what the workspace's dynamic cache answers", g13),
     Fact("G14", "arithmetic over an attribute with a parameter: `f - $c > $p` on BIGINT, `d * $c = $p` on DOUBLE, exact; integer division (recorded)", lambda p: (lambda i, d: (i == ["b"] and d == ["a"], f"{i} {d}; 1 / 2 over a: {p.error(lambda: _oc(p, 'MATCH (a:pv1) WHERE a.PV1_F1 = 1 RETURN a.PV1_F1 / 2 AS V'))[:70] or [r['v'] for r in _oc(p, 'MATCH (a:pv1) WHERE a.PV1_F1 = 1 RETURN a.PV1_F1 / 2 AS V')]}"))(_oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F1 - $c > $p RETURN a.ID AS ID", {"c": 1, "p": 0}, {"c": ":c", "p": ":p"}), _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_D * $c = $p RETURN a.ID AS ID", {"c": 2.0, "p": 1.0}, {"c": ":c", "p": ":p"}))),
-    Fact("G15", "string predicates over constants: STARTS WITH, ENDS WITH, CONTAINS, and the `\\'` escape in a constant; a parameter on the right-hand side (recorded)", lambda p: (lambda st, en, co, esc: (st == ["d"] and en == ["a"] and co == ["d"] and esc == ["d"], f"{st} {en} {co} {esc}; CONTAINS $s: {p.error(lambda: _oc(p, 'MATCH (a:pv1) WHERE a.PV1_F2 CONTAINS $s RETURN a.ID AS ID', {'s': 't'}, {'s': ':s'}))[:80] or 'accepted'}"))(_oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F2 STARTS WITH 'i' RETURN a.ID AS ID"), _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F2 ENDS WITH 'x' RETURN a.ID AS ID"), _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F2 CONTAINS 't' RETURN a.ID AS ID"), _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F2 = 'it\\'s' RETURN a.ID AS ID"))),
+    Fact("G15", "string predicates over literals: STARTS WITH, ENDS WITH, CONTAINS, and the `\\'` escape in a literal; a parameter on the right-hand side (recorded)", lambda p: (lambda st, en, co, esc: (st == ["d"] and en == ["a"] and co == ["d"] and esc == ["d"], f"{st} {en} {co} {esc}; CONTAINS $s: {p.error(lambda: _oc(p, 'MATCH (a:pv1) WHERE a.PV1_F2 CONTAINS $s RETURN a.ID AS ID', {'s': 't'}, {'s': ':s'}))[:80] or 'accepted'}"))(_oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F2 STARTS WITH 'i' RETURN a.ID AS ID"), _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F2 ENDS WITH 'x' RETURN a.ID AS ID"), _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F2 CONTAINS 't' RETURN a.ID AS ID"), _oc_ids(p, "MATCH (a:pv1) WHERE a.PV1_F2 = 'it\\'s' RETURN a.ID AS ID"))),
     Fact("G16", "attribute names and aliases are case-sensitive: `a.id` (lowercase) is refused, a lowercase alias is a quoted column outside (recorded)", g16, required=False),
     Fact("G17", "a workspace over a view over a HASH-partitioned table whose key is NOT NULL without a PRIMARY KEY (the id-index and partition axes)", g17),
     Fact("G19", "an OPENCYPHER_TABLE nested in NOT IN (SELECT ...) (nexists) and in IN (SELECT ...)", lambda p: _eq((p.one(f"SELECT COUNT(*) AS v FROM pv1 s WHERE s.id NOT IN (SELECT z.ID FROM {opencypher_table('MATCH (a:pv1)-[e:pe2]->(b:pv1) RETURN a.ID AS ID')} z)"), p.one(f"SELECT COUNT(*) AS v FROM pv1 s WHERE s.id IN (SELECT z.ID FROM {opencypher_table('MATCH (a:pv1)-[e:pe2]->(b:pv1) RETURN a.ID AS ID')} z)")), (2, 2))),
@@ -1144,13 +1144,13 @@ GF = [
     Fact("G27", "a HOMOGENEOUS workspace (one vertex table, one edge table) with LABEL clauses: a labelled query fails with `invalid column name: a.CYPHER$TABLE$LABEL` (found by the first G17/G25 run; recorded -- a campaign's workspace always has two or more edge tables)", g27, required=False),
     Fact("G28", "custom keys through the workspace: every style matched by `a.ID = $k` (bound bare) and projected back; ORDER BY a.ID is the UTF-16 order", g28),
     Fact("G29", "the base class as an UNLABELLED vertex (the inheritance axis): `MATCH (a) WHERE a.F1 ...` over an attribute both vertex tables share (one type), a Cartesian `MATCH (t), (m)` correlated on it, COUNT grouped by it; a LIST attribute's text", g29),
-    Fact("G30", "integer constants parse exactly (2^63 - 1, -5): the renderings inline every integer pivot", g30),
-    Fact("G31", "a bound DOUBLE parameter compares exactly (one ulp off is not equal); a DOUBLE constant in the text loses digits beyond the fifteenth (A8, recorded in the detail)", g31),
+    Fact("G30", "integer literals parse exactly (2^63 - 1, -5): the renderings inline every integer constant", g30),
+    Fact("G31", "a bound DOUBLE parameter compares exactly (one ulp off is not equal); a DOUBLE literal in the text loses digits beyond the fifteenth (A8, recorded in the detail)", g31),
     Fact("G32", "two OPENCYPHER_TABLE calls in one statement: the second call's bare parameters typed in the wrong order when they mix a string and a number (A9; recorded -- the renderings bind floats only)", g32, required=False),
     Fact("G33", "a BOOLEAN attribute inside COUNT and two BOOLEAN attributes compared are refused (4906); a BOOLEAN group key answers", g33),
-    Fact("G34", "string constants inline exactly: a quote, a 5000-character value, a LIST's JSON text", g34),
+    Fact("G34", "string literals inline exactly: a quote, a 5000-character value, a LIST's JSON text", g34),
     Fact("G35", "GraphScript through a procedure and a SQLScript block: Shortest_Path OUTGOING answers a shortest path's vertices; the direction as a parameter, the unreachable pair, start = goal, Neighbors within k, SubGraph of one edge KIND (recorded)", g35),
-    Fact("G36", "a cross-type pivot in openCypher: TOFLOAT('<repr>') against a BIGINT attribute and an integer constant against a DOUBLE attribute compare exactly (`pivots.cross_type`); a bound double against BIGINT recorded", g36),
+    Fact("G36", "a cross-type constant in openCypher: TOFLOAT('<repr>') against a BIGINT attribute and an integer literal against a DOUBLE attribute compare exactly (`predicate_sampling.cross_type`); a bound double against BIGINT recorded", g36),
     Fact("G37", "another connection's OPENCYPHER_TABLE sees none of this one's uncommitted INSERT / UPDATE on the workspace's tables, and the committed rows after the rollback (the transaction door's peer check)", g37),
     Fact("G26", "DROP SCHEMA ... CASCADE removes the schema's graph workspace", g26),
 ]

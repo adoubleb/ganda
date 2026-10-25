@@ -8,7 +8,7 @@ baseline: 3.12.11, every check of a rule held
 
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
-| order.string | aql | collation | V3 | oracle/pivots.py:29 |
+| order.string | aql | collation | V3 | oracle/predicate_sampling.py:29 |
 | equality.string | aql | code-point | V3 | oracle/semantics.py:42, storage/physical_design.py:83 |
 | aggregate.max.empty_input | aql | null | V6 | concrete_syntax/traversal.py:73 |
 | aggregate.max_min.skips_null | aql | true | V6, S4 | concrete_syntax/select.py:56, concrete_syntax/traversal.py:74 |

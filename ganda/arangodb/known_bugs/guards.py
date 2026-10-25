@@ -58,7 +58,7 @@ def like_wildcard_fields(p) -> set:
         for c in p.children:
             out |= like_wildcard_fields(c)
         return out
-    if isinstance(p, Predicate) and p.op == "LIKE" and isinstance(p.pivot, str) and "%" in p.pivot:
+    if isinstance(p, Predicate) and p.op == "LIKE" and isinstance(p.constant, str) and "%" in p.constant:
         return {p.field}
     return set()
 
@@ -82,7 +82,7 @@ def or_of_list_equalities(p, under_or: bool = False) -> set:
     disjunct of a wider OR are left alone: the optimizer flattens the latter and finds
     the mixed attributes, and never rewrites the former."""
     if isinstance(p, Predicate):
-        if p.op == "IN" and p.ftype == "list" and isinstance(p.pivot, list) and len({repr(v) for v in p.pivot}) >= 2:
+        if p.op == "IN" and p.ftype == "list" and isinstance(p.constant, list) and len({repr(v) for v in p.constant}) >= 2:
             return {p.field}
         return set()
     if not isinstance(p, Compound) or p.op == "NOT":
@@ -90,7 +90,7 @@ def or_of_list_equalities(p, under_or: bool = False) -> set:
     out: set = set()
     if p.op == "OR" and not under_or:
         leaves = [c for c in p.children if isinstance(c, Predicate) and c.op == "=" and c.ftype == "list" and c.sub is None and c.key is None]
-        if len(leaves) == len(p.children) and len({c.field for c in leaves}) == 1 and len({repr(c.pivot) for c in leaves}) >= 2:
+        if len(leaves) == len(p.children) and len({c.field for c in leaves}) == 1 and len({repr(c.constant) for c in leaves}) >= 2:
             out.add(leaves[0].field)
     for c in p.children:
         out |= or_of_list_equalities(c, under_or=p.op == "OR")

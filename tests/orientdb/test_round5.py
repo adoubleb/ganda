@@ -60,7 +60,7 @@ def test_leaf_forms_render_and_evaluate_as_drawn():
     rows = [{"f1": 4}, {"f1": 5}, {"f1": 6}, {}, {"f1": None}]
     assert [evaluate(r, p) for r in rows] == [evaluate(r, rp) for r in rows]
     assert Predicate.from_dict(rp.to_dict()) == rp
-    # a literal pivot: in the text, not bound
+    # a literal: in the text, not bound
     lp = leaf_form(_Roll(0.25), Predicate("source", "f1", "BETWEEN", "p", [1, 5], ftype="int"))
     assert lp.literal and render(lp) == "f1 BETWEEN 1 AND 5" and lp.bind_vars == {}
     assert Predicate.from_dict(lp.to_dict()) == lp
@@ -81,19 +81,19 @@ def test_arithmetic_form_puts_the_field_under_arithmetic():
     assert ap.arith is not None and not ap.plain and ap.arith.bind == "pc"
     assert render(ap).startswith("(f1 ") and ":pc" in render(ap)
     rows = [{"f1": 1}, {"f1": 7}, {}]
-    # the pivot shifted alike: the same records
+    # the constant shifted alike: the same records
     assert [evaluate(r, p) for r in rows] == [evaluate(r, ap) for r in rows]
-    # a ci column, IN, a string pivot on a number, a relationship attribute: none
+    # a ci column, IN, a string constant on a number, a relationship attribute: none
     assert _arithmetic(rng, Predicate("source", "f2", "=", "p", "a", ftype="string", case_insensitive=True)) is None
     assert _arithmetic(rng, Predicate("source", "f1", "IN", "p", [5], ftype="int")) is None
     assert _arithmetic(rng, Predicate("source", "f1", ">", "p", "a", ftype="int")) is None
     assert _arithmetic(rng, Predicate("edge", "w", ">", "p", 5, ftype="int")) is None
-    # an integer pivot the arithmetic takes past the long range is no parameter
+    # an integer constant the arithmetic takes past the long range is no parameter
     edge = Predicate("source", "f1", ">=", "p", -(2**63), ftype="int")
-    assert all(_arithmetic(random.Random(s), edge) is None or -(2**63) <= _arithmetic(random.Random(s), edge).pivot < 2**63 for s in range(20))
-    # a pivot the arithmetic takes past the double range cannot travel as JSON
+    assert all(_arithmetic(random.Random(s), edge) is None or -(2**63) <= _arithmetic(random.Random(s), edge).constant < 2**63 for s in range(20))
+    # a constant the arithmetic takes past the double range cannot travel as JSON
     huge = Predicate("source", "f1", ">", "p", 1e308, ftype="float")
-    assert all(_arithmetic(random.Random(s), huge) is None or math.isfinite(_arithmetic(random.Random(s), huge).pivot) for s in range(20))
+    assert all(_arithmetic(random.Random(s), huge) is None or math.isfinite(_arithmetic(random.Random(s), huge).constant) for s in range(20))
     # dates shift by milliseconds, decimals stay exact
     assert apply_arith("2024-01-01 00:00:00", "+", 86400000, "datetime") == "2024-01-02 00:00:00"
     assert apply_arith("2024-01-01 00:00:00", "-", 1000, "date") == "2023-12-31 23:59:59"

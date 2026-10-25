@@ -19,7 +19,7 @@ from ganda.core.data.model import FieldType
 from ganda.core.engine.setup_plan import plan_from_dict, plan_to_dict
 from ganda.core.engine.state_check import compare_states
 from tests.instance_session import InstanceSession
-from ganda.arangodb.oracle.pivots import _arithmetic, leaf_form
+from ganda.arangodb.oracle.predicate_sampling import _arithmetic, leaf_form
 from ganda.arangodb.oracle.semantics import arith_exact
 from ganda.arangodb.engine.connection import bind_subset
 from ganda.arangodb.storage.dialect import ARANGO_KEY_RE, document_key, engine_id, logical_id
@@ -79,8 +79,8 @@ def test_like_is_case_sensitive_and_crosses_a_newline_but_not_a_paragraph_separa
     assert like_hit(None, "%") and not like_hit(None, "a%")
 
 
-def _leaf(field, op, pivot=None, ftype="int"):
-    return Predicate("source", field, op, "" if op in ("IS NULL", "IS NOT NULL", "IS PRESENT", "IS ABSENT") else f"b{field}", pivot, ftype)
+def _leaf(field, op, constant=None, ftype="int"):
+    return Predicate("source", field, op, "" if op in ("IS NULL", "IS NOT NULL", "IS PRESENT", "IS ABSENT") else f"b{field}", constant, ftype)
 
 
 def _random_tree(rng, depth=0):
@@ -92,14 +92,14 @@ def _random_tree(rng, depth=0):
     f = rng.choice(list(fields))
     if fields[f] is FieldType.LIST:
         op = rng.choice(("HAS", "HAS ANY", "HAS ALL", "=", "IS NULL"))
-        pivot = {"HAS": rng.randint(0, 3), "=": [rng.randint(0, 3)], "IS NULL": None}.get(op, [rng.randint(0, 3) for _ in range(2)])
-        return _leaf(f, op, pivot, "list")
+        constant = {"HAS": rng.randint(0, 3), "=": [rng.randint(0, 3)], "IS NULL": None}.get(op, [rng.randint(0, 3) for _ in range(2)])
+        return _leaf(f, op, constant, "list")
     if fields[f] is FieldType.MAP:
         op = rng.choice(("HAS KEY", "VALUES HAS", "IS NOT NULL"))
         return _leaf(f, op, {"HAS KEY": rng.choice(("k1", "k2")), "VALUES HAS": rng.randint(0, 3)}.get(op), "map")
     op = rng.choice(("=", "<>", "<", "<=", ">", ">=", "IN", "BETWEEN", "IS NULL", "IS NOT NULL", "IS PRESENT", "IS ABSENT"))
-    pivot = {"IN": [rng.randint(0, 3), rng.randint(0, 3)], "BETWEEN": sorted([rng.randint(0, 3), rng.randint(0, 3)])}.get(op, rng.randint(0, 3) if not op.startswith("IS") else None)
-    return _leaf(f, op, pivot)
+    constant = {"IN": [rng.randint(0, 3), rng.randint(0, 3)], "BETWEEN": sorted([rng.randint(0, 3), rng.randint(0, 3)])}.get(op, rng.randint(0, 3) if not op.startswith("IS") else None)
+    return _leaf(f, op, constant)
 
 
 def _records():
@@ -122,7 +122,7 @@ def _records():
     return out
 
 
-def test_the_arithmetic_form_shifts_the_pivot_alike():
+def test_the_arithmetic_form_shifts_the_constant_alike():
     rng = random.Random(3)
     values = [None, 0, 1, -5, 7, 2**40]
     seen = 0
@@ -481,7 +481,7 @@ def test_index_mutants_leave_the_transaction_door_alone():
 
 
 def test_a_string_column_draws_the_equality_family_only_because_its_order_is_collation():
-    from ganda.arangodb.oracle.pivots import EQUALITY_OPS, ORDERED_OPS, ordered_ops
+    from ganda.arangodb.oracle.predicate_sampling import EQUALITY_OPS, ORDERED_OPS, ordered_ops
 
     assert ordered_ops(FieldType.STRING) == EQUALITY_OPS and ordered_ops(FieldType.BINARY) == EQUALITY_OPS
     assert ordered_ops(FieldType.INT) == ORDERED_OPS and ordered_ops(FieldType.DATE) == ORDERED_OPS

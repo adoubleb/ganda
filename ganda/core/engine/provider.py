@@ -59,8 +59,8 @@ class Semantics:
     def lt(self, a: Any, b: Any) -> bool:
         raise NotImplementedError
 
-    def predicate_hit(self, present: bool, v: Any, op: str, pivot: Any, ftype: "str | None" = None, ci: bool = False, key: "str | None" = None) -> bool:
-        """Whether a stored value (absent when not `present`) satisfies `op pivot`."""
+    def predicate_hit(self, present: bool, v: Any, op: str, constant: Any, ftype: "str | None" = None, ci: bool = False, key: "str | None" = None) -> bool:
+        """Whether a stored value (absent when not `present`) satisfies `op constant`."""
         raise NotImplementedError
 
     def evaluate(self, values: dict, p) -> bool:

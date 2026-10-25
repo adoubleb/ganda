@@ -31,25 +31,25 @@ from ganda.orientdb.rules.catalog import SQL
 # The narrow numeric types (the `narrow_type_probability` axis): an INTEGER holds
 # Integer boxes an index converts a Long key to by WRAPPING (O16), sums in 32-bit
 # arithmetic (O19) and stores an out-of-range write wrapped (O24); a FLOAT holds Float
-# boxes an index converts a double key to by ROUNDING (O16) and an integral pivot is
+# boxes an index converts a double key to by ROUNDING (O16) and an integral constant is
 # compared with through float; a DECIMAL holds BigDecimals a scan compares with a double
 # through the double's binary expansion where an index or BETWEEN uses its decimal
 # string (O20).
 #
 # A DATETIME / DATE travels as the database's `yyyy-MM-dd HH:mm:ss` string (UTC; a DATE
-# reads back at midnight), the model's canonical form. A pivot may be the date alone
+# reads back at midnight), the model's canonical form. A constant may be the date alone
 # (midnight), an epoch-millisecond integer, or a partially matching string that the
 # engine silently compares as the date's midnight (O27).
 #
 # An EMBEDDEDMAP LONG supports `CONTAINSKEY`, the dotted `m.k op :p` (null rules for a
 # missing key), the parameter-keyed `m[:k]`, `m.values() CONTAINS`; `CONTAINSVALUE` with
-# an Integer-boxed pivot misses the Long values (an O7 face); indexed BY KEY / VALUE.
+# an Integer-boxed constant misses the Long values (an O7 face); indexed BY KEY / VALUE.
 #
 # A BINARY (the `binary_probability` axis) takes a base64 string on write -- through a
 # bind parameter, a CONTENT document or a MERGE literal -- and answers the same standard
 # base64 text (padded, no line breaks) on read, so the model's value IS what travels
 # (probed 3.2.57). Two engine facts the probe records: an EMPTY byte string is stored as
-# null (the model's pool holds none), and `b = :p` with a base64 pivot matches NOTHING on
+# null (the model's pool holds none), and `b = :p` with a base64 constant matches NOTHING on
 # a scan while an index on the column matches it (O46, `issues/O46-binary-equality-scan-
 # vs-index.md`: the scan decodes the text and then compares the arrays by identity, the
 # index key is compared by content) -- a scan-vs-index divergence the model does not
@@ -82,7 +82,7 @@ ORIENT_TYPES = {
 # code-unit order (`String.compareTo`), which `semantics.orient_key` reproduces by
 # comparing the UTF-16 encoding.
 #
-# The type a value of each kind is COMPARED in when a pivot of the other kind meets it
+# The type a value of each kind is COMPARED in when a constant of the other kind meets it
 # on a scan (probed 3.2.56, `castComparableNumber`): the wider of the two Java boxes,
 # Integer < Long < Float < Double. An INTEGER against a Long compares as longs, a FLOAT
 # against an Integer or Long as FLOATS (`16777217 = 16777216.0f`), anything against a

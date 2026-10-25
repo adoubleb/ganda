@@ -65,7 +65,7 @@
 | accepts.filter.bare_parameter | collection | refused | unchecked | concrete_syntax/document.py:257 |
 | accepts.filter.in_list_parameter | collection | refused | unchecked | concrete_syntax/document.py:258 |
 | accepts.like.parameter | collection | refused | unchecked | concrete_syntax/document.py:248 |
-| accepts.query.boolean_constant | collection | refused | unchecked | concrete_syntax/document.py:119 |
+| accepts.query.boolean_literal | collection | refused | unchecked | concrete_syntax/document.py:119 |
 | accepts.update.set_expression | collection | refused | unchecked | concrete_syntax/write.py:322 |
 | accepts.update.set_unset_without_comma | collection | refused | unchecked | concrete_syntax/write.py:323 |
 | accepts.aggregate.max_min.string_field | collection | refused | unchecked | concrete_syntax/select.py:185 |
@@ -106,17 +106,17 @@
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
 | aggregate.sum.integer.exact_below | sql | 9223372036854775808 | R8 | oracle/semantics.py:193 |
-| exact.cross_type_numeric_pivot.below | sql | 1000000000000 | R21 | oracle/pivots.py:30 |
-| exact.cross_type_numeric_pivot.below | collection | 1000000000000 | D24 | oracle/pivots.py:31 |
-| exact.cross_type_numeric_pivot.below | sparql | 1000000000000 | K24 | oracle/pivots.py:32 |
-| exact.cross_type_numeric_pivot.below | opencypher | 1000000000000 | G36 | oracle/pivots.py:33 |
-| exact.constant.double | sql | true | R22 | concrete_syntax/select.py:166 |
-| exact.constant.double | opencypher | false | unchecked | concrete_syntax/graph.py:207 |
-| exact.constant.integer | sql | true | R22 | concrete_syntax/select.py:167 |
-| exact.constant.integer | opencypher | true | G30 | concrete_syntax/graph.py:205 |
-| exact.constant.string | sql | true | R22 | concrete_syntax/select.py:168 |
-| exact.constant.string | opencypher | true | G34 | concrete_syntax/graph.py:206 |
-| exact.constant.boolean | sql | true | R22 | concrete_syntax/select.py:169 |
+| exact.cross_type_numeric_constant.below | sql | 1000000000000 | R21 | oracle/predicate_sampling.py:30 |
+| exact.cross_type_numeric_constant.below | collection | 1000000000000 | D24 | oracle/predicate_sampling.py:31 |
+| exact.cross_type_numeric_constant.below | sparql | 1000000000000 | K24 | oracle/predicate_sampling.py:32 |
+| exact.cross_type_numeric_constant.below | opencypher | 1000000000000 | G36 | oracle/predicate_sampling.py:33 |
+| exact.literal.double | sql | true | R22 | concrete_syntax/select.py:166 |
+| exact.literal.double | opencypher | false | unchecked | concrete_syntax/graph.py:207 |
+| exact.literal.integer | sql | true | R22 | concrete_syntax/select.py:167 |
+| exact.literal.integer | opencypher | true | G30 | concrete_syntax/graph.py:205 |
+| exact.literal.string | sql | true | R22 | concrete_syntax/select.py:168 |
+| exact.literal.string | opencypher | true | G34 | concrete_syntax/graph.py:206 |
+| exact.literal.boolean | sql | true | R22 | concrete_syntax/select.py:169 |
 | exact.custom_key | sql | true | R18 | config.py:46 |
 | exact.custom_key | collection | true | D22 | config.py:47 |
 | exact.custom_key | sparql | true | K21 | config.py:48 |

@@ -77,7 +77,7 @@ def _draw_hops(rng: random.Random, schema: Schema, instance: Instance, start: st
         placement = rng.choice(PLACEMENTS)
         pred = None
         # `draw_over` picks the field and calls `values_of(field)` for its stored
-        # values (the pivots are drawn from them)
+        # values (the constants are drawn from them)
         if placement == "e" and et.fields:
 
             def edge_values(f):

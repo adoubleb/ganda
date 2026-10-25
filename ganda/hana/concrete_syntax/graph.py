@@ -34,15 +34,15 @@ BIGINT / DOUBLE / NVARCHAR attributes; a BOOLEAN is projected only. ORDER BY put
 last ascending (HANA SQL: first), so a native ordering over a nullable field is not
 asked.
 
-Parameters and constants: a DOUBLE pivot is bound, a cypher `$name` in `PARAMETERS
+Parameters and literals: a DOUBLE constant is bound, a cypher `$name` in `PARAMETERS
 ('name' = :name)` outside the literal (`Params`; `connection.positional` skips the
 quoted query), under the SQL bind name `predicate.sql` uses, so a case's `bind_vars`
-serve both; every other pivot -- an integer, a string (`\'` and `\\` the escapes), a
-LIST's text -- is a constant in the query (`literal`). So one OPENCYPHER_TABLE call
+serve both; every other constant -- an integer, a string (`\'` and `\\` the escapes), a
+LIST's text -- is a literal in the query (`literal`). So one OPENCYPHER_TABLE call
 binds parameters of one type: a statement holding two calls types the second call's
 bare parameters in the wrong order when they mix a string and a number (A9, G32); a
-double constant would lose digits beyond the fifteenth (A8, G31: a bound double and
-`TOFLOAT` of a string constant compare exactly), while an integer and a string constant
+double literal would lose digits beyond the fifteenth (A8, G31: a bound double and
+`TOFLOAT` of a string literal compare exactly), while an integer and a string literal
 are exact (G30, G34).
 
 The result columns are typed by the workspace (unlike SPARQL_TABLE), so a projection
@@ -185,7 +185,7 @@ def table_fn(cypher: str, params: "Params | None" = None) -> str:
 
 
 def cypher_string(s: str) -> str:
-    """A cypher string constant: `\\'` and `\\\\` are the escapes the grammar has; a
+    """A cypher string literal: `\\'` and `\\\\` are the escapes the grammar has; a
     control character has none (the question stays with the parameters)."""
     out = []
     for ch in s:
@@ -200,21 +200,21 @@ def cypher_string(s: str) -> str:
     return "'" + "".join(out) + "'"
 
 
-# integer and string constants inline exactly; a double constant does not (A8), and one
+# integer and string literals inline exactly; a double literal does not (A8), and one
 # OPENCYPHER_TABLE call binds parameters of one type (A9)
-assumes("exact.constant.integer", OPENCYPHER, True)
-assumes("exact.constant.string", OPENCYPHER, True)
-assumes("exact.constant.double", OPENCYPHER, False)
+assumes("exact.literal.integer", OPENCYPHER, True)
+assumes("exact.literal.string", OPENCYPHER, True)
+assumes("exact.literal.double", OPENCYPHER, False)
 works_around("A8")
 works_around("A9")
 
 def literal(value, ftype: "str | None" = None) -> str:
-    """A constant inlined in a cypher text: an integer as its digits (exact, G30), a
-    string or a LIST's canonical text as a string constant (G34). A double has NO
-    constant: the parser keeps about fifteen significant digits of one (A8, G31), so a
-    double is always bound; a boolean has no constant either."""
+    """A literal inlined in a cypher text: an integer as its digits (exact, G30), a
+    string or a LIST's canonical text as a string literal (G34). A double has NO
+    literal: the parser keeps about fifteen significant digits of one (A8, G31), so a
+    double is always bound; a boolean has no literal either."""
     if isinstance(value, bool) or value is None or isinstance(value, float) or ftype == "float":
-        raise Unsupported(f"no cypher constant for {value!r}")
+        raise Unsupported(f"no cypher literal for {value!r}")
     if isinstance(value, int):
         return str(value)
     if isinstance(value, list):
@@ -242,16 +242,16 @@ def _like(expr: str, pattern: str) -> str:
 
 
 def _crosses_value(ftype: "str | None", v) -> bool:
-    """Whether one pivot value is of the other numeric type than its column (a double
-    against INT, an integer against FLOAT: `pivots.cross_type`)."""
+    """Whether one constant value is of the other numeric type than its column (a double
+    against INT, an integer against FLOAT: `predicate_sampling.cross_type`)."""
     return (ftype == "int" and type(v) is float) or (ftype == "float" and type(v) is int)
 
 
 def crosses(p) -> bool:
-    """Whether any of a numeric leaf's pivot values is of the other numeric type."""
+    """Whether any of a numeric leaf's constant values is of the other numeric type."""
     if p.ftype not in ("int", "float") or p.op in ("IS NULL", "IS NOT NULL") or p.sub is not None:
         return False
-    pv = p.pivot if isinstance(p.pivot, list) else [p.pivot]
+    pv = p.constant if isinstance(p.constant, list) else [p.constant]
     return any(_crosses_value(p.ftype, v) for v in pv)
 
 
@@ -264,14 +264,14 @@ def cypher_filter(p, var: str, table: str, schema: Schema, params: "Params | Non
     `table`. Three-valued logic is the engine's own (a comparison with NULL is NULL,
     dropped by WHERE; NOT / AND / OR combine as in SQL), so the text is the tree.
 
-    A DOUBLE pivot is BOUND (`$name`, `params`); every other pivot -- an integer, a
-    string, a LIST's text -- is a constant in the text, so one OPENCYPHER_TABLE call
+    A DOUBLE constant is BOUND (`$name`, `params`); every other constant -- an integer, a
+    string, a LIST's text -- is a literal in the text, so one OPENCYPHER_TABLE call
     binds parameters of one type only: a statement with two calls types the second
     call's bare parameters in the wrong order when they mix a string and a number
-    (A9, G32), a double constant loses digits (A8, G31), an integer constant and a
-    string constant are exact (G30, G34). Raises `Unsupported` for a membership, a
+    (A9, G32), a double literal loses digits (A8, G31), an integer literal and a
+    string literal are exact (G30, G34). Raises `Unsupported` for a membership, a
     semi-join, a case-insensitive or (unless `BOOL_FILTERS`) a boolean comparison, and
-    for a string constant the grammar cannot spell (a control character)."""
+    for a string literal the grammar cannot spell (a control character)."""
     if isinstance(p, Compound):
         if p.op == "NOT":
             return f"NOT ({cypher_filter(p.children[0], var, table, schema, params)})"
@@ -282,19 +282,19 @@ def cypher_filter(p, var: str, table: str, schema: Schema, params: "Params | Non
         raise Unsupported("a LIST membership has no cypher form")
     if p.ftype == "bool" and not BOOL_FILTERS:
         raise Unsupported("a BOOLEAN attribute is projected only")
-    # a cross-type pivot (`pivots.cross_type`): the engine refuses a BIGINT attribute
+    # a cross-type constant (`predicate_sampling.cross_type`): the engine refuses a BIGINT attribute
     # against a float and a DOUBLE attribute against an integer outright (G36, `[4906]
     # Type mismatch`), so for THAT value both sides are doubles -- an integer attribute
-    # through TOFLOAT, the pivot as TOFLOAT of its text (exact, unlike a double
-    # constant: A8). Per value, as SQL types each comparison of an IN list on its own: an
-    # integer pivot beside the cross-typed one keeps the exact integer comparison (a
+    # through TOFLOAT, the constant as TOFLOAT of its text (exact, unlike a double
+    # literal: A8). Per value, as SQL types each comparison of an IN list on its own: an
+    # integer constant beside the cross-typed one keeps the exact integer comparison (a
     # BIGINT above 2^53 through TOFLOAT would meet its neighbours)
     cross = crosses(p)
 
     def value(name: str, v, ftype: "str | None"):
         if ftype == "float" or isinstance(v, float):
             if params is None:
-                raise Unsupported("a double has no cypher constant")
+                raise Unsupported("a double has no cypher literal")
             return params.use(name, "float")
         return literal(v, ftype)
 
@@ -305,34 +305,34 @@ def cypher_filter(p, var: str, table: str, schema: Schema, params: "Params | Non
         return f"({col} IS NULL)" if p.op == "IS NULL" else f"NOT ({col} IS NULL)"
     expr = col
     if p.arith is not None and cross:
-        raise Unsupported("arithmetic over a cross-type pivot")
+        raise Unsupported("arithmetic over a cross-type constant")
     if p.arith is not None:
         sym, cbind, c = p.arith
         expr = f"({col} {sym} {value(cbind, float(c) if p.ftype == 'float' else c, p.ftype)})"
 
     def sides(name: str, v) -> "tuple[str, str]":
-        """(the attribute's side, the pivot's side) for one value."""
+        """(the attribute's side, the constant's side) for one value."""
         if _crosses_value(p.ftype, v):
             return (f"TOFLOAT({expr})" if p.ftype == "int" else expr), f"TOFLOAT('{v!r}')"
         return expr, value(name, v, p.ftype)
 
     if p.op == "LIKE":
-        return _like(expr, p.pivot)
+        return _like(expr, p.constant)
     if p.op == "BETWEEN":
-        la, ra = sides(p.bind + "a", p.pivot[0])
-        lb, rb = sides(p.bind + "b", p.pivot[1])
+        la, ra = sides(p.bind + "a", p.constant[0])
+        lb, rb = sides(p.bind + "b", p.constant[1])
         return f"({la} >= {ra} AND {lb} <= {rb})"
     if p.op in ("IN", "NOT IN"):
-        if not p.pivot:
+        if not p.constant:
             raise Unsupported("an empty IN list")
-        ors = " OR ".join("{} = {}".format(*sides(f"{p.bind}__{k}", v)) for k, v in enumerate(p.pivot))
+        ors = " OR ".join("{} = {}".format(*sides(f"{p.bind}__{k}", v)) for k, v in enumerate(p.constant))
         return f"({ors})" if p.op == "IN" else f"NOT ({ors})"
     if p.op not in MIRROR:
         raise Unsupported(f"no cypher form of {p.op}")
     if p.ftype == "list":
-        lhs, rhs = expr, literal(p.pivot, "list")
+        lhs, rhs = expr, literal(p.constant, "list")
     else:
-        lhs, rhs = sides(p.bind, p.pivot)
+        lhs, rhs = sides(p.bind, p.constant)
     if p.rev:
         return f"({rhs} {MIRROR[p.op]} {lhs})"
     return f"({lhs} {p.op} {rhs})"

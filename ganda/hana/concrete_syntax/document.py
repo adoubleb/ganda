@@ -116,7 +116,7 @@ def sql_cast(ftype: FieldType, col: str) -> str:
     return col
 
 
-assumes("accepts.query.boolean_constant", COLLECTION, REFUSED)
+assumes("accepts.query.boolean_literal", COLLECTION, REFUSED)
 
 def view_definition(schema: Schema, name: str) -> str:
     """The SQL of one view (`v_n1`, `v_n1__f3`, `v_e1`, `v_e1__f`).
@@ -125,7 +125,7 @@ def view_definition(schema: Schema, name: str) -> str:
     view (`v_n1`, `v_e1`) is TWO CTEs, `raw_<view>` and `<view>`: the raw CTE reads the
     document fields as text straight from the collection, the view casts them over the
     raw CTE. The split is required because the Document Store's SQL dialect rejects a
-    BOOLEAN constant (`CASE ... THEN TRUE`, the boolean cast) in any query that reads a
+    BOOLEAN literal (`CASE ... THEN TRUE`, the boolean cast) in any query that reads a
     collection; evaluating the casts one CTE removed from the collection is pure SQL."""
     base = name[len(NAMES.prefix):]
     table, _, field = base.partition("__")
@@ -249,7 +249,7 @@ assumes("accepts.like.parameter", COLLECTION, REFUSED)
 
 def _sql_string(v: str) -> str:
     """An NVARCHAR literal (the quote doubled). The collection filter's LIKE takes only a
-    constant string on its right-hand side (or TO_NVARCHAR / UPPER / LOWER of one), never
+    string literal on its right-hand side (or TO_NVARCHAR / UPPER / LOWER of one), never
     a parameter, so a LIKE pattern is inlined rather than bound."""
     return "'" + str(v).replace("'", "''") + "'"
 
@@ -258,13 +258,13 @@ assumes("accepts.filter.bare_parameter", COLLECTION, REFUSED)
 assumes("accepts.filter.in_list_parameter", COLLECTION, REFUSED)
 
 def _param(ftype: "str | None", bind: str, value) -> str:
-    """A pivot as the document store takes it: cast to the type it compares as."""
+    """A constant as the document store takes it: cast to the type it compares as."""
     if ftype == "bool" or isinstance(value, bool):
         return _bool_literal(value)
     if ftype == "list":
         return f"PARSE_JSON(:{bind}__json)"
     if ftype == "int" and isinstance(value, float):
-        # a cross-type pivot against an integer field (`pivots.cross_type`): the store
+        # a cross-type constant against an integer field (`predicate_sampling.cross_type`): the store
         # compares integer and number as one type (D4, D24)
         return f"CAST(:{bind} AS DOUBLE)"
     if ftype == "float" or isinstance(value, float):
@@ -275,7 +275,7 @@ def _param(ftype: "str | None", bind: str, value) -> str:
 
 
 def _params(ftype: "str | None", bind: str, values: list) -> str:
-    """A list of pivots, one cast each (`:p__0`, `:p__1`: the list's elements)."""
+    """A list of constants, one cast each (`:p__0`, `:p__1`: the list's elements)."""
     return "(" + ", ".join(_param(ftype, f"{bind}__{k}", v) for k, v in enumerate(values)) + ")"
 
 
@@ -315,24 +315,24 @@ def doc_pred(p, alias: str = "", negate: bool = False, keep_not: bool = False) -
         if negate:
             raise Unsupported("a negated membership")
         if p.op == "HAS":
-            return f'FOR ANY "e" IN {col} SATISFIES "e" = {_param("int", p.bind, p.pivot)} END'
+            return f'FOR ANY "e" IN {col} SATISFIES "e" = {_param("int", p.bind, p.constant)} END'
         if p.op == "HAS ANY":
-            alts = " OR ".join(f'"e" = {_param("int", f"{p.bind}__{k}", v)}' for k, v in enumerate(p.pivot))
+            alts = " OR ".join(f'"e" = {_param("int", f"{p.bind}__{k}", v)}' for k, v in enumerate(p.constant))
             return f'FOR ANY "e" IN {col} SATISFIES ({alts}) END'
-        return "(" + " AND ".join(f'FOR ANY "e" IN {col} SATISFIES "e" = {_param("int", f"{p.bind}__{k}", v)} END' for k, v in enumerate(p.pivot)) + ")"
+        return "(" + " AND ".join(f'FOR ANY "e" IN {col} SATISFIES "e" = {_param("int", f"{p.bind}__{k}", v)} END' for k, v in enumerate(p.constant)) + ")"
     if p.op in ("IS NULL", "IS NOT NULL"):
         return f"{col} {_COMPLEMENT[p.op] if negate else p.op}"
     if p.op == "LIKE":
-        return f"{col} {'NOT LIKE' if negate else 'LIKE'} {_sql_string(p.pivot)}"
+        return f"{col} {'NOT LIKE' if negate else 'LIKE'} {_sql_string(p.constant)}"
     if p.op == "BETWEEN":
-        lo, hi = _param(p.ftype, p.bind + "a", p.pivot[0]), _param(p.ftype, p.bind + "b", p.pivot[1])
+        lo, hi = _param(p.ftype, p.bind + "a", p.constant[0]), _param(p.ftype, p.bind + "b", p.constant[1])
         return f"({col} < {lo} OR {col} > {hi})" if negate else f"({col} >= {lo} AND {col} <= {hi})"
     if p.op in ("IN", "NOT IN"):
         positive = (p.op == "IN") != negate
-        parts = [f"{col} {'=' if positive else '<>'} {_param(p.ftype, f'{p.bind}__{k}', v)}" for k, v in enumerate(p.pivot)]
+        parts = [f"{col} {'=' if positive else '<>'} {_param(p.ftype, f'{p.bind}__{k}', v)}" for k, v in enumerate(p.constant)]
         return "(" + (" OR " if positive else " AND ").join(parts) + ")"
     op = _COMPLEMENT[p.op] if negate else p.op
-    return f"{col} {op} {_param(p.ftype, p.bind, p.pivot)}"
+    return f"{col} {op} {_param(p.ftype, p.bind, p.constant)}"
 
 
 def doc_filter_ok(p, keep_not: bool = False) -> bool:

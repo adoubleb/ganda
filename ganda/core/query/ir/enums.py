@@ -35,7 +35,7 @@ class Reach(StrEnum):
 
 
 class NullOp(StrEnum):
-    """The null tests: they bind no pivot. `IS NULL` holds for a null or an absent field;
+    """The null tests: they bind no constant. `IS NULL` holds for a null or an absent field;
     `IS PRESENT` / `IS ABSENT` tell a field that exists (null or not) from a missing one."""
 
     IS_NULL = "IS NULL"

@@ -1,5 +1,5 @@
 """ArangoDB's side of predicate sampling: the operators a leaf may draw per column type
-and the pivots that sit where an index lookup and a scan can disagree.
+and the constants that sit where an index lookup and a scan can disagree.
 
 A STRING (or BINARY) column takes the equality family only: AQL orders strings by ICU
 collation (`order.string` in `rules/catalog.py`), which the generators' walk of the
@@ -37,8 +37,8 @@ def ordered_ops(ftype: FieldType) -> tuple:
 
 
 def cross_type(rng: random.Random, ftype: FieldType, v):
-    """The same pivot in a form the column does not hold: an integer pivot as an
-    exact double (`5.0`) or a half-step off it (`5.5`); a double pivot as the integer
+    """The same constant in a form the column does not hold: an integer constant as an
+    exact double (`5.0`) or a half-step off it (`5.5`); a double constant as the integer
     it truncates to, or one past it. A date column is a string column here: no other
     form compares equal to its values."""
     if ftype in INT_TYPES:
@@ -55,7 +55,7 @@ def cross_type(rng: random.Random, ftype: FieldType, v):
 
 
 def refine(rng: random.Random, ftype: FieldType, v):
-    """A same-type pivot as this engine wants it asked: as it is."""
+    """A same-type constant as this engine wants it asked: as it is."""
     return v
 
 
@@ -81,7 +81,7 @@ _ARITH_CHOICES = {
 def leaf_form(rng: random.Random, p):
     """The drawn leaf `p` in one of AQL's forms, each another question asked alike on
     every data model: reversed operands (`@p > n.f`), the field under arithmetic (`(n.f
-    * @c) > @p`, the drawn pivot shifted alike), a map entry keyed by a parameter
+    * @c) > @p`, the drawn constant shifted alike), a map entry keyed by a parameter
     (`n.m[@k] == @p`); or `p` as drawn. The write generator keeps an arithmetic leaf
     only where it is exact on every stored value."""
     if p.key is not None and not p.key_bind and p.sub is None and rng.random() < KEY_BIND_PROBABILITY:
@@ -101,12 +101,12 @@ def _arithmetic(rng: random.Random, p):
     if p.op not in _MIRROR or p.key is not None or p.sub is not None or p.ftype is None:
         return None
     ftype = FieldType(p.ftype)
-    pv = p.pivot
+    pv = p.constant
     if ftype not in _ARITH_CHOICES or isinstance(pv, bool) or not isinstance(pv, (int, float)) or (ftype in INT_TYPES and not isinstance(pv, int)):
         return None
     sym, c = rng.choice(_ARITH_CHOICES[ftype])
-    # the shifted pivot is exact, so it is the value the engine compares with
+    # the shifted constant is exact, so it is the value the engine compares with
     if not arith_exact(pv, sym, c, ftype):
         return None
     op = p.op if (c > 0 or sym != "*") else _MIRROR[p.op]
-    return dataclasses.replace(p, op=op, pivot=apply_arith(pv, sym, c, ftype.value), arith=Arith(sym, f"{p.bind}c", c))
+    return dataclasses.replace(p, op=op, constant=apply_arith(pv, sym, c, ftype.value), arith=Arith(sym, f"{p.bind}c", c))

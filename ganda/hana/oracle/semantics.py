@@ -83,23 +83,23 @@ def like_hit(value: str, pattern: str) -> bool:
     return re.fullmatch(rx, value, re.S) is not None
 
 
-def _cmp(op: str, v: Any, pivot: Any):
+def _cmp(op: str, v: Any, constant: Any):
     if op == "=":
-        return eq(v, pivot)
+        return eq(v, constant)
     if op == "<>":
-        return not eq(v, pivot)
+        return not eq(v, constant)
     if op == "<":
-        return lt(v, pivot)
+        return lt(v, constant)
     if op == "<=":
-        return not lt(pivot, v)
+        return not lt(constant, v)
     if op == ">":
-        return lt(pivot, v)
+        return lt(constant, v)
     if op == ">=":
-        return not lt(v, pivot)
+        return not lt(v, constant)
     raise ValueError(op)
 
 
-def truth(present: bool, v: Any, op: str, pivot: Any):
+def truth(present: bool, v: Any, op: str, constant: Any):
     """A leaf's truth value: True, False or UNKNOWN (None)."""
     null_v = not present or v is None
     if op == "IS NULL":
@@ -107,28 +107,28 @@ def truth(present: bool, v: Any, op: str, pivot: Any):
     if op == "IS NOT NULL":
         return not null_v
     if op == "HAS":
-        return isinstance(v, list) and any(eq(x, pivot) for x in v)
+        return isinstance(v, list) and any(eq(x, constant) for x in v)
     if op == "HAS ANY":
-        return isinstance(v, list) and any(eq(x, p) for p in pivot for x in v)
+        return isinstance(v, list) and any(eq(x, p) for p in constant for x in v)
     if op == "HAS ALL":
-        return isinstance(v, list) and all(any(eq(x, p) for x in v) for p in pivot)
+        return isinstance(v, list) and all(any(eq(x, p) for x in v) for p in constant)
     if null_v:
         return UNKNOWN
     if op == "IN":
-        if any(p is not None and eq(v, p) for p in pivot):
+        if any(p is not None and eq(v, p) for p in constant):
             return True
-        return UNKNOWN if any(p is None for p in pivot) else False
+        return UNKNOWN if any(p is None for p in constant) else False
     if op == "NOT IN":
-        t = truth(present, v, "IN", pivot)
+        t = truth(present, v, "IN", constant)
         return UNKNOWN if t is UNKNOWN else not t
     if op == "BETWEEN":
-        lo, hi = pivot
+        lo, hi = constant
         return _and(truth(present, v, ">=", lo), truth(present, v, "<=", hi))
-    if pivot is None:
+    if constant is None:
         return UNKNOWN
     if op == "LIKE":
-        return isinstance(v, str) and like_hit(v, pivot)
-    return _cmp(op, v, pivot)
+        return isinstance(v, str) and like_hit(v, constant)
+    return _cmp(op, v, constant)
 
 
 def _and(a, b):
@@ -151,11 +151,11 @@ def _not(a):
     return UNKNOWN if a is UNKNOWN else not a
 
 
-def predicate_hit(present: bool, v: Any, op: str, pivot: Any, ftype: "str | None" = None, ci: bool = False, key: "str | None" = None) -> bool:
-    """Whether a stored value satisfies `op pivot` (TRUE, not unknown)."""
+def predicate_hit(present: bool, v: Any, op: str, constant: Any, ftype: "str | None" = None, ci: bool = False, key: "str | None" = None) -> bool:
+    """Whether a stored value satisfies `op constant` (TRUE, not unknown)."""
     if key is not None:
         raise ValueError("the SAP HANA provider has no map fields")
-    return truth(present, v, op, pivot) is True
+    return truth(present, v, op, constant) is True
 
 
 def apply_arith(v, sym: str, c, ftype: "str | None"):
@@ -176,10 +176,10 @@ def tri(values: dict, p):
     if p.sub is not None:
         if not present or v is None:
             return UNKNOWN
-        return any(x is not None and eq(v, x) for x in p.pivot)
+        return any(x is not None and eq(v, x) for x in p.constant)
     if p.arith is not None and v is not None:
         v = apply_arith(v, p.arith.sym, p.arith.value, p.ftype)
-    return truth(present, v, p.op, p.pivot)
+    return truth(present, v, p.op, p.constant)
 
 
 def evaluate(values: dict, p) -> bool:

@@ -148,7 +148,7 @@ _UNQUOTED = re.compile(r"'(?:[^']|'')*'|(\bN(?='))|(?<![\w'])(TRUE|FALSE)(?![\w'
 
 
 def _inline_literals(text: str) -> str:
-    """The `inline` position's constants as SQLite reads them: `N'...'` is a plain string,
+    """The `inline` position's literals as SQLite reads them: `N'...'` is a plain string,
     a bare `TRUE` / `FALSE` is the boolean marker string; quoted strings are left alone."""
 
     def sub(m):

@@ -24,7 +24,7 @@ from ganda.orientdb.storage.dialect import HASH_KINDS, RANGE_KINDS
 from ganda.orientdb.facade import predicates
 from ganda.core.oracle.case import QueryCase
 from ganda.core.query.ir.traversal import REACH_PROJECTIONS, TraversalQuery
-from ganda.orientdb.facade.predicates import lossy_pivot, Compound, Predicate
+from ganda.orientdb.facade.predicates import lossy_constant, Compound, Predicate
 from ganda.orientdb.concrete_syntax.query.traversal import BRACKET, CORRELATED
 from ganda.core.rules.vocabulary import NullPlacement, StringOrder
 from ganda.orientdb.rules import assumes, works_around
@@ -132,10 +132,10 @@ def o7_predicate(schema: Schema, table: str, p, edge: bool = False) -> bool:
     on the doc data model lives in an undeclared embedded document, where the comparison
     works; the graph E class and the junction class declare it, where it does not --
     so an edge-attribute list predicate is asymmetric and the guard names the
-    declared data models only. The map face: `CONTAINSVALUE` with an Integer-boxed pivot
+    declared data models only. The map face: `CONTAINSVALUE` with an Integer-boxed constant
     on an `EMBEDDEDMAP LONG` matches nothing on a scan (a BY VALUE index answers)."""
     for leaf in _leaves(p):
-        if leaf.op == "HAS VALUE" and isinstance(leaf.pivot, int) and not isinstance(leaf.pivot, bool) and _int32(leaf.pivot):
+        if leaf.op == "HAS VALUE" and isinstance(leaf.constant, int) and not isinstance(leaf.constant, bool) and _int32(leaf.constant):
             return True
         if leaf.op not in _O7_OPS or leaf.key is not None:
             continue
@@ -246,7 +246,7 @@ works_around("O10")
 def o10_predicate(schema: Schema, table: str, p, data_model: str, edge: bool = False) -> bool:
     leaves = _leaves(p)
     for leaf in leaves:
-        if leaf.op in ("IN", "INSUB") and isinstance(leaf.pivot, list) and _mixed_boxes(leaf.pivot) and _leaf_indexed(schema, table, leaf, leaves, data_model, edge):
+        if leaf.op in ("IN", "INSUB") and isinstance(leaf.constant, list) and _mixed_boxes(leaf.constant) and _leaf_indexed(schema, table, leaf, leaves, data_model, edge):
             return True
     return False
 
@@ -270,8 +270,8 @@ def _composite_members(schema: Schema, table: str, data_model: str) -> list:
     return [ix for ix in schema.indexes if ix.target == "node" and ix.extra_fields and ix.table in tables and ix.applies_to(data_model)]
 
 
-def _pivots(leaf) -> list:
-    return leaf.pivot if isinstance(leaf.pivot, list) else [leaf.pivot]
+def _constants(leaf) -> list:
+    return leaf.constant if isinstance(leaf.constant, list) else [leaf.constant]
 
 
 def _column_type(schema: Schema, table: str, field_name: str, edge: bool) -> "FieldType | None":
@@ -288,7 +288,7 @@ def _field_indexes(schema: Schema, table: str, field_name: str, data_model: str,
 
 
 def _lossy_key_predicate(schema: Schema, table: str, p, data_model: str, edge: bool, types: tuple) -> bool:
-    """A `=` / `IN` / range leaf whose pivot the conversion to the column's type
+    """A `=` / `IN` / range leaf whose constant the conversion to the column's type
     changes, on a column of one of `types` an index of the data model serves (as its lead
     field, or as a later field next to an equality on the lead)."""
     leaves = _leaves(p)
@@ -298,7 +298,7 @@ def _lossy_key_predicate(schema: Schema, table: str, p, data_model: str, edge: b
         ftype = _column_type(schema, table, leaf.field, edge)
         if ftype not in types:
             continue
-        if not any(lossy_pivot(ftype, v) for v in _pivots(leaf)):
+        if not any(lossy_constant(ftype, v) for v in _constants(leaf)):
             continue
         ixs = _field_indexes(schema, table, leaf.field, data_model, edge)
         if not edge:
@@ -384,7 +384,7 @@ def o27_predicate(schema: Schema, table: str, p, edge: bool = False) -> bool:
     date's midnight)."""
     for leaf in _leaves(p):
         ftype = _column_type(schema, table, leaf.field, edge)
-        if ftype in (FieldType.DATETIME, FieldType.DATE) and any(lossy_pivot(ftype, v) for v in _pivots(leaf)):
+        if ftype in (FieldType.DATETIME, FieldType.DATE) and any(lossy_constant(ftype, v) for v in _constants(leaf)):
             return True
     return False
 
@@ -478,7 +478,7 @@ def o17_predicate(schema: Schema, table: str, p, edge: bool = False) -> bool:
         # a map entry (`m.k BETWEEN ...`) holds the map's value type, a LONG: its
         # bounds truncate alike (remote smoke, seed 5000: `-49.5` admitted `-49`)
         ftype = FieldType.INT if leaf.key is not None else _column_type(schema, table, leaf.field, edge)
-        if ftype in (FieldType.INT, FieldType.INT32, FieldType.FLOAT32) and any(lossy_pivot(ftype, v) for v in leaf.pivot):
+        if ftype in (FieldType.INT, FieldType.INT32, FieldType.FLOAT32) and any(lossy_constant(ftype, v) for v in leaf.constant):
             return True
     return False
 
@@ -502,7 +502,7 @@ def o13_predicate(instance: Instance, edge_type: str, p) -> bool:
     for leaf in _leaves(p):
         if leaf.op != "BETWEEN":
             continue
-        ints = [v for v in leaf.pivot if isinstance(v, int) and not isinstance(v, bool)]
+        ints = [v for v in leaf.constant if isinstance(v, int) and not isinstance(v, bool)]
         ints += [e.values.get(leaf.field) for e in instance.edges_of(edge_type) if isinstance(e.values.get(leaf.field), int) and not isinstance(e.values.get(leaf.field), bool)]
         if ints and len({_int32(v) for v in ints}) > 1:
             return True
@@ -628,7 +628,7 @@ def o39_predicate(p) -> bool:
     """O39 (`issue-drafts/O39-containsvalue-inside-a-value-subquery-npe.md`): a
     `CONTAINSVALUE` leaf anywhere in the WHERE of a subquery whose answer is consumed
     as a value -- `x IN (SELECT ...)`, `NOT IN`, `LET $a = (SELECT ...)` -- is a
-    `NullPointerException`, whatever the pivot, the id index or the tree around it
+    `NullPointerException`, whatever the constant, the id index or the tree around it
     (under NOT, in an OR); as a FROM target it is fine, and so are `CONTAINSKEY`,
     `m.values() CONTAINS` and `m.k = :p` (probed)."""
     return predicates.has_op_deep(p, ("HAS VALUE",))
@@ -738,7 +738,7 @@ def list_ops_known(schema: Schema, table: str, p, data_model: str, edge: bool = 
     `CONTAINSANY`, so every data model is the scan."""
     conjuncts = _conjunct_leaves(p)
     for leaf in _leaves(p):
-        if leaf.op not in ("HAS ANY", "HAS ALL") or not isinstance(leaf.pivot, list):
+        if leaf.op not in ("HAS ANY", "HAS ALL") or not isinstance(leaf.constant, list):
             continue
         if _column_type(schema, table, leaf.field, edge) is not FieldType.LIST:
             continue
@@ -749,11 +749,11 @@ def list_ops_known(schema: Schema, table: str, p, data_model: str, edge: bool = 
             # the planner picks a hash or dictionary list index for CONTAINSANY and
             # cannot evaluate it: a 501 (an O5 face; campaign c100d, seed 1022)
             return "O5"
-        boxed = [v for v in leaf.pivot if isinstance(v, int) and not isinstance(v, bool) and _int32(v)]
+        boxed = [v for v in leaf.constant if isinstance(v, int) and not isinstance(v, bool) and _int32(v)]
         if not boxed:
             continue
         if served:
-            if _mixed_boxes(leaf.pivot):
+            if _mixed_boxes(leaf.constant):
                 return "O10"
             continue
         return "O7"
@@ -762,7 +762,7 @@ def list_ops_known(schema: Schema, table: str, p, data_model: str, edge: bool = 
 
 def map_value_index_known(schema: Schema, table: str, p, data_model: str, edge: bool = False, servable: bool = True) -> "str | None":
     """O5's map face: `m CONTAINSVALUE :p` through a `BY VALUE` map index of a hash
-    or a DICTIONARY kind is a 501 `Cannot evaluate ... on index` for every pivot
+    or a DICTIONARY kind is a 501 `Cannot evaluate ... on index` for every constant
     (probed on all five kinds, cov400 seed 5372); an SB-tree `NOTUNIQUE` / `UNIQUE`
     one answers, `CONTAINSKEY` answers through every kind."""
     if edge or not servable:
@@ -794,7 +794,7 @@ def o5_sibling_filter(schema: Schema, table: str, p, data_model: str) -> bool:
     """O5's mixed-type face through a base-class index (cov400 seed 5092): a query
     on a SUBCLASS that an index on the abstract base serves fetches the base's
     entries across every subclass and filters them BEFORE `FILTER ITEMS BY CLASS`,
-    so a SIBLING's same-named field of another type meets the query's pivot. Probed:
+    so a SIBLING's same-named field of another type meets the query's constant. Probed:
     only a `BETWEEN` under an OR throws there (`b1 = false AND (b1 = true OR f1
     BETWEEN '1978-07-01' AND '2000-02-28')` with a sibling's BOOLEAN `f1`:
     `IllegalArgumentException: Value is not boolean`); the same BETWEEN as a
@@ -819,7 +819,7 @@ def o5_poly_sibling_index(schema: Schema, table: str, p, data_model: str) -> boo
     """O5's mixed-type face through a SIBLING's index (cov400 seed 5272): the
     base-class query `FROM N0 WHERE @class = :cls AND (f2 = :p)` is planned over
     every subclass's index on `f2`, and a sibling's index on its own `f2` of another
-    type converts the pivot to its key type -- a date string into a LIST index's
+    type converts the constant to its key type -- a date string into a LIST index's
     Long: `NumberFormatException`. Probed: only when EVERY subclass holds an index
     leading with the field (one class without it, even one lacking the field, and
     the base query scans), and only for `=` / `IN` (a range answers)."""
@@ -874,15 +874,15 @@ def _reversed_range_fields(leaves: list) -> set:
     lows: dict = {}
     highs: dict = {}
     for leaf in leaves:
-        if leaf.key is not None or not _plain(leaf) or leaf.pivot is None:
+        if leaf.key is not None or not _plain(leaf) or leaf.constant is None:
             continue
-        if leaf.op == "BETWEEN" and isinstance(leaf.pivot, list) and len(leaf.pivot) == 2 and None not in leaf.pivot:
-            if below(leaf.pivot[1], leaf.pivot[0]):
+        if leaf.op == "BETWEEN" and isinstance(leaf.constant, list) and len(leaf.constant) == 2 and None not in leaf.constant:
+            if below(leaf.constant[1], leaf.constant[0]):
                 out.add(leaf.field)
-        elif leaf.op in (">", ">=") and not isinstance(leaf.pivot, list):
-            lows.setdefault(leaf.field, []).append(leaf.pivot)
-        elif leaf.op in ("<", "<=") and not isinstance(leaf.pivot, list):
-            highs.setdefault(leaf.field, []).append(leaf.pivot)
+        elif leaf.op in (">", ">=") and not isinstance(leaf.constant, list):
+            lows.setdefault(leaf.field, []).append(leaf.constant)
+        elif leaf.op in ("<", "<=") and not isinstance(leaf.constant, list):
+            highs.setdefault(leaf.field, []).append(leaf.constant)
     for f in set(lows) & set(highs):
         if any(below(h, lo) for lo in lows[f] for h in highs[f]):
             out.add(f)
@@ -938,7 +938,7 @@ def insub_known(schema: Schema, instance: Instance, table: str, p, data_model: s
             inner = node_case_known(t2, q, schema, instance).get(data_model)
             if inner:
                 return inner
-        if outer_served and _plain(leaf) and any(v is None for v in leaf.pivot) and schema.has_index(table, leaf.field, data_model):
+        if outer_served and _plain(leaf) and any(v is None for v in leaf.constant) and schema.has_index(table, leaf.field, data_model):
             return "O14"
     return None
 
@@ -1135,7 +1135,7 @@ def _join_known(q, sp, data_model: str, schema: Schema, instance: Instance, eff)
     """A join's own findings: O1 where the correlated LET sits in a query whose
     filter an index serves (the class or the base class as the target); and the inner
     lookup's -- `f op $parent.$current.f` with the enclosing record's value as the
-    pivot, a null one included, served by an index on `f` in the `base` form, never
+    constant, a null one included, served by an index on `f` in the `base` form, never
     under `jrev`."""
     from ganda.core.query.ir.select import column
 
