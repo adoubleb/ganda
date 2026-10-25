@@ -54,7 +54,7 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
   storage and write-form draws); `engine/` (connection, plan steps, limits, semantics, dialect; it imports nothing from `concrete_syntax/`);
   `concrete_syntax/` (`setup/`, the instance as a setup plan; `query/`, the renderers and
   `predicate_sampling/`); `known_bugs/` (`predicate.py`, `traversal.py`, `select.py`, `write.py`), `mutation/` (`mutants.py`),
-  `code_coverage/` (JaCoCo), `scripts/`. ArangoDB and HANA still keep `provider.py` and `config.py` at the top, `storage/` (dialect,
+  `code_coverage/` (JaCoCo); the probe is `rules/probe.py`. ArangoDB and HANA still keep `provider.py` and `config.py` at the top, `storage/` (dialect,
   physical design, `mapping/`), the renderers directly under `concrete_syntax/`, a single `known_bugs/guards.py`,
   and `oracle/` (semantics, `predicate_sampling`; HANA also `rewrites` until its port).
 - **Use conventional names** (the README glossary). New concepts get the textbook term.
@@ -95,7 +95,7 @@ The engine rules are minimal records in `ganda/orientdb/rules/catalog.py`, as HA
 subjects are OrientDB SQL's execution paths: a scan, an index-served statement, MATCH,
 TRAVERSE, the script / transaction door, /batch); the defects O1..O46 that can still make two data models differ
 (O3, O4, O11, O28, O29, O30, O32, O33, O34, O42 retired) beside them; `rules/checks.py` lists the rules each probe check (170 of them, ids up to C343
-in `scripts/probe.py`, never reused) asserts and the defects it reproduces (every defect has a check
+in `rules/probe.py`, never reused) asserts and the defects it reproduces (every defect has a check
 whose expected answer is the defect's). A failing check prints the rule that no
 longer holds, or the defect that no longer reproduces, and the code reading it. A rule
 that changed (or a failing check of nothing in the catalog) fails the probe; a defect
@@ -115,7 +115,7 @@ IR). `ganda orientdb rules --write` renders
 `engine/limits.py` (what the engine can hold), `engine/connection.py`, `engine/plan.py` (the setup-plan steps it executes: `Sql`, `Script`, `Batch`), `engine/semantics.py` (value order, equality, arithmetic),
 `concrete_syntax/` (`setup/`: instance → setup plan, one mapper per data model; `query/`: `predicate`, `predicate_sampling/` (`operators`, `constants`, `forms`: the provider's `predicate_sampling` slot; `predicate_steering`: how a scan answers a predicate, `predicate_hit` / `evaluate`; the provider assembles both into its `OrientSemantics`), `traversal`, `select`, `path`, `write`, `support`),
 `known_bugs/` (most of O1..O46, one module per IR over the predicate guards; O4 retired, fixed in 3.2.57; O12, O22, O24, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/query/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `code_coverage/` (`collector.py`: the JaCoCo agent's probes during a run; `report.py` and `jacoco/`: line / branch reports from the `.exec` files),
-`scripts/` (`probe.py`).
+`rules/` (`catalog.py`, `checks.py`, `probe.py`: the live checks, `baseline.json`, `RULES.md`).
 
 Adding a concrete syntax: a choice in the catalog of its module (`SYNTAXES` and
 `_RENDERERS` for a traversal; an axis of `SelectSyntax`), what it admits in

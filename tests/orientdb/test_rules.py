@@ -10,7 +10,7 @@ ORIENT = pathlib.Path(__file__).resolve().parents[2] / "ganda" / "orientdb"
 
 
 def _probe_ids() -> list:
-    tree = ast.parse((ORIENT / "scripts" / "probe.py").read_text())
+    tree = ast.parse((ORIENT / "rules" / "probe.py").read_text())
     return [n.args[0].value for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "check"]
 
 
@@ -38,7 +38,7 @@ def test_the_defects_are_o1_to_o46_but_the_retired_each_reproduced_by_a_probe_ch
 
 def test_the_probe_names_what_a_failing_check_checks_and_who_reads_it():
     from ganda.orientdb.rules import read_index
-    from ganda.orientdb.scripts import probe
+    from ganda.orientdb.rules import probe
 
     assert probe.checked_by("C333") == ["expand.embedded.wrapped_under_value (osql)"]
     assert probe.checked_by("C148") == ["exact.sum.int32.below (osql)", "O19 (osql)"]
@@ -50,7 +50,7 @@ def test_the_probe_names_what_a_failing_check_checks_and_who_reads_it():
 
 
 def test_a_fixed_defect_does_not_block_the_baseline_and_a_changed_rule_does(monkeypatch):
-    from ganda.orientdb.scripts import probe
+    from ganda.orientdb.rules import probe
 
     monkeypatch.setattr(probe, "failures", ["C122", "C205", "C202"])
     assert probe._sort_failures(CATALOG) == ([], {"O18": ["C122", "C205"], "O19": ["C202"]})

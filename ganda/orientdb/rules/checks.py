@@ -1,4 +1,4 @@
-"""Which rules (and error classes) each probe check (`scripts/probe.py`, ids up to
+"""Which rules (and error classes) each probe check (`rules/probe.py`, ids up to
 C343, never reused) checks, and which defects it reproduces -- every check is listed: a check is listed against a rule only where it asserts that rule's
 answer, against a defect only where its expected answer is the defect's (not the
 controls beside it)."""

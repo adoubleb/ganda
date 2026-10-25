@@ -145,7 +145,7 @@ class OrientDBProvider(Provider):
 
     def probe(self, facts: "list | None" = None) -> int:
         """Re-check live every engine fact the provider rests on."""
-        from ganda.orientdb.scripts import probe
+        from ganda.orientdb.rules import probe
 
         return probe.main()
 

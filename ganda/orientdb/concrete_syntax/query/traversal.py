@@ -41,7 +41,7 @@ as an explicit null, probed), so a source predicate holding one is not pulled-up
 
 Every concrete syntax is exact for the shapes `applicable` admits; a shape no concrete syntax of a
 data model admits is not sampled (`traversal_generator`). Facts each rests on (probed 3.2.56,
-`scripts/probe.py`): `LET` precedes `WHERE`; `$parent.$current` is the enclosing
+`rules/probe.py`): `LET` precedes `WHERE`; `$parent.$current` is the enclosing
 row (and null when the enclosing query is index-served, issue-drafts/O1, which
 `known_bugs.py` withholds at that shape); an absent list reads null, `.size()` on it is 0
 and a null element is dropped by the oracle's multiset normalization; a nested list

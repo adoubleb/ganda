@@ -12,7 +12,7 @@ from ganda.orientdb.rules.checks import CHECKS
 CATALOG = Catalog("orientdb", Subject, RULES, DEFECTS, ERRORS, CHECKS)
 BASELINE = Baseline(pathlib.Path(__file__).with_name("baseline.json"))
 SOURCES = ["ganda/orientdb"]
-EXCLUDE = ("rules", "scripts")
+EXCLUDE = ("rules",)
 
 _lookup = Lookup(CATALOG)
 answer, refused, alike, assumes, works_around = _lookup.answer, _lookup.refused, _lookup.alike, _lookup.assumes, _lookup.works_around
