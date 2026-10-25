@@ -59,8 +59,8 @@ def test_the_probe_names_what_a_failing_fact_checks_and_who_reads_it(monkeypatch
     assert probe.consequences("T1", index) == ["checks no rule"]
     monkeypatch.setattr(probe, "failures", ["A25", "A42", "L2"])
     assert probe._sort_failures(CATALOG) == (["L2"], {"A25": ["A25"], "A42": ["A42"]})
-    monkeypatch.setattr(probe, "failures", ["V2", "A43"])  # V2: two rules; A43: a defect
-    assert probe._sort_failures(CATALOG) == (["V2"], {"A43": ["A43"]})
+    monkeypatch.setattr(probe, "failures", ["V3", "A43"])  # V3: two rules; A43: a defect
+    assert probe._sort_failures(CATALOG) == (["V3"], {"A43": ["A43"]})
 
 
 def test_the_generated_rules_are_current():

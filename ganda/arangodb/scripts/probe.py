@@ -25,7 +25,7 @@ from ganda.core.engine.provider import EngineError
 from ganda.core.rules.model import Defect
 from ganda.arangodb.engine.connection import ArangoServer
 from ganda.arangodb.engine.limits import LIMITS
-from ganda.arangodb.oracle.semantics import eq, like_hit, lt
+from ganda.arangodb.oracle.semantics import eq, lt
 
 CHECKS: list = []
 ran: list = []
@@ -61,21 +61,6 @@ def _rejected(s, text, binds=None):
 # --- V: the value semantics -------------------------------------------------------------------
 
 
-@fact("V1", "the order across types is total: null < bool < number < string < array < object")
-def v1(s):
-    assert _one(s, "RETURN [null < false, false < 0, 0 < 'a', 'a' < [], [] < {}, null <= null, null == null]") == [True] * 7
-    _eq(_one(s, "RETURN [null < 5, null <= 5, null > 5, null != 5, null == 5]"), [True, True, False, True, False])
-
-
-@fact("V2", "the mirror of == and < agrees with the engine over the numeric and boolean boundary pairs")
-def v2(s):
-    vals = [0, 1, -1, 7, 2**31, 2**53 - 1, 2**53, 2**53 + 1, 2**62, 2**63 - 1, -(2**63), 123456789012345678, 1.0, 0.5, -0.5, 0.0, -0.0, 9007199254740992.0, 9007199254740993.0, 1e300, 5e-324, 1e-308, 1.7976931348623157e308, True, False, None]
-    pairs = [[a, b] for a in vals for b in vals]
-    got = s.aql("FOR p IN @pairs RETURN [p[0] == p[1], p[0] < p[1]]", {"pairs": pairs}, timeout_ms=0)
-    bad = [(a, b, g, [eq(a, b), lt(a, b)]) for (a, b), g in zip(pairs, got) if g != [eq(a, b), lt(a, b)]]
-    _eq(bad[:12], [], f"{len(bad)} of {len(pairs)} pairs disagree (value, value, engine [==, <], mirror)")
-
-
 @fact("V3", "strings are equal code point by code point (no normalization) and LENGTH counts code points; the collation order is reported, never relied on")
 def v3(s):
     vals = ["", "a", "A", "b", "B", "aa", "ab", "\u00e9", "e\u0301", "\u00df", "ss", "SS", " x", "x", "1", "10", "9", "-1", "_", "[]", "{}", "\u2028", "\U0001F600", "\uffff", "\u4e2d", "null", "a b", "it's"]
@@ -89,43 +74,21 @@ def v3(s):
     print(f"        (string order: the code-point mirror disagrees with the engine on {order} of {len(pairs)} pairs; no predicate relies on it)")
 
 
-@fact("V4", "IN compares with ==: a null element matches a null value; a membership in a null, absent or scalar operand is false")
-def v4(s):
-    _eq(_one(s, "LET d = {a: null, s: 5} RETURN [null IN [1, null], d.a IN [null], d.b IN [null], 1 IN [1.0], 1 IN null, 1 IN d.b, 1 IN d.s, 1 IN [[1]]]"), [True, True, True, True, False, False, False, False])
-
-
-@fact("V5", "the LIKE mirror agrees with the engine over the wildcard, escape, case and line-terminator pool")
-def v5(s):
-    vals = ["abc", "Abc", "ABC", "a\nb", "ab\n", "a\rb", "ab\r", "a\u2028b", "ab\u2028", "a\u2029b", "a\u0085b", "ab\u0085", "a%b", "axb", "a_b", "", "a", "\u00e9a", "\U0001F600b", "ab\r\n", None, 5, True]
-    pats = ["a%", "%b", "a_c", "a\\%b", "a\\_b", "%", "ab", "a%b", "_", "%c", "a__", "abc", "5", "true"]
-    pairs = [[v, p] for v in vals for p in pats]
-    got = s.aql("FOR p IN @pairs RETURN p[0] LIKE p[1]", {"pairs": pairs}, timeout_ms=0)
-    bad = [(v, pat, g, like_hit(v, pat)) for (v, pat), g in zip(pairs, got) if g != like_hit(v, pat)]
-    _eq(bad[:20], [], f"{len(bad)} of {len(pairs)} LIKE answers disagree (value, pattern, engine, mirror)")
-
-
-@fact("V6", "aggregates over nothing: MAX/MIN/AVERAGE/MEDIAN null, COUNT_DISTINCT 0; MAX / MIN skip null, COUNT_DISTINCT counts it")
+@fact("V6", "MAX / MIN over nothing are null and skip a null")
 def v6(s):
-    _eq(_one(s, "RETURN [MAX([]), MIN([]), AVERAGE([]), MEDIAN([]), COUNT_DISTINCT([]), LENGTH(UNIQUE([]))]"), [None, None, None, None, 0, 0])
-    _eq(_one(s, "RETURN [MAX([1, null, 3]), MIN([null, 2]), SUM([1, null, 3]), MEDIAN([1, 2, 3, 4]), AVERAGE([1, 2]), COUNT_DISTINCT([1, null, 1]), LENGTH(UNIQUE([1, null, 1]))]"), [3, 2, 4, 2.5, 1.5, 2, 2])
+    _eq(_one(s, "RETURN [MAX([]), MIN([]), MAX([1, null, 3]), MIN([null, 2])]"), [None, None, 3, 2])
 
 
-@fact("V7", "IN_RANGE with a null value is false; % takes the dividend's sign; 7 / 2 is 3.5; an integral double comes back as an integer; integer arithmetic and sums are exact under 2^53; a null or absent operand of arithmetic is 0")
+@fact("V7", "integer arithmetic and sums are exact under 2^53")
 def v7(s):
-    _eq(_one(s, "LET d = {a: null} RETURN [d.a + 1, d.b * 2, d.b - 3, (d.a + 1) > 0]"), [1, 0, -3, True], "a null or absent arithmetic operand")
-    _eq(_one(s, "RETURN [IN_RANGE(null, 1, 5, true, true), IN_RANGE(3, 1, 5, true, true), -7 % 3, 7 % -3, 7 / 2, FLOOR(-1.5)]"), [False, True, -1, 1, 3.5, -2])
-    wire = s.aql("RETURN [4 / 2, 1.5 * 2, FLOOR(-1.5), 3.0]", timeout_ms=0)[0]
-    _eq([type(v) for v in wire], [int] * 4, "the wire form of an integral double")
     exact = _one(s, "RETURN [4503599627370495 + 4503599627370495, 2251799813685248 * 3, 9007199254740991 - 1, SUM([4503599627370495, 4503599627370495, 1])]")
     _eq(exact, [9007199254740990, 6755399441055744, 9007199254740990, 9007199254740991], "integer arithmetic under 2^53")
     past = _one(s, "RETURN [9007199254740992 + 1, 9007199254740993 == 9007199254740992 + 1]")
     print(f"        (past 2^53: 2^53 + 1 is {past[0]!r}; no form relies on it)")
 
 
-@fact("V8", "an absent attribute reads as null and projects as a present null; HAS tells it from an explicit null and answers false for a non-object; VALUES and ATTRIBUTES refuse one under failOnWarning")
+@fact("V8", "HAS answers false for a non-object; VALUES and ATTRIBUTES refuse one under failOnWarning")
 def v8(s):
-    _eq(_one(s, "LET d = {a: null, m: {k1: 1}} RETURN [d.b == null, d.a == null, HAS(d, 'a'), HAS(d, 'b'), d.m.k2 == null, d.m.k2 < 1, HAS(d.m, 'k1'), 1 IN VALUES(d.m)]"), [True, True, True, False, True, True, True, True])
-    _eq(s.aql("FOR r IN (LET d = {} RETURN {x: d.b}) RETURN [HAS(r, 'x'), r.x]", timeout_ms=0), [[True, None]], "an absent attribute projected")
     # over a stored attribute, as the renderers ask it (a constant argument is folded at
     # compile time and raises no warning): `f` holds a number, `g` a null on r0, `e1` an array
     _fixture(s)
@@ -134,12 +97,6 @@ def v8(s):
         e = _rejected(s, text)
         assert e is not None and "1542" in str(e), f"{text} answered: {e}"
     _eq(s.aql("FOR n IN n1 FILTER n.id IN ['n1/r0', 'n1/r1'] RETURN IS_OBJECT(n.f) ? 1 IN VALUES(n.f) : false", timeout_ms=0), [False, False], "the ternary")
-
-
-@fact("V9", "SORT puts null first ascending and last descending; DESC reverses the type order")
-def v9(s):
-    _eq(s.aql("FOR x IN [3, null, 'a', 1, true] SORT x ASC RETURN x", timeout_ms=0), [None, True, 1, 3, "a"])
-    _eq(s.aql("FOR x IN [3, null, 'a', 1, true] SORT x DESC RETURN x", timeout_ms=0), ["a", 3, 1, True, None])
 
 
 # --- S: the statement forms ----------------------------------------------------------------------
@@ -265,11 +222,10 @@ def s8(s):
 # --- W: the write doors ----------------------------------------------------------------------------
 
 
-@fact("W1", "a data-modification statement answers no count, a subquery over it counts its rows; RETURN OLD / NEW; a null is kept unless keepNull false; REPLACE WITH MERGE keeps the rest")
+@fact("W1", "UPDATE keeps a null unless keepNull false; REPLACE WITH MERGE / UNSET writes what UPDATE does and keeps the rest of the document")
 def w1(s):
     _fixture(s)
-    _eq(s.aql("FOR n IN n1 FILTER n.f > 100 UPDATE n WITH {g: 'z'} IN n1", timeout_ms=0), [], "a bare modification")
-    _eq(s.aql("LET r = (FOR n IN n1 FILTER n.f > 1 UPDATE n WITH {g: 'y'} IN n1 RETURN 1) RETURN {count: LENGTH(r)}", timeout_ms=0), [{"count": 2}])
+    s.aql("FOR n IN n1 FILTER n.f > 1 UPDATE n WITH {g: 'y'} IN n1", timeout_ms=0)
     _eq(s.aql("FOR n IN n1 FILTER n.f == 0 UPDATE n WITH {g: null} IN n1 RETURN [HAS(NEW, 'g'), NEW.g]", timeout_ms=0), [[True, None]], "a null kept by default")
     rows = s.aql("FOR n IN n1 FILTER n.f == 2 UPDATE n WITH {g: null} IN n1 OPTIONS {keepNull: false} RETURN {id: NEW.id, v: NEW.g, h: HAS(NEW, 'g')}", timeout_ms=0)
     _eq(rows, [{"id": "n1/r2", "v": None, "h": False}])
@@ -277,8 +233,6 @@ def w1(s):
     _eq(rows, [{"id": "n1/r3", "o": "y", "h": True, "f": 3, "e": 0}])
     rows = s.aql("FOR n IN n1 FILTER n.f == 1 REPLACE n WITH UNSET(n, 'g') IN n1 RETURN {h: HAS(NEW, 'g'), e: LENGTH(NEW.e1)}", timeout_ms=0)
     _eq(rows, [{"h": False, "e": 1}])
-    _eq(s.aql("LET r = (UPSERT {id: @wid} INSERT {_key: @wkey, id: @wid, f: 9} UPDATE {f: 9} IN n1 RETURN 1) RETURN {count: LENGTH(r)}", {"wid": "n1/w9", "wkey": "w9"}, timeout_ms=0), [{"count": 1}])
-    _eq(_one(s, "RETURN LENGTH(n1)"), 5)
 
 
 @fact("W2", "a stream transaction's writes are seen inside it and gone after an abort; the write forms of a setup round-trip")

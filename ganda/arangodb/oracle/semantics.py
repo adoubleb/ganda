@@ -8,7 +8,7 @@ generators walk the `Instance` with. No answer is predicted from them.
   hold, `null > 5` does not, `null != 5` holds, `null == null` holds. An absent
   attribute reads as null; `HAS()` tells them apart.
 - **Numbers** are one type: `1 == 1.0`; a 64-bit integer compared with a double is
-  compared EXACTLY (`2^53 + 1 == 9007199254740992.0` is false, probed V2). A stored `-0.0` is one value to comparison and two to hashing
+  compared EXACTLY (`2^53 + 1 == 9007199254740992.0` is false, probed 2026-10-24). A stored `-0.0` is one value to comparison and two to hashing
   (A1), which is why the generator stores none.
 - **Strings** compare for equality code point by code point (no Unicode
   normalization); their ORDER is ICU collation, which Python does not reproduce, so
@@ -18,7 +18,7 @@ generators walk the `Instance` with. No answer is predicted from them.
   shape, on which ICU and code-point order agree digit by digit.
 - **`LIKE`** is case-sensitive, `%` any run and `_` one character, across a newline
   too but not across the Unicode line and paragraph separators (the pattern is an ICU
-  regex: probed V5); the generator never builds a pattern from a value holding a
+  regex: probed 2026-10-24); the generator never builds a pattern from a value holding a
   wildcard or a line terminator.
 - **`IN`** compares with `==`, so a null element matches a null value (a semi-join's
   answered nulls do match the records lacking the field).
@@ -34,23 +34,12 @@ from typing import Any
 
 from ganda.core.query.ir.predicates import Compound
 from ganda.core.engine.provider import Semantics
-from ganda.core.rules.vocabulary import Logic, StringOrder, Truth
+from ganda.core.rules.vocabulary import StringOrder
 from ganda.arangodb.rules import answer, assumes
 from ganda.arangodb.rules.catalog import AQL
 
-# the mirror below has no branch for another answer to these
-assumes("compare.type_order.total", AQL, True)
-assumes("filter.logic", AQL, Logic.TWO_VALUED)
-assumes("compare.negative_zero_equals_zero", AQL, True)
-assumes("exact.compare.integer_vs_double", AQL, True)
+# the mirror below has no branch for another answer to this
 assumes("equality.string", AQL, StringOrder.CODE_POINT)
-assumes("value.absent_is_null", AQL, True)
-assumes("filter.membership.absent_list", AQL, Truth.FALSE)
-assumes("filter.in.null_matches_null", AQL, True)
-assumes("filter.like.case_sensitive", AQL, True)
-assumes("filter.like.wildcard_crosses_newline", AQL, True)
-assumes("filter.like.null_as_empty_string", AQL, True)
-assumes("value.double.integral_returned_as_integer", AQL, True)
 # sums run in double: exact over integers whose absolute total stays under this
 F64_INT_EXACT = answer("aggregate.sum.integer.exact_below", AQL)
 
@@ -108,7 +97,7 @@ def eq(a: Any, b: Any) -> bool:
         return False
     if _is_number(a):
         # exact: a 64-bit integer against a double is NOT rounded through double
-        # (probed V2: `2^53 + 1 == 9007199254740992.0` is false)
+        # (probed 2026-10-24: `2^53 + 1 == 9007199254740992.0` is false)
         return a == b
     if isinstance(a, list):
         return len(a) == len(b) and all(eq(x, y) for x, y in zip(a, b))
@@ -138,8 +127,7 @@ def lt(a: Any, b: Any) -> bool:
 
 
 # the characters a wildcard does NOT cross: the pattern is an ICU regex whose `.` stops
-# at the Unicode line and paragraph separators (probed V5: it crosses `\n` and `\r`)
-assumes("filter.like.wildcard_stops_at_line_terminators", AQL, "U+0085 U+2028 U+2029")
+# at the Unicode line and paragraph separators (probed 2026-10-24: it crosses `\n` and `\r`)
 _LINE_TERMINATORS = "\u0085\u2028\u2029"
 _WILD = f"[^{_LINE_TERMINATORS}]"
 
@@ -238,8 +226,6 @@ def apply_arith(v, sym: str, c, ftype: "str | None"):
 
 # integer arithmetic is exact under this magnitude (AQL arithmetic runs in double past it)
 ARITHMETIC_EXACT_BELOW = answer("exact.arithmetic.integer.below", AQL)
-# a null (or absent) operand of an arithmetic operator is 0
-assumes("arithmetic.null_operand.zero", AQL, True)
 
 
 def arith_exact(v, sym: str, c, ftype) -> bool:

@@ -52,8 +52,7 @@ from ganda.arangodb.concrete_syntax.support import METHODS, base_union, tx_extra
 POSITIONS = ("table", "poly", "polyin")
 FORMS = ("base", "collect", "order", "set", "fn", "jrev")
 _FN = {"max": "MAX", "min": "MIN", "sum": "SUM", "avg": "AVERAGE", "median": "MEDIAN"}
-# every aggregate reads present values: COUNT_DISTINCT counts a null, MAX / MIN skip it
-assumes("aggregate.count_distinct.counts_null", AQL, True)
+# every aggregate reads present values: MAX / MIN skip a null
 assumes("aggregate.max_min.skips_null", AQL, True)
 _COLLECT_AGGREGATES = ("max", "min", "count", "avg", "sum")
 _BIG = 1_000_000_000

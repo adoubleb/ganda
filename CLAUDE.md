@@ -194,6 +194,12 @@ four IRs rendered per data model, the purely differential oracle) is the one por
   pairs no defect marked were A43 over a base-class index, which the guard now reads.
 - A1, A2, A40 and A41 retired on that evidence and by reasoning; the probe then holds 30
   facts on 3.12.11.
+- The scope review (step 6a): 16 rules that answer alike on every data model (value
+  semantics the model mirrors for steering only, the pull-up's projection, the write's
+  count) and the facts V1, V2, V4, V5, V9 deleted, `equivalent.update_replace` recorded;
+  the pull-up takes definedness tests (every data model lifts them over one projection).
+  Probe: 25 facts on 3.12.11; the two campaigns again: 0 failing pairs no defect marks,
+  A43 exposed on 28 of its 74 guards-off pairs.
 
 ## Live verification of the rules catalog (2026-10-24, ArangoDB 3.12.11 on mousedeer)
 

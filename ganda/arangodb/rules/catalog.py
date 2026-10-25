@@ -35,23 +35,16 @@ import enum
 
 from ganda.core.rules.model import Defect, ErrorClass, ErrorKind, Kind, Question, Rule, Verdict
 from ganda.core.rules.vocabulary import (
-    ABSENT_IS_NULL,
-    FILTER_LOGIC,
-    LIKE_CASE_SENSITIVE,
     MAX_EMPTY,
-    MEMBERSHIP_ABSENT_LIST,
     OWN_UNCOMMITTED_VISIBLE,
     PARALLEL_EDGE_ROWS,
     STRING_ORDER,
     SUM_EXACT_BELOW,
     UNDIRECTED_SELF_LOOP_ROWS,
     VARIABLE_LENGTH_PATH_MODE,
-    WRITE_ROW_COUNT,
     EmptyAggregate,
-    Logic,
     PathMode,
     StringOrder,
-    Truth,
 )
 
 
@@ -82,47 +75,22 @@ def exact(value: str, domain=bool) -> Question:
 
 
 # --- the engine's own questions ------------------------------------------------------------------
-TYPE_ORDER_TOTAL = Question("compare.type_order.total", bool, COMPARE)
-NEGATIVE_ZERO_EQUALS_ZERO = Question("compare.negative_zero_equals_zero", bool, COMPARE)
 STRING_EQUALITY = Question("equality.string", StringOrder, COMPARE)
-INTEGRAL_DOUBLE_AS_INTEGER = Question("value.double.integral_returned_as_integer", bool, COMPARE)
-NULL_OPERAND_ZERO = Question("arithmetic.null_operand.zero", bool, COMPARE)
-IN_NULL_MATCHES_NULL = Question("filter.in.null_matches_null", bool, COMPARE)
-LIKE_CROSSES_NEWLINE = Question("filter.like.wildcard_crosses_newline", bool, COMPARE)
-LIKE_LINE_TERMINATORS = Question("filter.like.wildcard_stops_at_line_terminators", str, COMPARE)
-LIKE_NULL_AS_EMPTY = Question("filter.like.null_as_empty_string", bool, COMPARE)
 MAX_MIN_SKIP_NULL = Question("aggregate.max_min.skips_null", bool, COMPARE)
-COUNT_DISTINCT_COUNTS_NULL = Question("aggregate.count_distinct.counts_null", bool, COMPARE)
-ABSENT_SURVIVES_PROJECTION = Question("projection.keeps_absent_field", bool, COMPARE)
 SHORTEST_PATH_UNREACHABLE = Question("shortest_path.unreachable.result", int, COMPARE)
 SHORTEST_PATH_SAME_RECORD = Question("shortest_path.same_record.result", int, COMPARE)
 UPDATE_MERGES_MAP_VALUE = Question("update.map_value.merged_by_default", bool, COMPARE)
 UPDATE_KEEPS_NULL = Question("update.null.kept_by_default", bool, COMPARE)
 DELETE_VERTEX_CASCADES = Question("delete_vertex.cascades_edges", bool, COMPARE)
 INLINE_ARRAY_REBUILDS = Question("update.inline_array.rebuilds_elements", bool, COMPARE)
-INTEGER_VS_DOUBLE_EXACT = exact("compare.integer_vs_double")
 ARITHMETIC_EXACT_BELOW = exact("arithmetic.integer.below", int)
 
 # --- compare: paths answering differently are not compared where the question is exercised ----
 COMPARE_RULES = (
-    Rule(TYPE_ORDER_TOTAL, AQL, True),
-    Rule(FILTER_LOGIC, AQL, Logic.TWO_VALUED),
-    Rule(NEGATIVE_ZERO_EQUALS_ZERO, AQL, True),
     Rule(STRING_ORDER, AQL, StringOrder.COLLATION),
     Rule(STRING_EQUALITY, AQL, StringOrder.CODE_POINT),
-    Rule(INTEGRAL_DOUBLE_AS_INTEGER, AQL, True),
-    Rule(NULL_OPERAND_ZERO, AQL, True),
-    Rule(ABSENT_IS_NULL, AQL, True),
-    Rule(ABSENT_SURVIVES_PROJECTION, AQL, False),
-    Rule(MEMBERSHIP_ABSENT_LIST, AQL, Truth.FALSE),
-    Rule(IN_NULL_MATCHES_NULL, AQL, True),
-    Rule(LIKE_CASE_SENSITIVE, AQL, True),
-    Rule(LIKE_CROSSES_NEWLINE, AQL, True),
-    Rule(LIKE_LINE_TERMINATORS, AQL, "U+0085 U+2028 U+2029"),
-    Rule(LIKE_NULL_AS_EMPTY, AQL, True),
     Rule(MAX_EMPTY, AQL, EmptyAggregate.NULL),
     Rule(MAX_MIN_SKIP_NULL, AQL, True),
-    Rule(COUNT_DISTINCT_COUNTS_NULL, AQL, True),
     Rule(PARALLEL_EDGE_ROWS, AQL, 2),
     Rule(PARALLEL_EDGE_ROWS, TRAVERSAL, 2),
     Rule(UNDIRECTED_SELF_LOOP_ROWS, AQL, 2),
@@ -130,7 +98,6 @@ COMPARE_RULES = (
     Rule(VARIABLE_LENGTH_PATH_MODE, TRAVERSAL, PathMode.TRAIL),
     Rule(SHORTEST_PATH_UNREACHABLE, PATH, 0),
     Rule(SHORTEST_PATH_SAME_RECORD, PATH, 1),
-    Rule(WRITE_ROW_COUNT, AQL, False),
     Rule(UPDATE_MERGES_MAP_VALUE, AQL, True),
     Rule(UPDATE_MERGES_MAP_VALUE, DOCUMENT_API, True),
     Rule(UPDATE_KEEPS_NULL, AQL, True),
@@ -160,12 +127,12 @@ EQUIVALENT_RULES = (
     Rule(equivalent("reach_bfs_global"), TRAVERSAL, True),
     Rule(equivalent("path_forms"), PATH, True),
     Rule(equivalent("write_doors"), AQL, True),
+    Rule(equivalent("update_replace"), AQL, True),
     Rule(equivalent("write_doors"), DOCUMENT_API, True),
 )
 
 # --- exact: where a value compares exactly ------------------------------------------------------
 EXACT_RULES = (
-    Rule(INTEGER_VS_DOUBLE_EXACT, AQL, True),
     Rule(SUM_EXACT_BELOW, AQL, 2**53),
     Rule(ARITHMETIC_EXACT_BELOW, AQL, 2**53),
 )

@@ -27,8 +27,8 @@ Every syntax also has a PULLED-UP form (`render(..., pull_up=True)`, the
 `<data model>:pull_up` variant): the source predicate lifted into an enclosing `FOR hr
 IN (<syntax>) FILTER <predicate over hr>`, the inner query projecting the source
 fields it needs -- the same transformation on every data model, compared with the
-other data models' pull-ups. A definedness test does not survive a projection (an absent attribute
-projects as null), so such a source predicate is not pulled up.
+other data models' pull-ups (a definedness test over the projection answers alike on
+each: an absent attribute projects as a null).
 
 The variable-depth (reach) question is one outgoing hop walked k times: a `0..k`
 traversal under `uniqueVertices: 'global'` on the graph data model, the frontier
@@ -47,7 +47,7 @@ from __future__ import annotations
 
 import dataclasses
 
-from ganda.core.query.ir.predicates import fields_of, has_op
+from ganda.core.query.ir.predicates import fields_of
 from ganda.core.query.ir.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, Hop, TraversalQuery
 from ganda.core.data.model import Schema
 from ganda.core.rules.vocabulary import EmptyAggregate, PathMode
@@ -129,15 +129,10 @@ def applicable(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) 
     return True
 
 
-# an absent attribute projects as an explicit null
-assumes("projection.keeps_absent_field", AQL, False)
-
-
 def can_pull_up(q: TraversalQuery) -> bool:
-    """A source predicate can be lifted over a projection unless it tests definedness
-    (an absent attribute projects as an explicit null)."""
-    p = q.source_predicate
-    return p is not None and not has_op(p, ("IS PRESENT", "IS ABSENT"))
+    """A question with a source predicate can be pulled up: every data model lifts it
+    over the same projection (an absent attribute projects as a null alike on each)."""
+    return q.source_predicate is not None
 
 
 def syntaxes_for(q: TraversalQuery, schema: Schema, data_model: str) -> list:

@@ -47,9 +47,7 @@ from ganda.arangodb.rules.catalog import AQL
 from ganda.arangodb.concrete_syntax.predicate import render_predicate as render_pred
 from ganda.arangodb.storage.dialect import document_key
 
-# a data-modification statement answers no count: the write runs as a subquery whose
-# rows are counted (`_counted`)
-assumes("statement.write.answers_row_count", AQL, False)
+# a data-modification statement is counted as a subquery's rows (`_counted`)
 # UPDATE merges a map value key by key and keeps a null unless told otherwise: every
 # update door carries `mergeObjects: false`, a remove `keepNull: false`
 assumes("update.map_value.merged_by_default", AQL, True)
@@ -106,6 +104,10 @@ class Statements:
     def display(self) -> str:
         texts = [t for t, _p in self.prelude] + ([self.main[0]] if self.main else [])
         return ("/* tx */ " if self.door == "tx" else "") + "; ".join(texts)
+
+
+# each data model draws its own form: `update` and `replace` write the same document
+assumes("equivalent.update_replace", AQL, True)
 
 
 def forms(q: WriteQuery, data_model: str) -> tuple:

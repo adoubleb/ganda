@@ -8,24 +8,10 @@ baseline: 3.12.11, every check of a rule held
 
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
-| compare.type_order.total | aql | true | V1 | oracle/semantics.py:42 |
-| filter.logic | aql | two-valued | V1 | oracle/semantics.py:43 |
-| compare.negative_zero_equals_zero | aql | true | V2 | oracle/semantics.py:44 |
 | order.string | aql | collation | V3 | oracle/pivots.py:29 |
-| equality.string | aql | code-point | V3 | oracle/semantics.py:46, storage/physical_design.py:83 |
-| value.double.integral_returned_as_integer | aql | true | V7 | oracle/semantics.py:53 |
-| arithmetic.null_operand.zero | aql | true | V7 | oracle/semantics.py:242 |
-| value.absent_is_null | aql | true | V8 | oracle/semantics.py:47 |
-| projection.keeps_absent_field | aql | false | V8 | concrete_syntax/traversal.py:133 |
-| filter.membership.absent_list | aql | false | V4 | oracle/semantics.py:48 |
-| filter.in.null_matches_null | aql | true | V4 | oracle/semantics.py:49 |
-| filter.like.case_sensitive | aql | true | V5 | oracle/semantics.py:50 |
-| filter.like.wildcard_crosses_newline | aql | true | V5 | oracle/semantics.py:51 |
-| filter.like.wildcard_stops_at_line_terminators | aql | `U+0085 U+2028 U+2029` | V5 | oracle/semantics.py:142 |
-| filter.like.null_as_empty_string | aql | true | V5 | oracle/semantics.py:52 |
+| equality.string | aql | code-point | V3 | oracle/semantics.py:42, storage/physical_design.py:83 |
 | aggregate.max.empty_input | aql | null | V6 | concrete_syntax/traversal.py:73 |
-| aggregate.max_min.skips_null | aql | true | V6, S4 | concrete_syntax/select.py:57, concrete_syntax/traversal.py:74 |
-| aggregate.count_distinct.counts_null | aql | true | V6 | concrete_syntax/select.py:56 |
+| aggregate.max_min.skips_null | aql | true | V6, S4 | concrete_syntax/select.py:56, concrete_syntax/traversal.py:74 |
 | match.parallel_edges.rows | aql | 2 | S1 | concrete_syntax/traversal.py:68 |
 | match.parallel_edges.rows | traversal | 2 | S1 | concrete_syntax/traversal.py:69 |
 | match.undirected.self_loop.rows | aql | 2 | S2 | concrete_syntax/traversal.py:70 |
@@ -33,13 +19,12 @@ baseline: 3.12.11, every check of a rule held
 | path.variable_length.mode | traversal | trail | S3 | concrete_syntax/traversal.py:78 |
 | shortest_path.unreachable.result | path | 0 | S7 | concrete_syntax/path.py:38 |
 | shortest_path.same_record.result | path | 1 | S7 | concrete_syntax/path.py:37 |
-| statement.write.answers_row_count | aql | false | W1 | concrete_syntax/write.py:52 |
-| update.map_value.merged_by_default | aql | true | W4 | concrete_syntax/write.py:55, storage/mapping/common.py:47 |
+| update.map_value.merged_by_default | aql | true | W4 | concrete_syntax/write.py:53, storage/mapping/common.py:47 |
 | update.map_value.merged_by_default | document-api | true | W4 | storage/mapping/common.py:48 |
-| update.null.kept_by_default | aql | true | W1 | concrete_syntax/write.py:56, storage/mapping/common.py:49 |
+| update.null.kept_by_default | aql | true | W1 | concrete_syntax/write.py:54, storage/mapping/common.py:49 |
 | update.null.kept_by_default | document-api | true | W4 | storage/mapping/common.py:50 |
-| delete_vertex.cascades_edges | aql | false | W3 | concrete_syntax/write.py:58, storage/mapping/common.py:52 |
-| update.inline_array.rebuilds_elements | aql | true | W6 | concrete_syntax/write.py:236 |
+| delete_vertex.cascades_edges | aql | false | W3 | concrete_syntax/write.py:56, storage/mapping/common.py:52 |
+| update.inline_array.rebuilds_elements | aql | true | W6 | concrete_syntax/write.py:238 |
 | transaction.own_uncommitted_visible | stream-transaction | true | W2 | concrete_syntax/support.py:116 |
 
 ## ask
@@ -66,14 +51,14 @@ baseline: 3.12.11, every check of a rule held
 | equivalent.path_forms | path | true | S7 | concrete_syntax/path.py:36 |
 | equivalent.write_doors | aql | true | W2 | storage/physical_design.py:44 |
 | equivalent.write_doors | document-api | true | W2 | storage/physical_design.py:45 |
+| equivalent.update_replace | aql | true | W1 | concrete_syntax/write.py:110 |
 
 ## exact
 
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
-| exact.compare.integer_vs_double | aql | true | V2 | oracle/semantics.py:45 |
-| aggregate.sum.integer.exact_below | aql | 9007199254740992 | V7 | oracle/semantics.py:55 |
-| exact.arithmetic.integer.below | aql | 9007199254740992 | V7 | oracle/semantics.py:240 |
+| aggregate.sum.integer.exact_below | aql | 9007199254740992 | V7 | oracle/semantics.py:44 |
+| exact.arithmetic.integer.below | aql | 9007199254740992 | V7 | oracle/semantics.py:228 |
 
 ## defects
 
@@ -90,4 +75,4 @@ baseline: 3.12.11, every check of a rule held
 | timeout | 1500, 1600 |  | unchecked |
 | timeout | any | `query killed`; `timed out`; `time out`; `timeout` (any case) | unchecked |
 
-51 rules (0 IR definitions): 51 checked by a probe fact, 0 unchecked; 51 read by code, 0 unread; 3 defects (3 reproduced by a probe fact); 2 error classes
+36 rules (0 IR definitions): 36 checked by a probe fact, 0 unchecked; 36 read by code, 0 unread; 3 defects (3 reproduced by a probe fact); 2 error classes
