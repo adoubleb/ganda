@@ -19,7 +19,8 @@ from ganda.core.data.model import FieldType
 from ganda.core.engine.setup_plan import plan_from_dict, plan_to_dict
 from ganda.core.engine.state_check import compare_states
 from tests.instance_session import InstanceSession
-from ganda.arangodb.oracle import rewrites
+from ganda.arangodb.oracle.pivots import _arithmetic, leaf_form
+from ganda.arangodb.oracle.semantics import arith_exact
 from ganda.arangodb.engine.connection import bind_subset
 from ganda.arangodb.storage.dialect import ARANGO_KEY_RE, document_key, engine_id, logical_id
 from ganda.arangodb.storage.mapping.common import Aql, CreateCollection, CreateIndex, DocumentApi, Insert, Transaction, chunks
@@ -121,38 +122,44 @@ def _records():
     return out
 
 
-def test_rewrites_are_equivalent_under_aql_semantics():
-    rng = random.Random(7)
-    records = _records()
-    rewritten = 0
-    for _ in range(400):
-        p = _random_tree(rng)
-        rw = rewrites.rewrite(p, rng, "q")
-        if rw is None:
-            continue
-        rewritten += 1
-        for r in records:
-            assert evaluate(r, p) == evaluate(r, rw), (p, rw, r)
-    assert rewritten > 200
-
-
-def test_the_arithmetic_rewrite_is_exact_where_it_applies():
+def test_the_arithmetic_form_shifts_the_pivot_alike():
     rng = random.Random(3)
     values = [None, 0, 1, -5, 7, 2**40]
     seen = 0
     for op in ("=", "<>", "<", "<=", ">", ">="):
         p = _leaf("a", op, 7)
         for _ in range(20):
-            ar = rewrites.arithmetic(p, rng, "ar", FieldType.INT, values)
+            ar = _arithmetic(rng, p)
             if ar is None:
                 continue
             seen += 1
-            for v in values + ["absent"]:
-                r = {} if v == "absent" else {"a": v}
-                assert evaluate(r, p) == evaluate(r, ar), (op, ar, r)
+            # the same records wherever the field is a number (a null operand is 0 in AQL)
+            for v in values[1:]:
+                assert evaluate({"a": v}, p) == evaluate({"a": v}, ar), (op, ar, v)
+            assert evaluate({}, ar) == evaluate({"a": 0}, ar)
     assert seen > 20
-    assert rewrites.arithmetic(_leaf("a", "<", 0.5, "float"), rng, "ar", FieldType.FLOAT, [0.25, 1e300]) is None or True
-    assert not rewrites.arith_exact(2**53, "+", 1, FieldType.INT) and rewrites.arith_exact(0.5, "*", 2, FieldType.FLOAT) and not rewrites.arith_exact(0.5, "+", 1, FieldType.FLOAT)
+    assert not arith_exact(2**53, "+", 1, FieldType.INT) and arith_exact(0.5, "*", 2, FieldType.FLOAT) and not arith_exact(0.5, "+", 1, FieldType.FLOAT)
+
+
+def test_leaf_forms():
+    class Roll:
+        def __init__(self, *rolls):
+            self.rolls = list(rolls)
+
+        def random(self):
+            return self.rolls.pop(0) if self.rolls else 0.99
+
+        def choice(self, xs):
+            return xs[0]
+
+    from ganda.arangodb.concrete_syntax.predicate import render_predicate
+
+    p = _leaf("a", "<", 7)
+    assert render_predicate(leaf_form(Roll(0.05), p)) == "@ba > n.a"
+    assert leaf_form(Roll(0.15), p).arith is not None
+    assert leaf_form(Roll(0.5), p) == p
+    m = Predicate("source", "m", "=", "p", 2, "int", False, "k2")
+    assert render_predicate(leaf_form(Roll(0.1), m)) == "n.m[@pk] == @p"
 
 
 # --- the plans: an offline engine replaying every step ----------------------------------------
@@ -368,7 +375,7 @@ def test_every_write_renders_on_every_data_model(seed):
     assert rendered >= 3
 
 
-_FORM_KINDS = {"order": lambda sel: sel["kind"] == "agg" and sel["fn"] in ("max", "min"), "set": lambda sel: sel["kind"] == "agg" and sel["fn"] == "distinct_count", "fn": lambda sel: sel["kind"] == "agg" and sel["fn"] == "distinct_count", "collect": lambda sel: sel["kind"] in ("count", "group", "distinct") or (sel["kind"] == "agg" and sel["fn"] in ("max", "min", "count", "avg")), "jscan": lambda sel: sel["kind"] == "join", "jrev": lambda sel: sel["kind"] == "join"}
+_FORM_KINDS = {"order": lambda sel: sel["kind"] == "agg" and sel["fn"] in ("max", "min"), "set": lambda sel: sel["kind"] == "agg" and sel["fn"] == "distinct_count", "fn": lambda sel: sel["kind"] == "agg" and sel["fn"] == "distinct_count", "collect": lambda sel: sel["kind"] in ("count", "group", "distinct") or (sel["kind"] == "agg" and sel["fn"] in ("max", "min", "count", "avg", "sum")), "jrev": lambda sel: sel["kind"] == "join"}
 
 
 @pytest.mark.parametrize("seed", SEEDS)
@@ -440,7 +447,7 @@ def test_a42_withholds_every_select_variant_and_a_traversals_pulled_up_form():
     inst = dataclasses.replace(inst, schema=schema, nodes=[NodeRow("n1", 0, {"s": "a" * LIKE_WILDCARD_MAX_CHARS}), NodeRow("n1", 1, {"s": "ab"})], edges=[], churn=[])
     q = SelectQuery("n1", like, "ids", ())
     rw = Rewrites()
-    for sp in (SelectSyntax(), SelectSyntax(filter="noopt"), SelectSyntax(position="noindex"), SelectSyntax(position="nest")):
+    for sp in (SelectSyntax(), SelectSyntax(form="collect")):
         assert select_known(q, sp, rw, "doc", schema, inst) == "A42"
     assert select_known(SelectQuery("n1", Predicate("source", "s", "LIKE", "p_0", "ab", "string"), "ids", ()), SelectSyntax(), rw, "doc", schema, inst) is None
     tq = TraversalQuery("n1", (Hop("e1", "out"),), "ids", source_predicate=like)
@@ -457,7 +464,10 @@ def test_every_mutant_corrupts_something():
     assert len({m.name for m in MUTANTS}) == len(MUTANTS)
     cfg = dataclasses.replace(CFG, index_probability=0.9, composite_index_probability=0.5, churn_update_probability=0.5, churn_delete_probability=0.4, churn_node_delete_probability=0.4)
     changed = {m.name: False for m in MUTANTS}
-    for seed in SEEDS:
+    # a range on an indexed field is rare: the case mutants get more seeds, until each fires
+    for seed in range(1, 25):
+        if seed > max(SEEDS) and all(changed.values()):
+            break
         schema, inst, rng = build(seed, cfg, E)
         for m in MUTANTS:
             for fn in m.instance_for_data_model.values():
@@ -474,17 +484,16 @@ def test_every_mutant_corrupts_something():
     assert all(changed.values()), [n for n, c in changed.items() if not c]
 
 
-def test_index_mutants_leave_the_scan_twins_alone():
+def test_index_mutants_leave_the_transaction_door_alone():
     from ganda.arangodb.mutation.mutants import _desc_as_asc, _inclusive_range, _index_served, _null_keys
 
     assert _inclusive_range("FOR n IN n1 FILTER n.f > @p RETURN {id: n.id}", ["f"]) == "FOR n IN n1 FILTER n.f >= @p RETURN {id: n.id}"
     assert _inclusive_range("FOR n IN n1 FILTER n.g > @p RETURN {id: n.id}", ["f"]) == "FOR n IN n1 FILTER n.g > @p RETURN {id: n.id}"
+    assert _inclusive_range("FOR n IN n1 FILTER n.f >= @p RETURN 1", ["f"]) == "FOR n IN n1 FILTER n.f > @p RETURN 1"
     assert _null_keys("FOR n IN n1 FILTER n.f == @p RETURN {id: n.id}", ["f"]) == "FOR n IN n1 FILTER (n.f == @p OR n.f == null) RETURN {id: n.id}"
     assert _null_keys("FOR n IN n1 FILTER n.f IN @p RETURN 1", ["f"]) == "FOR n IN n1 FILTER (n.f IN @p OR n.f == null) RETURN 1"
     assert _desc_as_asc("FOR n IN n1 FILTER n.f != null SORT n.f DESC LIMIT 1 RETURN {v: n.f}", ["f"]) == "FOR n IN n1 FILTER n.f != null SORT n.f ASC LIMIT 1 RETURN {v: n.f}"
     assert _index_served("FOR n IN n1 FILTER n.f > @p RETURN 1")
-    assert not _index_served("FOR n IN n1 FILTER NOOPT(n.f) > @p RETURN 1")
-    assert not _index_served("FOR n IN n1 OPTIONS {disableIndex: true} FILTER n.f > @p RETURN 1")
     assert not _index_served(tx.script({"write": ["n1"], "read": ["n1"]}, ["FOR x IN n1 REMOVE x IN n1"], "FOR n IN n1 FILTER n.f > @p RETURN 1"))
 
 
@@ -498,12 +507,12 @@ def test_a_string_column_draws_the_equality_family_only_because_its_order_is_col
     assert ordered_ops(FieldType.INT) == ORDERED_OPS and ordered_ops(FieldType.DATE) == ORDERED_OPS
 
 
-def test_the_deep_traversal_asks_every_walk_and_the_collect_form_skips_sum():
+def test_the_deep_traversal_asks_every_walk_and_the_collect_form_takes_sum():
     from ganda.arangodb.concrete_syntax.select import _COLLECT_AGGREGATES
     from ganda.arangodb.concrete_syntax.traversal import _DEEP_OPTIONS
 
     assert _DEEP_OPTIONS == " OPTIONS {uniqueEdges: 'none'}"
-    assert "sum" not in _COLLECT_AGGREGATES and "max" in _COLLECT_AGGREGATES
+    assert "sum" in _COLLECT_AGGREGATES and "max" in _COLLECT_AGGREGATES
 
 
 # --- the known bug A25 ---------------------------------------------------------------------------
@@ -555,7 +564,5 @@ def test_a25_withholds_the_index_servable_select_variants_only():
     inst = dataclasses.replace(inst, schema=schema, nodes=[NodeRow("n1", 0, {"l": [1]}), NodeRow("n1", 1, {"l": [66]})], edges=[], churn=[])
     rw = Rewrites()
     assert select_known(q, SelectSyntax(), rw, "doc", schema, inst) == "A25"
-    assert select_known(q, SelectSyntax(position="nest"), rw, "doc", schema, inst) == "A25"
-    assert select_known(q, SelectSyntax(filter="noopt"), rw, "doc", schema, inst) is None
-    assert select_known(q, SelectSyntax(position="noindex"), rw, "doc", schema, inst) is None
     assert select_known(q, SelectSyntax(), rw, "graph", schema, inst) is None
+

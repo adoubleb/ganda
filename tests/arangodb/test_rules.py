@@ -42,7 +42,6 @@ def test_the_error_classes_read_an_errornum_as_the_connection_layer_does():
     assert CATALOG.classify(1500, "query killed") is ErrorKind.TIMEOUT
     assert CATALOG.classify(1600, "cursor not found") is ErrorKind.TIMEOUT
     assert CATALOG.classify(0, "the request timed out") is ErrorKind.TIMEOUT
-    assert CATALOG.classify(1577, "could not use index hint") is ErrorKind.REJECTION
     # anything else is the HTTP status's business (a 5xx answered is internal)
     assert CATALOG.classify(1210, "unique constraint violated") is None
     assert CATALOG.classify(1542, "invalid argument type") is None

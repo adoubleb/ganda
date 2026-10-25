@@ -41,21 +41,17 @@ from ganda.core.rules.model import Defect, ErrorClass, ErrorKind, Kind, Question
 from ganda.core.rules.vocabulary import (
     ABSENT_IS_NULL,
     FILTER_LOGIC,
-    IR_RULES,
     LIKE_CASE_SENSITIVE,
     MAX_EMPTY,
     MEMBERSHIP_ABSENT_LIST,
     OWN_UNCOMMITTED_VISIBLE,
     PARALLEL_EDGE_ROWS,
     STRING_ORDER,
-    SUM_EMPTY,
     SUM_EXACT_BELOW,
     UNDIRECTED_SELF_LOOP_ROWS,
-    UNGROUPED_EMPTY_ROWS,
     VARIABLE_LENGTH_PATH_MODE,
     WRITE_ROW_COUNT,
     EmptyAggregate,
-    EmptyInputRows,
     Logic,
     PathMode,
     StringOrder,
@@ -94,11 +90,11 @@ TYPE_ORDER_TOTAL = Question("compare.type_order.total", bool, COMPARE)
 NEGATIVE_ZERO_EQUALS_ZERO = Question("compare.negative_zero_equals_zero", bool, COMPARE)
 STRING_EQUALITY = Question("equality.string", StringOrder, COMPARE)
 INTEGRAL_DOUBLE_AS_INTEGER = Question("value.double.integral_returned_as_integer", bool, COMPARE)
+NULL_OPERAND_ZERO = Question("arithmetic.null_operand.zero", bool, COMPARE)
 IN_NULL_MATCHES_NULL = Question("filter.in.null_matches_null", bool, COMPARE)
 LIKE_CROSSES_NEWLINE = Question("filter.like.wildcard_crosses_newline", bool, COMPARE)
 LIKE_LINE_TERMINATORS = Question("filter.like.wildcard_stops_at_line_terminators", str, COMPARE)
 LIKE_NULL_AS_EMPTY = Question("filter.like.null_as_empty_string", bool, COMPARE)
-COLLECT_SUM_EMPTY = Question("aggregate.collect.sum.empty_input", EmptyAggregate, COMPARE)
 MAX_MIN_SKIP_NULL = Question("aggregate.max_min.skips_null", bool, COMPARE)
 COUNT_DISTINCT_COUNTS_NULL = Question("aggregate.count_distinct.counts_null", bool, COMPARE)
 ABSENT_SURVIVES_PROJECTION = Question("projection.keeps_absent_field", bool, COMPARE)
@@ -107,6 +103,7 @@ SHORTEST_PATH_SAME_RECORD = Question("shortest_path.same_record.result", int, CO
 UPDATE_MERGES_MAP_VALUE = Question("update.map_value.merged_by_default", bool, COMPARE)
 UPDATE_KEEPS_NULL = Question("update.null.kept_by_default", bool, COMPARE)
 DELETE_VERTEX_CASCADES = Question("delete_vertex.cascades_edges", bool, COMPARE)
+INLINE_ARRAY_REBUILDS = Question("update.inline_array.rebuilds_elements", bool, COMPARE)
 INTEGER_VS_DOUBLE_EXACT = exact("compare.integer_vs_double")
 ARITHMETIC_EXACT_BELOW = exact("arithmetic.integer.below", int)
 
@@ -118,6 +115,7 @@ COMPARE_RULES = (
     Rule(STRING_ORDER, AQL, StringOrder.COLLATION),
     Rule(STRING_EQUALITY, AQL, StringOrder.CODE_POINT),
     Rule(INTEGRAL_DOUBLE_AS_INTEGER, AQL, True),
+    Rule(NULL_OPERAND_ZERO, AQL, True),
     Rule(ABSENT_IS_NULL, AQL, True),
     Rule(ABSENT_SURVIVES_PROJECTION, AQL, False),
     Rule(MEMBERSHIP_ABSENT_LIST, AQL, Truth.FALSE),
@@ -126,12 +124,9 @@ COMPARE_RULES = (
     Rule(LIKE_CROSSES_NEWLINE, AQL, True),
     Rule(LIKE_LINE_TERMINATORS, AQL, "U+0085 U+2028 U+2029"),
     Rule(LIKE_NULL_AS_EMPTY, AQL, True),
-    Rule(SUM_EMPTY, AQL, EmptyAggregate.ZERO),
-    Rule(COLLECT_SUM_EMPTY, AQL, EmptyAggregate.NULL),
     Rule(MAX_EMPTY, AQL, EmptyAggregate.NULL),
     Rule(MAX_MIN_SKIP_NULL, AQL, True),
     Rule(COUNT_DISTINCT_COUNTS_NULL, AQL, True),
-    Rule(UNGROUPED_EMPTY_ROWS, AQL, EmptyInputRows.ONE_ROW),
     Rule(PARALLEL_EDGE_ROWS, AQL, 2),
     Rule(PARALLEL_EDGE_ROWS, TRAVERSAL, 2),
     Rule(UNDIRECTED_SELF_LOOP_ROWS, AQL, 2),
@@ -145,6 +140,7 @@ COMPARE_RULES = (
     Rule(UPDATE_KEEPS_NULL, AQL, True),
     Rule(UPDATE_KEEPS_NULL, DOCUMENT_API, True),
     Rule(DELETE_VERTEX_CASCADES, AQL, False),
+    Rule(INLINE_ARRAY_REBUILDS, AQL, True),
     Rule(OWN_UNCOMMITTED_VISIBLE, TRANSACTION, True),
 )
 
@@ -154,28 +150,19 @@ ASK_RULES = (
     Rule(accepts("values.non_object_argument"), AQL, REFUSED),
     Rule(accepts("variable.redeclared"), AQL, REFUSED),
     Rule(accepts("bind_variable.undeclared"), AQL, REFUSED),
-    Rule(accepts("index_hint.unservable"), AQL_INDEX, REFUSED),
     Rule(accepts("transaction.collection_absent_from_database"), TRANSACTION, REFUSED),
 )
 
 # --- equivalent: twin forms answer alike, so a mismatch between them is a finding ----------------
 EQUIVALENT_RULES = (
-    Rule(equivalent("noopt"), AQL, True),
-    Rule(equivalent("subquery_target"), AQL, True),
-    Rule(equivalent("collect_forms"), AQL, True),
-    Rule(equivalent("polymorphic_forms"), AQL, True),
     Rule(equivalent("link_array_forms"), AQL, True),
     Rule(equivalent("junction_forms"), AQL, True),
     Rule(equivalent("flat_collect"), AQL, True),
-    Rule(equivalent("pull_up"), AQL, True),
-    Rule(equivalent("disable_index"), AQL_INDEX, True),
-    Rule(equivalent("index_hint"), AQL_INDEX, True),
     Rule(equivalent("edge_scan"), TRAVERSAL, True),
     Rule(equivalent("both_as_union"), TRAVERSAL, True),
     Rule(equivalent("deep_traversal"), TRAVERSAL, True),
     Rule(equivalent("reach_bfs_global"), TRAVERSAL, True),
     Rule(equivalent("path_forms"), PATH, True),
-    Rule(equivalent("transaction_door"), TRANSACTION, True),
     Rule(equivalent("write_doors"), AQL, True),
     Rule(equivalent("write_doors"), DOCUMENT_API, True),
 )
@@ -187,9 +174,8 @@ EXACT_RULES = (
     Rule(ARITHMETIC_EXACT_BELOW, AQL, 2**53),
 )
 
-_SUBJECT_RULES = COMPARE_RULES + ASK_RULES + EQUIVALENT_RULES + EXACT_RULES
-# the core IR's definitions of the compare questions this engine answers
-RULES = tuple(r for r in IR_RULES if r.question in {s.question for s in _SUBJECT_RULES}) + _SUBJECT_RULES
+# the code compares no engine path with the IR: the catalog holds no IR definition
+RULES = COMPARE_RULES + ASK_RULES + EQUIVALENT_RULES + EXACT_RULES
 
 DEFECTS = (
     Defect("A1", AQL),
@@ -208,6 +194,4 @@ ERRORS = (
     # (the query killed meanwhile, or its time to live over)
     ErrorClass(ErrorKind.TIMEOUT, frozenset({1500, 1600})),
     ErrorClass(ErrorKind.TIMEOUT, marks=("query killed", "timed out", "time out", "timeout"), ignore_case=True),
-    # a forced index hint the index cannot serve: HTTP 500, documented as a rejection
-    ErrorClass(ErrorKind.REJECTION, frozenset({1577})),
 )

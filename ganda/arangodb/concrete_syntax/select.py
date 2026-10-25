@@ -1,21 +1,8 @@
 """The concrete syntax catalog of the select IR: HOW a `SelectQuery` is asked in AQL. A
-syntax is three independent choices, and every applicable combination is an equivalent
-text:
+syntax is two independent choices, each asked alike on every data model:
 
     axis       choice    the text
-    filter     plain     `FILTER p`
-               rw        `FILTER rewrite(p)`: an equivalent tree (De Morgan, `IN [x]`
-                         for `== x`, the complement under NOT -- AQL comparison is total)
-               rev       the reversible leaves' operands swapped (`@p < n.f`)
-               arith     `(n.f + @c) op @pc AND n.f != null` where exact; never served
-               noopt     every field behind `NOOPT()`: the filter is NEVER index-served,
-                         the scan twin on a database holding an index
     position   table     `FOR n IN t [FILTER p]`
-               scan      `FOR n IN (FOR m IN t RETURN m) [FILTER p]` (the optimizer inlines it)
-               nest      `FOR n IN (FOR m IN t FILTER p RETURN m)`, everything else outside
-               noindex   `FOR n IN t OPTIONS {disableIndex: true} [FILTER p]`
-               hint      `FOR n IN t OPTIONS {indexHint: '<ix>', forceIndexHint: true}`
-                         where an index of that data model leads on the filter's field
                poly      `FOR n IN UNION(every class) FILTER IS_SAME_COLLECTION(@cls, n)`
                          (the inheritance axis: the base class is the union)
                polyin    the same through `PARSE_IDENTIFIER(n._id).collection IN @clsl`
@@ -26,13 +13,14 @@ text:
                order     `MAX` / `MIN` as the first row of the ordering
                set       a distinct count as `LENGTH(UNIQUE(...))`
                fn        a distinct count as `LENGTH(SORTED_UNIQUE(...))`
-               jscan     a join's subquery over `(FOR y IN t RETURN y)`
                jrev      a join's correlation reversed (`n.f > x.f` for `x.f < n.f`)
 
-A variant's name is `<data model>:<tag>`, the tag the non-default choices joined by `+`
-in the order form, filter, position. The base syntax is ONE text on every data model
-(the same node documents under different indexes: the index-vs-scan oracle across
-databases), and every variant is also a same-database pair.
+The filter is the drawn predicate's own text (`predicate.render_predicate`): its leaves'
+forms -- reversed operands, arithmetic, a parameter-keyed map entry -- are drawn with the
+predicate (`oracle/pivots.leaf_form`). A variant's name is `<data model>:<tag>`, the tag
+the non-default choices joined by `+` in the order form, position. No choice exists only
+to make a data model use or avoid an index: a pair differs in data model, each with its
+own physical design.
 
 An EDGE-TYPE target reads `n.eid` from the edge collection (graph) and the junction
 (rel); the doc data model's relationship records are the link objects of the source
@@ -53,53 +41,37 @@ import itertools
 import random
 from dataclasses import dataclass, field
 
-from ganda.core.query.ir.predicates import MIRROR, Predicate, reverse
+from ganda.core.query.ir.predicates import MIRROR
 from ganda.core.query.ir.select import SelectQuery
-from ganda.core.data.model import FieldType, Instance, Schema
-from ganda.core.rules.vocabulary import EmptyInputRows
-from ganda.arangodb.rules import answer, assumes
-from ganda.arangodb.rules.catalog import AQL, AQL_INDEX, REFUSED, TRANSACTION
-from ganda.arangodb.oracle import rewrites as _rewrites
+from ganda.core.data.model import Instance, Schema
+from ganda.arangodb.rules import assumes
+from ganda.arangodb.rules.catalog import AQL
 from ganda.arangodb.concrete_syntax.predicate import render_predicate as render_pred
 from ganda.arangodb.concrete_syntax.support import METHODS, tx_extra_binds, tx_script  # noqa: F401
 
-FILTERS = ("plain", "rw", "rev", "arith", "noopt")
-POSITIONS = ("table", "scan", "nest", "noindex", "hint", "poly", "polyin")
-FORMS = ("base", "collect", "order", "set", "fn", "jscan", "jrev")
+POSITIONS = ("table", "poly", "polyin")
+FORMS = ("base", "collect", "order", "set", "fn", "jrev")
 _FN = {"max": "MAX", "min": "MIN", "sum": "SUM", "avg": "AVERAGE", "median": "MEDIAN"}
-# the positions and forms are twins the oracle compares
-assumes("equivalent.noopt", AQL, True)
-assumes("equivalent.subquery_target", AQL, True)
-assumes("equivalent.collect_forms", AQL, True)
-assumes("equivalent.polymorphic_forms", AQL, True)
-assumes("equivalent.disable_index", AQL_INDEX, True)
-assumes("equivalent.index_hint", AQL_INDEX, True)
-assumes("equivalent.transaction_door", TRANSACTION, True)
 # every aggregate reads present values: COUNT_DISTINCT counts a null, MAX / MIN skip it
 assumes("aggregate.count_distinct.counts_null", AQL, True)
 assumes("aggregate.max_min.skips_null", AQL, True)
-# a keyless COLLECT AGGREGATE over no rows answers ONE row, whose SUM is null where the
-# function form's `SUM([])` is 0: the collect form takes the aggregates the two agree on
-assumes("aggregate.ungrouped.empty_input.rows", AQL, EmptyInputRows.ONE_ROW)
-_COLLECT_AGGREGATES = ("max", "min", "count", "avg") + (("sum",) if answer("aggregate.collect.sum.empty_input", AQL) is answer("aggregate.sum.empty_input", AQL) else ())
-_HINT_OPS = ("=", "IN", "<", "<=", ">", ">=")
+_COLLECT_AGGREGATES = ("max", "min", "count", "avg", "sum")
 _BIG = 1_000_000_000
 
 
 @dataclass(frozen=True)
 class SelectSyntax:
-    filter: str = "plain"
     position: str = "table"
     form: str = "base"
 
     @property
     def tag(self) -> str:
-        parts = [x for x, default in ((self.form, "base"), (self.filter, "plain"), (self.position, "table")) if x != default]
+        parts = [x for x, default in ((self.form, "base"), (self.position, "table")) if x != default]
         return "+".join(parts)
 
     @property
     def axes(self) -> int:
-        return len([x for x in (self.form != "base", self.filter != "plain", self.position != "table") if x])
+        return len([x for x in (self.form != "base", self.position != "table") if x])
 
 
 BASE = SelectSyntax()
@@ -107,42 +79,20 @@ BASE = SelectSyntax()
 
 @dataclass
 class Rewrites:
-    rw: object = None
-    rev: object = None
-    arith: object = None
-    door: dict = field(default_factory=dict)  # data model -> the index name a hint forces
-    present: list = field(default_factory=list)
+    """The per-case material the syntaxes draw on: the present values of the aggregated
+    field among the matching records."""
 
-    def filter_pred(self, q: SelectQuery, name: str):
-        if name in ("plain", "noopt"):
-            return q.where
-        return getattr(self, name)
+    present: list = field(default_factory=list)
 
 
 def all_syntaxes() -> list:
-    return [SelectSyntax(f, p, m) for m, f, p in itertools.product(FORMS, FILTERS, POSITIONS)]
-
-
-def _plain_source(q: SelectQuery, schema: Schema) -> bool:
-    """Whether the target is one plain collection (not the base class's union, not the
-    doc data model's link objects)."""
-    return not schema.is_base(q.table)
+    return [SelectSyntax(p, m) for m, p in itertools.product(FORMS, POSITIONS)]
 
 
 def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str) -> bool:
-    plain = _plain_source(q, schema) and not (q.edge and data_model == "doc")
     if q.edge and sp.position in ("poly", "polyin"):
         return False
-    if not plain and sp.position in ("noindex", "hint", "scan"):
-        return False
-    if sp.form in ("jscan", "jrev") and q.kind != "join":
-        return False
-    if sp.filter != "plain":
-        if q.where is None:
-            return False
-        if sp.filter != "noopt" and getattr(rewrites, sp.filter) is None:
-            return False
-    if sp.position == "nest" and q.where is None:
+    if sp.form == "jrev" and q.kind != "join":
         return False
     if sp.position in ("poly", "polyin") and (schema.base is None or schema.is_base(q.table)):
         return False
@@ -152,8 +102,6 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
         return False
     if sp.form == "collect" and not (q.kind in ("count", "group", "distinct") or (q.kind == "agg" and q.fn in _COLLECT_AGGREGATES)):
         return False
-    if sp.position == "hint":
-        return q.where is not None and sp.filter in ("plain", "rev") and data_model in rewrites.door
     return True
 
 
@@ -176,9 +124,8 @@ def _notnull(q: SelectQuery) -> tuple:
     return ()
 
 
-def _where_text(q: SelectQuery, sp: SelectSyntax, rewrites: Rewrites, var: str, schema: Schema = None) -> "str | None":
-    pred = rewrites.filter_pred(q, sp.filter)
-    text = render_pred(pred, var, noopt=sp.filter == "noopt", schema=schema) if pred is not None else None
+def _where_text(q: SelectQuery, var: str, schema: Schema = None) -> "str | None":
+    text = render_pred(q.where, var, schema=schema) if q.where is not None else None
     extra = [f"{var}.{f} != null" for f in _notnull(q)]
     if text is None:
         return " AND ".join(extra) or None
@@ -188,41 +135,22 @@ def _where_text(q: SelectQuery, sp: SelectSyntax, rewrites: Rewrites, var: str, 
 def _collection_source(q: SelectQuery, schema: Schema, var: str) -> str:
     """`FOR var IN <target>` for the plain target: a collection, the base class's
     union, or the doc data model's link objects."""
-    if q.edge and schema.engine is not None and getattr(q, "_doc_edge", False):
-        pass
     if schema.is_base(q.table):
         return f"FOR {var} IN UNION({', '.join(f'(FOR m_{nt.name} IN {nt.name} RETURN m_{nt.name})' for nt in schema.node_types)})"
     return f"FOR {var} IN {q.table}"
 
 
-def _doc_edge_source(q: SelectQuery, schema: Schema, var: str, where_inner: "str | None" = None) -> str:
+def _doc_edge_source(q: SelectQuery, schema: Schema, var: str) -> str:
     et = schema.edge_type(q.table)
-    inner = f"FOR s IN {et.from_type} FOR l IN (s.{et.name} || [])" + (f" FILTER {where_inner}" if where_inner else "") + " RETURN l"
+    inner = f"FOR s IN {et.from_type} FOR l IN (s.{et.name} || []) RETURN l"
     return f"FOR {var} IN ({inner})"
 
 
-def _source(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str, let: str = "") -> str:
+def _source(q: SelectQuery, schema: Schema, sp: SelectSyntax, data_model: str, let: str = "") -> str:
     """The FOR clause, the filter and a join's LET."""
-    t = q.table
-    where = _where_text(q, sp, rewrites, "n", schema)
-    doc_edge = q.edge and data_model == "doc"
-    if sp.position == "nest":
-        if doc_edge:
-            head = _doc_edge_source(q, schema, "n", _where_text(q, sp, rewrites, "l", schema))
-        elif schema.is_base(t):
-            inner = _collection_source(q, schema, "m") + f" FILTER {_where_text(q, sp, rewrites, 'm', schema)} RETURN m"
-            head = f"FOR n IN ({inner})"
-        else:
-            head = f"FOR n IN (FOR m IN {t} FILTER {_where_text(q, sp, rewrites, 'm', schema)} RETURN m)"
-        where = None
-    elif doc_edge:
+    where = _where_text(q, "n", schema)
+    if q.edge and data_model == "doc":
         head = _doc_edge_source(q, schema, "n")
-    elif sp.position == "scan":
-        head = f"FOR n IN (FOR m IN {t} RETURN m)"
-    elif sp.position == "noindex":
-        head = f"FOR n IN {t} OPTIONS {{disableIndex: true}}"
-    elif sp.position == "hint":
-        head = f"FOR n IN {t} OPTIONS {{indexHint: '{rewrites.door[data_model]}', forceIndexHint: true}}"
     elif sp.position in ("poly", "polyin"):
         cond = "IS_SAME_COLLECTION(@cls, n)" if sp.position == "poly" else "PARSE_IDENTIFIER(n._id).collection IN @clsl"
         head = _collection_source(dataclasses_replace_table(q, schema.base.name), schema, "n") + f" FILTER {cond}"
@@ -242,7 +170,7 @@ def _join_let(q: SelectQuery, schema: Schema, sp: SelectSyntax) -> str:
     if schema.is_base(q.table):
         target = f"UNION({', '.join(f'(FOR y_{nt.name} IN {nt.name} RETURN y_{nt.name})' for nt in schema.node_types)})"
     else:
-        target = f"(FOR y IN {q.table} RETURN y)" if sp.form == "jscan" else q.table
+        target = q.table
     cond = f"n.{f} {_OP[MIRROR[op]]} x.{f}" if sp.form == "jrev" else f"x.{f} {_OP[op]} n.{f}"
     return f"LET jm = (FOR x IN {target} FILTER {cond} RETURN x.id)"
 
@@ -294,7 +222,7 @@ def _group_text(q: SelectQuery, sp: SelectSyntax, src: str) -> str:
 def _render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str) -> str:
     kind = q.kind
     rid = "n.eid" if q.edge else "n.id"
-    src = _source(q, schema, sp, rewrites, data_model, _join_let(q, schema, sp) if kind == "join" else "")
+    src = _source(q, schema, sp, data_model, _join_let(q, schema, sp) if kind == "join" else "")
     if kind == "join":
         return f"{src} RETURN {{id: n.id, v: {'LENGTH(jm)' if q.arg == 'count' else 'jm'}}}"
     if kind == "ids":
@@ -335,60 +263,17 @@ def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites,
     return text
 
 
-# --- the rewrites of one question ------------------------------------------------
-
-
-# a forced hint the index cannot serve is refused (errorNum 1577): the hint door names
-# an index for a leaf it can serve only
-assumes("accepts.index_hint.unservable", AQL_INDEX, REFUSED)
-
-
-def _door(p, q: SelectQuery, schema: Schema, data_model: str) -> "str | None":
-    """The index of `data_model` on the question's class that leads on the filter's
-    field, for a leaf the index can serve: an equality, a membership or a bound (never
-    `IN_RANGE`, a function; never a sparse index under a bound a null satisfies)."""
-    if not isinstance(p, Predicate) or p.key is not None or p.sub is not None or p.op not in _HINT_OPS or p.ftype in ("list", "map") or q.edge:
-        return None
-    for ix in schema.indexes:
-        if ix.target == "node" and ix.table == q.table and ix.field == p.field and ix.option("by") is None and not ix.extra_fields and ix.applies_to(data_model):
-            # a sparse index holds no null key, and a null satisfies `<` / `<=` under the
-            # total order: the planner refuses the hint there (errorNum 1577); so does
-            # a composite index under a condition on its lead field alone
-            if ix.ignore_nulls and p.op in ("<", "<="):
-                continue
-            return ix.name()
-    return None
+# --- the per-case material ------------------------------------------------------------
 
 
 def build_rewrites(q: SelectQuery, rng: random.Random, schema: Schema, instance: Instance) -> Rewrites:
-    from ganda.core.query.ir.select import present_values, records, view
+    from ganda.core.query.ir.select import present_values
 
-    rewrites = Rewrites(present=present_values(q, instance) if q.kind == "agg" else [])
-    p = q.where
-    if p is None:
-        return rewrites
-    rewrites.rw = _rewrites.rewrite(p, rng, "q")
-    rewrites.rev = reverse(p)
-    if isinstance(p, Predicate) and p.sub is None:
-        try:
-            ftype = schema.field(q.table, p.field, edge=q.edge).type
-        except KeyError:
-            ftype = None
-        if ftype is not None:
-            stored = [n.values.get(p.field) for n in records(q, instance) + (records(q, view(q, instance)) if q.tx else []) if p.field in n.values]
-            rewrites.arith = _rewrites.arithmetic(p, rng, "ar", ftype, stored)
-    for data_model in ("doc", "graph", "rel"):
-        door = _door(p, q, schema, data_model)
-        if door is not None:
-            rewrites.door[data_model] = door
-    return rewrites
+    return Rewrites(present=present_values(q, instance) if q.kind == "agg" else [])
 
 
 def extra_binds(q: SelectQuery, schema: Schema, rewrites: Rewrites) -> dict:
     bind: dict = {}
-    for rewritten in (rewrites.rw, rewrites.rev, rewrites.arith):
-        if rewritten is not None:
-            bind.update(rewritten.bind_vars)
     if schema.base is not None and not q.edge and not schema.is_base(q.table):
         bind.update({"cls": q.table, "clsl": [q.table]})
     if q.tx:
@@ -397,11 +282,5 @@ def extra_binds(q: SelectQuery, schema: Schema, rewrites: Rewrites) -> dict:
 
 
 def rewrite_params(rewrites: Rewrites) -> dict:
-    params: dict = {}
-    for name in ("rw", "rev", "arith"):
-        rewritten = getattr(rewrites, name)
-        if rewritten is not None:
-            params[name] = rewritten.to_dict()
-    if rewrites.door:
-        params["index_hint"] = dict(rewrites.door)
-    return params
+    """What a bundle records of the per-case material: nothing beyond the question."""
+    return {}

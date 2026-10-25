@@ -104,15 +104,15 @@ def v5(s):
     _eq(bad[:20], [], f"{len(bad)} of {len(pairs)} LIKE answers disagree (value, pattern, engine, mirror)")
 
 
-@fact("V6", "aggregates over nothing: SUM 0, MAX/MIN/AVERAGE/MEDIAN null, COUNT_DISTINCT 0; a keyless COLLECT AGGREGATE answers one row")
+@fact("V6", "aggregates over nothing: MAX/MIN/AVERAGE/MEDIAN null, COUNT_DISTINCT 0; MAX / MIN skip null, COUNT_DISTINCT counts it")
 def v6(s):
-    _eq(_one(s, "RETURN [SUM([]), MAX([]), MIN([]), AVERAGE([]), MEDIAN([]), COUNT_DISTINCT([]), LENGTH(UNIQUE([]))]"), [0, None, None, None, None, 0, 0])
-    _eq(s.aql("FOR x IN [] COLLECT AGGREGATE c = COUNT(1), m = MAX(x), t = SUM(x) RETURN {c, m, t}", timeout_ms=0), [{"c": 0, "m": None, "t": None}], "a keyless COLLECT AGGREGATE over no rows")
+    _eq(_one(s, "RETURN [MAX([]), MIN([]), AVERAGE([]), MEDIAN([]), COUNT_DISTINCT([]), LENGTH(UNIQUE([]))]"), [None, None, None, None, 0, 0])
     _eq(_one(s, "RETURN [MAX([1, null, 3]), MIN([null, 2]), SUM([1, null, 3]), MEDIAN([1, 2, 3, 4]), AVERAGE([1, 2]), COUNT_DISTINCT([1, null, 1]), LENGTH(UNIQUE([1, null, 1]))]"), [3, 2, 4, 2.5, 1.5, 2, 2])
 
 
-@fact("V7", "IN_RANGE with a null value is false; % takes the dividend's sign; 7 / 2 is 3.5; an integral double comes back as an integer; integer arithmetic and sums are exact under 2^53")
+@fact("V7", "IN_RANGE with a null value is false; % takes the dividend's sign; 7 / 2 is 3.5; an integral double comes back as an integer; integer arithmetic and sums are exact under 2^53; a null or absent operand of arithmetic is 0")
 def v7(s):
+    _eq(_one(s, "LET d = {a: null} RETURN [d.a + 1, d.b * 2, d.b - 3, (d.a + 1) > 0]"), [1, 0, -3, True], "a null or absent arithmetic operand")
     _eq(_one(s, "RETURN [IN_RANGE(null, 1, 5, true, true), IN_RANGE(3, 1, 5, true, true), -7 % 3, 7 % -3, 7 / 2, FLOOR(-1.5)]"), [False, True, -1, 1, 3.5, -2])
     wire = s.aql("RETURN [4 / 2, 1.5 * 2, FLOOR(-1.5), 3.0]", timeout_ms=0)[0]
     _eq([type(v) for v in wire], [int] * 4, "the wire form of an integral double")
@@ -223,32 +223,12 @@ def s4(s):
     _eq(agg, {"n1/r0": "x", "n1/r1": None, "n1/r2": "x"})
 
 
-@fact("S5", "the select forms agree: NOOPT, disableIndex, a forced index hint, a subquery target, COLLECT WITH COUNT")
-def s5(s):
-    _fixture(s)
-    base = s.aql("FOR n IN n1 FILTER n.id IN @p RETURN {id: n.id}", {"p": ["n1/r1", "n1/r3"]}, timeout_ms=0)
-    for text in (
-        "FOR n IN n1 FILTER NOOPT(n.id) IN @p RETURN {id: n.id}",
-        "FOR n IN n1 OPTIONS {disableIndex: true} FILTER n.id IN @p RETURN {id: n.id}",
-        "FOR n IN n1 OPTIONS {indexHint: 'ix_n1_id', forceIndexHint: true} FILTER n.id IN @p RETURN {id: n.id}",
-        "FOR n IN (FOR m IN n1 RETURN m) FILTER n.id IN @p RETURN {id: n.id}",
-        "FOR n IN (FOR m IN n1 FILTER m.id IN @p RETURN m) RETURN {id: n.id}",
-    ):
-        _eq(sorted(r["id"] for r in s.aql(text, {"p": ["n1/r1", "n1/r3"]}, timeout_ms=0)), sorted(r["id"] for r in base), text)
-    _eq(_one(s, "RETURN {v: LENGTH(FOR n IN n1 FILTER n.f > 1 RETURN 1)}"), {"v": 2})
-    _eq(s.aql("FOR n IN n1 FILTER n.f > 1 COLLECT WITH COUNT INTO c RETURN {v: c}", timeout_ms=0), [{"v": 2}])
-    _eq(s.aql("FOR n IN n1 FILTER n.g != null COLLECT k = n.g WITH COUNT INTO c RETURN {k, v: c}", timeout_ms=0), [{"k": "x", "v": 2}])
-    _eq(s.aql("FOR n IN n1 COLLECT k = n.g INTO g RETURN {k, v: LENGTH(g[* FILTER CURRENT.n.f != null])}", timeout_ms=0), [{"k": None, "v": 2}, {"k": "x", "v": 2}])
-    _eq(s.aql("FOR n IN n1 SORT n.g DESC, n.id ASC LIMIT 1, 2 RETURN {id: n.id}", timeout_ms=0), [{"id": "n1/r3"}, {"id": "n1/r0"}])
-
-
 @fact("S6", "a semi-join subquery in a FILTER, IS_SAME_COLLECTION over a UNION of collections, PARSE_IDENTIFIER")
 def s6(s):
     _fixture(s)
     _eq(sorted(r["id"] for r in s.aql("FOR n IN n1 FILTER n.f IN (FOR s_p IN j1 RETURN s_p.w) RETURN {id: n.id}", timeout_ms=0)), ["n1/r0", "n1/r1", "n1/r2", "n1/r3"])
     _eq(s.aql("FOR n IN UNION((FOR m_n1 IN n1 RETURN m_n1), (FOR m_j1 IN j1 RETURN m_j1)) FILTER IS_SAME_COLLECTION(@cls, n) COLLECT WITH COUNT INTO c RETURN c", {"cls": "n1"}, timeout_ms=0), [4])
     _eq(s.aql("FOR n IN UNION((FOR m_n1 IN n1 RETURN m_n1), (FOR m_j1 IN j1 RETURN m_j1)) FILTER PARSE_IDENTIFIER(n._id).collection IN @clsl COLLECT WITH COUNT INTO c RETURN c", {"clsl": ["j1"]}, timeout_ms=0), [5])
-    _eq(s.aql("FOR n IN UNION((FOR m_n1 IN n1 RETURN m_n1), (FOR m_j1 IN j1 RETURN m_j1)) FILTER PARSE_IDENTIFIER(n._id).collection IN @clsl COLLECT WITH COUNT INTO c RETURN c", {"clsl": ["n1"]}, timeout_ms=0), [4], "the two polymorphic forms agree")
     e = _rejected(s, "FOR n IN n1 FOR n IN n1 RETURN 1")
     assert e is not None and "1511" in str(e), f"a redeclared variable answered: {e}"
 
@@ -280,25 +260,6 @@ def s8(s):
             assert num in str(e) and not e.internal, str(e)
             continue
         raise AssertionError(f"{body} answered")
-
-
-@fact("S9", "a forced index hint the index cannot serve is refused as a rejection (1577): a sparse index under a bound a null satisfies, an index on another field; a servable hint is taken (a composite index serves its lead field alone)")
-def s9(s):
-    _fixture(s)
-    _eq(s.aql("FOR n IN n1 OPTIONS {indexHint: 'ix_n1_g', forceIndexHint: true} FILTER n.g == @p RETURN n.id", {"p": "x"}, timeout_ms=0), ["n1/r1", "n1/r3"])
-    _eq(s.aql("FOR n IN n1 OPTIONS {indexHint: 'ix_n1_f_g', forceIndexHint: true} FILTER n.f == @p RETURN n.id", {"p": 1}, timeout_ms=0), ["n1/r1"], "a composite index under its lead field")
-    for text in ("FOR n IN n1 OPTIONS {indexHint: 'ix_n1_g', forceIndexHint: true} FILTER n.g < @p RETURN n.id", "FOR n IN n1 OPTIONS {indexHint: 'ix_n1_g', forceIndexHint: true} FILTER n.f == @p RETURN n.id"):
-        e = _rejected(s, text, {"p": 1})
-        assert e is not None and "1577" in str(e) and not e.internal and not e.timeout, f"{text}: {e}"
-
-
-@fact("S10", "the pulled-up form -- the source predicate lifted over the projection -- answers as the plain form")
-def s10(s):
-    _fixture(s)
-    plain = s.aql("FOR n IN n1 FILTER n.f > @p RETURN {id: n.id, v: (FOR v1, ed1 IN 1..1 OUTBOUND n e1 RETURN v1.id)}", {"p": 0}, timeout_ms=0)
-    pulled = s.aql("FOR hr IN (FOR n IN n1 RETURN {id: n.id, v: (FOR v1, ed1 IN 1..1 OUTBOUND n e1 RETURN v1.id), f: n.f}) FILTER hr.f > @p RETURN {id: hr.id, v: hr.v}", {"p": 0}, timeout_ms=0)
-    _eq(sorted(pulled, key=lambda r: r["id"]), sorted(plain, key=lambda r: r["id"]))
-    assert len(plain) == 3, plain
 
 
 # --- W: the write doors ----------------------------------------------------------------------------
@@ -374,6 +335,26 @@ def w5(s):
         return
     s.abort_transaction(trx)
     raise AssertionError("the transaction began")
+
+
+@fact("W6", "an array rebuilt inline, `arr[* RETURN p ? MERGE(CURRENT, ...) : CURRENT]`, changes exactly the elements p holds for (set, arithmetic, UNSET), keeping the rest of each element and its order")
+def w6(s):
+    _fixture(s)
+
+    def links():
+        return {r["id"]: r["v"] for r in s.aql("FOR n IN n1 FILTER LENGTH(n.e1 || []) > 0 RETURN {id: n.id, v: (n.e1 || [])[* RETURN [CURRENT.eid, CURRENT.target, HAS(CURRENT, 'w') ? CURRENT.w : 'absent']]}", timeout_ms=0)}
+
+    def inline(new, w="CURRENT.w >= @p", binds=None):
+        s.aql(f"FOR s IN n1 FILTER LENGTH((s.e1 || [])[* FILTER {w}]) > 0 UPDATE s WITH {{e1: (s.e1 || [])[* RETURN ({w}) ? {new} : CURRENT]}} IN n1 OPTIONS {{mergeObjects: false}}", {"p": 2, **(binds or {})}, timeout_ms=0)
+
+    inline("MERGE(CURRENT, {w: @wv})", binds={"wv": 9})
+    _eq(links(), {"n1/r0": [["e1/e0", "n1/r0", 0], ["e1/e1", "n1/r1", 1], ["e1/e2", "n1/r1", 9]], "n1/r1": [["e1/e3", "n1/r2", 9]], "n1/r2": [["e1/e4", "n1/r3", 9]]}, "a set")
+    _fixture(s)
+    inline("MERGE(CURRENT, {w: CURRENT.w * @wd})", binds={"wd": -1})
+    _eq(links()["n1/r0"], [["e1/e0", "n1/r0", 0], ["e1/e1", "n1/r1", 1], ["e1/e2", "n1/r1", -2]], "an arithmetic write")
+    _fixture(s)
+    inline("UNSET(CURRENT, 'w')", "CURRENT.w == @p")
+    _eq(links()["n1/r0"], [["e1/e0", "n1/r0", 0], ["e1/e1", "n1/r1", 1], ["e1/e2", "n1/r1", "absent"]], "a remove")
 
 
 # --- L: the limits -----------------------------------------------------------------------------------

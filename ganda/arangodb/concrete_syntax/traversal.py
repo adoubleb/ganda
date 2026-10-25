@@ -26,8 +26,8 @@ compares against every other one.
 Every syntax also has a PULLED-UP form (`render(..., pull_up=True)`, the
 `<data model>:pull_up` variant): the source predicate lifted into an enclosing `FOR hr
 IN (<syntax>) FILTER <predicate over hr>`, the inner query projecting the source
-fields it needs -- the same question through a plan whose source scan is never
-index-served. A definedness test does not survive a projection (an absent attribute
+fields it needs -- the same transformation on every data model, compared with the
+other data models' pull-ups. A definedness test does not survive a projection (an absent attribute
 projects as null), so such a source predicate is not pulled up.
 
 The variable-depth (reach) question is one outgoing hop walked k times: a `0..k`
@@ -51,7 +51,7 @@ from ganda.core.query.ir.predicates import fields_of, has_op
 from ganda.core.query.ir.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, Hop, TraversalQuery
 from ganda.core.data.model import Schema
 from ganda.core.rules.vocabulary import EmptyAggregate, PathMode
-from ganda.arangodb.rules import answer, assumes
+from ganda.arangodb.rules import assumes
 from ganda.arangodb.rules.catalog import AQL, TRAVERSAL
 from ganda.arangodb.concrete_syntax.predicate import render_predicate as render_pred
 
@@ -63,7 +63,6 @@ assumes("equivalent.reach_bfs_global", TRAVERSAL, True)
 assumes("equivalent.link_array_forms", AQL, True)
 assumes("equivalent.junction_forms", AQL, True)
 assumes("equivalent.flat_collect", AQL, True)
-assumes("equivalent.pull_up", AQL, True)
 # one row per edge on every path: a parallel pair twice, a self-loop once per direction,
 # twice under `ANY` -- as `UNION` of the two legs, which keeps duplicates
 assumes("match.parallel_edges.rows", AQL, 2)
@@ -75,7 +74,9 @@ assumes("aggregate.max.empty_input", AQL, EmptyAggregate.NULL)
 assumes("aggregate.max_min.skips_null", AQL, True)
 # a `k..k` traversal enumerates every WALK of k edges only under `uniqueEdges: 'none'`:
 # the operator's default forbids an edge twice on one path (a trail)
-_DEEP_OPTIONS = "" if answer("path.variable_length.mode", TRAVERSAL) is PathMode.WALK else " OPTIONS {uniqueEdges: 'none'}"
+# a k..k traversal is a trail by default: `uniqueEdges: 'none'` asks every walk
+assumes("path.variable_length.mode", TRAVERSAL, PathMode.TRAIL)
+_DEEP_OPTIONS = " OPTIONS {uniqueEdges: 'none'}"
 
 SYNTAXES = {
     "graph": ("trav", "escan", "deep", "flat"),
@@ -351,7 +352,3 @@ def render(q: TraversalQuery, schema: Schema, data_model: str, syntax: str, pull
     cols = "id: hr.id" if q.projection in SET_PROJECTIONS else "id: hr.id, v: hr.v"
     return f"FOR hr IN ({inner}) FILTER {render_pred(q.source_predicate, 'hr')} RETURN {{{cols}}}"
 
-
-def is_folded(q: TraversalQuery, data_model: str, syntax: str) -> bool:
-    """Whether the syntax answers one row PER PATH rather than per start record."""
-    return syntax == "flat"

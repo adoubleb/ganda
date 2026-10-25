@@ -53,9 +53,9 @@ def _index_fields(schema: Schema, table: str, data_model: str) -> list:
 
 
 def _index_served(text: str) -> bool:
-    """Whether the optimizer may serve the text's filter from an index: not the scan
-    twins (`NOOPT`, `disableIndex`), not a transaction door script."""
-    return "NOOPT(" not in text and "disableIndex: true" not in text and not tx.is_script(text)
+    """Whether the optimizer may serve the text's filter from an index: not a
+    transaction door script."""
+    return not tx.is_script(text)
 
 
 def _index_rewrite(data_model: str, fn):
@@ -81,9 +81,15 @@ def _index_rewrite(data_model: str, fn):
     return rewrite
 
 
+_FLIP_BOUND = {">": ">=", "<": "<=", ">=": ">", "<=": "<"}
+
+
 def _inclusive_range(text: str, fields: list) -> str:
+    """Every range bound on an indexed field with its inclusiveness flipped (a
+    `BETWEEN`'s `IN_RANGE` loses its lower bound)."""
     for f in fields:
-        text = re.sub(rf"(?<![\w.])n\.{f} (>|<) @", rf"n.{f} \1= @", text)
+        text = re.sub(rf"(?<![\w.])n\.{f} (>=|<=|>|<) @", lambda m: f"n.{f} {_FLIP_BOUND[m.group(1)]} @", text)
+        text = re.sub(rf"IN_RANGE\(n\.{f}, (@\w+), (@\w+), true, true\)", rf"IN_RANGE(n.{f}, \1, \2, false, true)", text)
     return text
 
 
@@ -104,7 +110,7 @@ MUTANTS = INSTANCE_MUTANTS + [
     Mutant("graph_wrong_predicate_op", "render", "the graph data model's first comparison operator is loosened/tightened", rewrite_case=lambda case: _rewrite_variants(case, "graph", _flip_op)),
     Mutant("doc_drops_hop_predicate", "render", "the doc data model's first hop predicate always holds", rewrite_case=lambda case: _rewrite_variants(case, "doc", _drop_hop_predicate)),
     Mutant("doc_distinct_projection", "render", "the doc data model deduplicates its id projection", rewrite_case=lambda case: _rewrite_variants(case, "doc", _distinct_projection)),
-    Mutant("graph_index_range_inclusive", "index", "a strict range a persistent index of the graph data model serves includes its bound", rewrite_case_schema=_index_rewrite("graph", _inclusive_range)),
+    Mutant("graph_index_range_inclusive", "index", "a range bound a persistent index of the graph data model serves flips its inclusiveness", rewrite_case_schema=_index_rewrite("graph", _inclusive_range)),
     Mutant("rel_index_null_keys", "index", "a lookup a persistent index of the relational data model serves also returns the null-keyed records", rewrite_case_schema=_index_rewrite("rel", _null_keys)),
     Mutant("doc_index_desc_walk", "index", "a DESC order the doc data model walks from a persistent index comes back ascending", rewrite_case_schema=_index_rewrite("doc", _desc_as_asc)),
 ]

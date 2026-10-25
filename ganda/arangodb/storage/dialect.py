@@ -13,29 +13,8 @@ from __future__ import annotations
 import re
 from urllib.parse import quote, unquote
 
-from ganda.core.data.model import FieldType
-
-# the JSON type a value of each model type carries (what `TYPENAME()` answers), which
-# AQL's order across types ranks: null < bool < number < string < array < object
-AQL_TYPENAMES = {
-    FieldType.INT: "number",
-    FieldType.INT32: "number",
-    FieldType.FLOAT: "number",
-    FieldType.FLOAT32: "number",
-    FieldType.DECIMAL: "number",
-    FieldType.STRING: "string",
-    FieldType.DATETIME: "string",  # the model's `yyyy-MM-dd HH:mm:ss` text; AQL has no date type
-    FieldType.DATE: "string",
-    FieldType.BOOL: "bool",
-    FieldType.LIST: "array",
-    FieldType.MAP: "object",
-    FieldType.BINARY: "string",  # JSON has no byte type: the base64 text is stored as it is
-}
-TYPE_ORDER = ("null", "bool", "number", "string", "array", "object")
-
 # `IndexSpec.kind`: a persistent (RocksDB) index, non-unique or unique; `ignore_nulls`
 # is the index's `sparse` flag (a sparse index holds no entry for a null or absent key)
-INDEX_KINDS = ("persistent", "unique")
 UNIQUE_KINDS = ("unique",)
 # the index on the logical `id` attribute: the model's default "UNIQUE" is a unique
 # persistent index; the axis may make it a plain one (`persistent`). Never none: a hop

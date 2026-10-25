@@ -35,7 +35,7 @@ from ganda.core.engine.docker import DockerServer, cleanup_orphans  # noqa: F401
 from ganda.core.engine.provider import EngineCrash, EngineError, Session
 from ganda.core.rules.model import ErrorKind
 from ganda.arangodb.rules import CATALOG, assumes
-from ganda.arangodb.rules.catalog import AQL, AQL_INDEX, REFUSED
+from ganda.arangodb.rules.catalog import AQL, REFUSED
 from ganda.arangodb.engine import tx
 from ganda.arangodb.storage.dialect import engine_id, logical_id
 from ganda.arangodb.engine.limits import STREAMING_TRANSACTION_MAX_BYTES
@@ -60,9 +60,6 @@ def bind_subset(text: str, binds: dict) -> dict:
 
 
 assumes("accepts.bind_variable.undeclared", AQL, REFUSED)
-# a forced hint the index cannot serve is HTTP 500 errorNum 1577: a rejection the manual
-# documents, which the catalog's error classes read so, not a fault inside the engine
-assumes("accepts.index_hint.unservable", AQL_INDEX, REFUSED)
 
 
 def _strip(row):

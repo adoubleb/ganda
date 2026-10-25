@@ -1,13 +1,11 @@
 """The concrete syntax catalog of the write IR: HOW each data model issues a
 `WriteQuery` in AQL. A write runs ONCE per database, so a case carries no variants:
-each data model draws its own syntax, and the three answers and the three resulting
-states are compared against each other and against the Instance with the write
-applied. The choices:
+the data models share the target and the door, each with its own form, and the answers
+and the resulting states are compared with each other. Every data model's statement
+states the filter, so the engine chooses the records on each (the Instance with the
+write applied steers later draws only). The choices:
 
     axis     choice       the text
-    filter   plain        `FILTER p`
-             rw / rev     `FILTER rewrite(p)` / the reversed operands
-             ar           the arithmetic rewrite (`(n.f + @c) op @pc`), never served
     target   table        `FOR n IN t FILTER p`
              nest         `FOR n IN t FILTER n.id IN (FOR m IN t FILTER p RETURN m.id)`:
                           the records chosen before any is written
@@ -17,14 +15,14 @@ applied. The choices:
     form     update       `UPDATE n WITH {f: ...} IN t OPTIONS {mergeObjects: false}`
                           (`keepNull: false` for a remove; never a merge into a map value)
              replace      `REPLACE n WITH MERGE(n, {f: ...}) IN t` (`UNSET(n, 'f')`)
-             deref / eids the doc data model's node-delete cascade: every source's
-                          array filtered by `target NOT IN <the doomed engine ids>`
-                          (read through the predicate) or by `eid NOT IN <the ids the
-                          reference chose>`
-             bracket / eids / rewrite   the doc data model's edge delete as an inline
-                          filter of the predicate, by the relationship ids, or each
-                          source's whole array re-set (the only doc form for an
-                          attribute write: a link object is not addressed in place)
+             deref        the doc data model's node-delete cascade: every source's
+                          array filtered by `target NOT IN <the doomed engine ids>`,
+                          read through the predicate
+             bracket      the doc data model's edge delete as an inline filter of the
+                          predicate, `arr[* FILTER NOT (p)]`
+             inline       the doc data model's attribute write: each source's array
+                          rebuilt, `arr[* RETURN p ? MERGE(CURRENT, {f: ...}) : CURRENT]`
+                          (a link object is not addressed in place)
 
 The answer: a count (`LET r = (<write> RETURN 1) RETURN {count: LENGTH(r)}`, a
 data-modification subquery), or the matched records' `id` and the written field
@@ -39,16 +37,13 @@ no syntax: no one statement writes several collections.
 from __future__ import annotations
 
 import random
-import re
 from dataclasses import dataclass, field
 
-from ganda.core.query.ir.predicates import Predicate, reverse
-from ganda.core.query.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
+from ganda.core.query.ir.write import EDGE_OPS, WriteQuery
 from ganda.core.data.generator import BASE_CLASS
 from ganda.core.data.model import Instance, Schema
 from ganda.arangodb.rules import assumes
 from ganda.arangodb.rules.catalog import AQL
-from ganda.arangodb.oracle import rewrites as _rewrites
 from ganda.arangodb.concrete_syntax.predicate import render_predicate as render_pred
 from ganda.arangodb.storage.dialect import document_key
 
@@ -62,7 +57,6 @@ assumes("update.null.kept_by_default", AQL, True)
 # removing a vertex removes no edge: every data model cascades explicitly (`_node_delete`)
 assumes("delete_vertex.cascades_edges", AQL, False)
 
-FILTERS = ("plain", "rw", "rev", "ar")
 TARGETS = ("table", "nest", "sub")
 DOORS = ("auto", "tx")
 _NODE_UPDATES = ("set", "arith", "null", "remove", "merge")
@@ -70,31 +64,31 @@ _NODE_UPDATES = ("set", "arith", "null", "remove", "merge")
 
 @dataclass(frozen=True)
 class WriteSyntax:
-    filter: str = "plain"
     target: str = "table"
     door: str = "auto"
     form: str = ""
 
     @property
     def tag(self) -> str:
-        parts = [x for x, default in ((self.form, ""), (self.filter, "plain"), (self.target, "table"), (self.door, "auto")) if x != default]
+        parts = [x for x, default in ((self.form, ""), (self.target, "table"), (self.door, "auto")) if x != default]
         return "+".join(parts) or "plain"
+
+
+def spelling(sp: WriteSyntax) -> tuple:
+    """What every data model's write shares: the target and the door (the form is the
+    data model's own)."""
+    return (sp.target, sp.door)
 
 
 @dataclass
 class WriteRewrites:
-    rw: object = None
-    rev: object = None
-    ar: object = None
-
-    def pred(self, q: WriteQuery, name: str):
-        return q.where if name == "plain" else getattr(self, name)
+    """The per-case material of a write: none (its filter is the question's own)."""
 
 
 @dataclass
 class Statements:
     """What one data model sends: `prelude` statements (a cascade, the doc data model's
-    array rewrites) and the `main` statement whose answer is compared (None: nothing is
+    array updates) and the `main` statement whose answer is compared (None: nothing is
     compared on this data model); `collections` the ones a transaction writes."""
 
     prelude: list = field(default_factory=list)  # [(text, params)]
@@ -116,9 +110,9 @@ class Statements:
 
 def forms(q: WriteQuery, data_model: str) -> tuple:
     if q.op == "delete" and data_model == "doc":
-        return ("deref", "eids")
+        return ("deref",)
     if q.op in EDGE_OPS and data_model == "doc":
-        return ("bracket", "eids", "rewrite") if q.op == "edge_delete" else ("rewrite",)
+        return ("bracket",) if q.op == "edge_delete" else ("inline",)
     if q.op in _NODE_UPDATES or (q.op in EDGE_OPS and q.op != "edge_delete"):
         return ("update", "replace")
     return ("",)
@@ -127,7 +121,7 @@ def forms(q: WriteQuery, data_model: str) -> tuple:
 def all_syntaxes(q: WriteQuery, data_model: str) -> list:
     if not q.edge and q.table == BASE_CLASS:
         return []
-    return [WriteSyntax(f, t, d, m) for m in forms(q, data_model) for f in FILTERS for t in TARGETS for d in DOORS]
+    return [WriteSyntax(t, d, m) for m in forms(q, data_model) for t in TARGETS for d in DOORS]
 
 
 def applicable(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_model: str) -> bool:
@@ -136,15 +130,10 @@ def applicable(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_mod
         if sp.target != "table":
             return False
         if sp.form == "bracket":
-            return q.where is not None and sp.filter in ("plain", "rw") and (sp.filter == "plain" or rewrites.rw is not None)
-        return sp.filter == "plain"
-    if sp.filter != "plain":
-        if q.where is None or rewrites.pred(q, sp.filter) is None:
-            return False
-        if sp.filter == "ar" and q.op in EDGE_OPS:
-            return False
+            return q.where is not None
+        return True
     if q.op == "upsert":
-        return sp.filter == "plain" and sp.target == "table"
+        return sp.target == "table"
     if sp.target == "nest" and q.where is None and not q.extra_notnull:
         return False
     return True
@@ -154,8 +143,7 @@ def applicable(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_mod
 
 
 def _where(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, var: str, schema: Schema = None) -> "str | None":
-    pred = rewrites.pred(q, sp.filter)
-    text = render_pred(pred, var, schema=schema) if pred is not None else None
+    text = render_pred(q.where, var, schema=schema) if q.where is not None else None
     if q.extra_notnull:
         return f"({text}) AND {var}.{q.field} != null" if text else f"{var}.{q.field} != null"
     return text
@@ -218,7 +206,7 @@ def _victims(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, column: st
     return f"(FOR m IN {q.table}" + (f" FILTER {where}" if where else "") + f" RETURN m.{column})"
 
 
-def _node_delete(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_model: str, schema: Schema, instance: Instance) -> Statements:
+def _node_delete(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_model: str, schema: Schema) -> Statements:
     t = q.table
     st = Statements(door=sp.door, collections=[t])
     incident = [et for et in schema.edge_types if et.from_type == t or et.to_type == t]
@@ -235,34 +223,39 @@ def _node_delete(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_m
     else:
         for et in [et for et in schema.edge_types if et.to_type == t]:
             arr = f"(s.{et.name} || [])"
-            if sp.form == "eids":
-                victims = {n.record_id for n in node_hits(q, instance)}
-                eids = [e.record_id for e in instance.edges_of(et.name) if e.to_record in victims]
-                if not eids:
-                    continue
-                bind = f"wg_{et.name}"
-                st.prelude.append((f"FOR s IN {et.from_type} FILTER LENGTH(INTERSECTION({arr}[*].eid, @{bind})) > 0 UPDATE s WITH {{{et.name}: {arr}[* FILTER CURRENT.eid NOT IN @{bind}]}} IN {et.from_type}", {bind: eids}))
-            else:
-                gone = _victims(q, sp, rewrites, "_id", schema)
-                st.prelude.append((f"LET gone = {gone} FOR s IN {et.from_type} FILTER LENGTH(INTERSECTION({arr}[*].target, gone)) > 0 UPDATE s WITH {{{et.name}: {arr}[* FILTER CURRENT.target NOT IN gone]}} IN {et.from_type}", {}))
+            gone = _victims(q, sp, rewrites, "_id", schema)
+            st.prelude.append((f"LET gone = {gone} FOR s IN {et.from_type} FILTER LENGTH(INTERSECTION({arr}[*].target, gone)) > 0 UPDATE s WITH {{{et.name}: {arr}[* FILTER CURRENT.target NOT IN gone]}} IN {et.from_type}", {}))
             if et.from_type not in st.collections:
                 st.collections.append(et.from_type)
     st.main = (_counted(_loop(q, sp, rewrites, schema), f"REMOVE n IN {t}"), {})
     return st
 
 
-def _doc_rewrites(q: WriteQuery, before: Instance, after: Instance) -> list:
-    """Each source holding a matched relationship re-sets its whole array to the one
-    the Instance after the write holds."""
-    from ganda.arangodb.storage.mapping.document import link_object
+# a link object is not addressed in place: the array is rebuilt, each element through
+# the filter, inside the engine
+assumes("update.inline_array.rebuilds_elements", AQL, True)
 
-    et = before.schema.edge_type(q.edge_type)
-    sources = sorted({e.from_record for e in edge_hits(q, before)})
-    out = []
-    for i, src in enumerate(sources):
-        entries = [link_object(e) for e in after.edges_of(et.name) if e.from_record == src]
-        out.append((f"UPDATE {{_key: @wk{i}}} WITH {{{et.name}: @wl{i}}} IN {et.from_type}", {f"wk{i}": document_key(src.split("/", 1)[1]), f"wl{i}": entries}))
-    return out
+
+def _doc_inline(q: WriteQuery, schema: Schema) -> tuple:
+    """The doc data model's attribute write: every source holding a matching link
+    object rebuilds its array, the matching ones changed, the filter evaluated on each
+    element (`CURRENT`)."""
+    et = schema.edge_type(q.edge_type)
+    arr, f = f"(s.{et.name} || [])", q.field
+    w = render_pred(q.where, "CURRENT", schema=schema) if q.where is not None else "true"
+    if q.extra_notnull:
+        w = f"({w}) AND CURRENT.{f} != null"
+    params: dict = {}
+    op = q.op.removeprefix("edge_")
+    if op == "set":
+        new, params["wv"] = f"MERGE(CURRENT, {{{f}: @wv}})", q.value
+    elif op == "arith":
+        new, params["wd"] = f"MERGE(CURRENT, {{{f}: CURRENT.{f} {q.sym} @wd}})", q.value
+    elif op == "remove":
+        new = f"UNSET(CURRENT, '{f}')"
+    else:
+        raise ValueError(q.op)
+    return (f"FOR s IN {et.from_type} FILTER LENGTH({arr}[* FILTER {w}]) > 0 UPDATE s WITH {{{et.name}: {arr}[* RETURN ({w}) ? {new} : CURRENT]}} IN {et.from_type} OPTIONS {{mergeObjects: false}}", params)
 
 
 def _edge_write(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_model: str, before: Instance, after: Instance) -> Statements:
@@ -271,13 +264,10 @@ def _edge_write(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_mo
     if data_model == "doc":
         st.collections = [et.from_type]
         arr = f"(s.{et.name} || [])"
-        if sp.form == "rewrite":
-            st.prelude = _doc_rewrites(q, before, after)
-        elif sp.form == "eids":
-            gone = [e.record_id for e in edge_hits(q, before)]
-            st.prelude = [(f"FOR s IN {et.from_type} FILTER LENGTH(INTERSECTION({arr}[*].eid, @wgone)) > 0 UPDATE s WITH {{{et.name}: {arr}[* FILTER CURRENT.eid NOT IN @wgone]}} IN {et.from_type}", {"wgone": gone})]
+        if sp.form == "inline":
+            st.prelude = [_doc_inline(q, before.schema)]
         else:
-            w = render_pred(rewrites.pred(q, sp.filter), "CURRENT")
+            w = render_pred(q.where, "CURRENT", schema=before.schema)
             st.prelude = [(f"FOR s IN {et.from_type} FILTER LENGTH({arr}[* FILTER {w}]) > 0 UPDATE s WITH {{{et.name}: {arr}[* FILTER NOT ({w})]}} IN {et.from_type}", {})]
         return st
     loop = _loop(q, sp, rewrites, before.schema)
@@ -293,12 +283,11 @@ def render(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_model: 
     if q.op in EDGE_OPS:
         st = _edge_write(q, sp, rewrites, data_model, before, after)
     elif q.op == "delete":
-        st = _node_delete(q, sp, rewrites, data_model, before.schema, before)
+        st = _node_delete(q, sp, rewrites, data_model, before.schema)
     else:
         st = Statements(main=_node_update(q, sp, rewrites, before.schema), door=sp.door, collections=[q.table])
-    # every statement of the data model carries the filter's bind variables (its rewrite's)
-    pred = rewrites.pred(q, sp.filter)
-    binds = dict(pred.bind_vars) if pred is not None else {}
+    # every statement of the data model carries the filter's bind variables
+    binds = dict(q.where.bind_vars) if q.where is not None else {}
     st.prelude = [(t, {**binds, **params}) for t, params in st.prelude]
     if st.main is not None:
         st.main = (st.main[0], {**binds, **st.main[1]})
@@ -306,21 +295,7 @@ def render(q: WriteQuery, sp: WriteSyntax, rewrites: WriteRewrites, data_model: 
 
 
 def build_rewrites(q: WriteQuery, rng: random.Random, schema: Schema, instance: Instance) -> WriteRewrites:
-    rewrites = WriteRewrites()
-    p = q.where
-    if p is None:
-        return rewrites
-    rewrites.rw = _rewrites.rewrite(p, rng, "q")
-    rewrites.rev = reverse(p)
-    if isinstance(p, Predicate) and not q.edge:
-        try:
-            ftype = schema.field(q.table, p.field).type
-        except KeyError:
-            ftype = None
-        if ftype is not None:
-            stored = [n.values.get(p.field) for n in instance.nodes_of(q.table) if p.field in n.values]
-            rewrites.ar = _rewrites.arithmetic(p, rng, "ar", ftype, stored)
-    return rewrites
+    return WriteRewrites()
 
 
 def execute(session, st: Statements) -> list:
@@ -347,15 +322,9 @@ def execute(session, st: Statements) -> list:
 
 
 def shared_binds(st: Statements) -> dict:
-    """The bind variables a bundle records for the case: the doc data model's per-source
-    arrays stay out of the shared map."""
-    return {k: v for k, v in st.params.items() if not re.fullmatch(r"w[lk]\d+", k)}
+    """The bind variables a bundle records for the case."""
+    return st.params
 
 
 def rewrite_params(rewrites: WriteRewrites) -> dict:
-    params: dict = {}
-    for name in ("rw", "rev", "ar"):
-        rewritten = getattr(rewrites, name)
-        if rewritten is not None:
-            params[name] = rewritten.to_dict()
-    return params
+    return {}

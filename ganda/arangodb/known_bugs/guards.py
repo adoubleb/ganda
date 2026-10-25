@@ -145,11 +145,6 @@ def a25_shape(p, schema, table: str, data_model: str, edge: bool = False) -> boo
     return any(array_indexed(schema, table, f, data_model, edge) for f in or_of_list_equalities(p))
 
 
-def _index_servable(syntax) -> bool:
-    """Whether a select variant's filter may be index-served: not the scan twins."""
-    return getattr(syntax, "filter", "") != "noopt" and getattr(syntax, "position", "") != "noindex"
-
-
 # --- the judgements ----------------------------------------------------------------------------
 
 
@@ -193,19 +188,19 @@ def mark_known_bugs(case, q, schema, instance):
 
 
 def select_known(q, syntax, rewrites, data_model, schema, instance):
-    pred = rewrites.filter_pred(q, syntax.filter)
+    pred = q.where
     rows = instance.edges_of(q.table) if q.edge else instance.nodes_of(q.table)
     if a40_shape(pred, rows):
         return A40
     if a42_shape(pred, rows):
         return A42
-    if _index_servable(syntax) and a25_shape(pred, schema, q.table, data_model, q.edge):
+    if a25_shape(pred, schema, q.table, data_model, q.edge):
         return A25
     return None
 
 
 def write_known(q, syntax, rewrites, data_model, schema, instance):
-    pred = rewrites.pred(q, syntax.filter)
+    pred = q.where
     rows = instance.edges_of(q.edge_type) if q.edge else instance.nodes_of(q.table)
     if a40_shape(pred, rows):
         return A40

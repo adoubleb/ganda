@@ -139,7 +139,8 @@ def lt(a: Any, b: Any) -> bool:
 
 # the characters a wildcard does NOT cross: the pattern is an ICU regex whose `.` stops
 # at the Unicode line and paragraph separators (probed V5: it crosses `\n` and `\r`)
-_LINE_TERMINATORS = "".join(chr(int(c[2:], 16)) for c in answer("filter.like.wildcard_stops_at_line_terminators", AQL).split())
+assumes("filter.like.wildcard_stops_at_line_terminators", AQL, "U+0085 U+2028 U+2029")
+_LINE_TERMINATORS = "\u0085\u2028\u2029"
 _WILD = f"[^{_LINE_TERMINATORS}]"
 
 
@@ -235,6 +236,36 @@ def apply_arith(v, sym: str, c, ftype: "str | None"):
     return {"+": v + c, "-": v - c, "*": v * c}[sym]
 
 
+# integer arithmetic is exact under this magnitude (AQL arithmetic runs in double past it)
+ARITHMETIC_EXACT_BELOW = answer("exact.arithmetic.integer.below", AQL)
+# a null (or absent) operand of an arithmetic operator is 0
+assumes("arithmetic.null_operand.zero", AQL, True)
+
+
+def arith_exact(v, sym: str, c, ftype) -> bool:
+    """Whether `v <sym> c` is computed exactly (`ftype` a `FieldType`): integer
+    arithmetic whose result stays under 2^53 in magnitude (AQL arithmetic runs in double
+    past that), a double scaled by a power of two or negated. A string (a date) takes no
+    arithmetic."""
+    import math
+
+    from ganda.core.data.model import FLOAT_TYPES, INT_TYPES
+
+    if v is None:
+        return True
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return False
+    try:
+        r = apply_arith(v, sym, c, ftype.value)
+    except (ValueError, OverflowError):
+        return False
+    if ftype in INT_TYPES:
+        return isinstance(r, int) and abs(r) < ARITHMETIC_EXACT_BELOW
+    if ftype in FLOAT_TYPES:
+        return math.isfinite(r) and sym == "*" and (r != 0 or v == 0)
+    return False
+
+
 def evaluate(values: dict, p) -> bool:
     """Two-valued boolean logic over `predicate_hit` (AQL comparison is total, so
     `NOT (f > 5)` holds for a null `f`)."""
@@ -249,8 +280,10 @@ def evaluate(values: dict, p) -> bool:
         # the answered values of the same column, compared with `==` (a null answered
         # for a record lacking `g` matches a record lacking `f`)
         return predicate_hit(present, v, "IN", p.pivot)
-    if p.arith is not None and v is not None and p.key is None:
-        v = apply_arith(v, p.arith.sym, p.arith.value, p.ftype)
+    if p.arith is not None and p.key is None:
+        # `(n.f + @c)` over a null or absent f is `0 + c`: a number, present
+        v = apply_arith(0 if v is None or isinstance(v, bool) else v, p.arith.sym, p.arith.value, p.ftype) if not isinstance(v, (str, list, dict)) else v
+        present = True
     return predicate_hit(present, v, p.op, p.pivot, p.ftype, p.case_insensitive, p.key)
 
 
@@ -265,18 +298,13 @@ def canonical(value):
 
 
 class ArangoSemantics(Semantics):
-    @staticmethod
-    def arith_exact(v, sym, c, ftype) -> bool:
-        from ganda.arangodb.oracle.rewrites import arith_exact
-
-        return arith_exact(v, sym, c, ftype)
-
     key = staticmethod(aql_key)
     eq = staticmethod(eq)
     lt = staticmethod(lt)
     predicate_hit = staticmethod(predicate_hit)
     evaluate = staticmethod(evaluate)
     apply_arith = staticmethod(apply_arith)
+    arith_exact = staticmethod(arith_exact)
     sum_is_exact = staticmethod(sum_is_exact)
 
     def canonical(self, value):
