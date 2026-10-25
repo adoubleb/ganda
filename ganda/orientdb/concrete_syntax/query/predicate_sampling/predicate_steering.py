@@ -1,5 +1,5 @@
 """How an OrientDB class SCAN answers a predicate over a record (live-probed 3.2.56,
-`scripts/probe_osql.py`): the leaves (`predicate_hit`) and the two-valued logic over
+`scripts/probe.py`): the leaves (`predicate_hit`) and the two-valued logic over
 them (`evaluate`). The generators steer with it (a filter that keeps some records, a
 write that matches some), `write.apply` keeps the `Instance` in step with it, and the
 guards read which records a defect's shape would touch; no answer is predicted from

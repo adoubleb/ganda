@@ -1,5 +1,5 @@
-"""Round 5: reversed operands, arithmetic and literal leaves, list operators, the
-transaction door, the BFS distances and their guards."""
+"""The leaf forms (reversed operands, arithmetic and literal leaves), the list
+operators, the transaction door, the BFS distances, and their guards."""
 import dataclasses
 import math
 import random

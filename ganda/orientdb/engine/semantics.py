@@ -1,4 +1,4 @@
-"""OrientDB's value semantics (live-probed 3.2.56, `scripts/probe_osql.py`): the value
+"""OrientDB's value semantics (live-probed 3.2.56, `scripts/probe.py`): the value
 order and equality the oracle and the state check compare answers under, and the
 arithmetic the generators and the guards walk the `Instance` with. How a scan answers
 a predicate is `concrete_syntax/query/predicate_sampling/predicate_steering.py`; the

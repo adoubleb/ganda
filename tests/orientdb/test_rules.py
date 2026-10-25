@@ -10,7 +10,7 @@ ORIENT = pathlib.Path(__file__).resolve().parents[2] / "ganda" / "orientdb"
 
 
 def _probe_ids() -> list:
-    tree = ast.parse((ORIENT / "scripts" / "probe_osql.py").read_text())
+    tree = ast.parse((ORIENT / "scripts" / "probe.py").read_text())
     return [n.args[0].value for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "check"]
 
 
@@ -38,24 +38,24 @@ def test_the_defects_are_o1_to_o46_but_the_retired_each_reproduced_by_a_probe_ch
 
 def test_the_probe_names_what_a_failing_check_checks_and_who_reads_it():
     from ganda.orientdb.rules import read_index
-    from ganda.orientdb.scripts import probe_osql
+    from ganda.orientdb.scripts import probe
 
-    assert probe_osql.checked_by("C333") == ["expand.embedded.wrapped_under_value (osql)"]
-    assert probe_osql.checked_by("C148") == ["exact.sum.int32.below (osql)", "O19 (osql)"]
-    assert probe_osql.checked_by("C5") == ["no rule"]  # C5 was deleted
+    assert probe.checked_by("C333") == ["expand.embedded.wrapped_under_value (osql)"]
+    assert probe.checked_by("C148") == ["exact.sum.int32.below (osql)", "O19 (osql)"]
+    assert probe.checked_by("C5") == ["no rule"]  # C5 was deleted
     index = read_index()
-    (o18,) = probe_osql.consequences("C122", index)
+    (o18,) = probe.consequences("C122", index)
     assert o18.startswith("O18 (osql@index) no longer reproduces: read by known_bugs/select.py:")
-    assert probe_osql.consequences("C5", index) == ["checks no rule"]
+    assert probe.consequences("C5", index) == ["checks no rule"]
 
 
 def test_a_fixed_defect_does_not_block_the_baseline_and_a_changed_rule_does(monkeypatch):
-    from ganda.orientdb.scripts import probe_osql
+    from ganda.orientdb.scripts import probe
 
-    monkeypatch.setattr(probe_osql, "failures", ["C122", "C205", "C202"])
-    assert probe_osql._sort_failures(CATALOG) == ([], {"O18": ["C122", "C205"], "O19": ["C202"]})
-    monkeypatch.setattr(probe_osql, "failures", ["C122", "C148", "C75"])  # C148: a rule and O19; C75: nothing
-    assert probe_osql._sort_failures(CATALOG) == (["C148", "C75"], {"O18": ["C122"]})
+    monkeypatch.setattr(probe, "failures", ["C122", "C205", "C202"])
+    assert probe._sort_failures(CATALOG) == ([], {"O18": ["C122", "C205"], "O19": ["C202"]})
+    monkeypatch.setattr(probe, "failures", ["C122", "C148", "C75"])  # C148: a rule and O19; C75: nothing
+    assert probe._sort_failures(CATALOG) == (["C148", "C75"], {"O18": ["C122"]})
 
 
 def test_the_generated_rules_are_current():

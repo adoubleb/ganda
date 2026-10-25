@@ -1,7 +1,7 @@
-"""The cov400 triage (triage_reports/cov400-2026-09-28.md): the new findings' models
-and guards (O41 DISTINCT, O42 LIKE, O43 list IN, O44 depth-first TRAVERSE), the O5 /
-O31 / O16 guard faces, and the two fuzzer bugs -- each against the probed engine
-answer."""
+"""The models and guards of O41 (DISTINCT), O42 (LIKE), O43 (list IN) and O44
+(depth-first TRAVERSE), the O5 / O31 / O16 guard faces, and two fuzzer bugs -- each
+against the probed engine answer (found by the cov400 campaign,
+triage_reports/cov400-2026-09-28.md)."""
 
 import dataclasses
 import random

@@ -1,6 +1,6 @@
 """What OrientDB 3.2 can hold (`ganda.core.data.limits.StorageLimits`), with where each
 number comes from: the engine's documentation (`internals/Limits.md`), a live probe on
-3.2.57 (`scripts/probe_osql.py`, the "large data" section), or the server's own
+3.2.57 (`scripts/probe.py`, the "large data" section), or the server's own
 configuration, which the connection layer starts the container with.
 """
 from __future__ import annotations
