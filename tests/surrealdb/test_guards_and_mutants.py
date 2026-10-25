@@ -26,6 +26,8 @@ def test_f28_marks_the_data_model_whose_index_serves_a_whole_array_equality():
     assert node_case_known("n1", rev, schema, None) == {"doc": "F28"}
     assert node_case_known("n1", Compound("source", "OR", (has, inside)), schema, None) == {"doc": "F28"}
     assert node_case_known("n1", has, schema, None) == {}
+    assert node_case_known("n1", Predicate("source", "f3", "IS NOT NULL", "", None, "list"), schema, None) == {"doc": "F28"}
+    assert node_case_known("n1", Predicate("source", "f3", "IS NULL", "", None, "list"), schema, None) == {}
     assert node_case_known("n1", Predicate("source", "f3", "<>", "p", [1], "list"), schema, None) == {}
     both = _schema("both")
     assert node_case_known("n1", eq, both, None) == {"doc": "F28", "graph": "F28", "rel": "F28"}

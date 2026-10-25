@@ -147,3 +147,11 @@ def test_writes_share_a_spelling_and_render_on_every_data_model():
                 if q.edge and dm == "doc":
                     assert "array::map(" in text or "array::filter(" in text
             inst = after
+
+
+def test_arithmetic_exactness_survives_huge_floats():
+    from ganda.surrealdb.engine import semantics
+
+    assert not semantics.arith_exact(1e308, "*", 2, FieldType.FLOAT) and not semantics.arith_exact(8e307, "*", 4, FieldType.FLOAT)
+    assert semantics.arith_exact(0.5, "*", 2, FieldType.FLOAT) and semantics.arith_exact(3, "+", 7, FieldType.INT) and not semantics.arith_exact(2**63 - 1, "+", 1, FieldType.INT)
+    assert not semantics.sum_is_exact([1e300, 1e300], "float") and semantics.sum_is_exact([0.5, 0.25], "float") and not semantics.sum_is_exact([0.1, 0.2], "float")

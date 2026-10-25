@@ -95,6 +95,11 @@ _DYADIC_BITS = 2**20
 _FLOAT_SUM_BOUND = 2**50
 
 
+def _dyadic(v) -> bool:
+    """A finite float below the bound with at most 20 fractional bits."""
+    return isinstance(v, float) and math.isfinite(v) and abs(v) < _FLOAT_SUM_BOUND and (v * _DYADIC_BITS) == int(v * _DYADIC_BITS)
+
+
 def sum_is_exact(values: list, ftype: "str | None" = "int") -> bool:
     """Every partial sum in every order is exact: ints with an absolute total below
     half the 64-bit range; decimals (28 digits hold every pool value's sum); floats only
@@ -102,7 +107,7 @@ def sum_is_exact(values: list, ftype: "str | None" = "int") -> bool:
     if ftype == "decimal":
         return all(_is_number(v) for v in values)
     if ftype in ("float", "float32"):
-        return all(_is_number(v) and math.isfinite(v) and (v * _DYADIC_BITS) == int(v * _DYADIC_BITS) for v in values) and sum(abs(v) for v in values) < _FLOAT_SUM_BOUND
+        return all(_dyadic(float(v)) for v in values if _is_number(v)) and all(_is_number(v) for v in values) and sum(abs(v) for v in values) < _FLOAT_SUM_BOUND
     if any(isinstance(v, bool) or not isinstance(v, int) for v in values):
         return False
     return sum(abs(v) for v in values) < _INT_SUM_BOUND
@@ -138,7 +143,7 @@ def arith_exact(v, sym: str, c, ftype) -> bool:
     if ftype in (FieldType.INT, FieldType.INT32):
         return isinstance(r, int) and I64_MIN <= r <= I64_MAX
     if ftype in (FieldType.FLOAT, FieldType.FLOAT32):
-        return isinstance(r, float) and math.isfinite(r) and (r * _DYADIC_BITS) == int(r * _DYADIC_BITS) and abs(r) < _FLOAT_SUM_BOUND
+        return _dyadic(r)
     if ftype is FieldType.DECIMAL:
         # the exact decimal result must survive the round trip through the model's float
         exact = {"+": Decimal(repr(v)) + Decimal(repr(c)), "-": Decimal(repr(v)) - Decimal(repr(c)), "*": Decimal(repr(v)) * Decimal(repr(c))}[sym]

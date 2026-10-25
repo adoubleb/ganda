@@ -25,6 +25,14 @@ SELECT VALUE id FROM t WHERE f4 = [1] EXPLAIN;    -- IndexScan ix_t_f4, access "
 
 Without the index every equality answers the right records.
 
+A second face (campaigns ref12 seed 1008 and off24 seeds 2015 / 2023): a presence test
+served by the same index answers a record ONCE PER ELEMENT:
+
+```sql
+SELECT VALUE id FROM t WHERE f4 IS NOT NONE;     -- t:a, t:b, t:b, t:c  (t:b twice: two elements)
+SELECT VALUE id FROM t WHERE f4 IS NOT NONE AND f4 IS NOT NULL;   -- the same duplicates
+```
+
 **Analysis.** An index over an array field stores one key per ELEMENT (which is what
 serves `CONTAINS`; `EXPLAIN` shows the element-keyed `IndexScan` for `e1.w CONTAINS 2`).
 The planner nevertheless routes a whole-array equality `f4 = [1]` (and `IN` over arrays,
@@ -40,5 +48,6 @@ model holding the index on the LIST column answered an empty set where the other
 answered the matching records, in a read and then in a write's `WHERE id IN (SELECT ...)`
 (whose stored state then differed on that data model); campaign c8 (seed 103) met it
 again through reversed operands (`$p = f1`). Guarded in `known_bugs/predicate.py`
-(`f28_predicate`): a `=` / `IN` leaf with an array constant, either operand order, on a
-LIST column an index of the data model serves; pinned by probe check C40.
+(`f28_predicate`): a `=` / `IN` leaf with an array constant, either operand order, or a
+presence test (`IS NOT NULL`, `IS PRESENT`), on a LIST column an index of the data model
+serves; pinned by probe checks C40 and C45.

@@ -2,12 +2,13 @@
 per-data-model judgement `node_case_known` / `edge_case_known` the IR guards share.
 
 F28 (`issue-drafts/F28-array-index-whole-array-equality.md`): an index over an array
-field keys each ELEMENT, and a whole-array equality (`f = [1]`, `f IN [[1], [2]]`) the
-planner serves from it looks the array up as one key and answers nothing, where a scan
-answers the records holding exactly that array. The shape: a plain `=` / `IN` leaf whose
-constant is a list (or a list of lists), reversed operands included (`$p = f`, seed 103
-of campaign c8), on a LIST column an index of the data model serves. `!=` and the
-containment operators scan (probed 3.3.4).
+field keys each ELEMENT, and a predicate the planner serves from it answers by element
+keys: a whole-array equality (`f = [1]`, `f IN [[1], [2]]`, `$p = f`) looks the array up
+as one key and answers nothing, a presence test (`f IS NOT NONE`, `f IS NOT NULL`) answers
+a record once per element (duplicate rows), where a scan answers each record once. The
+shape: a `=` / `IN` / `IS NOT NULL` / `IS PRESENT` leaf on a LIST column an index of the
+data model serves. `!=`, `IS NONE` and the containment operators answer right (probed
+3.3.4).
 """
 from __future__ import annotations
 
@@ -41,12 +42,16 @@ works_around("F28")
 
 
 def f28_predicate(schema: Schema, table: str, p, data_model: str, edge: bool = False) -> bool:
-    """A whole-array equality on a LIST column an index of the data model serves."""
+    """A whole-array equality or a presence test on a LIST column an index of the data
+    model serves."""
     for leaf in _leaves(p):
-        if leaf.op not in ("=", "IN") or leaf.key is not None or leaf.arith is not None or leaf.sub is not None:
+        if leaf.key is not None or leaf.arith is not None or leaf.sub is not None:
             continue
-        constants = leaf.constant if leaf.op == "IN" else [leaf.constant]
-        if not any(isinstance(v, list) for v in constants):
+        if leaf.op in ("=", "IN"):
+            constants = leaf.constant if leaf.op == "IN" else [leaf.constant]
+            if not any(isinstance(v, list) for v in constants):
+                continue
+        elif leaf.op not in ("IS NOT NULL", "IS PRESENT"):
             continue
         if _column_type(schema, table, leaf.field, edge) is FieldType.LIST and _field_indexes(schema, table, leaf.field, data_model, edge):
             return True

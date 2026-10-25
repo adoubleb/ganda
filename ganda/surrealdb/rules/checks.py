@@ -76,7 +76,7 @@ _RULE_CHECKS = {
     "C43": (ERRORS[0],),
 }
 
-REPRODUCED_BY = {"F28": ("C40",), "F29": ("C44",), "F6": ("C41",), "F21": ("C42",)}
+REPRODUCED_BY = {"F28": ("C40", "C45"), "F29": ("C44",), "F6": ("C41",), "F21": ("C42",)}
 
 _DEFECT = {d.id: d for d in DEFECTS}
 CHECKS: dict = {fid: tuple(items) for fid, items in _RULE_CHECKS.items()}
