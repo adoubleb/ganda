@@ -465,16 +465,30 @@ The legacy port `../surrealDB` is reference material (its F1..F27 are in
 
 ## Live verification of SurrealDB (2026-10-26, SurrealDB 3.3.4 in Docker)
 
-- `ganda surrealdb probe`: 35 checks hold (`rules/baseline.json` records 3.3.4); `rules
-  --mutate`: 35 mutants, 0 survivors; `pytest tests/ -q -n auto`: 335 passed.
-- the smoke campaign `run --iterations 2 --seed 1 --workers 1` with the key, narrow-type,
-  date-map, list-index, inheritance, churn and schemafull axes on: 450 cases, 0 setup
-  asymmetries, 0 internal errors, 8 writes, 0 write-state diffs; its two findings were the
-  port's (a bracket filter over record links, `<->`) and **F28**.
-- `run --iterations 8 --seed 100 --workers 2` with the same axes: 1876 cases, 86.4 %
-  asserting, 0 setup asymmetries, 0 internal errors, 7 symmetric errors, 60 writes, 0
-  write-state diffs, F28 withheld on 96 variants, 136 s; its one finding was F28 through
-  reversed operands (seed 103), which the guard now reads.
+- `ganda surrealdb probe`: 37 checks hold (`rules/baseline.json` records 3.3.4); `rules
+  --mutate`: 36 mutants, 0 survivors; `pytest tests/ -q -n auto`: 346 passed.
+- the reference run `run --iterations 12 --seed 1000 --workers 2` with the key, narrow-type,
+  date-map, list-index, inheritance, edge-update churn and schemafull axes on: 2832 cases,
+  87.9 % asserting, 0 setup asymmetries, 0 internal errors, 1 symmetric error, 96 writes, 0
+  write-state diffs, F28 withheld on 15 variants, 197 s. Its one finding (seed 1008, `ids`
+  under `IS PRESENT` on a LIST column) was F28's second face -- a presence test served by an
+  array index answers a record once per element -- which the guard now reads (check C45).
+- guards off, `run --iterations 24 --seed 2000 --workers 4 --no-known-bugs --write-cases 16`
+  with the same axes: 6187 cases, 87.5 % asserting, 0 setup asymmetries, 0 internal errors,
+  373 writes, 0 write-state diffs, 258 s; F28 alone marks 66 pairs and 42 of them fail
+  (whole-array equalities, presence tests, the transaction door's read and a join's filter
+  over an array-indexed LIST column; the two `duplicate_id_rows` findings are its
+  once-per-element rows under a method's presence conjunct); 0 failing pairs no defect marks.
+  F29 is avoided by design (a decimal column's constants are typed), so it cannot be
+  measured this way.
+- `mutate --trials 3 --seed 1` over the 20 mutants: 18 of 20 caught, mean rate 0.833 --
+  `graph_stale_edge_update` 0/3 needs edge-update churn (as on ArangoDB), and
+  `doc_distinct_projection` 0/3 was the mutant's own regex, now 3/3 over every multiset
+  traversal projection.
+- The smoke campaigns before them found three faults of the port (a bracket filter over
+  record links reads no field, `<->e<->n` answers both endpoints, `math::max` refuses a
+  string), two engine behaviours the setup now respects (MERGE merges a nested object into
+  the stored one; an integer addition past the 64-bit range is refused), F28 and F29.
 
 ## Triage of a finding
 
