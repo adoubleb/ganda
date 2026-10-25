@@ -20,7 +20,7 @@ from ganda.orientdb.known_bugs.java_hash import distinct_collides, java_hash, st
 from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema, options
 from ganda.core.query.ir.traversal import Hop, TraversalQuery
 from ganda.orientdb.facade.predicates import Compound, Predicate
-from ganda.orientdb.oracle.semantics import like_hit
+from ganda.orientdb.concrete_syntax.query.predicate_sampling.predicate_steering import like_hit
 
 # the 66 LONG values a live reduction kept: DISTINCT over them answers a duplicate,
 # over any 65 of them it does not

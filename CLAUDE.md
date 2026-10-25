@@ -108,7 +108,7 @@ decides on. The catalog holds no IR definition (the code compares no subject wit
 IR). `ganda orientdb rules --write` renders
 `ganda/orientdb/rules/RULES.md`; `tests/orientdb/test_rules.py` keeps them in step. Layout: `storage/dialect.py` (vocabulary), `storage/physical_design.py`, `config.py`,
 `engine/limits.py` (what the engine can hold), `engine/connection.py`, `oracle/semantics.py`,
-`concrete_syntax/` (`setup/`: instance → setup plan, one mapper per data model; `query/`: `predicate`, `predicate_sampling/` (`operators`, `constants`, `forms`: the provider's `predicate_sampling` slot), `traversal`, `select`, `path`, `write`, `support`),
+`concrete_syntax/` (`setup/`: instance → setup plan, one mapper per data model; `query/`: `predicate`, `predicate_sampling/` (`operators`, `constants`, `forms`: the provider's `predicate_sampling` slot; `predicate_steering`: how a scan answers a predicate, `predicate_hit` / `evaluate`, which `oracle/semantics.py` exposes), `traversal`, `select`, `path`, `write`, `support`),
 `known_bugs/guards.py` (most of O1..O46; O4 retired, fixed in 3.2.57; O12, O22, O24, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/query/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `engine/coverage.py` (JaCoCo),
 
 `scripts/` (`probe_osql.py`, `coverage_report.py`).

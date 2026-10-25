@@ -15,7 +15,7 @@ from ganda.orientdb.concrete_syntax.query.predicate import render_predicate as r
 from ganda.orientdb.facade.predicates import Compound, Predicate, apply_arith, evaluate
 from ganda.orientdb.concrete_syntax.query.predicate_sampling.forms import _arithmetic, leaf_form
 from ganda.core.query.generators.registry import all_cases
-from ganda.orientdb.oracle.semantics import predicate_hit
+from ganda.orientdb.concrete_syntax.query.predicate_sampling.predicate_steering import predicate_hit
 
 
 from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider

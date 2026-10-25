@@ -24,7 +24,8 @@ from ganda.core.query.ir.predicates import (  # noqa: F401
     subqueries,
 )
 from ganda.orientdb.concrete_syntax.query.predicate_sampling import cross_type, leaf_form, lossy_constant  # noqa: F401
-from ganda.orientdb.oracle.semantics import apply_arith, arith_exact, evaluate  # noqa: F401
+from ganda.orientdb.oracle.semantics import apply_arith, arith_exact  # noqa: F401
+from ganda.orientdb.concrete_syntax.query.predicate_sampling.predicate_steering import evaluate  # noqa: F401
 
 
 def _engine():

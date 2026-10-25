@@ -1,7 +1,8 @@
 from ganda.core.oracle.oracle import build_result, fold_rows, normalize_multiset, normalize_set
 from ganda.core.oracle.dedup import BugDeduplicator
 from ganda.core.oracle.case import Comparison, QueryCase
-from ganda.orientdb.oracle.semantics import eq, orient_key, predicate_hit
+from ganda.orientdb.oracle.semantics import eq, orient_key
+from ganda.orientdb.concrete_syntax.query.predicate_sampling.predicate_steering import predicate_hit
 
 
 from ganda.orientdb import PROVIDER

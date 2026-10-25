@@ -147,7 +147,8 @@ def test_both_direction_nexists_and_optional_match():
 
 
 def test_narrow_types_in_the_predicate_logic():
-    from ganda.orientdb.oracle.semantics import predicate_hit, sum_is_exact
+    from ganda.orientdb.oracle.semantics import sum_is_exact
+    from ganda.orientdb.concrete_syntax.query.predicate_sampling.predicate_steering import predicate_hit
 
     # an INTEGER column: a Long constant compares exactly on a scan; the wrap is the index's (O16)
     assert not predicate_hit(True, 5, "=", 2**32 + 5, "int32")
@@ -189,7 +190,8 @@ def test_reach_projections():
 
 
 def test_dates_and_maps_in_the_predicate_logic():
-    from ganda.orientdb.oracle.semantics import canonical_date, predicate_hit
+    from ganda.orientdb.oracle.semantics import canonical_date
+    from ganda.orientdb.concrete_syntax.query.predicate_sampling.predicate_steering import predicate_hit
 
     assert canonical_date("2024-01-01") == "2024-01-01 00:00:00"
     assert canonical_date(1704112496000) == "2024-01-01 12:34:56"
