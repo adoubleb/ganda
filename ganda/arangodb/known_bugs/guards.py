@@ -1,5 +1,5 @@
 """The ArangoDB findings already filed, each withheld at its exact shape per variant so a
-campaign does not report it again (`ganda/orientdb/known_bugs/guards.py` is the pattern). The
+campaign does not report it again (`ganda/orientdb/known_bugs/` is the pattern). The
 legacy port's A1..A39 (`../arangoDB/issue-drafts/`) are either outside this port's
 surface (ArangoSearch views, MDI and geo indexes, the JavaScript door) or kept
 unreachable by construction (no signed zero is stored, A1 / A2; no ordered comparison on

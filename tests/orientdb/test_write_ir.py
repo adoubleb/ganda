@@ -1,5 +1,5 @@
 from tests.orientdb.helpers import GeneratorConfig, build
-from ganda.orientdb.known_bugs.guards import o37_write, write_known
+from ganda.orientdb.known_bugs.write import o37_write, write_known
 from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.core.query.ir.predicates import Predicate
 from ganda.core.query.generators.write import sample_write, unique_safe

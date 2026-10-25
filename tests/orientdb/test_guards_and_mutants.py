@@ -1,5 +1,5 @@
 from tests.orientdb.helpers import GeneratorConfig, build
-from ganda.orientdb.known_bugs.guards import o1_shape, o2_shape
+from ganda.orientdb.known_bugs.traversal import o1_shape, o2_shape
 from ganda.core.data.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeTypeSpec, Schema
 from ganda.orientdb.mutation.mutants import MUTANTS
 from ganda.core.query.ir.traversal import Hop, TraversalQuery
@@ -71,7 +71,7 @@ def test_every_read_generator_emits():
 
 
 def test_guards_see_leaves_inside_compounds():
-    from ganda.orientdb.known_bugs.guards import node_case_known, o10_predicate
+    from ganda.orientdb.known_bugs.predicate import node_case_known, o10_predicate
     from ganda.core.query.ir.predicates import Compound
 
     schema = _schema([IndexSpec("n1", "f1", data_model="rel", kind="NOTUNIQUE")])
@@ -86,7 +86,7 @@ def test_guards_see_leaves_inside_compounds():
 
 
 def test_pulled_up_variants_are_judged_without_the_source_predicate():
-    from ganda.orientdb.known_bugs.guards import mark_known_bugs
+    from ganda.orientdb.known_bugs.traversal import mark_known_bugs
     from ganda.core.oracle.case import Comparison, QueryCase
 
     schema = _schema([IndexSpec("n1", "f1", data_model="rel", kind="NOTUNIQUE")])
@@ -99,7 +99,7 @@ def test_pulled_up_variants_are_judged_without_the_source_predicate():
 
 
 def test_cross_type_guards_o16_o17():
-    from ganda.orientdb.known_bugs.guards import edge_case_known, node_case_known, o16_predicate, o17_predicate
+    from ganda.orientdb.known_bugs.predicate import edge_case_known, node_case_known, o16_predicate, o17_predicate
 
     inst = build(3, GeneratorConfig())[1]
     schema = _schema([IndexSpec("n1", "f1", data_model="rel", kind="NOTUNIQUE_HASH_INDEX"), IndexSpec("n1", "f1", data_model="doc", kind="NOTUNIQUE")])
@@ -121,7 +121,7 @@ def test_o18_withholds_the_order_variant_only_where_the_walk_skips_a_present_val
     """3.2.57: a walk of an index that ignores nulls lacks the null records, which the
     order form's `IS NOT NULL` excludes; a composite one also lacks a record whose
     other component is null."""
-    from ganda.orientdb.known_bugs.guards import select_shape_known
+    from ganda.orientdb.known_bugs.select import select_shape_known
     from ganda.core.query.ir.select import SelectQuery
     from ganda.orientdb.concrete_syntax.query.select import SelectSyntax
 
@@ -149,7 +149,8 @@ def test_o18_withholds_the_order_variant_only_where_the_walk_skips_a_present_val
 
 
 def test_new_type_and_collation_guards():
-    from ganda.orientdb.known_bugs.guards import node_case_known, o16_predicate, o17_predicate, o20_predicate, o21_predicate, ordered_keys_known
+    from ganda.orientdb.known_bugs.predicate import node_case_known, o16_predicate, o17_predicate, o20_predicate, o21_predicate
+    from ganda.orientdb.known_bugs.select import ordered_keys_known
     from ganda.core.query.ir.predicates import Compound
 
     inst = build(3, GeneratorConfig())[1]
@@ -192,7 +193,7 @@ def test_new_type_and_collation_guards():
 
 
 def test_o25_withholds_bracket_syntaxes_on_ci_targets():
-    from ganda.orientdb.known_bugs.guards import o25_shape
+    from ganda.orientdb.known_bugs.traversal import o25_shape
 
     schema = Schema(
         node_types=(NodeTypeSpec("n1", (FieldSpec("s", FieldType.STRING, case_insensitive=True),)),),
@@ -209,7 +210,7 @@ def test_o25_withholds_bracket_syntaxes_on_ci_targets():
 
 
 def test_o36_between_on_a_composite_lead_next_to_a_later_field():
-    from ganda.orientdb.known_bugs.guards import o36_predicate
+    from ganda.orientdb.known_bugs.predicate import o36_predicate
     from ganda.core.query.ir.predicates import Compound
 
     schema = Schema(

@@ -53,10 +53,10 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
   the top; `provider/` (`provider.py`, and `physical_design.py`: the index, storage and
   write-form draws); `engine/` (connection, plan steps, limits, semantics, dialect; it imports nothing from `concrete_syntax/`);
   `concrete_syntax/` (`setup/`, the instance as a setup plan; `query/`, the renderers and
-  `predicate_sampling/`); `known_bugs/` (`guards.py`), `mutation/` (`mutants.py`),
+  `predicate_sampling/`); `known_bugs/` (`predicate.py`, `traversal.py`, `select.py`, `write.py`), `mutation/` (`mutants.py`),
   `code_coverage/` (JaCoCo), `scripts/`. ArangoDB and HANA still keep `provider.py` at the top, `storage/` (dialect,
-  physical design, `mapping/`), the renderers directly under `concrete_syntax/`, and
-  `oracle/` (semantics, `predicate_sampling`; HANA also `rewrites` until its port).
+  physical design, `mapping/`), the renderers directly under `concrete_syntax/`, a single `known_bugs/guards.py`,
+  and `oracle/` (semantics, `predicate_sampling`; HANA also `rewrites` until its port).
 - **Use conventional names** (the README glossary). New concepts get the textbook term.
 - **Engine limits are the provider's, in its `limits` slot** (`core/data/limits.py`,
   `ganda/orientdb/engine/limits.py`: every number documented or probed). The large-data axes
@@ -114,7 +114,7 @@ IR). `ganda orientdb rules --write` renders
 `ganda/orientdb/rules/RULES.md`; `tests/orientdb/test_rules.py` keeps them in step. Layout: `engine/dialect.py` (declared types, index kinds, key charset), `provider/physical_design.py` (the index, storage and write-form draws), `config.py`,
 `engine/limits.py` (what the engine can hold), `engine/connection.py`, `engine/plan.py` (the setup-plan steps it executes: `Sql`, `Script`, `Batch`), `engine/semantics.py` (value order, equality, arithmetic),
 `concrete_syntax/` (`setup/`: instance → setup plan, one mapper per data model; `query/`: `predicate`, `predicate_sampling/` (`operators`, `constants`, `forms`: the provider's `predicate_sampling` slot; `predicate_steering`: how a scan answers a predicate, `predicate_hit` / `evaluate`; the provider assembles both into its `OrientSemantics`), `traversal`, `select`, `path`, `write`, `support`),
-`known_bugs/guards.py` (most of O1..O46; O4 retired, fixed in 3.2.57; O12, O22, O24, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/query/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `code_coverage/` (`collector.py`: the JaCoCo agent's probes during a run; `report.py` and `jacoco/`: line / branch reports from the `.exec` files),
+`known_bugs/` (most of O1..O46, one module per IR over the predicate guards; O4 retired, fixed in 3.2.57; O12, O22, O24, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/query/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `code_coverage/` (`collector.py`: the JaCoCo agent's probes during a run; `report.py` and `jacoco/`: line / branch reports from the `.exec` files),
 `scripts/` (`probe_osql.py`).
 
 Adding a concrete syntax: a choice in the catalog of its module (`SYNTAXES` and

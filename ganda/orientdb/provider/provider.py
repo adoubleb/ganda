@@ -76,7 +76,7 @@ class OrientDBProvider(Provider):
 
     @property
     def known_bugs(self):
-        from ganda.orientdb.known_bugs import guards as known_bugs
+        from ganda.orientdb import known_bugs
 
         return known_bugs
 

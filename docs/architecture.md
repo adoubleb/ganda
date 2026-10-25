@@ -174,7 +174,7 @@ attributes are **slots** the core reads; a slot may be an object or a module.
 | `predicate_sampling` | Which operators a predicate draws; cross-type constants; leaf forms | `concrete_syntax/query/predicate_sampling/` (OrientDB), `oracle/predicate_sampling.py` (ArangoDB, HANA) |
 | `traversal_syntax`, `select_syntax`, `path_syntax`, `write_syntax` | Which concrete syntaxes apply to an IR, and their text | `concrete_syntax/` |
 | `rewrites` | Equivalent rewrites of a predicate; exactness of arithmetic | `oracle/rewrites.py` |
-| `known_bugs` | Filed bugs, withheld at their exact shape per variant | `known_bugs/guards.py` |
+| `known_bugs` | Filed bugs, withheld at their exact shape per variant | `known_bugs/` (OrientDB: one module per IR), `known_bugs/guards.py` (ArangoDB, HANA) |
 | `mutants` | The engine's own corruptions for the mutation benchmark | `mutation/mutants.py` |
 | `coverage()` | A code-coverage collector, or `None` | `code_coverage/collector.py` |
 | `extra_generators` | Engine-only query generators | |

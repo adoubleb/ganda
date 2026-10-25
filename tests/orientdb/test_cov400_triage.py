@@ -7,15 +7,9 @@ import dataclasses
 import random
 
 from ganda.core.query.ir.select import TxWrite
-from ganda.orientdb.known_bugs.guards import (
-    map_value_index_known,
-    o5_poly_sibling_index,
-    o5_sibling_filter,
-    o31_desc_walk,
-    o41_values,
-    o43_predicate,
-    o44_dfs_reach,
-)
+from ganda.orientdb.known_bugs.predicate import map_value_index_known, o5_sibling_filter, o43_predicate
+from ganda.orientdb.known_bugs.select import o5_poly_sibling_index, o31_desc_walk, o41_values
+from ganda.orientdb.known_bugs.traversal import o44_dfs_reach
 from ganda.orientdb.known_bugs.java_hash import distinct_collides, java_hash, string_hash
 from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema, options
 from ganda.core.query.ir.traversal import Hop, TraversalQuery

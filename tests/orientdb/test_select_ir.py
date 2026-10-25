@@ -1,7 +1,7 @@
 import re
 
 from tests.orientdb.helpers import GeneratorConfig, build
-from ganda.orientdb.known_bugs.guards import select_known
+from ganda.orientdb.known_bugs.select import select_known
 from ganda.core.data.model import FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.core.oracle.case import QueryCase
 from ganda.core.query.ir.predicates import Predicate

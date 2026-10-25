@@ -3,7 +3,7 @@ campaign does not report it again: a triaged finding gets an id (`H1`, `H2`, ...
 `findings/` catalogue's `A8`, `B13`), a write-up under `issues-draft/` or `findings/`, and
 a guard here -- a function of the case's IR and the variant's concrete syntax that
 answers its id where the variant's text is the bug's shape
-(`ganda/orientdb/known_bugs/guards.py` is the pattern).
+(`ganda/orientdb/known_bugs/` is the pattern).
 
     H4   SQL over the doc views (collections read through UNNEST) adds up the values of
          rows the joins exclude: a traversal sum fails with [314] numeric overflow where

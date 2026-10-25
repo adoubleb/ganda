@@ -6,7 +6,7 @@ import random
 from collections import Counter
 
 from tests.orientdb.helpers import GeneratorConfig, build
-from ganda.orientdb.known_bugs.guards import select_known
+from ganda.orientdb.known_bugs.select import select_known
 from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.mutation.mutants import MUTANTS_BY_NAME
 from ganda.core.query.ir import predicates
@@ -252,7 +252,7 @@ def test_poly_join_over_a_sibling_list_field_is_o5():
 
 
 def test_mixed_compare_matrix_and_the_decimal_sibling():
-    from ganda.orientdb.known_bugs.guards import mixed_compare_throws
+    from ganda.orientdb.known_bugs.select import mixed_compare_throws
 
     D, L, I, T, B = FieldType.DECIMAL, FieldType.INT, FieldType.INT32, FieldType.DATETIME, FieldType.BOOL
     assert mixed_compare_throws(D, L, "=") and not mixed_compare_throws(D, I, "=")
@@ -274,7 +274,7 @@ def test_mixed_compare_matrix_and_the_decimal_sibling():
 
 
 def test_o17_covers_a_map_entry_between():
-    from ganda.orientdb.known_bugs.guards import o17_predicate
+    from ganda.orientdb.known_bugs.predicate import o17_predicate
 
     schema = Schema(node_types=(NodeTypeSpec("n1", (FieldSpec("m", FieldType.MAP),)),), edge_types=())
     lossy = Predicate("source", "m", "BETWEEN", "p", [-54, -49.5], ftype="int", key="k3")

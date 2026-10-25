@@ -6,7 +6,8 @@ import random
 
 from ganda.core.query.ir.select import TxWrite
 from tests.orientdb.helpers import GeneratorConfig, build
-from ganda.orientdb.known_bugs.guards import _leaf_served, list_ops_known, o31_known
+from ganda.orientdb.known_bugs.predicate import _leaf_served, list_ops_known
+from ganda.orientdb.known_bugs.select import o31_known
 from ganda.core.data.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.engine.connection import is_script, unwrap_script
 from ganda.orientdb.concrete_syntax.query.support import bfs_distances
@@ -174,7 +175,7 @@ def test_bfs_distances():
 
 
 def test_order_form_withholds_the_asc_walk_of_a_composite_index_with_a_null_component():
-    from ganda.orientdb.known_bugs.guards import select_shape_known
+    from ganda.orientdb.known_bugs.select import select_shape_known
     from ganda.core.data.model import EdgeTypeSpec
     from ganda.core.query.ir.select import SelectQuery
     from ganda.orientdb.concrete_syntax.query.select import SelectSyntax
