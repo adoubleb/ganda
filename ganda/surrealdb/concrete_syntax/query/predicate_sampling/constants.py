@@ -7,6 +7,13 @@ import math
 import random
 
 from ganda.core.data.model import FieldType
+from ganda.surrealdb.rules import works_around
+
+# an index over a decimal column looks a float constant up by its binary expansion, so
+# `f = 0.3` misses a stored `0.3dec` that the scan matches (F29): a decimal column's
+# cross-type constant is an integer (dyadic, keyed alike), and its same-type constants
+# are decimal literals
+works_around("F29")
 
 
 def cross_type(rng: random.Random, ftype: FieldType, v):

@@ -58,6 +58,21 @@ def _constant(p, part: "str | None" = None) -> str:
     return f"${p.bind}{part or ''}"
 
 
+def arith_bound(expr: str, sym: str, c) -> str:
+    """The range of an integer field whose `expr <sym> c` stays inside the 64-bit range
+    (the engine refuses an overflow, which would fail the statement on every data model
+    alike); the empty text when nothing can overflow."""
+    from ganda.core.constants import I64_MAX, I64_MIN
+
+    if sym == "+":
+        return f"{expr} <= {I64_MAX - c}" if c > 0 else (f"{expr} >= {I64_MIN - c}" if c < 0 else "")
+    if sym == "-":
+        return f"{expr} >= {I64_MIN + c}" if c > 0 else (f"{expr} <= {I64_MAX + c}" if c < 0 else "")
+    if sym == "*" and abs(c) > 1:
+        return f"math::abs({expr}) <= {I64_MAX // abs(c)}"
+    return ""
+
+
 def present(expr: str) -> str:
     return f"{expr} IS NOT NONE AND {expr} IS NOT NULL"
 
@@ -134,6 +149,9 @@ def render_predicate(p, prefix: str = "", element: bool = False, schema=None) ->
         c = p.arith.value
         lit = surql_literal(c, FieldType.DECIMAL) if p.ftype == "decimal" else (f"${p.arith.bind}" if not p.literal else surql_literal(c))
         guard = present(expr)
+        bound = arith_bound(expr, p.arith.sym, c) if p.ftype in ("int", "int32") else None
+        if bound:
+            guard = f"{guard} AND {bound}"
         expr = f"({expr} {p.arith.sym} {lit})"
         return f"({guard} AND {_compare(expr, p)})"
     if p.case_insensitive and p.op in CI_OPS and p.ftype == "string":

@@ -236,6 +236,14 @@ correlated strict bound) and a renderer bug (`UNION()` of one class). Step 6b's 
 A40 0 of 236 marked pairs failing (a retirement candidate: its shape withholds every
 data model alike); A1, A2, A41 are avoided by design.
 
+**SurrealDB.** Ported 2026-10-26 straight into the end state (the `surrealdb-port` branch):
+OrientDB's layout, a pair compared only across data models, drawn leaf forms, every write the
+engine's (the doc data model's link arrays rebuilt with `array::map` / `array::filter`), a
+catalog whose every rule is read and checked (35 probe checks on 3.3.4, 0 mutation survivors).
+The first campaigns found F28 (an index over an array field answers a whole-array equality
+with nothing) and three faults of the port (a bracket filter over record links reads no field,
+`<->e<->n` answers both endpoints, `math::max` refuses a string).
+
 **HANA.** Catalog exists (stage 1a), stages 2b-2d pending. Step 4a is its largest change
 (the hint profiles and the rel-against-rel forms). It has a native relational model, four
 data models (doc, rel, graph, rdf) and the provider options `compare_despite_errors` and

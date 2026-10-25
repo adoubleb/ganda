@@ -98,7 +98,9 @@ def surql_literal(v, ftype: "FieldType | None" = None) -> str:
         # raw UTF-8 (the engine takes no `\uXXXX` surrogate escape)
         return json.dumps(v, ensure_ascii=False)
     if isinstance(v, list):
-        return "[" + ", ".join(surql_literal(x) for x in v) + "]"
+        # the elements of a constant list are typed as the column is (an `IN` list of
+        # decimals); a LIST column's elements are integers either way
+        return "[" + ", ".join(surql_literal(x, ftype) for x in v) + "]"
     if isinstance(v, dict):
         return "{ " + ", ".join(f"{k}: {surql_literal(x)}" for k, x in v.items()) + " }"
     raise TypeError(f"no SurrealQL literal for {type(v).__name__}: {v!r}")

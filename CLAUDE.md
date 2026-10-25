@@ -7,7 +7,7 @@ Guidance for Claude Code when working in this repository.
 Ganda: a multi-model metamorphic fuzzer with an engine-agnostic core (`ganda/core`) and
 one provider per DBMS (`ganda/orientdb` full; `ganda/hana` full, verified live against
 HANA Cloud 4.00.000.00; `ganda/arangodb` full, verified live against ArangoDB 3.12.11;
-`ganda/surrealdb` skeleton). `README.md` has the architecture, the provider contract and the glossary
+`ganda/surrealdb` full, verified live against SurrealDB 3.3.4). `README.md` has the architecture, the provider contract and the glossary
 that maps the legacy ports' terms to the ones used here. The legacy fuzzers
 (`../OrientDB`, `../surrealDB`, `../arangoDB`) are reference material: do not edit them.
 
@@ -20,7 +20,8 @@ python3 -m ganda orientdb probe                    # Docker (or ORIENT_URL / ORI
 python3 -m ganda orientdb run --iterations 20 --seed 1000 --workers 2
 python3 -m ganda orientdb mutate --trials 8 --seed 1 --tag before-change
 python3 -m ganda orientdb rules --mutate           # does the code depend on every rule and defect (no server, ~25 s)
-python3 -m ganda surrealdb doctor
+python3 -m ganda surrealdb probe                   # Docker (or SURREAL_URL); SURREAL_IMAGE picks the image (default surrealdb/surrealdb:v3.3.4)
+python3 -m ganda surrealdb run --iterations 12 --seed 1000 --workers 2 --schemafull-probability 0.5
 python3 -m ganda arangodb probe                    # Docker (or ARANGO_URL / ARANGO_PASSWORD); ARANGO_IMAGE picks the image
 python3 -m ganda arangodb run --scale large --iterations 4 --seed 1 --workers 4   # ArangoDB at the large scale
 python3 -m ganda orientdb limits                   # what the engine can hold; the large profile on it
@@ -49,7 +50,7 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
   the engine gets it passed (`PROVIDER`); OrientDB's tests build instances through
   `tests/orientdb/helpers.build`, and `ganda.orientdb.Schema` is a `Schema` bound to
   OrientDB for hand-built schemas.
-- **Provider layout** (OrientDB; ArangoDB and HANA move to it in turn): folders only at
+- **Provider layout** (OrientDB and SurrealDB; ArangoDB and HANA move to it in turn): folders only at
   the top; `provider/` (`provider.py`, `config.py`, and `physical_design.py`: the index,
   storage and write-form draws); `engine/` (connection, plan steps, limits, semantics, dialect; it imports nothing from `concrete_syntax/`);
   `concrete_syntax/` (`setup/`, the instance as a setup plan; `query/`, the renderers and
@@ -399,6 +400,81 @@ translator of exactly the openCypher subset the renderers emit into SQLite (its 
 mirror the engine's documented semantics; a construct it lacks makes the variant partial
 offline, never an error). The provider bugs of campaign-20261009-095838
 (`findings/README.md`, C4-C9) are pinned in `tests/hana/test_units.py`.
+
+## SurrealDB
+
+Ported 2026-10-26 straight into the multi-model scope and OrientDB's layout
+(`ganda/surrealdb/README.md`; `docs/provider-refactoring.md`, per engine). Three data models
+in one SurrealQL: `doc` (an array of link objects `{eid, target, ...}` on the source record),
+`graph` (relation tables, `RELATE n1:r0->e1:e0->n2:r3`), `rel` (junction tables with `src` /
+`dst` record links). A record IS its id (`n1/r0` is `n1:r0`, a custom key in backticks), so a
+setup plan is one `Surql` script per data model with no `Ref`; a class is SCHEMALESS or
+SCHEMAFULL (`option<type | null>` fields) per class and data model (`schemafull_probability`,
+the one axis of `SurrealConfig`; there is no collation, so `collate_probability` is 0).
+
+The engine rules are minimal records in `ganda/surrealdb/rules/catalog.py` (subjects: `surql`
+the scan, `surql@index`, `graph` the arrows, `recursion` the `{..}` idioms, `subquery` a
+`$parent` correlation, `transaction`); every rule is checked by a probe check (`rules/probe.py`,
+`C<n>`, 35 on 3.3.4) and read by code, every defect reproduced by one. The defects: **F28**
+(an index over an array field keys each element, and a whole-array equality `f = [1]` / `IN
+[[1]]` / `[1] = f` the planner serves from it answers nothing -- found by the first smoke
+campaign, seed 1, and again through reversed operands by campaign c8, seed 103; guarded in
+`known_bugs/predicate.py`, drafted in `known_bugs/issue-drafts/F28-...md`), **F6** (a bounded
+`{..k+shortest=b}` below the distance answers nested paths, not NONE: the path IR asks the idiom
+unbounded and applies the bound to its length) and **F21** (an index defined in a transaction
+after its data stays empty: index DDL travels outside the data's door). The legacy port's F4,
+F8, F19, F20, F22 and F27 no longer reproduce on 3.3.4 and are not recorded; its views,
+events, COMPUTED fields, KNN, full-text, extended types, ALTER, LLM templates, rewrite algebra
+and reference leg stay out, as ArangoDB's extras did.
+
+What SurrealQL imposes on the renderers (each a probed rule): NONE (an omitted field) and NULL
+(an explicit null) both sort below every value and are not equal, so the core's `IS NULL` is
+`IS NONE OR IS NULL` and `IS PRESENT` is `IS NOT NONE`; a function, cast or arithmetic over a
+missing value is REFUSED, so a method, `LIKE` (`string::starts_with` / `ends_with` / `contains`)
+and an arithmetic leaf are guarded by the field's presence (`predicate_steering.evaluate`
+answers false for a missing value under arithmetic, as the text does); a `LET` carries no type,
+so a datetime, decimal or byte-string constant is a literal (`leaf_form` forces `literal`);
+`$parent` is the enclosing record inside a closure but NOT inside a bracket filter, and a
+bracket filter over record links reads no field, so the doc data model's incoming hop counts
+its links with `array::filter` + `array::repeat` and a target predicate over records is a
+closure; `<->e<->n` answers both endpoints of every edge (the start included), so an
+undirected hop is `array::concat(->e->n, <-e<-n)`; `array::max` / `array::min` order any kind
+where `math::max` refuses a string; a GROUP BY keeps NONE and NULL keys apart (`k ?? NULL`);
+`count(f)` counts truthy values (`count(f IS NOT NONE AND f IS NOT NULL)`); a variable bound
+inside a cancelled transaction keeps its value (the read door: `BEGIN; <write>; LET $r = ...;
+CANCEL; RETURN $r`); the `/sql` body is capped at 1 MiB unless the server runs with
+`SURREAL_HTTP_MAX_SQL_BODY_SIZE` (the Docker server is started with 64 MiB; `.env.example`).
+
+Layout: `engine/dialect.py` (declared types, `engine_id` / `logical_id`, `surql_literal`),
+`engine/plan.py` (`Surql`), `engine/connection.py` (the `/sql` session with a `LET` prelude,
+the cancelled-statement rule, the state-check readers, `SurrealServer`), `engine/semantics.py`,
+`engine/limits.py`, `provider/` (`provider.py`, `config.py`, `physical_design.py`),
+`concrete_syntax/setup/` (`common`, `document`, `graph`, `relational`), `concrete_syntax/query/`
+(`predicate`, `predicate_sampling/`, `traversal` -- graph `arrow` / `edgescan` / `subquery` /
+`recursion`, doc `links` / `closure`, rel `subquery` / `flat`, every one with a pull-up --,
+`select` -- positions `table` / `poly` / `polyin`, forms `base` / `group_all` / `order` / `jrev`
+--, `path` -- the shortest-path idiom and level-by-level frontiers --, `write` -- targets
+`table` / `sub`, doors `auto` / `tx`, the doc data model's `closure` form --, `support`),
+`known_bugs/` (`predicate`, `traversal`, `select`, `write`, `issue-drafts/`), `mutation/mutants.py`,
+`rules/` (`catalog`, `checks`, `probe`, `baseline.json`, `RULES.md`).
+
+Campaigns run on a laptop (the memory backend is light: a 12-seed campaign at the default
+scale takes minutes) or on mousedeer; `SURREAL_URL` attaches to a server already running.
+The legacy port `../surrealDB` is reference material (its F1..F27 are in
+`../surrealDB/issue-drafts/`).
+
+## Live verification of SurrealDB (2026-10-26, SurrealDB 3.3.4 in Docker)
+
+- `ganda surrealdb probe`: 35 checks hold (`rules/baseline.json` records 3.3.4); `rules
+  --mutate`: 35 mutants, 0 survivors; `pytest tests/ -q -n auto`: 335 passed.
+- the smoke campaign `run --iterations 2 --seed 1 --workers 1` with the key, narrow-type,
+  date-map, list-index, inheritance, churn and schemafull axes on: 450 cases, 0 setup
+  asymmetries, 0 internal errors, 8 writes, 0 write-state diffs; its two findings were the
+  port's (a bracket filter over record links, `<->`) and **F28**.
+- `run --iterations 8 --seed 100 --workers 2` with the same axes: 1876 cases, 86.4 %
+  asserting, 0 setup asymmetries, 0 internal errors, 7 symmetric errors, 60 writes, 0
+  write-state diffs, F28 withheld on 96 variants, 136 s; its one finding was F28 through
+  reversed operands (seed 103), which the guard now reads.
 
 ## Triage of a finding
 

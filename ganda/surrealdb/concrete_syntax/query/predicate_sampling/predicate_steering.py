@@ -12,9 +12,9 @@ are ordered and compared under `ganda.surrealdb.engine.semantics`. The rules:
 - **Numbers** compare by value across int, float and decimal (`1 = 1.0`, `0.1dec =
   0.1`); strings by code point; a date by its ISO text, which is its chronological
   order. A case-insensitive column compares both sides lowercased.
-- **Arithmetic** over a missing value is refused by the engine: the text guards the
-  leaf with the field's presence, so a missing value answers FALSE whatever the
-  comparison.
+- **Arithmetic** over a missing value is refused by the engine, as is an integer result
+  past the 64-bit range: the text guards the leaf with the field's presence and range,
+  so a missing or overflowing value answers FALSE whatever the comparison.
 - **Lists and maps.** `CONTAINS` / `CONTAINSANY` / `CONTAINSALL` over a list (a
   missing list holds nothing; `CONTAINSALL []` holds for every list); a map's keys and
   values through `object::keys` / `object::values` (`?? {}` for a missing map); an entry
@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ganda.core.constants import I64_MAX, I64_MIN
 from ganda.core.query.ir.predicates import Compound
 from ganda.surrealdb.engine.semantics import _is_number, apply_arith, eq, lt
 from ganda.surrealdb.rules import assumes
@@ -139,4 +140,6 @@ def evaluate(values: dict, p) -> bool:
         if not present or v is None or not _is_number(v):
             return False
         v = apply_arith(v, p.arith.sym, p.arith.value, p.ftype)
+        if p.ftype in ("int", "int32") and isinstance(v, int) and not I64_MIN <= v <= I64_MAX:
+            return False  # the text guards the arithmetic the engine would refuse
     return predicate_hit(present, v, p.op, p.constant, p.ftype, p.case_insensitive, p.key)

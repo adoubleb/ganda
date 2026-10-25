@@ -124,6 +124,7 @@ RULES = COMPARE_RULES + ASK_RULES + EXACT_RULES
 # differ or a setup fail, re-probed on this build
 DEFECTS = (
     Defect("F28", SURQL_INDEX),  # an index over an array field answers a whole-array equality from element keys: nothing
+    Defect("F29", SURQL_INDEX),  # an index over a decimal column misses a non-dyadic float constant the scan matches (0.3 vs 0.3dec)
     Defect("F6", RECURSION),  # a bounded `{..k+shortest=x}` below the distance answers nested paths, not NONE
     Defect("F21", TRANSACTION),  # an index defined in a transaction after its data stays empty
 )

@@ -145,8 +145,17 @@ def update_statements(target: str, literals: dict, dropped: list, form: str, con
     out = []
     if dropped:
         out.append(f"UPDATE {target} UNSET {', '.join(dropped)};")
-    if literals:
-        out.append(f"UPDATE {target} MERGE {object_literal(literals)};" if form == "merge" else f"UPDATE {target} SET {set_clause(literals)};")
+    if form == "merge" and literals:
+        # MERGE merges a nested object INTO the stored one (a key the new value lacks
+        # survives): an object-valued field is SET instead
+        plain = {k: v for k, v in literals.items() if not v.startswith("{")}
+        objects = {k: v for k, v in literals.items() if v.startswith("{")}
+        if plain:
+            out.append(f"UPDATE {target} MERGE {object_literal(plain)};")
+        if objects:
+            out.append(f"UPDATE {target} SET {set_clause(objects)};")
+    elif literals:
+        out.append(f"UPDATE {target} SET {set_clause(literals)};")
     return out
 
 

@@ -30,7 +30,7 @@ def test_every_rule_is_checked_and_read_and_every_defect_reproduced_and_avoided(
     index = read_index()
     unread = [r for r in CATALOG.rules if not index["rules"].get((r.question.name, r.subject))]
     assert unread == [], [f"{r.question.name} ({r.subject})" for r in unread]
-    assert [d.id for d in CATALOG.defects] == ["F28", "F6", "F21"]
+    assert [d.id for d in CATALOG.defects] == ["F28", "F29", "F6", "F21"]
     assert all(index["defects"].get(d.id) for d in CATALOG.defects)
 
 
@@ -47,8 +47,8 @@ def test_the_probe_names_what_a_failing_check_checks_and_who_reads_it():
 def test_a_fixed_defect_does_not_block_the_baseline_and_a_changed_rule_does(monkeypatch):
     from ganda.surrealdb.rules import probe
 
-    monkeypatch.setattr(probe, "failures", ["C40", "C41"])
-    assert probe._sort_failures(CATALOG) == ([], {"F28": ["C40"], "F6": ["C41"]})
+    monkeypatch.setattr(probe, "failures", ["C40", "C41", "C44"])
+    assert probe._sort_failures(CATALOG) == ([], {"F28": ["C40"], "F6": ["C41"], "F29": ["C44"]})
     monkeypatch.setattr(probe, "failures", ["C40", "C2", "C999"])
     assert probe._sort_failures(CATALOG) == (["C2", "C999"], {"F28": ["C40"]})
 

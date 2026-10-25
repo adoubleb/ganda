@@ -108,6 +108,8 @@ def main(facts: "list | None" = None) -> int:
         print("--- indexes")
         s.query("DEFINE TABLE t28 SCHEMALESS; DEFINE INDEX ix_t28_f ON TABLE t28 FIELDS f; CREATE t28:a SET f = [1]; CREATE t28:b SET f = [1, 2]; CREATE t28:c SET f = [];")
         check("C40", "F28: an index over an array field answers a whole-array equality with nothing", lambda: val(s, "RETURN [(SELECT VALUE id FROM t28 WHERE f = [1]), (SELECT VALUE id FROM t28 WHERE f IN [[1], [2]]), (SELECT VALUE id FROM t28 WHERE [1] = f), (SELECT VALUE id FROM t28 WHERE f != [1]), (SELECT VALUE id FROM t28 WHERE f CONTAINS 1)];"), [[], [], [], ["t28:b", "t28:c"], ["t28:a", "t28:b"]])
+        s.query("DEFINE TABLE t29 SCHEMALESS; DEFINE INDEX ix_t29_f ON TABLE t29 FIELDS f; DEFINE TABLE s29 SCHEMALESS; CREATE t29:a SET f = 0.3dec; CREATE t29:b SET f = 2.5dec; CREATE s29:a SET f = 0.3dec; CREATE s29:b SET f = 2.5dec;")
+        check("C44", "F29: an index over a decimal column misses a non-dyadic float constant the scan matches", lambda: val(s, "RETURN [(SELECT VALUE id FROM t29 WHERE f = 0.3), (SELECT VALUE id FROM s29 WHERE f = 0.3), (SELECT VALUE id FROM t29 WHERE f = 2.5), (SELECT VALUE id FROM t29 WHERE f IN [0.3, 2.5]), (SELECT VALUE id FROM t29 WHERE f = 0.3dec)];"), [[], ["s29:a"], ["t29:b"], ["t29:b"], ["t29:a"]])
         check("C31", "a 16 KiB string is an index key", lambda: val(s, "DEFINE TABLE t31 SCHEMALESS; DEFINE INDEX ix_t31_f ON TABLE t31 FIELDS f; CREATE t31:a SET f = string::repeat('x', 16384); SELECT VALUE string::len(f) FROM t31 WHERE f = string::repeat('x', 16384);"), [16384])
 
         print("--- limits and errors")
