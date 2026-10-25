@@ -46,9 +46,21 @@ from ganda.core.query.ir.predicates import Predicate, reverse
 from ganda.core.query.ir.write import EDGE_OPS, WriteQuery, edge_hits, node_hits
 from ganda.core.data.generator import BASE_CLASS
 from ganda.core.data.model import Instance, Schema
+from ganda.arangodb.rules import assumes
+from ganda.arangodb.rules.catalog import AQL
 from ganda.arangodb.oracle import rewrites as _rewrites
 from ganda.arangodb.concrete_syntax.predicate import render_predicate as render_pred
 from ganda.arangodb.storage.dialect import document_key
+
+# a data-modification statement answers no count: the write runs as a subquery whose
+# rows are counted (`_counted`)
+assumes("statement.write.answers_row_count", AQL, False)
+# UPDATE merges a map value key by key and keeps a null unless told otherwise: every
+# update door carries `mergeObjects: false`, a remove `keepNull: false`
+assumes("update.map_value.merged_by_default", AQL, True)
+assumes("update.null.kept_by_default", AQL, True)
+# removing a vertex removes no edge: every data model cascades explicitly (`_node_delete`)
+assumes("delete_vertex.cascades_edges", AQL, False)
 
 FILTERS = ("plain", "rw", "rev", "ar")
 TARGETS = ("table", "nest", "sub")

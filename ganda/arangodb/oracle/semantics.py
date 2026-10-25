@@ -1,5 +1,5 @@
-"""AQL's value semantics (the legacy port probed them on 3.12; `ganda arangodb probe`
-re-checks the ones listed in `RULES.md`): the value order and equality the oracle and
+"""AQL's value semantics (`ganda arangodb probe` checks them; the rules they mirror are
+in `rules/catalog.py`): the value order and equality the oracle and
 the state check compare answers under, and the predicate logic and arithmetic the
 generators walk the `Instance` with. No answer is predicted from them.
 
@@ -34,8 +34,25 @@ from typing import Any
 
 from ganda.core.query.ir.predicates import Compound
 from ganda.core.engine.provider import Semantics
+from ganda.core.rules.vocabulary import Logic, StringOrder, Truth
+from ganda.arangodb.rules import answer, assumes
+from ganda.arangodb.rules.catalog import AQL
 
-F64_INT_EXACT = 2**53
+# the mirror below has no branch for another answer to these
+assumes("compare.type_order.total", AQL, True)
+assumes("filter.logic", AQL, Logic.TWO_VALUED)
+assumes("compare.negative_zero_equals_zero", AQL, True)
+assumes("exact.compare.integer_vs_double", AQL, True)
+assumes("equality.string", AQL, StringOrder.CODE_POINT)
+assumes("value.absent_is_null", AQL, True)
+assumes("filter.membership.absent_list", AQL, Truth.FALSE)
+assumes("filter.in.null_matches_null", AQL, True)
+assumes("filter.like.case_sensitive", AQL, True)
+assumes("filter.like.wildcard_crosses_newline", AQL, True)
+assumes("filter.like.null_as_empty_string", AQL, True)
+assumes("value.double.integral_returned_as_integer", AQL, True)
+# sums run in double: exact over integers whose absolute total stays under this
+F64_INT_EXACT = answer("aggregate.sum.integer.exact_below", AQL)
 
 
 def _is_number(v: Any) -> bool:
@@ -122,7 +139,7 @@ def lt(a: Any, b: Any) -> bool:
 
 # the characters a wildcard does NOT cross: the pattern is an ICU regex whose `.` stops
 # at the Unicode line and paragraph separators (probed V5: it crosses `\n` and `\r`)
-_LINE_TERMINATORS = "\u0085\u2028\u2029"
+_LINE_TERMINATORS = "".join(chr(int(c[2:], 16)) for c in answer("filter.like.wildcard_stops_at_line_terminators", AQL).split())
 _WILD = f"[^{_LINE_TERMINATORS}]"
 
 

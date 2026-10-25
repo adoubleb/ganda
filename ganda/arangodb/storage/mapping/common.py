@@ -37,8 +37,19 @@ from dataclasses import dataclass, field
 from ganda.core.data.generator import initial_node_values, initial_nodes  # noqa: F401
 from ganda.core.data.model import EdgeUpdate, FieldType, Instance, NodeUpdate, Schema, WriteForm
 from ganda.core.engine.setup_plan import churned_away_edges, initial_edge_values, initial_edges, step, step_from_dict  # noqa: F401
+from ganda.arangodb.rules import assumes
+from ganda.arangodb.rules.catalog import AQL, DOCUMENT_API
 from ganda.arangodb.storage.dialect import DEFAULT_ID_INDEX, UNIQUE_KINDS, document_key, engine_id
 from ganda.arangodb.engine.limits import LIMITS
+
+# every merging door (UPDATE / UPSERT / PATCH) carries `mergeObjects: false`, and unsets
+# the fields the final state lacks in its own `keepNull: false` step
+assumes("update.map_value.merged_by_default", AQL, True)
+assumes("update.map_value.merged_by_default", DOCUMENT_API, True)
+assumes("update.null.kept_by_default", AQL, True)
+assumes("update.null.kept_by_default", DOCUMENT_API, True)
+# the engine removes no incident edge on its own: each mapping cascades explicitly
+assumes("delete_vertex.cascades_edges", AQL, False)
 
 
 # --- setup plan vocabulary ---------------------------------------------------------------

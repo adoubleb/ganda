@@ -17,7 +17,16 @@ import random
 
 from ganda.core.query.ir.predicates import MAP_OPS, MIRROR, NO_BIND_OPS, Arith, Compound, Predicate
 from ganda.core.data.model import FLOAT_TYPES, INT_TYPES, FieldType
-from ganda.arangodb.oracle.semantics import F64_INT_EXACT, apply_arith
+from ganda.core.rules.vocabulary import Logic
+from ganda.arangodb.rules import answer, assumes
+from ganda.arangodb.rules.catalog import AQL
+from ganda.arangodb.oracle.semantics import apply_arith
+
+# the negation rewrites need no null conjunct: NOT is two-valued over a total order
+assumes("filter.logic", AQL, Logic.TWO_VALUED)
+assumes("compare.type_order.total", AQL, True)
+# integer arithmetic is exact under this magnitude (AQL arithmetic runs in double past it)
+ARITHMETIC_EXACT_BELOW = answer("exact.arithmetic.integer.below", AQL)
 
 
 def arith_exact(v, sym: str, c, ftype: FieldType) -> bool:
@@ -33,7 +42,7 @@ def arith_exact(v, sym: str, c, ftype: FieldType) -> bool:
     except (ValueError, OverflowError):
         return False
     if ftype in INT_TYPES:
-        return isinstance(r, int) and abs(r) < F64_INT_EXACT
+        return isinstance(r, int) and abs(r) < ARITHMETIC_EXACT_BELOW
     if ftype in FLOAT_TYPES:
         return math.isfinite(r) and sym == "*" and (r != 0 or v == 0)
     return False
