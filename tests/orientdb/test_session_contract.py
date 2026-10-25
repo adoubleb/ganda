@@ -5,7 +5,7 @@ from ganda.core.query.generators.write_phase import build_write_case
 from ganda.core.query.ir.write import apply
 from ganda.core.engine.provider import EngineCrash, EngineError, Server, Session
 from ganda.orientdb import PROVIDER
-from ganda.orientdb.concrete_syntax import write as write_syntax
+from ganda.orientdb.concrete_syntax.query import write as write_syntax
 from ganda.orientdb.engine.connection import OrientCrash, OrientError, OrientServer, OrientSession
 from ganda.orientdb.facade.generate import GeneratorConfig, build
 

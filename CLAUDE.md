@@ -81,7 +81,7 @@ positions, the `index:` door, `jscan` and the semi-join's subquery-target rewrit
 removed 2026-10-24). A pair differs in data model, never in spelling alone (the forms and
 the base class positions are compared across data models only); each data model keeps its
 own physical design. A filter is never derived from another: the predicate generator draws
-each leaf's form itself (`oracle/pivots.leaf_form`: reversed operands, the field under
+each leaf's form itself (`concrete_syntax/query/predicate_sampling/forms.leaf_form`: reversed operands, the field under
 arithmetic, a literal pivot, a parameter-keyed map entry; since 2026-10-25), so every IR
 asks them, writes included (the write generator keeps an arithmetic leaf only where it is
 exact on every stored value).
@@ -107,9 +107,9 @@ generated setup plans and cases of 20 seeds change; a survivor is a record nothi
 decides on. The catalog holds no IR definition (the code compares no subject with the
 IR). `ganda orientdb rules --write` renders
 `ganda/orientdb/rules/RULES.md`; `tests/orientdb/test_rules.py` keeps them in step. Layout: `storage/dialect.py` (vocabulary), `storage/physical_design.py`, `config.py`,
-`engine/limits.py` (what the engine can hold), `engine/connection.py`, `oracle/semantics.py`, `oracle/pivots.py`,
-`concrete_syntax/` (`setup/` (instance → setup plan, one mapper per data model), `predicate`, `traversal`, `select`, `path`, `write`, `support`),
-`known_bugs/guards.py` (most of O1..O46; O4 retired, fixed in 3.2.57; O12, O22, O24, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `engine/coverage.py` (JaCoCo),
+`engine/limits.py` (what the engine can hold), `engine/connection.py`, `oracle/semantics.py`,
+`concrete_syntax/` (`setup/`: instance → setup plan, one mapper per data model; `query/`: `predicate`, `predicate_sampling/` (`operators`, `constants`, `forms`: the provider's `predicate_sampling` slot), `traversal`, `select`, `path`, `write`, `support`),
+`known_bugs/guards.py` (most of O1..O46; O4 retired, fixed in 3.2.57; O12, O22, O24, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/query/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `engine/coverage.py` (JaCoCo),
 
 `scripts/` (`probe_osql.py`, `coverage_report.py`).
 

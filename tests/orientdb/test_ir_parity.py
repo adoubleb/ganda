@@ -12,14 +12,14 @@ from ganda.orientdb.mutation.mutants import MUTANTS_BY_NAME
 from ganda.orientdb.facade import predicates
 from ganda.core.oracle.case import Comparison, QueryCase
 from ganda.core.query.ir.path import PathQuery
-from ganda.orientdb.concrete_syntax.path import render_all
-from ganda.orientdb.concrete_syntax.predicate import render_predicate as render
+from ganda.orientdb.concrete_syntax.query.path import render_all
+from ganda.orientdb.concrete_syntax.query.predicate import render_predicate as render
 from ganda.orientdb.facade.predicates import Compound, Predicate
 from ganda.core.query.generators.select import KIND_WEIGHTS, build_case, strata
 from ganda.core.query.ir.enums import SelectKind
 from ganda.core.query.ir.select import SelectQuery, TxWrite, tx_instance
-from ganda.orientdb.concrete_syntax.select import BASE, SelectSyntax, Rewrites, applicable, render as render_select
-from ganda.orientdb.concrete_syntax.support import tx_write
+from ganda.orientdb.concrete_syntax.query.select import BASE, SelectSyntax, Rewrites, applicable, render as render_select
+from ganda.orientdb.concrete_syntax.query.support import tx_write
 from ganda.core.query.generators.registry import all_cases
 
 from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider

@@ -2,10 +2,10 @@
 
 A LEAF's pivot sits ON a stored value, ADJACENT to one (`neighbours.offset`) or OUTSIDE
 the range; with `cross_type_probability` it is a cross-type numeric pivot drawn by the
-engine's `pivots.cross_type`. An engine whose `pivots` has `leaf_form(rng, leaf)`
+engine's `predicate_sampling.cross_type`. An engine whose `predicate_sampling` has `leaf_form(rng, leaf)`
 then draws the leaf's form (reversed operands, the field under arithmetic, a literal
 pivot, ...): another question, asked alike on every data model. A compound (`AND` / `OR` / `NOT`) is built over leaves, at
-most two levels deep. The engine arrives as an explicit argument (`engine.pivots`,
+most two levels deep. The engine arrives as an explicit argument (`engine.predicate_sampling`,
 `engine.semantics`) or on the schema.
 
 The tree itself and its evaluation are `ganda.core.query.ir.predicates`.
@@ -27,10 +27,10 @@ CROSS_TYPE_PROBABILITY = 0.2
 
 def draw(rng: random.Random, on: str, f: FieldSpec, values: list, bind: str, engine, cross_type_probability: float = CROSS_TYPE_PROBABILITY) -> "Predicate | None":
     """A LEAF predicate on `f` whose stored values are `values`, in a form the engine
-    draws (`pivots.leaf_form`, if it has one). None when the column holds nothing to
+    draws (`predicate_sampling.leaf_form`, if it has one). None when the column holds nothing to
     aim at."""
     leaf = _draw(rng, on, f, values, bind, engine, cross_type_probability)
-    leaf_form = getattr(engine.pivots, "leaf_form", None)
+    leaf_form = getattr(engine.predicate_sampling, "leaf_form", None)
     if leaf is None or leaf_form is None:
         return leaf
     return leaf_form(rng, leaf)
@@ -39,7 +39,7 @@ def draw(rng: random.Random, on: str, f: FieldSpec, values: list, bind: str, eng
 def _draw(rng: random.Random, on: str, f: FieldSpec, values: list, bind: str, engine, cross_type_probability: float) -> "Predicate | None":
     present = [v for v in values if v is not None]
     ft, ci = f.type.value, f.case_insensitive
-    pivots_of, _sort_key = engine.pivots, engine.semantics.key
+    pivots_of, _sort_key = engine.predicate_sampling, engine.semantics.key
 
     def leaf(op, pivot):
         return Predicate(on, f.name, op, "" if op in NO_BIND_OPS else bind, pivot, ft, ci)

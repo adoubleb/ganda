@@ -23,7 +23,7 @@ from ganda.core.query.ir.predicates import (  # noqa: F401
     sub_values,
     subqueries,
 )
-from ganda.orientdb.oracle.pivots import cross_type, leaf_form, lossy_pivot  # noqa: F401
+from ganda.orientdb.concrete_syntax.query.predicate_sampling import cross_type, leaf_form, lossy_pivot  # noqa: F401
 from ganda.orientdb.oracle.semantics import apply_arith, arith_exact, evaluate  # noqa: F401
 
 

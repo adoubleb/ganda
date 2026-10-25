@@ -164,7 +164,7 @@ def _realize(rng: random.Random, schema: Schema, instance: Instance, table: str,
         if edge or not scalar:
             return None
         f = rng.choice(scalar)
-        op = rng.choice(list(JoinOp) if f.type in ORDERED_TYPES and "<" in schema.engine.pivots.ordered_ops(f.type) else [JoinOp.EQ, JoinOp.NE])
+        op = rng.choice(list(JoinOp) if f.type in ORDERED_TYPES and "<" in schema.engine.predicate_sampling.ordered_ops(f.type) else [JoinOp.EQ, JoinOp.NE])
         return make(fields=(f.name,), fn=op, arg=rng.choice(list(JoinForm)))
     if kind == "field":
         return make(fields=(rng.choice(fields).name,))

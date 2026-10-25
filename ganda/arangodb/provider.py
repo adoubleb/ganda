@@ -21,7 +21,7 @@ class ArangoDBProvider(Provider):
     config_class = ArangoConfig
     limits = LIMITS
     semantics = SEMANTICS
-    pivots = pivots
+    predicate_sampling = pivots
     coverage_levels = ("off",)
 
     # The modules below import this one's siblings; they are looked up on first use.

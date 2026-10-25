@@ -441,7 +441,7 @@ class FakeProvider(Provider):
     )
     semantics = FakeSemantics()
 
-    pivots = _Pivots
+    predicate_sampling = _Pivots
     physical_design = _PhysicalDesign
     mappers = {data_model: (lambda instance: [Load(dataclasses.replace(instance))]) for data_model in DATA_MODELS}
     traversal_syntax = _TraversalSyntax

@@ -101,7 +101,7 @@ engine cannot take (a non-finite double, an integer past the long range) fails a
 them.
 
 **5b. Draw each leaf's form** (`7ef1666`). The core predicate generator calls the engine's
-optional `pivots.leaf_form(rng, leaf)` after drawing a leaf; OrientDB's draws reversed
+optional `predicate_sampling.leaf_form(rng, leaf)` after drawing a leaf; OrientDB's draws reversed
 operands, the field under arithmetic (the drawn pivot shifted alike), a literal pivot, a
 parameter-keyed map entry. `rw` needs no replacement: the generator already draws its
 shapes (`IN [x]`, `NOT (...)`, ranges, De Morgan) as ordinary compounds. Every IR gets the

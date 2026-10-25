@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from ganda.core.engine.provider import Provider
-from ganda.orientdb.oracle import pivots
 from ganda.orientdb.config import OrientConfig
 from ganda.orientdb.engine.limits import LIMITS
+from ganda.orientdb.concrete_syntax.query import predicate_sampling
 from ganda.orientdb.oracle.semantics import SEMANTICS
 
 
@@ -15,7 +15,7 @@ class OrientDBProvider(Provider):
     config_class = OrientConfig
     limits = LIMITS
     semantics = SEMANTICS
-    pivots = pivots
+    predicate_sampling = predicate_sampling
 
     # The modules below import this one's siblings; they are looked up on first use.
 
@@ -33,25 +33,25 @@ class OrientDBProvider(Provider):
 
     @property
     def traversal_syntax(self):
-        from ganda.orientdb.concrete_syntax import traversal as traversal_syntax
+        from ganda.orientdb.concrete_syntax.query import traversal as traversal_syntax
 
         return traversal_syntax
 
     @property
     def select_syntax(self):
-        from ganda.orientdb.concrete_syntax import select as select_syntax
+        from ganda.orientdb.concrete_syntax.query import select as select_syntax
 
         return select_syntax
 
     @property
     def path_syntax(self):
-        from ganda.orientdb.concrete_syntax import path as path_syntax
+        from ganda.orientdb.concrete_syntax.query import path as path_syntax
 
         return path_syntax
 
     @property
     def write_syntax(self):
-        from ganda.orientdb.concrete_syntax import write as write_syntax
+        from ganda.orientdb.concrete_syntax.query import write as write_syntax
 
         return write_syntax
 

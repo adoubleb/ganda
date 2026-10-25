@@ -171,7 +171,7 @@ attributes are **slots** the core reads; a slot may be an object or a module.
 | `mappers[data model]` | Instance → setup plan | `storage/mapping/` |
 | `physical_design` | Index kinds, write forms, key rules, boundary values | `storage/physical_design.py` |
 | `semantics` | Value order and equality, predicate truth, null logic, aggregates, null placement | `oracle/semantics.py` |
-| `pivots` | Which operators a predicate draws; cross-type pivots | `oracle/pivots.py` |
+| `predicate_sampling` | Which operators a predicate draws; cross-type constants; leaf forms | `concrete_syntax/query/predicate_sampling/` (OrientDB), `oracle/pivots.py` (ArangoDB, HANA) |
 | `traversal_syntax`, `select_syntax`, `path_syntax`, `write_syntax` | Which concrete syntaxes apply to an IR, and their text | `concrete_syntax/` |
 | `rewrites` | Equivalent rewrites of a predicate; exactness of arithmetic | `oracle/rewrites.py` |
 | `known_bugs` | Filed bugs, withheld at their exact shape per variant | `known_bugs/guards.py` |

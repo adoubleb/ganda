@@ -5,9 +5,9 @@ from ganda.orientdb.known_bugs.guards import select_known
 from ganda.core.data.model import FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.core.oracle.case import QueryCase
 from ganda.orientdb.facade.predicates import Predicate
-from ganda.orientdb.concrete_syntax.select import build_rewrites
+from ganda.orientdb.concrete_syntax.query.select import build_rewrites
 from ganda.core.query.ir.select import COVERAGE_DENOMINATOR, SelectQuery, all_coverage_signatures, coverage_signature, from_params
-from ganda.orientdb.concrete_syntax.select import BASE, SelectSyntax, Rewrites, applicable, render
+from ganda.orientdb.concrete_syntax.query.select import BASE, SelectSyntax, Rewrites, applicable, render
 from ganda.core.query.generators.registry import all_cases
 
 from ganda.orientdb import Schema  # noqa: E402,F811 -- bound to the OrientDB provider

@@ -173,9 +173,11 @@ class Provider:
     limits          `ganda.core.data.limits.StorageLimits`: what the engine can hold, which
                     the large-data axes stay inside (`ganda <engine> limits` prints it)
     semantics       `Semantics`: the value order, equality and predicate logic
-    pivots          predicate sampling: NULL_OPS, ORDERED_OPS, LIKE_WILDCARDS,
-                    ordered_ops(ftype) (the comparison operators a column of the type
-                    admits: a subset of ORDERED_OPS), cross_type(rng, ftype, v),
+    predicate_sampling
+                    the operators, constants and forms of a predicate leaf:
+                    NULL_OPS, ORDERED_OPS, LIKE_WILDCARDS, ordered_ops(ftype)
+                    (the comparison operators a column of the type admits: a
+                    subset of ORDERED_OPS), cross_type(rng, ftype, v),
                     refine(rng, ftype, v); optionally leaf_form(rng, leaf) (the
                     drawn leaf in a form of the engine's: reversed, under arithmetic, ...)
     physical_design index kinds and what they enforce, write forms, key rules:
@@ -225,7 +227,7 @@ class Provider:
     limits = None  # a `StorageLimits`
     semantics: Semantics = None
 
-    pivots = None
+    predicate_sampling = None
     physical_design = None
     mappers: dict = {}
     traversal_syntax = None

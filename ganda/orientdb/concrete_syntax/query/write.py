@@ -41,7 +41,7 @@ import random
 from dataclasses import dataclass, field
 
 from ganda.core.data.model import Instance, Schema
-from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
+from ganda.orientdb.concrete_syntax.query.predicate import render_predicate as render_pred
 from ganda.core.data.model import FieldType
 from ganda.core.query.ir.write import EDGE_OPS, WriteQuery
 

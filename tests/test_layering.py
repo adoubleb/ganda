@@ -78,7 +78,7 @@ def test_a_full_provider_fills_every_slot():
         assert isinstance(engine.semantics, Semantics)
         assert set(engine.mappers) == set(engine.data_models)
         for slot, members in {
-            "pivots": ("NULL_OPS", "ORDERED_OPS", "LIKE_WILDCARDS", "ordered_ops", "cross_type", "refine"),
+            "predicate_sampling": ("NULL_OPS", "ORDERED_OPS", "LIKE_WILDCARDS", "ordered_ops", "cross_type", "refine"),
             "physical_design": ("draw_index_kind", "NON_UNIQUE_KINDS", "EDGE_INDEX_DATA_MODELS", "is_unique", "holds_one_record_per_key", "demoted_kind", "index_key_value", "draw_id_indexes", "draw_index_options", "draw_storage_options", "draw_write_form", "is_valid_key", "BOUNDARY_VALUES"),
             "traversal_syntax": ("syntaxes_for", "render", "can_pull_up"),
             "select_syntax": ("BASE", "METHODS", "build_rewrites", "extra_binds", "rewrite_params", "base_data_models", "syntaxes_for", "applicable", "render"),

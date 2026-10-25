@@ -25,7 +25,7 @@ from ganda.orientdb.facade import predicates
 from ganda.core.oracle.case import QueryCase
 from ganda.core.query.ir.traversal import REACH_PROJECTIONS, TraversalQuery
 from ganda.orientdb.facade.predicates import lossy_pivot, Compound, Predicate
-from ganda.orientdb.concrete_syntax.traversal import BRACKET, CORRELATED
+from ganda.orientdb.concrete_syntax.query.traversal import BRACKET, CORRELATED
 from ganda.core.rules.vocabulary import NullPlacement, StringOrder
 from ganda.orientdb.rules import assumes, works_around
 from ganda.orientdb.rules.catalog import SQL, SQL_INDEX
@@ -1048,7 +1048,7 @@ def select_shape_known(q, sp, data_model: str, schema: Schema, instance: Instanc
     edge target, the transaction's view of the rows under the door). A subquery
     target always sorts."""
     from ganda.core.query.ir.select import column, hits, view
-    from ganda.orientdb.concrete_syntax.select import WALK_POSITIONS
+    from ganda.orientdb.concrete_syntax.query.select import WALK_POSITIONS
     from ganda.orientdb.oracle.semantics import orient_key
 
     walk = sp.position in WALK_POSITIONS

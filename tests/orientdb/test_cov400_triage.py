@@ -155,7 +155,7 @@ def test_the_fuzzer_bugs():
 
     # not refused when both zeros are present: the arithmetic form is another question,
     # asked alike on every data model
-    from ganda.orientdb.oracle.pivots import _arithmetic
+    from ganda.orientdb.concrete_syntax.query.predicate_sampling.forms import _arithmetic
 
     p = Predicate("source", "f1", "=", "p", -0.0, ftype="float32")
     assert _arithmetic(Pick(("-", 1)), p) is not None

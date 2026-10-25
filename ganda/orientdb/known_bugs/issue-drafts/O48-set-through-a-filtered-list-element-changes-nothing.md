@@ -168,7 +168,7 @@ C338 in `ganda/orientdb/scripts/probe_osql.py` was written for it on 3.2.57: the
 form is not refused, it is accepted with `count: 1` and changes nothing, while the positional
 form updates. The rule is now `accepts.update.filtered_list_element` (`SQL`, refused) in
 `ganda/orientdb/rules/catalog.py`, read by `assumes(...)` in
-`ganda/orientdb/concrete_syntax/write.py`, so no campaign emits the form and the doc data
+`ganda/orientdb/concrete_syntax/query/write.py`, so no campaign emits the form and the doc data
 model keeps re-setting whole lists. The triage above (the parameter, nested-field, whole-element,
 range, multi-index, collection-kind and transaction forms) was run against the same server
 on 2026-10-24. Had the doc data model written edge attributes through the filter, the state

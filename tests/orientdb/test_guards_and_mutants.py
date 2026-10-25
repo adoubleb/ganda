@@ -123,7 +123,7 @@ def test_o18_withholds_the_order_variant_only_where_the_walk_skips_a_present_val
     other component is null."""
     from ganda.orientdb.known_bugs.guards import select_shape_known
     from ganda.core.query.ir.select import SelectQuery
-    from ganda.orientdb.concrete_syntax.select import SelectSyntax
+    from ganda.orientdb.concrete_syntax.query.select import SelectSyntax
 
     order = SelectSyntax(form="order")
     found = {"O18": 0, "plain": 0}

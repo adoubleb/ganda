@@ -416,7 +416,7 @@ def arith_exact(v, sym: str, c, ftype) -> bool:
     three places, a date inside the format's range."""
     from ganda.core.constants import I32_MAX, I32_MIN, I64_MAX, I64_MIN
     from ganda.core.data.model import DATE_TYPES, FieldType
-    from ganda.orientdb.oracle.pivots import lossy_pivot
+    from ganda.orientdb.concrete_syntax.query.predicate_sampling.constants import lossy_pivot
 
     if v is None:
         return True

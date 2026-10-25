@@ -23,7 +23,7 @@ class HanaProvider(Provider):
     config_class = HanaConfig
     limits = LIMITS
     semantics = SEMANTICS
-    pivots = pivots
+    predicate_sampling = pivots
     coverage_levels = ("off",)
     # an error on one variant (a refusal of one engine path) must not hide a wrong answer
     # among the variants that answered: they are compared, and the finding key names them

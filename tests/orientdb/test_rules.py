@@ -70,7 +70,7 @@ def test_the_code_depends_on_what_it_reads():
 
     only = ["expand.embedded", "aggregate.sum.integer", "without O18"]
     got = {o.label.split(":")[0]: o for o in mutation.check("orientdb", CATALOG, seeds=4, only=only)}
-    assert got["expand.embedded.wrapped_under_value (osql)"].caught == "import" and "concrete_syntax/traversal.py" in got["expand.embedded.wrapped_under_value (osql)"].detail
+    assert got["expand.embedded.wrapped_under_value (osql)"].caught == "import" and "concrete_syntax/query/traversal.py" in got["expand.embedded.wrapped_under_value (osql)"].detail
     assert got["without O18 (osql@index)"].caught == "import" and "known_bugs/guards.py" in got["without O18 (osql@index)"].detail
     assert got["aggregate.sum.integer.exact_below (osql)"].caught == "output"
 

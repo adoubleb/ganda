@@ -17,7 +17,7 @@ two independent choices, and every applicable combination is an equivalent text:
 
 The filter is the drawn predicate's own text (`predicate.render_predicate`): its leaves'
 forms -- reversed operands, arithmetic, a literal pivot -- are drawn with the predicate
-(`oracle/pivots.leaf_form`), never derived from another filter.
+(`predicate_sampling/forms.leaf_form`), never derived from another filter.
 
 A data model's name is `<data_model>:<tag>`, the tag the non-default choices joined by `+` in the
 order form, position (`graph:order+poly`, `rel:polyin`). The
@@ -56,9 +56,9 @@ import random
 from dataclasses import dataclass, field
 
 from ganda.core.data.model import Instance, Schema
-from ganda.orientdb.concrete_syntax.predicate import render_predicate as render_pred
+from ganda.orientdb.concrete_syntax.query.predicate import render_predicate as render_pred
 from ganda.orientdb.facade.predicates import MIRROR
-from ganda.orientdb.concrete_syntax.support import METHODS  # noqa: F401 -- the method catalog
+from ganda.orientdb.concrete_syntax.query.support import METHODS  # noqa: F401 -- the method catalog
 from ganda.core.query.ir.select import DOC_EDGE_KINDS, SelectQuery, notnull_fields
 
 from ganda.orientdb.rules import assumes
@@ -212,7 +212,7 @@ TX_TIMEOUT = "TIMEOUT 20000 EXCEPTION"
 def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str) -> str:
     text = _render(q, schema, sp, rewrites, data_model)
     if q.tx:
-        from ganda.orientdb.concrete_syntax.support import tx_write
+        from ganda.orientdb.concrete_syntax.query.support import tx_write
 
         return f"BEGIN; {tx_write(q.tx, data_model)}; LET $r = ({text} {TX_TIMEOUT}); ROLLBACK; RETURN $r"
     return text

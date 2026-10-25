@@ -9,11 +9,11 @@ from ganda.orientdb.facade.generate import GeneratorConfig, build
 from ganda.orientdb.known_bugs.guards import _leaf_served, list_ops_known, o31_known
 from ganda.core.data.model import EdgeTypeSpec, FieldSpec, FieldType, IndexSpec, Instance, NodeRow, NodeTypeSpec, Schema
 from ganda.orientdb.engine.connection import is_script, unwrap_script
-from ganda.orientdb.concrete_syntax.support import bfs_distances
-from ganda.orientdb.concrete_syntax.support import tx_rows as _tx_rows
-from ganda.orientdb.concrete_syntax.predicate import render_predicate as render
+from ganda.orientdb.concrete_syntax.query.support import bfs_distances
+from ganda.orientdb.concrete_syntax.query.support import tx_rows as _tx_rows
+from ganda.orientdb.concrete_syntax.query.predicate import render_predicate as render
 from ganda.orientdb.facade.predicates import Compound, Predicate, apply_arith, evaluate
-from ganda.orientdb.oracle.pivots import _arithmetic, leaf_form
+from ganda.orientdb.concrete_syntax.query.predicate_sampling.forms import _arithmetic, leaf_form
 from ganda.core.query.generators.registry import all_cases
 from ganda.orientdb.oracle.semantics import predicate_hit
 
@@ -175,7 +175,7 @@ def test_order_form_withholds_the_asc_walk_of_a_composite_index_with_a_null_comp
     from ganda.orientdb.known_bugs.guards import select_shape_known
     from ganda.core.data.model import EdgeTypeSpec
     from ganda.core.query.ir.select import SelectQuery
-    from ganda.orientdb.concrete_syntax.select import SelectSyntax
+    from ganda.orientdb.concrete_syntax.query.select import SelectSyntax
 
     sch = Schema(
         node_types=(NodeTypeSpec("n1", (FieldSpec("f1", FieldType.INT), FieldSpec("f2", FieldType.INT))),),
