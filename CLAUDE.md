@@ -121,20 +121,35 @@ the same seeds.
 
 ## ArangoDB
 
+Brought to the multi-model scope on 2026-10-25 (`docs/provider-refactoring.md`): no select
+position, filter or form exists only to make a data model use or avoid an index (the
+`noopt` filter, the `scan` / `nest` / `noindex` / `hint` positions, the `jscan` form and
+the semi-join's subquery-target rewrite are gone, with the rules and probe facts S5, S9,
+S10 that held them equivalent); the rewrites became drawn leaf forms
+(`oracle/pivots.leaf_form`: reversed operands, arithmetic, a parameter-keyed map entry;
+`oracle/rewrites.py` is gone, `arith_exact` is `ArangoSemantics`'); writes share one target
+and door (`write_syntax.spelling`); and every doc write states its filter -- an attribute
+write rebuilds each source's array in the engine, `arr[* RETURN p ? MERGE(CURRENT, {...}) :
+CURRENT]` (fact W6), an edge delete is the bracket form, a node delete's cascade reads its
+victims through the predicate. The catalog holds no IR definition.
+
 The engine rules are minimal records in `ganda/arangodb/rules/catalog.py`, as OrientDB's
 and HANA's: the three data models speak AQL, so the subjects are its execution paths (a
 collection scan, the same statement served by a persistent index, the traversal
-operator, the path functions, a stream transaction, the document API); the defects A1,
-A2 (the legacy port's signed-zero pair, kept out of the value pools), A25 (the legacy
-port's too, found again by this port's first campaign with the catalog), A40, A41 and
-A42 (`LIKE`'s wildcard over a grown string, found by the large-scale campaign of
-2026-10-24) beside them, and the error classes `engine/connection.py` classifies an errorNum through.
+operator, the path functions, a stream transaction, the document API); the defects that
+can make two data models differ -- A25 (the legacy port's, found again by this port's first
+campaign with the catalog), A42 (`LIKE`'s wildcard over a grown string, found by the large-scale campaign of
+2026-10-24) and A43 (a correlated strict bound `x.f < n.f` served by a sparse persistent
+index loses the null and absent records; found 2026-10-25, the first campaign after the
+refactoring); A1, A2, A40 and A41 retired 2026-10-25, each answering alike on every data
+model (the signed zero stays out of the pools, the `IS_OBJECT` ternary stays) -- beside
+them, and the error classes `engine/connection.py` classifies an errorNum through.
 `rules/checks.py` lists the rules each probe fact (`scripts/probe.py`: `V` values, `S`
 statement forms, `W` write doors, `L` limits, `T` timeout, `A` defects) asserts and the
 defects it reproduces; every rule is checked by a fact and read by code
-(`ganda.arangodb.rules`: `answer` where a renderer branches on an answer -- the string
-order, the traversal's default edge uniqueness, the collect form's aggregates, the LIKE
-line terminators, the arithmetic bound -- `assumes` / `works_around` where it has none).
+(`ganda.arangodb.rules`: `answer` where the code takes a value -- the arithmetic and sum
+bounds, the `HAS()` form -- `assumes` / `works_around` where it has no branch for another
+answer).
 A failing fact of a rule fails the probe; a defect that no longer reproduces is recorded
 in `rules/baseline.json` with the build, and `ganda arangodb run` warns when the server is
 another build. `ganda arangodb rules --write` renders `rules/RULES.md`;
@@ -147,9 +162,9 @@ transactions, `maxRuntime` as the timeout), `engine/tx.py` (the transaction door
 text), `storage/mapping/` (bulk inserts chunked under half the request bound, `mergeObjects:
 false` on every update door), `oracle/semantics.py` (the total type order, exact numbers, code
 point string equality, `LIKE` as an ICU regex), `oracle/pivots.py` (`ordered_ops`: a string
-column takes the equality family only -- ICU collation orders them), `oracle/rewrites.py`,
+column takes the equality family only -- ICU collation orders them; `leaf_form`),
 `concrete_syntax/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),
-`known_bugs/guards.py` (A25, A40 and A42 guarded), `mutation/mutants.py` (the core's instance mutants,
+`known_bugs/guards.py` (A25, A42 and A43 guarded), `mutation/mutants.py` (the core's instance mutants,
 three render mutants and three index-path mutants, as OrientDB's), `scripts/probe.py`.
 
 Campaigns run on mousedeer (`ssh mousedeer`, a ControlMaster socket the user opens with
@@ -161,6 +176,24 @@ facts and the catalog's defects. What the legacy port has and this provider does
 the ArangoSearch, geo, MDI and expression template families, the JavaScript door, the
 Python reference leg, the plan-divergence instrument -- stays out: Ganda's mechanism (the
 four IRs rendered per data model, the purely differential oracle) is the one ported to.
+
+## Live verification of the refactoring (2026-10-25, ArangoDB 3.12.11 on mousedeer)
+
+- `ganda arangodb probe`: 34 facts hold (A43 and W6 new, S5 / S9 / S10 gone).
+- `run --iterations 12 --seed 1000 --workers 2` with the key, inheritance, narrow-type,
+  date-map, list-index, churn and write-form axes on: 2827 cases, 0 findings, 0 symmetric
+  or internal errors, 0 setup asymmetries, 93 writes, 0 write-state diffs, A40 withheld on
+  40 variants and A43 on 6. Its first run found **A43** (seed 1005: a `join` over a float
+  column answered 19 ids on the graph data model, the only one with a sparse index on
+  it, where doc and rel answered the right 27 -- 27 less the 8 null records) and 355
+  symmetric errors that were the provider's: the base class's `UNION()` of ONE class is
+  refused (errorNum 1541), now `concrete_syntax/support.base_union`.
+- the same with `--no-known-bugs --write-cases 16`, 24 seeds from 2000: 6228 cases, 384
+  writes, 0 write-state diffs; A43 alone marks 26 pairs and 24 of them fail, A40 alone
+  marks 236 and none fails (its shape withholds every data model alike); the 4 failing
+  pairs no defect marked were A43 over a base-class index, which the guard now reads.
+- A1, A2, A40 and A41 retired on that evidence and by reasoning; the probe then holds 30
+  facts on 3.12.11.
 
 ## Live verification of the rules catalog (2026-10-24, ArangoDB 3.12.11 on mousedeer)
 

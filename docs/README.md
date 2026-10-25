@@ -6,6 +6,8 @@ Start here if you are new to the code.
 2. [contributing.md](contributing.md): setup, the repository map, and step-by-step guides (add a concrete syntax, a semantics rule, a
    generation axis, a known bug, a provider; triage a finding).
 3. [glossary.md](glossary.md): every term, with the file it lives in.
+4. [provider-refactoring.md](provider-refactoring.md): the steps that brought the OrientDB
+   provider to the multi-model scope, to repeat for ArangoDB and HANA.
 
 
 ```bash
