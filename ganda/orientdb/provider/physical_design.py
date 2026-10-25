@@ -1,6 +1,6 @@
 """OrientDB's physical design: the index kinds a schema may draw and what each one
 enforces, the id index and cluster axes, the write forms a setup may take, and how an
-index keys a value. The vocabulary is `ganda.orientdb.storage.dialect`'s.
+index keys a value. Type and index kind names are `ganda.orientdb.engine.dialect`'s.
 """
 from __future__ import annotations
 
@@ -10,19 +10,21 @@ import random
 from ganda.core.data.generator import BOUNDARY_VALUES  # noqa: F401 -- every one probed to round-trip on 3.2.56
 from ganda.core.data.model import FieldType, WriteForm, options
 from ganda.core.rng import stream
-from ganda.orientdb.storage.dialect import (
-    EDGE_FROM_FORMS,
-    EDGE_UPDATE_FORMS,
-    ID_INDEX_KINDS,
-    INSERT_FORMS,
-    TRANSACTION_FORMS,
-    UNIQUE_KINDS,
-    UPDATE_FORMS,
-    is_valid_key,  # noqa: F401
-)
+from ganda.orientdb.engine.dialect import ID_INDEX_KINDS, UNIQUE_KINDS, is_valid_key  # noqa: F401
 
 from ganda.orientdb.rules import assumes
 from ganda.orientdb.rules.catalog import SQL
+
+# Write forms (`WriteForm`): each reaches another engine write path to the same final
+# state. insert: SET / CONTENT / VALUES; update: SET / MERGE (a JSON literal: MERGE
+# takes no parameter) / CONTENT / UPSERT / arithmetic `f = f + :d`; edge update: SET /
+# MERGE / CONTENT (keeps the endpoints); edge creation from RID parameters or id
+# subqueries; data steps auto-committed, in one script, or in a transactional batch.
+INSERT_FORMS = ("set", "content", "values")
+UPDATE_FORMS = ("set", "merge", "content", "upsert", "arith")
+EDGE_UPDATE_FORMS = ("set", "merge", "content")
+EDGE_FROM_FORMS = ("ref", "subquery")
+TRANSACTION_FORMS = ("none", "script", "batch")
 
 _INDEX_KIND_WEIGHTS = {"NOTUNIQUE": 40, "UNIQUE": 10, "NOTUNIQUE_HASH_INDEX": 20, "UNIQUE_HASH_INDEX": 5, "DICTIONARY": 15}
 # the kinds a composite, an edge or a list index draws from

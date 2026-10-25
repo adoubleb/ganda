@@ -28,7 +28,7 @@ import re
 
 from ganda.core.data.model import Schema
 from ganda.core.mutation.mutants import INSTANCE_MUTANTS, Mutant
-from ganda.orientdb.storage.dialect import RANGE_KINDS
+from ganda.orientdb.engine.dialect import RANGE_KINDS
 
 
 def _first_case_variant_query(case, data_model: str, fn):

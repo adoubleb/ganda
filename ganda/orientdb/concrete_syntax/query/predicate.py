@@ -8,7 +8,22 @@ from __future__ import annotations
 from ganda.orientdb.facade.predicates import MIRROR, NO_BIND_OPS, Compound
 from ganda.orientdb.rules import assumes
 from ganda.orientdb.rules.catalog import SQL
-from ganda.orientdb.storage.dialect import sql_op
+
+# The core operators OrientDB SQL spells differently; the rest are written as named.
+OPERATORS = {
+    "HAS": "CONTAINS",
+    "HAS ANY": "CONTAINSANY",
+    "HAS ALL": "CONTAINSALL",
+    "HAS KEY": "CONTAINSKEY",
+    "HAS VALUE": "CONTAINSVALUE",
+    "IS PRESENT": "IS DEFINED",
+    "IS ABSENT": "IS NOT DEFINED",
+}
+
+
+def sql_op(op: str) -> str:
+    """A core predicate operator as OrientDB SQL writes it."""
+    return OPERATORS.get(op, op)
 
 
 # a constant is bound unless the leaf writes it into the text, and a bound double compares

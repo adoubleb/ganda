@@ -54,7 +54,7 @@ from ganda.core.data.model import (
     Schema,
     WriteForm,
 )
-from ganda.orientdb.storage.dialect import DEFAULT_ID_INDEX, ORIENT_TYPES, UNIQUE_KINDS
+from ganda.orientdb.engine.dialect import DEFAULT_ID_INDEX, ORIENT_TYPES, UNIQUE_KINDS
 from ganda.orientdb.engine.limits import LIMITS
 from ganda.orientdb.rules import answer, assumes
 from ganda.orientdb.rules.catalog import ACCEPTED, SQL, SQL_INDEX, BATCH

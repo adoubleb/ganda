@@ -10,7 +10,7 @@ baseline: 3.2.57, every check of a rule held
 |---|---|---|---|---|
 | order.string.order_by | osql | collation | C19, C26, C27 | known_bugs/guards.py:1034 |
 | order.string.order_by | osql@index | utf-16-code-unit | C24, C25 | known_bugs/guards.py:1035 |
-| compare.negative_zero_below_zero | osql | true | C14, C15 | engine/semantics.py:101, storage/physical_design.py:57 |
+| compare.negative_zero_below_zero | osql | true | C14, C15 | engine/semantics.py:101, provider/physical_design.py:59 |
 | aggregate.ungrouped.empty_input.rows | osql | no-row | C267, C285 | concrete_syntax/query/path.py:25 |
 | match.undirected.self_loop.rows | osql | 2 | C127, C193 | concrete_syntax/query/traversal.py:314 |
 | match.parallel_edges.rows | osql | 2 | C126 | concrete_syntax/query/traversal.py:313 |
@@ -24,9 +24,9 @@ baseline: 3.2.57, every check of a rule held
 | delete.document.keeps_incoming_links | osql | true | C301 | concrete_syntax/query/write.py:225 |
 | statement.atomic | osql | false | C297 | concrete_syntax/query/write.py:345 |
 | statement.write.answers_row_count | osql | true | C291 | concrete_syntax/query/write.py:344 |
-| value.double.exact_round_trip | osql | true | C2, C3 | storage/physical_design.py:62 |
-| value.string.exact_round_trip | osql | true | C22 | storage/physical_design.py:63 |
-| value.binary.base64_round_trip | osql | true | C321 | storage/dialect.py:61 |
+| value.double.exact_round_trip | osql | true | C2, C3 | provider/physical_design.py:64 |
+| value.string.exact_round_trip | osql | true | C22 | provider/physical_design.py:65 |
+| value.binary.base64_round_trip | osql | true | C321 | engine/dialect.py:29 |
 | value.absent_list.size | osql | 0 | C31, C329 | concrete_syntax/query/traversal.py:122, engine/connection.py:90 |
 | value.absent_is_null | osql | true | C10 | concrete_syntax/query/traversal.py:213 |
 | filter.case_insensitive.operators | osql | `= <> < <= > >=` | C331 | concrete_syntax/query/predicate_sampling/predicate_steering.py:58, concrete_syntax/query/traversal.py:205 |
@@ -35,7 +35,7 @@ baseline: 3.2.57, every check of a rule held
 | update.list_position.past_end_counts_record | osql | true | C340 | concrete_syntax/query/write.py:266 |
 | arithmetic.as_long.exact | osql | true | C341 | concrete_syntax/query/write.py:269 |
 | link.deleted_target.reads_null | osql | true | C342 | concrete_syntax/query/write.py:226 |
-| element.keys.defined_fields | osql | true | C343 | concrete_syntax/query/predicate.py:36 |
+| element.keys.defined_fields | osql | true | C343 | concrete_syntax/query/predicate.py:51 |
 | order.nulls.asc | osql | last | C12 | known_bugs/guards.py:428 |
 | order.nulls.asc | osql@index | last | C209 | known_bugs/guards.py:429 |
 | order.nulls.desc | osql | first | C13 | known_bugs/guards.py:430 |
@@ -132,7 +132,7 @@ baseline: 3.2.57, every check of a rule held
 | O43 | osql | C317 | reproduces | known_bugs/guards.py:512 |
 | O44 | traverse | C318 | reproduces | concrete_syntax/query/traversal.py:435, known_bugs/guards.py:535 |
 | O45 | match | C132, C133, C138, C141 | reproduces | concrete_syntax/query/traversal.py:330 |
-| O46 | osql | C322 | reproduces | storage/dialect.py:59 |
+| O46 | osql | C322 | reproduces | engine/dialect.py:28 |
 
 ## error classes
 

@@ -169,7 +169,7 @@ attributes are **slots** the core reads; a slot may be an object or a module.
 | `limits` | `StorageLimits`: longest string, record size, request size, ... | `engine/limits.py` |
 | `server()` → `Server` / `Session` | Start or attach; run a setup plan; execute a text; read stored state back | `engine/connection.py` |
 | `mappers[data model]` | Instance → setup plan | `storage/mapping/` |
-| `physical_design` | Index kinds, write forms, key rules, boundary values | `storage/physical_design.py` |
+| `physical_design` | Index kinds, write forms, key rules, boundary values | `provider/physical_design.py` (OrientDB), `storage/physical_design.py` (ArangoDB, HANA) |
 | `semantics` | Value order and equality, predicate truth, null logic, aggregates, null placement | `engine/semantics.py` (OrientDB; its predicate truth in `concrete_syntax/query/predicate_sampling/predicate_steering.py`), `oracle/semantics.py` (ArangoDB, HANA) |
 | `predicate_sampling` | Which operators a predicate draws; cross-type constants; leaf forms | `concrete_syntax/query/predicate_sampling/` (OrientDB), `oracle/predicate_sampling.py` (ArangoDB, HANA) |
 | `traversal_syntax`, `select_syntax`, `path_syntax`, `write_syntax` | Which concrete syntaxes apply to an IR, and their text | `concrete_syntax/` |

@@ -4,7 +4,7 @@ from collections import Counter
 from ganda.orientdb.facade.generate import GeneratorConfig, build, initial_node_values, write_order_states
 
 from ganda.core.data.model import FieldType, NodeDelete, NodeUpdate
-from ganda.orientdb.storage.dialect import is_valid_key
+from ganda.orientdb.engine.dialect import is_valid_key
 
 
 def test_build_is_deterministic():

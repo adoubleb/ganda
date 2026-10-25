@@ -21,7 +21,7 @@ class OrientDBProvider(Provider):
 
     @property
     def physical_design(self):
-        from ganda.orientdb.storage import physical_design
+        from ganda.orientdb.provider import physical_design
 
         return physical_design
 

@@ -20,7 +20,7 @@ import dataclasses
 from ganda.orientdb.known_bugs.java_hash import distinct_collides
 from ganda.core.query.ir.select import TxWrite
 from ganda.core.data.model import FieldType, Instance, Schema
-from ganda.orientdb.storage.dialect import HASH_KINDS, RANGE_KINDS
+from ganda.orientdb.engine.dialect import HASH_KINDS, RANGE_KINDS
 from ganda.orientdb.facade import predicates
 from ganda.core.oracle.case import QueryCase
 from ganda.core.query.ir.traversal import REACH_PROJECTIONS, TraversalQuery
