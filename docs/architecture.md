@@ -176,7 +176,7 @@ attributes are **slots** the core reads; a slot may be an object or a module.
 | `rewrites` | Equivalent rewrites of a predicate; exactness of arithmetic | `oracle/rewrites.py` |
 | `known_bugs` | Filed bugs, withheld at their exact shape per variant | `known_bugs/guards.py` |
 | `mutants` | The engine's own corruptions for the mutation benchmark | `mutation/mutants.py` |
-| `coverage()` | A code-coverage collector, or `None` | `engine/coverage.py` |
+| `coverage()` | A code-coverage collector, or `None` | `code_coverage/collector.py` |
 | `extra_generators` | Engine-only query generators | |
 | `compare_despite_errors`, `partial_traversals`, `error_signature` | Oracle options (off by default; HANA turns them on) | `provider.py` |
 

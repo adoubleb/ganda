@@ -7,9 +7,9 @@ denominator is the engine, not the classes the campaign loaded) through
 `jacoco/CoverageReport.java` (next to this file), launched as a single-file source program over
 org.jacoco.core / org.jacoco.report / ASM from `~/.m2` -- no build, no download.
 
-    python3 -m ganda.orientdb.scripts.coverage_report report campaign_reports/cov-coverage.exec --out coverage/cov
-    python3 -m ganda.orientdb.scripts.coverage_report report a.exec b.exec --sources ~/src/orientdb/core/src/main/java
-    python3 -m ganda.orientdb.scripts.coverage_report diff campaign_reports/cov-coverage/ir_select.exec \\
+    python3 -m ganda.orientdb.code_coverage.report report campaign_reports/cov-coverage.exec --out coverage/cov
+    python3 -m ganda.orientdb.code_coverage.report report a.exec b.exec --sources ~/src/orientdb/core/src/main/java
+    python3 -m ganda.orientdb.code_coverage.report diff campaign_reports/cov-coverage/ir_select.exec \\
         --base campaign_reports/cov-coverage/ir_traversal.exec  # what ir_select reaches that ir_traversal never does
 
 `report` prints a per-jar and a per-package table and, with `--out`, writes an HTML
@@ -26,7 +26,7 @@ import subprocess
 import sys
 
 from ganda.orientdb.engine.connection import DEFAULT_IMAGE
-from ganda.orientdb.engine.coverage import AGENT_EXCLUDES, JACOCO_VERSION
+from ganda.orientdb.code_coverage.collector import AGENT_EXCLUDES, JACOCO_VERSION
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # the jars copied out of the image and the HTML reports land under the working directory

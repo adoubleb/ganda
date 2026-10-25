@@ -431,7 +431,7 @@ class OrientServer(Server):
     url: "str | None" = None
     memory_limit: "str | None" = None
     startup_timeout: float = 120.0
-    coverage: bool = False  # run the server JVM under the JaCoCo agent (`ganda.orientdb.engine.coverage`)
+    coverage: bool = False  # run the server JVM under the JaCoCo agent (`ganda.orientdb.code_coverage.collector`)
     query_timeout_ms: int = DEFAULT_TIMEOUT_MS
     http_max_length: "int | None" = None
     memory: "str | None" = None
@@ -472,7 +472,7 @@ class OrientServer(Server):
         if self.memory:
             cmd += ["-e", f"ORIENTDB_OPTS_MEMORY={self.memory}"]
         if self.coverage:
-            from ganda.orientdb.engine import coverage
+            from ganda.orientdb.code_coverage import collector as coverage
 
             cmd += [
                 "-v", f"{coverage.agent_jar()}:{coverage.AGENT_IN_CONTAINER}:ro",
@@ -489,14 +489,14 @@ class OrientServer(Server):
         port = _parse_docker_port_output(port_out.stdout)
         self.base_url = f"http://127.0.0.1:{port}"
         if self.coverage:
-            from ganda.orientdb.engine import coverage
+            from ganda.orientdb.code_coverage import collector as coverage
 
             cov_out = subprocess.run(["docker", "port", self.container_name, f"{coverage.AGENT_PORT}/tcp"], capture_output=True, text=True)
             self.coverage_port = _parse_docker_port_output(cov_out.stdout)
         self._wait_ready()
 
     def coverage_address(self) -> "tuple[str, int]":
-        """Where the JaCoCo agent listens (`ganda.orientdb.engine.coverage.dump`)."""
+        """Where the JaCoCo agent listens (`ganda.orientdb.code_coverage.collector.dump`)."""
         if self.external:
             spec = os.environ.get("ORIENT_JACOCO")
             if not spec:

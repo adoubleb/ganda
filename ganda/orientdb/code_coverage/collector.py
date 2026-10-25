@@ -12,7 +12,7 @@ packs the booleans least-significant bit first, so the bytes ARE the little-endi
 
 What this module sees is the loaded classes only. Line / branch / method coverage
 against every class in the jars (the never-loaded ones included) is
-`scripts/coverage_report.py`'s job, from the `.exec` files `Collector.write` leaves --
+`code_coverage/report.py`'s job, from the `.exec` files `Collector.write` leaves --
 the format `jacococli` and every JaCoCo tool read.
 """
 from __future__ import annotations
@@ -393,7 +393,7 @@ class Collector(_CoreCollector):
 
     def write_exec(self, stats_dir: str, tag: str) -> None:
         """`<tag>-coverage.exec` (cumulative) and, when attributed,
-        `<tag>-coverage/<template>.exec` for `coverage_report.py diff`."""
+        `<tag>-coverage/<template>.exec` for `code_coverage/report.py diff`."""
         os.makedirs(stats_dir, exist_ok=True)
         self.total.write(os.path.join(stats_dir, f"{tag}-coverage.exec"), session=tag)
         if self.templates:
@@ -410,7 +410,7 @@ class Collector(_CoreCollector):
 
     def record(self, summary: dict, stats_dir: str, tag: str) -> dict:
         path = write_summary(summary, stats_dir, tag)
-        print(f"coverage written to {path} (execution data: {tag}-coverage.exec; scripts/coverage_report.py reads it)")
+        print(f"coverage written to {path} (execution data: {tag}-coverage.exec; code_coverage/report.py reads it)")
         return {**{k: summary[k] for k in HEADLINE}, "json": path}
 
     def print_summary(self, summary: dict) -> None:

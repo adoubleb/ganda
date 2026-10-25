@@ -54,7 +54,7 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
   write-form draws); `engine/` (connection, limits, semantics, dialect);
   `concrete_syntax/` (`setup/`, the instance as a setup plan; `query/`, the renderers and
   `predicate_sampling/`); `known_bugs/` (`guards.py`), `mutation/` (`mutants.py`),
-  `scripts/`. ArangoDB and HANA still keep `provider.py` at the top, `storage/` (dialect,
+  `code_coverage/` (JaCoCo), `scripts/`. ArangoDB and HANA still keep `provider.py` at the top, `storage/` (dialect,
   physical design, `mapping/`), the renderers directly under `concrete_syntax/`, and
   `oracle/` (semantics, `predicate_sampling`; HANA also `rewrites` until its port).
 - **Use conventional names** (the README glossary). New concepts get the textbook term.
@@ -114,9 +114,8 @@ IR). `ganda orientdb rules --write` renders
 `ganda/orientdb/rules/RULES.md`; `tests/orientdb/test_rules.py` keeps them in step. Layout: `engine/dialect.py` (declared types, index kinds, key charset), `provider/physical_design.py` (the index, storage and write-form draws), `config.py`,
 `engine/limits.py` (what the engine can hold), `engine/connection.py`, `engine/semantics.py` (value order, equality, arithmetic),
 `concrete_syntax/` (`setup/`: instance → setup plan, one mapper per data model; `query/`: `predicate`, `predicate_sampling/` (`operators`, `constants`, `forms`: the provider's `predicate_sampling` slot; `predicate_steering`: how a scan answers a predicate, `predicate_hit` / `evaluate`, which `engine/semantics.py` exposes), `traversal`, `select`, `path`, `write`, `support`),
-`known_bugs/guards.py` (most of O1..O46; O4 retired, fixed in 3.2.57; O12, O22, O24, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/query/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `engine/coverage.py` (JaCoCo),
-
-`scripts/` (`probe_osql.py`, `coverage_report.py`).
+`known_bugs/guards.py` (most of O1..O46; O4 retired, fixed in 3.2.57; O12, O22, O24, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/query/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `code_coverage/` (`collector.py`: the JaCoCo agent's probes during a run; `report.py` and `jacoco/`: line / branch reports from the `.exec` files),
+`scripts/` (`probe_osql.py`).
 
 Adding a concrete syntax: a choice in the catalog of its module (`SYNTAXES` and
 `_RENDERERS` for a traversal; an axis of `SelectSyntax`), what it admits in
@@ -427,7 +426,7 @@ the connection layer, the campaign, the oracle or the write phase:
 - `run --iterations 2 --seed 1 --no-known-bugs`: the same 49 finding keys and 47 bundles.
 - `mutate --trials 3 --seed 1 --inheritance-probability 0.5` over 10 mutants (instance,
   render and index ones): per-mutant results identical to the legacy runner's.
-- `run --coverage variant --workers 1` and `scripts/coverage_report.py report`.
+- `run --coverage variant --workers 1` and `code_coverage/report.py report`.
 - `ganda surrealdb doctor`, `ganda arangodb doctor`, `ganda orientdb doctor`.
 
 Not run: the full 21-mutant benchmark at 8 trials, and long campaigns.

@@ -116,11 +116,11 @@ class OrientDBProvider(Provider):
     # --- the campaign ---------------------------------------------------------------------
 
     def coverage(self, server, args):
-        """The JaCoCo collector (`ganda.orientdb.engine.coverage`) under `--coverage`."""
+        """The JaCoCo collector (`ganda.orientdb.code_coverage.collector`) under `--coverage`."""
         level = getattr(args, "coverage", "off")
         if level == "off":
             return None
-        from ganda.orientdb.engine.coverage import Collector
+        from ganda.orientdb.code_coverage.collector import Collector
 
         return Collector(server, level)
 

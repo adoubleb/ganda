@@ -1,4 +1,4 @@
-"""The JaCoCo execution-data format and the agent's dump protocol (`ganda.orientdb.engine.coverage`),
+"""The JaCoCo execution-data format and the agent's dump protocol (`ganda.orientdb.code_coverage.collector`),
 against a fake agent -- no Docker, no JVM."""
 import io
 import socket
@@ -6,8 +6,8 @@ import struct
 import threading
 from types import SimpleNamespace
 
-from ganda.orientdb.engine import coverage
-from ganda.orientdb.engine.coverage import BLOCK_CMD_DUMP, BLOCK_CMD_OK, BLOCK_EXECUTIONDATA, HEADER, Collector, ExecData, unique_counts
+from ganda.orientdb.code_coverage import collector as coverage
+from ganda.orientdb.code_coverage.collector import BLOCK_CMD_DUMP, BLOCK_CMD_OK, BLOCK_EXECUTIONDATA, HEADER, Collector, ExecData, unique_counts
 
 
 def _data(*classes) -> ExecData:
