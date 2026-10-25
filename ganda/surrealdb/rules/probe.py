@@ -107,7 +107,7 @@ def main(facts: "list | None" = None) -> int:
 
         print("--- indexes")
         s.query("DEFINE TABLE t28 SCHEMALESS; DEFINE INDEX ix_t28_f ON TABLE t28 FIELDS f; CREATE t28:a SET f = [1]; CREATE t28:b SET f = [1, 2]; CREATE t28:c SET f = [];")
-        check("C40", "F28: an index over an array field answers a whole-array equality with nothing", lambda: val(s, "RETURN [(SELECT VALUE id FROM t28 WHERE f = [1]), (SELECT VALUE id FROM t28 WHERE f IN [[1], [2]]), (SELECT VALUE id FROM t28 WHERE f != [1])];"), [[], [], ["t28:b", "t28:c"]])
+        check("C40", "F28: an index over an array field answers a whole-array equality with nothing", lambda: val(s, "RETURN [(SELECT VALUE id FROM t28 WHERE f = [1]), (SELECT VALUE id FROM t28 WHERE f IN [[1], [2]]), (SELECT VALUE id FROM t28 WHERE [1] = f), (SELECT VALUE id FROM t28 WHERE f != [1]), (SELECT VALUE id FROM t28 WHERE f CONTAINS 1)];"), [[], [], [], ["t28:b", "t28:c"], ["t28:a", "t28:b"]])
         check("C31", "a 16 KiB string is an index key", lambda: val(s, "DEFINE TABLE t31 SCHEMALESS; DEFINE INDEX ix_t31_f ON TABLE t31 FIELDS f; CREATE t31:a SET f = string::repeat('x', 16384); SELECT VALUE string::len(f) FROM t31 WHERE f = string::repeat('x', 16384);"), [16384])
 
         print("--- limits and errors")

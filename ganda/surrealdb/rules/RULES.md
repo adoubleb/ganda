@@ -54,7 +54,7 @@ baseline: 3.3.4, every check of a rule held
 
 | id | subject | reproduced by | on 3.3.4 | read by |
 |---|---|---|---|---|
-| F28 | surql@index | C40 | reproduces | known_bugs/predicate.py:39 |
+| F28 | surql@index | C40 | reproduces | known_bugs/predicate.py:40 |
 | F6 | recursion | C41 | reproduces | concrete_syntax/query/path.py:28 |
 | F21 | transaction | C42 | reproduces | concrete_syntax/setup/common.py:301 |
 

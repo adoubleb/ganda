@@ -5,8 +5,9 @@ F28 (`issue-drafts/F28-array-index-whole-array-equality.md`): an index over an a
 field keys each ELEMENT, and a whole-array equality (`f = [1]`, `f IN [[1], [2]]`) the
 planner serves from it looks the array up as one key and answers nothing, where a scan
 answers the records holding exactly that array. The shape: a plain `=` / `IN` leaf whose
-constant is a list (or a list of lists), on a LIST column an index of the data model
-serves. `!=` and the containment operators scan (probed 3.3.4).
+constant is a list (or a list of lists), reversed operands included (`$p = f`, seed 103
+of campaign c8), on a LIST column an index of the data model serves. `!=` and the
+containment operators scan (probed 3.3.4).
 """
 from __future__ import annotations
 
@@ -42,7 +43,7 @@ works_around("F28")
 def f28_predicate(schema: Schema, table: str, p, data_model: str, edge: bool = False) -> bool:
     """A whole-array equality on a LIST column an index of the data model serves."""
     for leaf in _leaves(p):
-        if leaf.op not in ("=", "IN") or leaf.key is not None or not _plain(leaf) or leaf.sub is not None:
+        if leaf.op not in ("=", "IN") or leaf.key is not None or leaf.arith is not None or leaf.sub is not None:
             continue
         constants = leaf.constant if leaf.op == "IN" else [leaf.constant]
         if not any(isinstance(v, list) for v in constants):

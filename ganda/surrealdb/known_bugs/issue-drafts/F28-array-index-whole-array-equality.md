@@ -17,6 +17,7 @@ SELECT VALUE id FROM t WHERE f4 = [1];            -- []        expected ["t:a"]
 SELECT VALUE id FROM t WHERE f4 = [1, 2];         -- []        expected ["t:b"]
 SELECT VALUE id FROM t WHERE f4 = [];             -- []        expected ["t:c"]
 SELECT VALUE id FROM t WHERE f4 IN [[1], [2]];    -- []        expected ["t:a"]
+SELECT VALUE id FROM t WHERE [1] = f4;            -- []        expected ["t:a"]
 SELECT VALUE id FROM t WHERE f4 != [1];           -- t:b, t:c  (a scan: right)
 SELECT VALUE id FROM t WHERE f4 CONTAINS 1;       -- t:a, t:b  (a scan: right)
 SELECT VALUE id FROM t WHERE f4 = [1] EXPLAIN;    -- IndexScan ix_t_f4, access "= [1]"
@@ -37,6 +38,7 @@ array index).
 **How Ganda met it.** The oracle compared the three data models of one instance; the data
 model holding the index on the LIST column answered an empty set where the other two
 answered the matching records, in a read and then in a write's `WHERE id IN (SELECT ...)`
-(whose stored state then differed on that data model). Guarded in
-`known_bugs/predicate.py` (`f28_predicate`): a plain `=` / `IN` leaf with an array
-constant on a LIST column an index of the data model serves; pinned by probe check C40.
+(whose stored state then differed on that data model); campaign c8 (seed 103) met it
+again through reversed operands (`$p = f1`). Guarded in `known_bugs/predicate.py`
+(`f28_predicate`): a `=` / `IN` leaf with an array constant, either operand order, on a
+LIST column an index of the data model serves; pinned by probe check C40.
