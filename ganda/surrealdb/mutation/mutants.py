@@ -36,7 +36,7 @@ def _wrong_op_graph(case):
 
 def _distinct_on_doc(case):
     def fn(t):
-        return re.sub(r"(\(\w+ \?\? \[\](?:\[WHERE [^\]]*\])?\.target) AS v", r"array::distinct(\1) AS v", t, count=1)
+        return re.sub(r"(\(\w+ \?\? \[\]\)(?:\[WHERE [^\]]*\])?\.target) AS v", r"array::distinct(\1) AS v", t, count=1)
 
     return _variants_of(case, "doc", fn)
 

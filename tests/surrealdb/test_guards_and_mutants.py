@@ -70,3 +70,5 @@ def test_mutants_corrupt_something():
     nulls = MUTANTS_BY_NAME["rel_index_null_keys"].rewrite_case_schema(case, schema)
     assert nulls.queries["rel"] == "SELECT id FROM n1 WHERE (f1 > $p OR f1 IS NONE)" and nulls.queries["graph"] == case.queries["graph"]
     assert MUTANTS_BY_NAME["graph_index_range_inclusive"].rewrite_case_schema(case, schema) == case  # no graph index
+    doc = QueryCase("ir_traversal", "e1", case.comparison, {"doc": "SELECT id, (e1 ?? [])[WHERE w > $p].target AS v FROM n1", "graph": "x", "rel": "x"}, {}, {}, engine=PROVIDER)
+    assert MUTANTS_BY_NAME["doc_distinct_projection"].rewrite_case(doc).queries["doc"] == "SELECT id, array::distinct((e1 ?? [])[WHERE w > $p].target) AS v FROM n1"
