@@ -106,7 +106,9 @@ def _generated(engine_name: str, seeds: int) -> str:
     from ganda.core.query.generators.write_phase import build_write_case
     from ganda.core.query.ir.write import apply
 
-    engine = importlib.import_module(f"ganda.{engine_name}").PROVIDER
+    from ganda.registry import provider
+
+    engine = provider(engine_name)
     config = engine.config_class
     names = {f.name for f in dataclasses.fields(config)}
     digest = hashlib.sha256(repr(engine.limits).encode())
