@@ -35,8 +35,13 @@ def _wrong_op_graph(case):
 
 
 def _distinct_on_doc(case):
+    """The doc data model's multiset projection of a traversal (ids, a field, an edge
+    attribute) deduplicated."""
+    if case.generator_name != "ir_traversal" or case.params.get("projection") not in ("ids", "field", "efield"):
+        return case
+
     def fn(t):
-        return re.sub(r"(\(\w+ \?\? \[\]\)(?:\[WHERE [^\]]*\])?\.target) AS v", r"array::distinct(\1) AS v", t, count=1)
+        return re.sub(r"^SELECT id, (.+) AS v FROM ", r"SELECT id, array::distinct(\1) AS v FROM ", t, count=1)
 
     return _variants_of(case, "doc", fn)
 
