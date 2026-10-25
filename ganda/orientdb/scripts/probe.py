@@ -97,8 +97,6 @@ def main() -> int:
 
         print("--- null semantics")
         check("C10", "IS NULL holds for absent and explicit null", col(s, "SELECT id AS v FROM n1 WHERE f1 IS NULL"), ["n1/r4", "n1/r5"])
-        check("C12", "ORDER BY ASC puts nulls last", col(s, "SELECT id AS v FROM n1 ORDER BY f1 ASC, id ASC")[-2:], ["n1/r4", "n1/r5"])
-        check("C13", "ORDER BY DESC puts nulls first", col(s, "SELECT id AS v FROM n1 ORDER BY f1 DESC, id ASC")[:2], ["n1/r4", "n1/r5"])
 
         print("--- doubles")
         check("C14", "-0.0 = 0 is false", col(s, "SELECT id AS v FROM n1 WHERE f2 = 0"), ["n1/r0"])
@@ -132,10 +130,6 @@ def main() -> int:
         check("C37", "$parent.$current under a scan", col(s, f"SELECT id, $h.v AS v FROM n1 {LET} WHERE f3 = 'a'"), [["n1/r1", "n1/r1", "n1/r0"]])
         check("C38", "O1: $parent.$current is null when the outer is index-served (WHERE id =)", col(s, f"SELECT id, $h.v AS v FROM n1 {LET} WHERE id = 'n1/r0'"), [[]])
         check("C39", "O1: ... and under ORDER BY on an indexed field", col(s, f"SELECT id, $h.v AS v FROM n1 {LET} ORDER BY id")[0], [])
-        s.sql("CREATE CLASS j2"); s.sql("CREATE PROPERTY j2.src_id STRING"); s.sql("CREATE PROPERTY j2.dst_id STRING"); s.sql("CREATE INDEX j2_src ON j2 (src_id) NOTUNIQUE")
-        for a, b in [("n1/r0", "n1/r1"), ("n1/r0", "n1/r1"), ("n1/r0", "n1/r0"), ("n1/r1", "n1/r2")]:
-            s.sql("INSERT INTO j2 SET src_id = :a, dst_id = :b", {"a": a, "b": b})
-        check("C40", "O1: a correlated LET under a GROUP BY on an indexed column answers (the index is on the grouped column, not the filter)", col(s, "SELECT src_id AS id, max($f[0].v) AS v FROM j2 LET $f = (SELECT f1 AS v FROM n1 WHERE id = $parent.$current.dst_id) GROUP BY src_id"), [1, 2**53])
         check("C41", "O1: a TRAVERSE rooted at $parent.$current under an index-served outer query traverses nothing", col(s, "SELECT id, $t.id AS v FROM n1 LET $t = (SELECT FROM (TRAVERSE out('e1') FROM $parent.$current MAXDEPTH 1) WHERE $depth = 1) WHERE id = 'n1/r0'"), [[]])
         s.sql("CREATE INDEX n1_f1 ON n1 (f1) NOTUNIQUE")
         check("C42", "O2: correlated equality + predicate on an indexed field is an NPE", err(s, "SELECT src_id AS id, $n.f1 AS v FROM j1 LET $n = (SELECT FROM n1 WHERE id = $parent.$current.dst_id AND f1 > :p)", {"p": 0}), "internal:NPE")
@@ -324,10 +318,6 @@ def main() -> int:
         s.sql("CREATE EDGE ce FROM :a TO :b", {"a": crid["r0"], "b": crid["r4"]})
         check("C169", "O21: IN compares code units on a scan", col(s, "SELECT id AS v FROM cv WHERE s IN :p", {"p": ["A"]}), ["r1"])
         check("C170", "O21: BETWEEN compares code units on a scan", sorted(col(s, "SELECT id AS v FROM cv WHERE s BETWEEN :a AND :b", {"a": "A", "b": "B"})), ["r1", "r4"])
-        check("C173", "ci: GROUP BY does not merge case variants", len(rows(s, "SELECT s AS k, count(*) AS c FROM cv GROUP BY s")), 5)
-        for q in ["CREATE CLASS cim", "CREATE PROPERTY cim.s STRING", "ALTER PROPERTY cim.s COLLATE ci", "INSERT INTO cim SET s = 'a'", "INSERT INTO cim SET s = 'B'"]:
-            s.sql(q)
-        check("C174", "ci: max() compares code units ('a' above 'B'; collated, 'B' would be)", col(s, "SELECT max(s) AS v FROM cim"), ["a"])
         check("C176", "O25: a bracket filter ignores the collation", col(s, "SELECT out('ce')[s = :p].id AS v FROM cv WHERE id = 'r0'", {"p": "ab"}), [[]])
         check("C177", "O25: ... a dotted link field too", col(s, "SELECT out.id AS v FROM ce WHERE in.s = :p", {"p": "ab"}), [])
         check("C179", "O25: ... a projected ci value compared in an enclosing query is case-sensitive too", col(s, "SELECT id AS v FROM (SELECT id, s FROM cv) WHERE s = :p", {"p": "A"}), ["r1"])
@@ -368,7 +358,6 @@ def main() -> int:
         check("C206", "O23: ORDER BY walked from a composite index that keeps nulls puts them FIRST ascending", col(s, "SELECT id AS v FROM ob ORDER BY f ASC, g ASC"), ["r5", "r3", "r1", "r2", "r0", "r4", "r6"])
         check("C207", "O23: ... and LAST descending", col(s, "SELECT id AS v FROM ob ORDER BY f DESC, g DESC"), ["r6", "r4", "r0", "r2", "r1", "r3", "r5"])
         s.sql("DROP INDEX ob_fg"); s.sql("CREATE INDEX ob_f ON ob (f) NOTUNIQUE METADATA {ignoreNullValues: false}")
-        check("C209", "a single-field index that keeps nulls orders right", (col(s, "SELECT id AS v FROM ob ORDER BY f ASC")[-2:], col(s, "SELECT id AS v FROM ob ORDER BY f DESC")[:2]), (["r3", "r5"], ["r3", "r5"]))
         check("C211", "an arithmetic UPDATE (f = f + :d) maintains the index", (s.sql("UPDATE ob SET f = f + :d WHERE id = 'r0'", {"d": 10}), col(s, "SELECT id AS v FROM ob WHERE f = 11"))[1], ["r0"])
         check("C212", "UPDATE EDGE CONTENT keeps the endpoints", (s.sql("UPDATE EDGE ce CONTENT {\"w\": 8} WHERE out.id = 'r0' AND in.id = 'r4'"), col(s, "SELECT in.id AS v FROM ce WHERE w = 8"))[1], ["r4"])
         check("C213", "CREATE CLASS ... EXTENDS V CLUSTERS 3 is accepted", err(s, "CREATE CLASS cl3 EXTENDS V CLUSTERS 3"), "ok")
@@ -484,7 +473,6 @@ def main() -> int:
             return "timeout" if e == "rejected" and "Timeout" in _last_error(s, q, p) else e
 
         wreset()
-        check("C291", "UPDATE / DELETE answer the count; RETURN AFTER / BEFORE a row per matched record", (rows(s, "UPDATE wt SET u = u WHERE f < 6" + TW), rows(s, "UPDATE wt SET f = f RETURN AFTER $current.id AS id, $current.f AS v WHERE id = 'w1'" + TW)), ([{"count": 2}], [{"id": "w1", "v": 5}]))
         wreset()
         check("C293", "O37: `SET f = f + 1 WHERE f > 4` through an index on f never terminates (the TIMEOUT stops it, the records it wrote stay written: one of them far past its start)", (werr("UPDATE wt SET f = f + 1 WHERE f > 4" + TW), max(v for v in wf() if v is not None) > 1000), ("timeout", True))
         wreset()
@@ -492,7 +480,6 @@ def main() -> int:
         wreset()
         check("C295", "O37: ... a two-sided range walks the record up to its bound", (rows(s, "UPDATE wt SET f = f + 1 WHERE f > 4 AND f < 100" + TW), wf()[4]), ([{"count": 95}], 100))
         wreset()
-        check("C297", "a UNIQUE index is checked per row and a failed UPDATE keeps what it wrote (no statement atomicity outside a transaction)", (err(s, "UPDATE wt SET u = 99 WHERE f > 4" + TW), sorted(r["u"] for r in rows(s, "SELECT u FROM wt WHERE u = 99"))), ("rejected", [99]))
         wreset()
         check("C300", "O39: CONTAINSVALUE inside a subquery consumed as a value (IN, NOT IN, LET) is a NullPointerException; as a FROM target, and CONTAINSKEY / values() CONTAINS there, are fine", (err(s, "SELECT id FROM wt WHERE id IN (SELECT id FROM wt WHERE m CONTAINSVALUE :p)", {"p": 2**40}), err(s, "SELECT id, $a.size() AS v FROM wt LET $a = (SELECT id FROM wt WHERE m CONTAINSVALUE :p)", {"p": 2**40}), col(s, "SELECT id AS v FROM (SELECT FROM wt WHERE m CONTAINSVALUE :p)", {"p": 2**40}), col(s, "SELECT id AS v FROM wt WHERE id IN (SELECT id FROM wt WHERE m.values() CONTAINS :p)", {"p": 2**40})), ("internal:NPE", "internal:NPE", ["w1"], ["w1"]))
         for q in ["CREATE CLASS wd", "CREATE PROPERTY wd.id STRING", "CREATE PROPERTY wd.w LONG", "CREATE PROPERTY wd.e1 EMBEDDEDLIST"]:

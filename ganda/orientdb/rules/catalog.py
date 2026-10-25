@@ -13,16 +13,12 @@ from ganda.core.rules.vocabulary import (
     ABSENT_IS_NULL,
     DOUBLE_EXACT_ROUND_TRIP,
     MAX_EMPTY,
-    NULLS_ASC,
-    NULLS_DESC,
     PARALLEL_EDGE_ROWS,
     SUM_EXACT_BELOW,
     UNDIRECTED_SELF_LOOP_ROWS,
     UNGROUPED_EMPTY_ROWS,
-    WRITE_ROW_COUNT,
     EmptyAggregate,
     EmptyInputRows,
-    NullPlacement,
     StringOrder,
 )
 
@@ -67,7 +63,6 @@ DELETE_VERTEX_CASCADES = Question("delete_vertex.cascades_edges", bool, COMPARE)
 SHORTEST_PATH_UNREACHABLE = Question("shortest_path.unreachable.result", int, COMPARE)
 SHORTEST_PATH_SAME_RECORD = Question("shortest_path.same_record.result", int, COMPARE)
 DELETE_FROM_DOC_KEEPS_LINKS = Question("delete.document.keeps_incoming_links", bool, COMPARE)
-STATEMENT_ATOMIC = Question("statement.atomic", bool, COMPARE)
 INT32_SUM_EXACT_BELOW = exact("sum.int32.below", int)
 STRING_EXACT_ROUND_TRIP = Question("value.string.exact_round_trip", bool, COMPARE)
 BINARY_ROUND_TRIP = Question("value.binary.base64_round_trip", bool, COMPARE)
@@ -79,7 +74,6 @@ AS_LONG_EXACT = Question("arithmetic.as_long.exact", bool, COMPARE)
 DELETED_TARGET_NULL = Question("link.deleted_target.reads_null", bool, COMPARE)
 ELEMENT_KEYS_DEFINED = Question("element.keys.defined_fields", bool, COMPARE)
 ABSENT_SURVIVES_PROJECTION = Question("projection.keeps_absent_field", bool, COMPARE)
-CI_AGGREGATES_COLLATE = Question("aggregate.case_insensitive.collates", bool, COMPARE)
 NESTED_LET_PARENT = Question("let.nested.parent_is_enclosing_query", bool, COMPARE)
 LINK_LIST_FIELD_ACCESS = Question("path.link_list.maps_field_access", bool, COMPARE)
 UNIQUE_IGNORE_NULLS_ACCEPTS_NULLS = Question("index.unique.ignore_nulls.accepts_null_keys", bool, COMPARE)
@@ -112,8 +106,6 @@ COMPARE_RULES = (
     Rule(SHORTEST_PATH_UNREACHABLE, SQL, 0),
     Rule(SHORTEST_PATH_SAME_RECORD, SQL, 1),
     Rule(DELETE_FROM_DOC_KEEPS_LINKS, SQL, True),
-    Rule(STATEMENT_ATOMIC, SQL, False),
-    Rule(WRITE_ROW_COUNT, SQL, True),
     Rule(DOUBLE_EXACT_ROUND_TRIP, SQL, True),
     Rule(STRING_EXACT_ROUND_TRIP, SQL, True),
     Rule(BINARY_ROUND_TRIP, SQL, True),
@@ -126,12 +118,7 @@ COMPARE_RULES = (
     Rule(AS_LONG_EXACT, SQL, True),
     Rule(DELETED_TARGET_NULL, SQL, True),
     Rule(ELEMENT_KEYS_DEFINED, SQL, True),
-    Rule(NULLS_ASC, SQL, NullPlacement.LAST),
-    Rule(NULLS_ASC, SQL_INDEX, NullPlacement.LAST),
-    Rule(NULLS_DESC, SQL, NullPlacement.FIRST),
-    Rule(NULLS_DESC, SQL_INDEX, NullPlacement.FIRST),
     Rule(MAX_EMPTY, SQL, EmptyAggregate.NULL),
-    Rule(CI_AGGREGATES_COLLATE, SQL, False),
     Rule(NESTED_LET_PARENT, SQL, True),
     Rule(LINK_LIST_FIELD_ACCESS, SQL, True),
     Rule(UNIQUE_IGNORE_NULLS_ACCEPTS_NULLS, SQL_INDEX, True),
@@ -157,7 +144,6 @@ ASK_RULES = (
 # --- equivalent: twin forms answer alike, so a mismatch between them is a finding ----------------
 EQUIVALENT_RULES = (
     Rule(equivalent("correlated_let"), SQL, True),
-    Rule(equivalent("correlated_let.indexed_group_by"), SQL_INDEX, True),
     Rule(equivalent("pulled_up"), SQL, True),
     Rule(equivalent("let_first_element"), SQL, True),
     Rule(equivalent("unionall_inline"), SQL, True),

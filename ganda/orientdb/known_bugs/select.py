@@ -9,7 +9,7 @@ from ganda.core.data.model import FieldType, Instance, Schema
 from ganda.orientdb.engine.dialect import RANGE_KINDS
 from ganda.core.query.ir import predicates
 from ganda.core.query.ir.predicates import Predicate
-from ganda.core.rules.vocabulary import NullPlacement, StringOrder
+from ganda.core.rules.vocabulary import StringOrder
 from ganda.orientdb.rules import assumes, works_around
 from ganda.orientdb.rules.catalog import SQL, SQL_INDEX
 from ganda.orientdb.known_bugs.predicate import _any_indexed, _column_type, _composite_members, _converts, _field_indexes, _leaves, _plain, edge_case_known, list_ops_known, node_case_known, o39_predicate
@@ -18,12 +18,6 @@ from ganda.orientdb.known_bugs.predicate import _any_indexed, _column_type, _com
 works_around("O18")
 works_around("O23")
 
-
-# a walk of an index that keeps nulls places them as a sort does
-assumes("order.nulls.asc", SQL, NullPlacement.LAST)
-assumes("order.nulls.asc", SQL_INDEX, NullPlacement.LAST)
-assumes("order.nulls.desc", SQL, NullPlacement.FIRST)
-assumes("order.nulls.desc", SQL_INDEX, NullPlacement.FIRST)
 
 
 def ordered_keys_known(schema: Schema, instance: Instance, table: str, keys: list, directions: list, data_model: str, edge: bool = False) -> "str | None":
@@ -194,9 +188,6 @@ assumes("order.string.order_by", SQL, StringOrder.COLLATION)
 assumes("order.string.order_by", SQL_INDEX, StringOrder.UTF16_CODE_UNIT)
 works_around("O6")
 
-
-# GROUP BY / DISTINCT / max / min over a ci column keep case variants apart
-assumes("aggregate.case_insensitive.collates", SQL, False)
 
 
 def select_shape_known(q, sp, data_model: str, schema: Schema, instance: Instance, present: list) -> "str | None":

@@ -341,10 +341,6 @@ def build_rewrites(q: WriteQuery, rng: random.Random, schema: Schema, instance: 
     return WriteRewrites()
 
 
-assumes("statement.write.answers_row_count", SQL, True)
-assumes("statement.atomic", SQL, False)
-
-
 def execute(session, st) -> list:
     """Run one data model's statements; the compared statement's answer."""
     from ganda.orientdb.engine.connection import unwrap_script

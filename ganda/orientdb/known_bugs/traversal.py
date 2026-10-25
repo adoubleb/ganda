@@ -10,8 +10,7 @@ from ganda.core.oracle.case import QueryCase
 from ganda.core.query.ir.traversal import REACH_PROJECTIONS, TraversalQuery
 from ganda.orientdb.concrete_syntax.query.predicate_sampling.predicate_steering import evaluate
 from ganda.orientdb.concrete_syntax.query.traversal import BRACKET, CORRELATED
-from ganda.orientdb.rules import assumes, works_around
-from ganda.orientdb.rules.catalog import SQL_INDEX
+from ganda.orientdb.rules import works_around
 from ganda.orientdb.known_bugs.predicate import _any_indexed, _ci_column, _int32, _leaves, list_ops_known, node_case_known, o10_predicate, o13_predicate, o16_predicate, o17_predicate, o20_predicate, o21_predicate, o27_predicate, o36_predicate, o39_predicate, o43_predicate, o7_predicate
 
 
@@ -21,9 +20,6 @@ def _flat_has_correlated_let(q: TraversalQuery) -> bool:
 
 works_around("O1")
 
-
-# a correlated LET under a GROUP BY on an indexed column answers (O1 needs the filter)
-assumes("equivalent.correlated_let.indexed_group_by", SQL_INDEX, True)
 
 
 def o1_shape(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) -> bool:
