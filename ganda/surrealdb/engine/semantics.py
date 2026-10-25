@@ -39,6 +39,10 @@ def _is_number(v: Any) -> bool:
 assumes("compare.int_float.by_value", SURQL, True)
 assumes("compare.negative_zero.equals_zero", SURQL, True)
 assumes("order.string", SURQL, "code-point")
+# every data model answers a decimal as its text and a datetime as ISO text: `canonical`
+# is the identity
+assumes("value.decimal.wire_form_is_text", SURQL, True)
+assumes("value.datetime.wire_form_is_iso", SURQL, True)
 
 
 def surreal_key(v: Any):
@@ -83,6 +87,7 @@ def lt(a: Any, b: Any) -> bool:
 
 # `math::sum` over ints wraps past the 64-bit range (F26): a sum is asked only where
 # every partial sum stays inside it
+assumes("aggregate.sum.int.wraps", SURQL, True)
 _INT_SUM_BOUND = answer("aggregate.sum.integer.exact_below", SURQL) // 2
 assumes("exact.sum.decimal", SURQL, True)
 # a float sums exactly when every value is a dyadic rational of few bits
