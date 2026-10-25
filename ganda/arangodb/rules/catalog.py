@@ -184,6 +184,7 @@ DEFECTS = (
     Defect("A40", AQL),
     Defect("A41", TRAVERSAL),
     Defect("A42", AQL),
+    Defect("A43", AQL_INDEX),
 )
 
 # The classification of an errorNum and its message; the HTTP status decides what the

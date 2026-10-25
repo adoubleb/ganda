@@ -49,6 +49,8 @@ A25 = "A25"
 works_around("A25")
 A42 = "A42"
 works_around("A42")
+A43 = "A43"
+works_around("A43")
 _MEMBERSHIP = ("HAS", "HAS ANY", "HAS ALL")
 # the measured first failing lengths, 124 999 code points under two wildcards and
 # 199 999 under one, rounded down (Ganda's patterns hold at most two)
@@ -187,7 +189,21 @@ def mark_known_bugs(case, q, schema, instance):
     return dataclasses.replace(case, known_bugs={**case.known_bugs, **marks})
 
 
+def a43_join(q, schema, instance, data_model: str) -> bool:
+    """A43: a join's correlated strict bound `x.f < n.f` (`n.f > x.f` reversed) served by
+    a sparse persistent index of the data model on the joined class's `f` loses the
+    records whose f is null or absent -- the shape, where the class holds such a record
+    (probed: `<=`, `==`, `>`, `>=`, `!=`, a constant bound and a dense index are right)."""
+    if q.kind != "join" or q.fn != "<" or schema.is_base(q.table):
+        return False
+    # an index on the class or on the base class (which covers every subclass)
+    sparse = any(ix.ignore_nulls for ix in schema.node_indexes(q.table, q.field, data_model))
+    return sparse and any(n.values.get(q.field) is None for n in instance.nodes_of(q.table))
+
+
 def select_known(q, syntax, rewrites, data_model, schema, instance):
+    if a43_join(q, schema, instance, data_model):
+        return A43
     pred = q.where
     rows = instance.edges_of(q.table) if q.edge else instance.nodes_of(q.table)
     if a40_shape(pred, rows):

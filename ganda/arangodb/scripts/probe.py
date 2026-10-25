@@ -483,6 +483,25 @@ def a42(s):
     assert e is not None and "1543" in str(e), f"the wildcard's own regex answered: {e}"
 
 
+@fact("A43", "a correlated strict upper bound served by a SPARSE persistent index, `FOR x IN c FILTER x.b < n.b` inside a LET, loses the records whose b is null or absent (null is below every number); `<=`, `==`, `>`, a constant or bound bound, and a dense index are right")
+def a43(s):
+    for name in ("sp",):
+        try:
+            s._request("DELETE", f"/_api/collection/{name}")
+        except EngineError:
+            pass
+    s._request("POST", "/_api/collection", {"name": "sp"})
+    s._request("POST", "/_api/document/sp", [{"_key": f"k{i}", "b": i + 0.5} for i in range(30)] + [{"_key": f"n{i}", "b": None} for i in range(4)] + [{"_key": f"a{i}"} for i in range(4)])
+
+    def below(op):
+        rows = s.aql(f"FOR n IN sp LET jm = (FOR x IN sp FILTER x.b {op} n.b RETURN x._key) RETURN {{k: n._key, v: LENGTH(jm)}}", timeout_ms=0)
+        return {r["k"]: r["v"] for r in rows}["k10"]
+
+    _eq([below("<"), below("<=")], [18, 19], "no index: 10 values and 8 nulls below 10.5")
+    s._request("POST", "/_api/index", {"type": "persistent", "fields": ["b"], "sparse": True, "name": "ix_sp_b"}, params={"collection": "sp"})
+    _eq([below("<"), below("<="), _one(s, "FOR x IN sp FILTER x.b < @p COLLECT WITH COUNT INTO c RETURN c", {"p": 10.5})], [10, 19, 18], "the sparse index loses the nulls under `<` only")
+
+
 # --- T: the timeout --------------------------------------------------------------------------------
 
 

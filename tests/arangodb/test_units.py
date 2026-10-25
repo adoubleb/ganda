@@ -566,3 +566,23 @@ def test_a25_withholds_the_index_servable_select_variants_only():
     assert select_known(q, SelectSyntax(), rw, "doc", schema, inst) == "A25"
     assert select_known(q, SelectSyntax(), rw, "graph", schema, inst) is None
 
+
+def test_a43_guard_names_a_strict_join_over_a_sparse_index_with_nulls():
+    from ganda.arangodb.concrete_syntax.select import Rewrites, SelectSyntax
+    from ganda.arangodb.known_bugs.guards import select_known
+    from ganda.core.data.model import EdgeTypeSpec, FieldSpec, IndexSpec, NodeRow, NodeTypeSpec
+    from ganda.core.query.ir.select import SelectQuery
+
+    sparse = IndexSpec("n1", "f", data_model="graph", kind="persistent", ignore_nulls=True)
+    schema = E.schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f", FieldType.FLOAT),)),), edge_types=(EdgeTypeSpec("e1", "n1", "n1", ()),), indexes=(sparse,))
+    inst = build(1, CFG, E)[1]
+    inst = dataclasses.replace(inst, schema=schema, nodes=[NodeRow("n1", 0, {"f": 1.5}), NodeRow("n1", 1, {})], edges=[], churn=[])
+    lt = SelectQuery("n1", None, "join", ("f",), fn="<", arg="ids")
+    assert select_known(lt, SelectSyntax(), Rewrites(), "graph", schema, inst) == "A43"
+    assert select_known(lt, SelectSyntax(), Rewrites(), "rel", schema, inst) is None  # no index there
+    assert select_known(dataclasses.replace(lt, fn="<="), SelectSyntax(), Rewrites(), "graph", schema, inst) is None
+    full = dataclasses.replace(inst, nodes=[NodeRow("n1", 0, {"f": 1.5})])
+    assert select_known(lt, SelectSyntax(), Rewrites(), "graph", schema, full) is None  # no null to lose
+    # a sparse index on the base class covers the subclass (campaign a4n, seed 2008)
+    based = E.schema(node_types=schema.node_types, edge_types=schema.edge_types, indexes=(dataclasses.replace(sparse, table="N0"),), base=NodeTypeSpec("N0", (FieldSpec("f", FieldType.FLOAT),)))
+    assert select_known(lt, SelectSyntax(), Rewrites(), "graph", based, dataclasses.replace(inst, schema=based)) == "A43"
