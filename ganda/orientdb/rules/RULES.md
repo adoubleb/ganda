@@ -10,7 +10,7 @@ baseline: 3.2.57, every check of a rule held
 |---|---|---|---|---|
 | order.string.order_by | osql | collation | C19, C26, C27 | known_bugs/guards.py:1034 |
 | order.string.order_by | osql@index | utf-16-code-unit | C24, C25 | known_bugs/guards.py:1035 |
-| compare.negative_zero_below_zero | osql | true | C14, C15 | oracle/semantics.py:101, storage/physical_design.py:57 |
+| compare.negative_zero_below_zero | osql | true | C14, C15 | engine/semantics.py:101, storage/physical_design.py:57 |
 | aggregate.ungrouped.empty_input.rows | osql | no-row | C267, C285 | concrete_syntax/query/path.py:25 |
 | match.undirected.self_loop.rows | osql | 2 | C127, C193 | concrete_syntax/query/traversal.py:314 |
 | match.parallel_edges.rows | osql | 2 | C126 | concrete_syntax/query/traversal.py:313 |
@@ -78,9 +78,9 @@ baseline: 3.2.57, every check of a rule held
 
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
-| aggregate.sum.integer.exact_below | osql | 9223372036854775808 | C4, C28 | oracle/semantics.py:165 |
-| exact.sum.int32.below | osql | 2147483648 | C148 | oracle/semantics.py:165 |
-| exact.sum.decimal | osql | true | C165 | oracle/semantics.py:153 |
+| aggregate.sum.integer.exact_below | osql | 9223372036854775808 | C4, C28 | engine/semantics.py:165 |
+| exact.sum.int32.below | osql | 2147483648 | C148 | engine/semantics.py:165 |
+| exact.sum.decimal | osql | true | C165 | engine/semantics.py:153 |
 | exact.parameter.long.below | osql | 9223372036854775808 | C1 | concrete_syntax/setup/common.py:226 |
 | exact.index_key.bytes.max | osql@index | 10240 | C324 | engine/limits.py:42 |
 | exact.request.bytes.max | osql | 67108864 | C325 | engine/limits.py:15 |
@@ -117,7 +117,7 @@ baseline: 3.2.57, every check of a rule held
 | O21 | osql | C169, C170 | reproduces | known_bugs/guards.py:349 |
 | O22 | match | C189, C190 | reproduces | concrete_syntax/query/traversal.py:135 |
 | O23 | osql@index | C206, C207, C274 | reproduces | known_bugs/guards.py:424 |
-| O24 | osql | C145 | reproduces | oracle/semantics.py:189 |
+| O24 | osql | C145 | reproduces | engine/semantics.py:189 |
 | O25 | osql | C176, C177, C179 | reproduces | known_bugs/guards.py:403 |
 | O26 | osql | C196, C198, C199 | reproduces | known_bugs/guards.py:686 |
 | O27 | osql | C221, C222 | reproduces | known_bugs/guards.py:379 |

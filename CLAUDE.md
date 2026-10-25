@@ -47,11 +47,13 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
 - **A provider facade binds the engine** so provider code and tests can call core
   functions without naming it: `ganda/orientdb/facade/` (`predicates.py`,
   `generate.py`) and `ganda.orientdb.Schema`. Core code never uses these.
-- **Provider layout** (OrientDB, ArangoDB, HANA alike): `provider.py` and `config.py`
-  at the top; `engine/` (connection, limits), `storage/` (dialect, physical design,
-  `mapping/`), `oracle/` (semantics; ArangoDB and HANA also `predicate_sampling`, which OrientDB keeps under `concrete_syntax/query/`; ArangoDB and HANA keep `rewrites` until
-  their port), `concrete_syntax/`,
-  `known_bugs/` (`guards.py`), `mutation/` (`mutants.py`), `scripts/`.
+- **Provider layout** (OrientDB; ArangoDB and HANA move to it in turn): `provider.py` and
+  `config.py` at the top; `engine/` (connection, limits, semantics), `storage/` (dialect,
+  physical design), `concrete_syntax/` (`setup/`, the instance as a setup plan; `query/`,
+  the renderers and `predicate_sampling/`), `known_bugs/` (`guards.py`), `mutation/`
+  (`mutants.py`), `scripts/`. ArangoDB and HANA still keep `storage/mapping/`, the
+  renderers directly under `concrete_syntax/`, and `oracle/` (semantics,
+  `predicate_sampling`; HANA also `rewrites` until its port).
 - **Use conventional names** (the README glossary). New concepts get the textbook term.
 - **Engine limits are the provider's, in its `limits` slot** (`core/data/limits.py`,
   `ganda/orientdb/engine/limits.py`: every number documented or probed). The large-data axes
@@ -107,8 +109,8 @@ generated setup plans and cases of 20 seeds change; a survivor is a record nothi
 decides on. The catalog holds no IR definition (the code compares no subject with the
 IR). `ganda orientdb rules --write` renders
 `ganda/orientdb/rules/RULES.md`; `tests/orientdb/test_rules.py` keeps them in step. Layout: `storage/dialect.py` (vocabulary), `storage/physical_design.py`, `config.py`,
-`engine/limits.py` (what the engine can hold), `engine/connection.py`, `oracle/semantics.py`,
-`concrete_syntax/` (`setup/`: instance → setup plan, one mapper per data model; `query/`: `predicate`, `predicate_sampling/` (`operators`, `constants`, `forms`: the provider's `predicate_sampling` slot; `predicate_steering`: how a scan answers a predicate, `predicate_hit` / `evaluate`, which `oracle/semantics.py` exposes), `traversal`, `select`, `path`, `write`, `support`),
+`engine/limits.py` (what the engine can hold), `engine/connection.py`, `engine/semantics.py` (value order, equality, arithmetic),
+`concrete_syntax/` (`setup/`: instance → setup plan, one mapper per data model; `query/`: `predicate`, `predicate_sampling/` (`operators`, `constants`, `forms`: the provider's `predicate_sampling` slot; `predicate_steering`: how a scan answers a predicate, `predicate_hit` / `evaluate`, which `engine/semantics.py` exposes), `traversal`, `select`, `path`, `write`, `support`),
 `known_bugs/guards.py` (most of O1..O46; O4 retired, fixed in 3.2.57; O12, O22, O24, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/query/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `engine/coverage.py` (JaCoCo),
 
 `scripts/` (`probe_osql.py`, `coverage_report.py`).

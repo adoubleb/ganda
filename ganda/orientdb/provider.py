@@ -5,7 +5,7 @@ from ganda.core.engine.provider import Provider
 from ganda.orientdb.config import OrientConfig
 from ganda.orientdb.engine.limits import LIMITS
 from ganda.orientdb.concrete_syntax.query import predicate_sampling
-from ganda.orientdb.oracle.semantics import SEMANTICS
+from ganda.orientdb.engine.semantics import SEMANTICS
 
 
 class OrientDBProvider(Provider):

@@ -61,7 +61,7 @@ def leaf_form(rng: random.Random, p):
 def _arithmetic(rng: random.Random, p):
     from ganda.core.constants import I64_MAX, I64_MIN
     from ganda.core.query.ir.predicates import Arith
-    from ganda.orientdb.oracle.semantics import apply_arith
+    from ganda.orientdb.engine.semantics import apply_arith
 
     if p.on == "edge" or p.op not in _MIRROR or p.key is not None or p.case_insensitive or p.ftype is None:
         return None

@@ -3,7 +3,7 @@
 them (`evaluate`). The generators steer with it (a filter that keeps some records, a
 write that matches some), `write.apply` keeps the `Instance` in step with it, and the
 guards read which records a defect's shape would touch; no answer is predicted from
-it. Values are ordered and compared under `ganda.orientdb.oracle.semantics`. The rules:
+it. Values are ordered and compared under `ganda.orientdb.engine.semantics`. The rules:
 
 - **Null.** An absent field and an explicit null answer alike: `IS NULL` holds, `<>`
   holds, and every other comparison (`=`, `<`, `>`, `IN`, `BETWEEN`, `LIKE`) fails.
@@ -32,7 +32,7 @@ import re
 from typing import Any
 
 from ganda.core.query.ir.predicates import Compound
-from ganda.orientdb.oracle.semantics import _is_number, apply_arith, canonical_date, decimal_binary, decimal_of, eq, f32, lt, orient_key
+from ganda.orientdb.engine.semantics import _is_number, apply_arith, canonical_date, decimal_binary, decimal_of, eq, f32, lt, orient_key
 from ganda.orientdb.rules import answer
 from ganda.orientdb.rules.catalog import SQL
 

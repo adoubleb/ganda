@@ -862,7 +862,7 @@ def _reversed_range_fields(leaves: list) -> set:
     """The fields a two-sided range in `leaves` bounds the wrong way round: a
     `BETWEEN hi AND lo`, or a `>` / `>=` leaf and a `<` / `<=` leaf on one field
     with the lower bound above the upper."""
-    from ganda.orientdb.oracle.semantics import lt
+    from ganda.orientdb.engine.semantics import lt
 
     def below(a, b) -> bool:
         try:
@@ -1019,7 +1019,7 @@ def o41_values(values: list, key: str, ftype: FieldType, key2: str = "", values2
     of equal hash treeifies and its `compareTo` misses (`java_hash.distinct_collides`).
     Null and absent project alike; a `WHERE f IS NOT NULL` caller passes the present
     values only."""
-    from ganda.orientdb.oracle.semantics import orient_key
+    from ganda.orientdb.engine.semantics import orient_key
 
     seen: dict = {}
     pairs = zip(values, values2) if values2 is not None else ((v, None) for v in values)
@@ -1049,7 +1049,7 @@ def select_shape_known(q, sp, data_model: str, schema: Schema, instance: Instanc
     target always sorts."""
     from ganda.core.query.ir.select import column, hits, view
     from ganda.orientdb.concrete_syntax.query.select import WALK_POSITIONS
-    from ganda.orientdb.oracle.semantics import orient_key
+    from ganda.orientdb.engine.semantics import orient_key
 
     walk = sp.position in WALK_POSITIONS
     inst = view(q, instance)
