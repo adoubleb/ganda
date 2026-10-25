@@ -16,7 +16,7 @@ baseline: 3.3.4, every check of a rule held
 | compare.negative_zero.equals_zero | surql | true | C6 | engine/semantics.py:40 |
 | value.decimal.wire_form_is_text | surql | true | C7 | engine/semantics.py:44 |
 | value.datetime.wire_form_is_iso | surql | true | C8 | engine/semantics.py:45 |
-| arithmetic.int.overflow_refused | surql | true | C9 | engine/semantics.py:122 |
+| arithmetic.int.overflow_refused | surql | true | C9 | engine/semantics.py:127 |
 | aggregate.sum.int.wraps | surql | true | C10 | engine/semantics.py:90 |
 | aggregate.sum.empty_input | surql | zero | C11 | concrete_syntax/query/select.py:64 |
 | aggregate.max.empty_input | surql | null | C12 | concrete_syntax/query/traversal.py:60 |
