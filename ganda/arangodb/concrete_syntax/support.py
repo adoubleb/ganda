@@ -128,3 +128,11 @@ def composite_and(rng, fields, values_of):
     from ganda.arangodb.provider import PROVIDER
 
     return _composite_and(rng, fields, values_of, PROVIDER)
+
+
+def base_union(schema, var: str) -> str:
+    """The base class's records, every node collection's in turn: `UNION((FOR v_t IN t
+    RETURN v_t), ...)`, or the one collection's subquery (`UNION()` takes two arguments
+    at least: a base class over one class would be refused, errorNum 1541)."""
+    parts = [f"(FOR {var}_{nt.name} IN {nt.name} RETURN {var}_{nt.name})" for nt in schema.node_types]
+    return parts[0] if len(parts) == 1 else f"UNION({', '.join(parts)})"

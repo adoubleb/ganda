@@ -47,7 +47,7 @@ from ganda.core.data.model import Instance, Schema
 from ganda.arangodb.rules import assumes
 from ganda.arangodb.rules.catalog import AQL
 from ganda.arangodb.concrete_syntax.predicate import render_predicate as render_pred
-from ganda.arangodb.concrete_syntax.support import METHODS, tx_extra_binds, tx_script  # noqa: F401
+from ganda.arangodb.concrete_syntax.support import METHODS, base_union, tx_extra_binds, tx_script  # noqa: F401
 
 POSITIONS = ("table", "poly", "polyin")
 FORMS = ("base", "collect", "order", "set", "fn", "jrev")
@@ -136,7 +136,7 @@ def _collection_source(q: SelectQuery, schema: Schema, var: str) -> str:
     """`FOR var IN <target>` for the plain target: a collection, the base class's
     union, or the doc data model's link objects."""
     if schema.is_base(q.table):
-        return f"FOR {var} IN UNION({', '.join(f'(FOR m_{nt.name} IN {nt.name} RETURN m_{nt.name})' for nt in schema.node_types)})"
+        return f"FOR {var} IN {base_union(schema, 'm')}"
     return f"FOR {var} IN {q.table}"
 
 
@@ -168,7 +168,7 @@ def dataclasses_replace_table(q: SelectQuery, table: str) -> SelectQuery:
 def _join_let(q: SelectQuery, schema: Schema, sp: SelectSyntax) -> str:
     f, op = q.field, q.fn
     if schema.is_base(q.table):
-        target = f"UNION({', '.join(f'(FOR y_{nt.name} IN {nt.name} RETURN y_{nt.name})' for nt in schema.node_types)})"
+        target = base_union(schema, "y")
     else:
         target = q.table
     cond = f"n.{f} {_OP[MIRROR[op]]} x.{f}" if sp.form == "jrev" else f"x.{f} {_OP[op]} n.{f}"

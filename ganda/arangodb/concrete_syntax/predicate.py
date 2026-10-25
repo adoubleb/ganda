@@ -43,7 +43,9 @@ def render_predicate(p, var: str = "n", schema=None) -> str:
         tag = re.sub(r"[^A-Za-z0-9_]", "_", p.bind or (q.leaves()[0].bind if q is not None else "sub"))
         s, m = f"s_{tag}", f"m_{tag}"
         if schema is not None and schema.is_base(t2):
-            src = "UNION(" + ", ".join(f"(FOR {m}_{nt.name} IN {nt.name} RETURN {m}_{nt.name})" for nt in schema.node_types) + ")"
+            from ganda.arangodb.concrete_syntax.support import base_union
+
+            src = base_union(schema, m)
         else:
             src = t2
         inner = f"FOR {s} IN {src}" + (f" FILTER {render_predicate(q, s, schema)}" if q is not None else "") + f" RETURN {s}.{g}"
