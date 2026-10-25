@@ -12,7 +12,7 @@ baseline: 3.12.11, every check of a rule held
 | filter.logic | aql | two-valued | V1 | oracle/semantics.py:43 |
 | compare.negative_zero_equals_zero | aql | true | V2 | oracle/semantics.py:44 |
 | order.string | aql | collation | V3 | oracle/pivots.py:29 |
-| equality.string | aql | code-point | V3 | oracle/semantics.py:46, storage/physical_design.py:85 |
+| equality.string | aql | code-point | V3 | oracle/semantics.py:46, storage/physical_design.py:83 |
 | value.double.integral_returned_as_integer | aql | true | V7 | oracle/semantics.py:53 |
 | arithmetic.null_operand.zero | aql | true | V7 | oracle/semantics.py:242 |
 | value.absent_is_null | aql | true | V8 | oracle/semantics.py:47 |
@@ -46,7 +46,7 @@ baseline: 3.12.11, every check of a rule held
 
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
-| accepts.has.non_object_argument | aql | accepted | V8 | concrete_syntax/predicate.py:26 |
+| accepts.has.non_object_argument | aql | accepted | V8 | concrete_syntax/predicate.py:25 |
 | accepts.values.non_object_argument | aql | refused | V8 | concrete_syntax/predicate.py:23 |
 | accepts.variable.redeclared | aql | refused | S6 | concrete_syntax/predicate.py:18 |
 | accepts.bind_variable.undeclared | aql | refused | S8 | engine/connection.py:62 |
@@ -79,13 +79,9 @@ baseline: 3.12.11, every check of a rule held
 
 | id | subject | reproduced by | on 3.12.11 | read by |
 |---|---|---|---|---|
-| A1 | aql | A1 | reproduces | storage/physical_design.py:48 |
-| A2 | aql | A2 | reproduces | storage/physical_design.py:49 |
-| A25 | aql@index | A25 | reproduces | known_bugs/guards.py:49 |
-| A40 | aql | A40 | reproduces | known_bugs/guards.py:47 |
-| A41 | traversal | A41 | reproduces | concrete_syntax/predicate.py:24 |
-| A42 | aql | A42 | reproduces | known_bugs/guards.py:51 |
-| A43 | aql@index | A43 | reproduces | known_bugs/guards.py:53 |
+| A25 | aql@index | A25 | reproduces | known_bugs/guards.py:38 |
+| A42 | aql | A42 | reproduces | known_bugs/guards.py:40 |
+| A43 | aql@index | A43 | reproduces | known_bugs/guards.py:42 |
 
 ## error classes
 
@@ -94,4 +90,4 @@ baseline: 3.12.11, every check of a rule held
 | timeout | 1500, 1600 |  | unchecked |
 | timeout | any | `query killed`; `timed out`; `time out`; `timeout` (any case) | unchecked |
 
-51 rules (0 IR definitions): 51 checked by a probe fact, 0 unchecked; 51 read by code, 0 unread; 7 defects (7 reproduced by a probe fact); 2 error classes
+51 rules (0 IR definitions): 51 checked by a probe fact, 0 unchecked; 51 read by code, 0 unread; 3 defects (3 reproduced by a probe fact); 2 error classes

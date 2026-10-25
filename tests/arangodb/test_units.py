@@ -392,26 +392,6 @@ def test_every_select_variant_form_fits_its_kind(seed):
                     seen.add(part)
 
 
-# --- the known bug A40 ---------------------------------------------------------------------------
-
-
-def test_a40_guard_fires_on_a_membership_under_not_over_a_null_list():
-    from ganda.core.data.model import NodeRow
-    from ganda.arangodb.known_bugs.guards import a40_shape, membership_under_not
-
-    contains = Predicate("source", "l", "HAS", "p", 1, "list")
-    other = Predicate("source", "a", "=", "q", 1, "int")
-    assert membership_under_not(Compound("source", "NOT", (contains,))) == {"l"}
-    assert membership_under_not(Compound("source", "OR", (other, Compound("source", "NOT", (contains,))))) == {"l"}
-    assert membership_under_not(Compound("source", "NOT", (Compound("source", "AND", (other, contains)),))) == {"l"}
-    assert membership_under_not(Compound("source", "AND", (other, contains))) == set()
-    assert membership_under_not(Compound("source", "NOT", (dataclasses.replace(contains, rev=True),))) == set()
-    rows = [NodeRow("n1", 0, {"l": [1]}), NodeRow("n1", 1, {"l": None})]
-    assert a40_shape(Compound("source", "NOT", (contains,)), rows)
-    assert not a40_shape(Compound("source", "NOT", (contains,)), rows[:1])
-    assert not a40_shape(contains, rows)
-
-
 # --- the known bug A42 ---------------------------------------------------------------------------
 
 

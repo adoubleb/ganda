@@ -16,7 +16,7 @@ from ganda.core.data.generator import BOUNDARY_VALUES as _CORE_BOUNDARY_VALUES
 from ganda.core.data.model import FieldType, WriteForm, options
 from ganda.core.rng import stream
 from ganda.core.rules.vocabulary import StringOrder
-from ganda.arangodb.rules import assumes, works_around
+from ganda.arangodb.rules import assumes
 from ganda.arangodb.rules.catalog import AQL, DOCUMENT_API
 from ganda.arangodb.storage.dialect import (
     EDGE_UPDATE_FORMS,
@@ -43,10 +43,8 @@ def _signed_zero(v) -> bool:
 # the write doors are twins: a setup through any of them stores the same documents
 assumes("equivalent.write_doors", AQL, True)
 assumes("equivalent.write_doors", DOCUMENT_API, True)
-# ... but for a signed zero, which the document API keeps and AQL drops (A2), and which
-# the hash paths then key apart from zero (A1): the pools hold none
-works_around("A1")
-works_around("A2")
+# ... but for a signed zero, which the document API keeps and AQL drops, and which the
+# hash paths then key apart from zero (the legacy port's A2 and A1): the pools hold none
 
 
 def _boundary_values() -> dict:

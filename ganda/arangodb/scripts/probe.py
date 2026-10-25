@@ -402,27 +402,6 @@ def l4(s):
 # --- A: the findings pinned as current behaviour (a fix upstream shows up as a changed fact) ---
 
 
-@fact("A1", "the hash paths (the default COLLECT method, UNIQUE, COUNT_DISTINCT) key a stored -0.0 apart from 0 where ==, the sorted method and SORTED_UNIQUE merge them")
-def a1(s):
-    _fixture(s)
-    s._request("POST", "/_api/document/n1", [{"_key": "za", "id": "n1/za", "z": 0.0}, {"_key": "zb", "id": "n1/zb", "z": -0.0}, {"_key": "zc", "id": "n1/zc", "z": 0}])
-    _eq(_one(s, "RETURN [DOCUMENT('n1/zb').z == DOCUMENT('n1/za').z, DOCUMENT('n1/zb').z == 0, TO_STRING(DOCUMENT('n1/zb').z)]"), [True, True, "-0"], "the sign is stored and == merges")
-    hashed = s.aql("FOR n IN n1 FILTER HAS(n, 'z') COLLECT k = n.z WITH COUNT INTO c RETURN c", timeout_ms=0)
-    _eq(sorted(hashed), [1, 2], "the default COLLECT method splits the groups")
-    _eq(s.aql("FOR n IN n1 FILTER HAS(n, 'z') COLLECT k = n.z WITH COUNT INTO c OPTIONS {method: 'sorted'} RETURN c", timeout_ms=0), [3], "the sorted method merges them")
-    _eq(_one(s, "RETURN [COUNT_DISTINCT(FOR n IN n1 FILTER HAS(n, 'z') RETURN n.z), LENGTH(UNIQUE(FOR n IN n1 FILTER HAS(n, 'z') RETURN n.z)), LENGTH(SORTED_UNIQUE(FOR n IN n1 FILTER HAS(n, 'z') RETURN n.z))]"), [2, 2, 1])
-
-
-@fact("A2", "the document API stores -0.0 with its sign; an AQL literal, a bind variable and a bulk INSERT store 0")
-def a2(s):
-    _fixture(s)
-    s._request("POST", "/_api/document/n1", [{"_key": "zapi", "id": "n1/zapi", "z": -0.0}])
-    s.aql("INSERT {_key: 'zlit', id: 'n1/zlit', z: -0.0} INTO n1", timeout_ms=0)
-    s.aql("INSERT {_key: 'zbind', id: 'n1/zbind', z: @z} INTO n1", {"z": -0.0}, timeout_ms=0)
-    s.aql("FOR d IN @docs INSERT d INTO n1", {"docs": [{"_key": "zbulk", "id": "n1/zbulk", "z": -0.0}]}, timeout_ms=0)
-    _eq(s.aql("FOR n IN n1 FILTER HAS(n, 'z') SORT n._key RETURN [n._key, TO_STRING(n.z)]", timeout_ms=0), [["zapi", "-0"], ["zbind", "0"], ["zbulk", "0"], ["zlit", "0"]])
-
-
 @fact("A25", "an OR of two whole-array equalities (replace-or-with-in) or an IN of arrays on a LIST attribute carrying the expanded array index is served from the ELEMENT keys and answers nothing; one equality, a scan, NOOPT and -use-indexes answer the rows")
 def a25(s):
     _fixture(s)
@@ -439,34 +418,6 @@ def a25(s):
     _eq(sorted(s.aql("FOR n IN n1 FILTER n.l == @a OR n.l == @b RETURN n.id", binds, options={"optimizer": {"rules": ["-use-indexes"]}}, timeout_ms=0)), ["n1/r0", "n1/r1"], "-use-indexes")
     s._request("DELETE", "/_api/index/n1/ix_n1_l")
     _eq(sorted(s.aql("FOR n IN n1 FILTER n.l == @a OR n.l == @b RETURN n.id", binds, timeout_ms=0)), ["n1/r0", "n1/r1"], "without the index")
-
-
-@fact("A40", "NOT (x IN y) over a non-array attribute is false (the NOT IN rewrite) while the constant form is true; ANY / ALL under NOT stay two-valued")
-def a40(s):
-    rows = s.aql("FOR d IN [{}, {x: null}, {x: 7}, {x: [1]}, {x: [2]}] RETURN [1 IN d.x, NOT (1 IN d.x), 1 NOT IN d.x, NOT (NOT (1 IN d.x)), NOT (d.x ANY == 1), NOT (d.x ANY IN [1]), NOT ([1] ALL IN d.x)]", timeout_ms=0)
-    _eq(rows[0], [False, False, False, False, True, True, True], "an absent attribute")
-    _eq(rows[1], [False, False, False, False, True, True, True], "a null attribute")
-    _eq(rows[2], [False, False, False, False, True, True, True], "a scalar attribute")
-    _eq(rows[3], [True, False, False, True, False, False, False], "a list holding the value")
-    _eq(rows[4], [False, True, True, False, True, True, True], "a list without it")
-    _eq(_one(s, "RETURN [1 IN null, NOT (1 IN null), 1 NOT IN null]"), [False, True, False], "the constant forms")
-
-
-@fact("A41", "optimize-traversals evaluates a moved vertex filter on the START vertex too: a function the start's attribute type rejects fails the query (errorNum 1542) where the rule switched off, an edge scan and the IS_OBJECT ternary answer")
-def a41(s):
-    _fixture(s)
-    # r1 -> r2 (e3) only: the start holds a NUMBER under `m`, its neighbour an object
-    s.aql("UPDATE @key WITH @doc IN n1 OPTIONS {mergeObjects: false}", {"key": "r1", "doc": {"m": 5}}, timeout_ms=0)
-    s.aql("UPDATE @key WITH @doc IN n1 OPTIONS {mergeObjects: false}", {"key": "r2", "doc": {"m": {"k1": 1}}}, timeout_ms=0)
-    sub = "FOR n IN n1 FILTER n.id == 'n1/r1' RETURN {id: n.id, v: (FOR v1, ed1 IN 1..1 OUTBOUND n e1 FILTER %s RETURN v1.id)}"
-    e = _rejected(s, sub % "@p IN VALUES(v1.m || {})", {"p": 1})
-    assert e is not None and "1542" in str(e), f"the moved filter answered: {e}"
-    want = [{"id": "n1/r1", "v": ["n1/r2"]}]
-    _eq(s.aql(sub % "@p IN VALUES(v1.m || {})", {"p": 1}, options={"optimizer": {"rules": ["-optimize-traversals"]}}, timeout_ms=0), want, "the rule switched off")
-    _eq(s.aql(sub % "(IS_OBJECT(v1.m) ? @p IN VALUES(v1.m) : false)", {"p": 1}, timeout_ms=0), want, "the ternary")
-    _eq(s.aql("FOR n IN n1 FILTER n.id == 'n1/r1' RETURN {id: n.id, v: (FOR ed1 IN e1 FILTER ed1._from == n._id LET v1 = DOCUMENT(ed1._to) FILTER @p IN VALUES(v1.m || {}) RETURN v1.id)}", {"p": 1}, timeout_ms=0), want, "the edge scan")
-    # a start WITHOUT the attribute passes: the default applies to null, not to a number
-    _eq(s.aql("FOR n IN n1 FILTER n.id == 'n1/r2' RETURN {id: n.id, v: (FOR v1, ed1 IN 1..1 OUTBOUND n e1 FILTER @p IN VALUES(v1.m || {}) RETURN v1.id)}", {"p": 1}, timeout_ms=0), [{"id": "n1/r2", "v": []}], "a start lacking the attribute")
 
 
 @fact("A42", "LIKE with a wildcard over a stored string of 200 000 code points fails the query (errorNum 1543, 'invalid regex value': the wildcard is spelled (.|[\\r\\n])*, one backtracking frame per character) where ==, CONTAINS, STARTS_WITH and LENGTH answer; over 100 000 it answers")

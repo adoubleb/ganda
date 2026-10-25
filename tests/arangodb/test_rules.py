@@ -31,8 +31,8 @@ def test_every_rule_is_checked_by_a_fact_and_read_by_code():
     assert unread == []
 
 
-def test_the_defects_are_a1_a2_a25_a40_to_a43_each_reproduced_and_read():
-    assert [d.id for d in CATALOG.defects] == ["A1", "A2", "A25", "A40", "A41", "A42", "A43"]
+def test_the_defects_are_a25_a42_a43_each_reproduced_and_read():
+    assert [d.id for d in CATALOG.defects] == ["A25", "A42", "A43"]
     assert CATALOG.unreproduced() == []
     index = read_index()
     assert all(index["defects"][d.id] for d in CATALOG.defects)
@@ -52,15 +52,15 @@ def test_the_probe_names_what_a_failing_fact_checks_and_who_reads_it(monkeypatch
 
     assert probe.checked_by("S8") == ["accepts.bind_variable.undeclared (aql)"]
     assert probe.checked_by("L1") == ["no rule"]
-    assert probe.checked_by("A40") == ["A40 (aql)"]
+    assert probe.checked_by("A43") == ["A43 (aql@index)"]
     index = read_index()
-    (a41,) = probe.consequences("A41", index)
-    assert a41.startswith("A41 (traversal) no longer reproduces: read by concrete_syntax/predicate.py:")
+    (a42,) = probe.consequences("A42", index)
+    assert a42.startswith("A42 (aql) no longer reproduces: read by known_bugs/guards.py:")
     assert probe.consequences("T1", index) == ["checks no rule"]
-    monkeypatch.setattr(probe, "failures", ["A1", "A2", "L2"])
-    assert probe._sort_failures(CATALOG) == (["L2"], {"A1": ["A1"], "A2": ["A2"]})
-    monkeypatch.setattr(probe, "failures", ["V2", "A40"])  # V2: two rules; A40: a defect
-    assert probe._sort_failures(CATALOG) == (["V2"], {"A40": ["A40"]})
+    monkeypatch.setattr(probe, "failures", ["A25", "A42", "L2"])
+    assert probe._sort_failures(CATALOG) == (["L2"], {"A25": ["A25"], "A42": ["A42"]})
+    monkeypatch.setattr(probe, "failures", ["V2", "A43"])  # V2: two rules; A43: a defect
+    assert probe._sort_failures(CATALOG) == (["V2"], {"A43": ["A43"]})
 
 
 def test_the_generated_rules_are_current():

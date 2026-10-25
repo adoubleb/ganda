@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 
 from ganda.core.query.ir.predicates import MIRROR, NO_BIND_OPS, Compound
-from ganda.arangodb.rules import answer, assumes, works_around
+from ganda.arangodb.rules import answer, assumes
 from ganda.arangodb.rules.catalog import ACCEPTED, AQL, REFUSED
 
 _OPS = {"=": "==", "<>": "!=", "<": "<", "<=": "<=", ">": ">", ">=": ">="}
@@ -21,7 +21,6 @@ assumes("accepts.variable.redeclared", AQL, REFUSED)
 # and never through `n.m || {}`: a filter the optimizer moves into a traversal is
 # evaluated on the start vertex too, where a number under `m` is the number
 assumes("accepts.values.non_object_argument", AQL, REFUSED)
-works_around("A41")
 # `HAS()` answers false for a non-object, so the key test needs no ternary
 _HAS_KEY = "HAS({expr}, @{bind})" if answer("accepts.has.non_object_argument", AQL) is ACCEPTED else "(IS_OBJECT({expr}) ? HAS({expr}, @{bind}) : false)"
 

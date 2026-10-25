@@ -90,11 +90,7 @@ CHECKS = {
     "W5": (Rule(accepts("transaction.collection_absent_from_database"), TRANSACTION, REFUSED),),
     "W6": (Rule(INLINE_ARRAY_REBUILDS, AQL, True),),
     # --- A: the defects, each reproduced by the fact of its id
-    "A1": (_DEFECT["A1"],),
-    "A2": (_DEFECT["A2"],),
     "A25": (_DEFECT["A25"],),
-    "A40": (_DEFECT["A40"],),
-    "A41": (_DEFECT["A41"],),
     "A42": (_DEFECT["A42"],),
     "A43": (_DEFECT["A43"],),
 }

@@ -5,15 +5,6 @@ surface (ArangoSearch views, MDI and geo indexes, the JavaScript door) or kept
 unreachable by construction (no signed zero is stored, A1 / A2; no ordered comparison on
 a string, A9 / A34).
 
-**A40** (found by the first smoke of this port; pinned by the probe fact A40 and
-`rules/catalog.py`): `NOT (x IN y)` for a NON-ARRAY `y` is true as a constant but
-FALSE over a document attribute -- the optimizer rewrites it into `x NOT IN y`, which is
-false for a non-array -- so a filter holding `NOT (@p IN n.list)` and its double-negated
-rewrite disagree on every record whose list is null or absent. The guard withholds a
-variant whose predicate has a list membership (`CONTAINS`, `CONTAINSANY`,
-`CONTAINSALL`) under a NOT, where the list column holds a null or absent value among the
-records the question reads.
-
 **A25** (the legacy port's, found again by this port's first campaign with the rules
 catalog, seed 1, and pinned by the probe fact A25): an OR whose disjuncts are all
 whole-array equalities on one LIST attribute with two or more distinct values -- which
@@ -43,41 +34,15 @@ import dataclasses
 from ganda.core.query.ir.predicates import Compound, Predicate
 from ganda.arangodb.rules import works_around
 
-A40 = "A40"
-works_around("A40")
 A25 = "A25"
 works_around("A25")
 A42 = "A42"
 works_around("A42")
 A43 = "A43"
 works_around("A43")
-_MEMBERSHIP = ("HAS", "HAS ANY", "HAS ALL")
 # the measured first failing lengths, 124 999 code points under two wildcards and
 # 199 999 under one, rounded down (Ganda's patterns hold at most two)
 LIKE_WILDCARD_MAX_CHARS = 100_000
-
-
-def membership_under_not(p, under: bool = False) -> set:
-    """The list fields a membership leaf tests under a NOT, anywhere in the tree."""
-    if p is None:
-        return set()
-    if isinstance(p, Compound):
-        out: set = set()
-        for c in p.children:
-            out |= membership_under_not(c, under or p.op == "NOT")
-        return out
-    if under and isinstance(p, Predicate) and p.op in _MEMBERSHIP and not p.rev:
-        return {p.field}
-    return set()
-
-
-def _has_null(rows, fields: set) -> bool:
-    return any(r.values.get(f) is None for r in rows for f in fields)
-
-
-def a40_shape(p, rows) -> bool:
-    fields = membership_under_not(p)
-    return bool(fields) and _has_null(rows, fields)
 
 
 # --- A42 ------------------------------------------------------------------------------------------
@@ -151,8 +116,7 @@ def a25_shape(p, schema, table: str, data_model: str, edge: bool = False) -> boo
 
 
 def mark_known_bugs(case, q, schema, instance):
-    """A traversal case: the A40 shape in a source, hop or target predicate withholds
-    every variant (every data model renders the same predicate); the A25 shape withholds
+    """A traversal case: the A25 shape in a source, hop or target predicate withholds
     the variants of the data models holding the array index -- but a pulled-up variant
     for a source predicate, which filters a projection, never a collection; the A42
     shape withholds every variant, the pulled-up ones too (they filter the same value)."""
@@ -165,8 +129,6 @@ def mark_known_bugs(case, q, schema, instance):
                 marks.setdefault(v, fid)
 
     def judge(p, rows, table: str, edge: bool, skip=()):
-        if a40_shape(p, rows):
-            mark(A40, set(schema.engine.data_models), skip)
         if a42_shape(p, rows):
             mark(A42, set(schema.engine.data_models))
         hit = [dm for dm in schema.engine.data_models if a25_shape(p, schema, table, dm, edge)]
@@ -206,8 +168,6 @@ def select_known(q, syntax, rewrites, data_model, schema, instance):
         return A43
     pred = q.where
     rows = instance.edges_of(q.table) if q.edge else instance.nodes_of(q.table)
-    if a40_shape(pred, rows):
-        return A40
     if a42_shape(pred, rows):
         return A42
     if a25_shape(pred, schema, q.table, data_model, q.edge):
@@ -218,8 +178,6 @@ def select_known(q, syntax, rewrites, data_model, schema, instance):
 def write_known(q, syntax, rewrites, data_model, schema, instance):
     pred = q.where
     rows = instance.edges_of(q.edge_type) if q.edge else instance.nodes_of(q.table)
-    if a40_shape(pred, rows):
-        return A40
     if a42_shape(pred, rows):
         return A42
     if a25_shape(pred, schema, q.edge_type if q.edge else q.table, data_model, q.edge):

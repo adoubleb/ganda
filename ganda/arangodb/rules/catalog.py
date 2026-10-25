@@ -6,27 +6,23 @@ index, the graph traversal operator, the path functions, a stream transaction an
 REST document API. The probe facts that check the rules and reproduce the defects are
 in `checks.py` (`scripts/probe.py` runs them).
 
-The defects: **A1** (the hash paths -- the default `COLLECT` method, `UNIQUE`,
-`COUNT_DISTINCT` -- key a stored `-0.0` apart from `0`, which `==`, the sorted method
-and a unique index merge) and **A2** (the document API stores `-0.0` with its sign,
-every AQL write path stores `0`), both of the legacy port and kept unreachable by the
-value pools (`storage/physical_design.py` stores no signed zero); **A25** (also the
-legacy port's, found again by this port's first campaign with the catalog: an OR of two
-whole-array equalities on a LIST attribute -- `replace-or-with-in` -- is served from the
-expanded array index's ELEMENT keys and answers nothing; withheld by
-`known_bugs/guards.py` on the data models holding the index); **A40** (`NOT (x IN
-n.list)` is false over a null, absent or scalar attribute -- the optimizer's `NOT IN`
-rewrite -- while the constant form is true; withheld by `known_bugs/guards.py`) and
-**A41** (`optimize-traversals` evaluates a vertex filter it moved into the traversal on
-the start vertex too, so a function the start's attribute type rejects fails the whole
-query -- `VALUES()` refuses a non-object where `HAS()` answers false; avoided by
-`concrete_syntax/predicate.py`'s `IS_OBJECT` ternary); **A42** (found by the large-scale
+The defects -- those that can make two data models differ: **A25** (the legacy port's,
+found again by this port's first campaign with the catalog: an OR of two whole-array
+equalities on a LIST attribute -- `replace-or-with-in` -- is served from the expanded array
+index's ELEMENT keys and answers nothing; withheld by `known_bugs/guards.py` on the data
+models holding the index); **A42** (found by the large-scale
 campaign of 2026-10-24, seed 6: `LIKE` with a wildcard over a stored string of 125 000
 code points or more fails the query -- errorNum 1543, "invalid regex value": the `%` is
 spelled `(.|[\\r\\n])*`, which backtracks one frame per character into ICU's stack
 limit -- where `==`, `CONTAINS`, `STARTS_WITH` and `LENGTH` over the same value answer;
 withheld by `known_bugs/guards.py` where a column the LIKE reads holds such a value, the
-large scale's grown strings). The legacy
+large scale's grown strings); **A43** (a correlated strict bound served by a sparse
+persistent index loses the null and absent records; withheld there). Retired
+2026-10-25, as unable to make two data models differ (each answers alike on every one):
+A1 and A2 (a stored `-0.0`: the pools still hold none), A40 (`NOT (x IN n.list)` over a
+non-array; a guards-off campaign marked 236 pairs and none failed) and A41 (a vertex
+filter moved into a traversal evaluated on the start vertex: the `IS_OBJECT` ternary
+stays). The legacy
 port's other findings (`../arangoDB/issue-drafts/`, A3..A39) are outside this surface
 (ArangoSearch views, MDI and geo indexes, the JavaScript door) or unreachable by
 construction: no ordered comparison on a string column (A9, A14, A34: `order.string` is
@@ -178,11 +174,7 @@ EXACT_RULES = (
 RULES = COMPARE_RULES + ASK_RULES + EQUIVALENT_RULES + EXACT_RULES
 
 DEFECTS = (
-    Defect("A1", AQL),
-    Defect("A2", AQL),
     Defect("A25", AQL_INDEX),
-    Defect("A40", AQL),
-    Defect("A41", TRAVERSAL),
     Defect("A42", AQL),
     Defect("A43", AQL_INDEX),
 )
