@@ -27,7 +27,7 @@ class OrientDBProvider(Provider):
 
     @property
     def mappers(self) -> dict:
-        from ganda.orientdb.storage.mapping import MAPPERS
+        from ganda.orientdb.concrete_syntax.setup import MAPPERS
 
         return MAPPERS
 

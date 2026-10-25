@@ -50,7 +50,7 @@ from typing import Any
 
 import requests
 
-from ganda.orientdb.storage.mapping.common import Batch, Script, Sql, resolve_refs
+from ganda.orientdb.concrete_syntax.setup.common import Batch, Script, Sql, resolve_refs
 from ganda.core.engine.provider import EngineCrash, EngineError, Server, Session
 from ganda.core.rules.model import ErrorKind
 from ganda.orientdb.rules import CATALOG, assumes

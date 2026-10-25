@@ -121,7 +121,7 @@ every operator, modifier kind, literal and parameter. Ganda never emits these op
 `UPDATE ... INCREMENT` is refused (`accepts.update.increment`, probe check C210), the
 arithmetic write is spelled `f = f <op> :wd` on a top-level field (the write IR's `arith`
 door in `ganda/orientdb/concrete_syntax/write.py`, and `_arith_set_clause` in
-`ganda/orientdb/storage/mapping/common.py`), and the doc data model writes an edge attribute by re-setting the whole
+`ganda/orientdb/concrete_syntax/setup/common.py`), and the doc data model writes an edge attribute by re-setting the whole
 list (O48). So no campaign asks the question and no rule or guard reads it. Were a write
 spelled `a.b += d` on one data model and `a.b = a.b + d` on another, the state check would
 see the first off the consensus.

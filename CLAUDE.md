@@ -107,8 +107,8 @@ generated setup plans and cases of 20 seeds change; a survivor is a record nothi
 decides on. The catalog holds no IR definition (the code compares no subject with the
 IR). `ganda orientdb rules --write` renders
 `ganda/orientdb/rules/RULES.md`; `tests/orientdb/test_rules.py` keeps them in step. Layout: `storage/dialect.py` (vocabulary), `storage/physical_design.py`, `config.py`,
-`engine/limits.py` (what the engine can hold), `engine/connection.py`, `storage/mapping/`, `oracle/semantics.py`, `oracle/pivots.py`,
-`concrete_syntax/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),
+`engine/limits.py` (what the engine can hold), `engine/connection.py`, `oracle/semantics.py`, `oracle/pivots.py`,
+`concrete_syntax/` (`setup/` (instance → setup plan, one mapper per data model), `predicate`, `traversal`, `select`, `path`, `write`, `support`),
 `known_bugs/guards.py` (most of O1..O46; O4 retired, fixed in 3.2.57; O12, O22, O24, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `engine/coverage.py` (JaCoCo),
 
 `scripts/` (`probe_osql.py`, `coverage_report.py`).

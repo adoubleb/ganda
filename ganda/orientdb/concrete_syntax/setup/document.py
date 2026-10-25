@@ -20,7 +20,7 @@ removed record would dereference to null (probed), which is exactly what the
 """
 from __future__ import annotations
 
-from ganda.orientdb.storage.mapping.common import (
+from ganda.orientdb.concrete_syntax.setup.common import (
     Ref,
     Sql,
     churned_away_edges,

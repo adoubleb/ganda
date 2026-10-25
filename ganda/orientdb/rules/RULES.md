@@ -44,11 +44,11 @@ baseline: 3.2.57, every check of a rule held
 | aggregate.case_insensitive.collates | osql | false | C173, C174 | known_bugs/guards.py:1040 |
 | let.nested.parent_is_enclosing_query | osql | true | C73 | concrete_syntax/traversal.py:610 |
 | path.link_list.maps_field_access | osql | true | C83 | concrete_syntax/traversal.py:141 |
-| index.unique.ignore_nulls.accepts_null_keys | osql@index | true | C121 | storage/mapping/common.py:153 |
+| index.unique.ignore_nulls.accepts_null_keys | osql@index | true | C121 | concrete_syntax/setup/common.py:153 |
 | match.classless_alias.is_root | match | false | C134 | concrete_syntax/traversal.py:331 |
-| parameter.rid_string.becomes_link | osql | true | C143 | storage/mapping/document.py:42 |
+| parameter.rid_string.becomes_link | osql | true | C143 | concrete_syntax/setup/document.py:42 |
 | unionall.absent_operand.empty | osql | true | C194 | concrete_syntax/traversal.py:582 |
-| update_edge.content.keeps_endpoints | osql | true | C212 | storage/mapping/common.py:294 |
+| update_edge.content.keeps_endpoints | osql | true | C212 | concrete_syntax/setup/common.py:294 |
 | max_depth.reaches_bound | match | true | C281 | concrete_syntax/path.py:58 |
 | max_depth.reaches_bound | traverse | true | C281 | concrete_syntax/path.py:57 |
 | unwind.bracket_projection.row_per_element | osql | true | C310 | concrete_syntax/select.py:170 |
@@ -58,11 +58,11 @@ baseline: 3.2.57, every check of a rule held
 
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
-| accepts.update.arithmetic_parameter | osql | accepted | C211 | storage/mapping/common.py:225 |
-| accepts.create_class.clusters | osql | accepted | C213 | storage/mapping/common.py:126 |
-| accepts.rebuild_index.all | osql | accepted | C214 | storage/mapping/common.py:528 |
+| accepts.update.arithmetic_parameter | osql | accepted | C211 | concrete_syntax/setup/common.py:225 |
+| accepts.create_class.clusters | osql | accepted | C213 | concrete_syntax/setup/common.py:126 |
+| accepts.rebuild_index.all | osql | accepted | C214 | concrete_syntax/setup/common.py:528 |
 | accepts.match.end_at_edge_alias | match | accepted | C192 | concrete_syntax/traversal.py:332 |
-| accepts.map_parameter | batch | accepted | C337 | storage/mapping/common.py:408 |
+| accepts.map_parameter | batch | accepted | C337 | concrete_syntax/setup/common.py:408 |
 
 ## equivalent
 
@@ -81,7 +81,7 @@ baseline: 3.2.57, every check of a rule held
 | aggregate.sum.integer.exact_below | osql | 9223372036854775808 | C4, C28 | oracle/semantics.py:366 |
 | exact.sum.int32.below | osql | 2147483648 | C148 | oracle/semantics.py:366 |
 | exact.sum.decimal | osql | true | C165 | oracle/semantics.py:354 |
-| exact.parameter.long.below | osql | 9223372036854775808 | C1 | storage/mapping/common.py:226 |
+| exact.parameter.long.below | osql | 9223372036854775808 | C1 | concrete_syntax/setup/common.py:226 |
 | exact.index_key.bytes.max | osql@index | 10240 | C324 | engine/limits.py:42 |
 | exact.request.bytes.max | osql | 67108864 | C325 | engine/limits.py:15 |
 | exact.statements.per_request.max | script | 500 | C326 | engine/limits.py:47 |

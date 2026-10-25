@@ -348,7 +348,7 @@ assumes("statement.atomic", SQL, False)
 def execute(session, st) -> list:
     """Run one data model's statements; the compared statement's answer."""
     from ganda.orientdb.engine.connection import unwrap_script
-    from ganda.orientdb.storage.mapping.common import resolve_refs
+    from ganda.orientdb.concrete_syntax.setup.common import resolve_refs
 
     if st.positions is not None:
         st = st.at_positions(session.sql(st.positions[0])[0].get("n") or 0)

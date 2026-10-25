@@ -20,7 +20,7 @@ import sys
 from ganda.core.rules.model import Defect
 from ganda.orientdb.engine.connection import OrientError, OrientServer  # noqa: E402
 from ganda.orientdb.engine.limits import HTTP_MAX_LENGTH  # noqa: E402
-from ganda.orientdb.storage.mapping.common import Sql  # noqa: E402
+from ganda.orientdb.concrete_syntax.setup.common import Sql  # noqa: E402
 
 DB = "fz_probe_osql"
 ran: list = []

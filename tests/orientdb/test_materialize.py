@@ -1,8 +1,8 @@
 import json
 
 from ganda.orientdb.facade.generate import GeneratorConfig, build
-from ganda.orientdb.storage.mapping import MAPPERS
-from ganda.orientdb.storage.mapping.common import Batch, Ref, Script, Sql, _groups, plan_from_dict, plan_to_dict, resolve_refs, wrap_data
+from ganda.orientdb.concrete_syntax.setup import MAPPERS
+from ganda.orientdb.concrete_syntax.setup.common import Batch, Ref, Script, Sql, _groups, plan_from_dict, plan_to_dict, resolve_refs, wrap_data
 from ganda.core.data.model import WriteForm
 
 
@@ -100,7 +100,7 @@ def _statements(script: Script) -> int:
 
 
 def test_chunked_doors_fold_every_run_into_bounded_requests():
-    from ganda.orientdb.storage.mapping import common
+    from ganda.orientdb.concrete_syntax.setup import common
 
     steps = [Sql("INSERT INTO n1 SET id = :id, f = :f", {"id": f"n1/r{i}", "f": i}, capture=f"n1/r{i}") for i in range(12)]
     steps += [Sql("UPDATE n1 SET e1 = :links WHERE id = :id", {"links": [{"target": Ref(f"n1/r{i}")}], "id": f"n1/r{i}"}) for i in range(3)]
