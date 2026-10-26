@@ -485,6 +485,13 @@ The legacy port `../surrealDB` is reference material (its F1..F27 are in
   `graph_stale_edge_update` 0/3 needs edge-update churn (as on ArangoDB), and
   `doc_distinct_projection` 0/3 was the mutant's own regex, now 3/3 over every multiset
   traversal projection.
+- On mousedeer (`/home/hakam/ganda/ganda-surrealdb-port`, `surrealdb/surrealdb:v3.3.4`,
+  4 workers, a host at load 160) the same two campaigns answered alike: the reference run
+  2832 cases, 0 findings, 0 setup asymmetries, 0 internal errors, 0 write-state diffs, F28
+  withheld on 39 variants, 282 s; guards off 6187 cases, 5 findings all F28 (42 of its 66
+  marked pairs failing), 0 unmarked failing pairs, 373 writes, 0 write-state diffs, 527 s.
+  The statistics and bundles stayed on the host (`campaign_reports/md-*`, `bugs/md-off24-*`;
+  `campaign_reports/` is gitignored).
 - The smoke campaigns before them found three faults of the port (a bracket filter over
   record links reads no field, `<->e<->n` answers both endpoints, `math::max` refuses a
   string), two engine behaviours the setup now respects (MERGE merges a nested object into
