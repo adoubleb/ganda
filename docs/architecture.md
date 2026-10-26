@@ -37,7 +37,7 @@ flowchart TB
         o["ganda.orientdb<br/>doc · graph · rel"]
         a["ganda.arangodb<br/>doc · graph · rel"]
         h["ganda.hana<br/>doc · rel · graph · rdf"]
-        s["ganda.surrealdb<br/>skeleton"]
+        s["ganda.surrealdb"]
     end
 
     reg --> core
@@ -192,7 +192,7 @@ contract with nothing engine-specific in the way.
 | OrientDB | `doc` (embedded links), `graph` (edges), `rel` (junction classes) | Full. Seed-for-seed equal to the legacy `../OrientDB` fuzzer | `ganda/orientdb/RULES.md` |
 | ArangoDB | `doc` (link arrays), `graph` (edge collections), `rel` (junction collections) | Full, verified live on 3.12.11 | `ganda/arangodb/rules/catalog.py` (rendered: `ganda/arangodb/rules/RULES.md`) |
 | SAP HANA | `doc` (Document Store), `rel` (column tables), `graph` (Property Graph Engine, openCypher), `rdf` (Knowledge Graph Engine, SPARQL) | Full, verified live on HANA Cloud | `ganda/hana/rules/catalog.py` (rendered: `ganda/hana/rules/RULES.md`) |
-| SurrealDB | `doc`, `graph`, `rel` | Skeleton: connection layer only | `ganda/surrealdb/PORTING.md` |
+| SurrealDB | `doc` (link arrays), `graph` (relation tables), `rel` (junction tables) | Full, verified live on 3.3.4 | `ganda/surrealdb/rules/catalog.py` (rendered: `ganda/surrealdb/rules/RULES.md`) |
 
 ## Invariants that keep results trustworthy
 

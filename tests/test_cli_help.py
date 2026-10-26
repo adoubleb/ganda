@@ -8,7 +8,7 @@ from ganda.core.campaign import run as campaign
 from ganda.registry import provider
 
 
-@pytest.mark.parametrize("name", ["orientdb", "arangodb", "hana"])
+@pytest.mark.parametrize("name", ["orientdb", "arangodb", "hana", "surrealdb"])
 def test_every_run_flag_has_help_text(name):
     engine = provider(name)
     ap = argparse.ArgumentParser(prog=name)
@@ -17,7 +17,7 @@ def test_every_run_flag_has_help_text(name):
     assert not missing, f"flags without help text: {missing}"
 
 
-@pytest.mark.parametrize("name", ["orientdb", "arangodb", "hana"])
+@pytest.mark.parametrize("name", ["orientdb", "arangodb", "hana", "surrealdb"])
 def test_every_config_field_has_its_own_description(name):
     import dataclasses
 

@@ -35,7 +35,7 @@ provider's variables:
 |---|---|
 | OrientDB | `ORIENT_URL`, `ORIENT_PASSWORD` |
 | ArangoDB | `ARANGO_URL`, `ARANGO_PASSWORD`, `ARANGO_IMAGE` (the container image, e.g. `arangodb:3.12.11`) |
-| SurrealDB | `SURREAL_URL` |
+| SurrealDB | `SURREAL_URL`, `SURREAL_USER`, `SURREAL_PASSWORD`, `SURREAL_IMAGE` (the container image, e.g. `surrealdb/surrealdb:v3.3.4`) |
 | SAP HANA | `HANA_HOST`, `HANA_PORT`, `HANA_USER`, `HANA_PASSWORD` (and `HANA_SNI_HOSTNAME` through a tunnel) |
 
 ## Repository map
@@ -176,16 +176,17 @@ finding *other* bugs:
 ### Add a provider
 
 Follow the order below; each step has a check you can run before moving on.
-`ganda/surrealdb/PORTING.md` maps each module of a legacy fuzzer to its slot, and
-`tests/fake_engine/` shows the whole contract in one file.
+`tests/fake_engine/` shows the whole contract in one file, and `ganda/surrealdb/` is the
+newest port, built straight into OrientDB's layout and the multi-model scope
+(`docs/provider-refactoring.md`).
 
 | Step | Files | Check |
 |---|---|---|
 | 1. Connection | `engine/connection.py` (`Server`, usually a `core.docker.DockerServer` subclass, and `Session` with a `ping()` for `doctor`), `provider.py`, `engine/limits.py` (`StorageLimits.conservative()` until probed), register in `ganda/registry.py` with `has_generators = False` | `ganda <engine> doctor`, `pytest tests/test_layering.py` |
-| 2. Mapping | `storage/dialect.py`, `storage/physical_design.py`, `storage/mapping/` (one mapper per data model) | `state_check.compare_states` finds the data models in agreement |
-| 3. Semantics | `oracle/semantics.py`, `oracle/predicate_sampling.py`, probe script, `rules/` catalog | Probe passes; most of the work is here |
-| 4. Concrete syntax | `concrete_syntax/` for all four IRs, at least one syntax per data model | Offline unit tests, then a small campaign |
-| 5. Finish | `known_bugs/guards.py`, `mutation/mutants.py`, `oracle/rewrites.py`, then `has_generators = True` | `pytest` (the full slot check), campaign, mutation benchmark |
+| 2. Mapping | `engine/dialect.py`, `provider/physical_design.py`, `concrete_syntax/setup/` (one mapper per data model) | `state_check.compare_states` finds the data models in agreement |
+| 3. Semantics | `engine/semantics.py`, `concrete_syntax/query/predicate_sampling/`, `rules/` (catalog, checks, probe) | Probe passes; most of the work is here |
+| 4. Concrete syntax | `concrete_syntax/query/` for all four IRs, at least one syntax per data model | Offline unit tests, then a small campaign |
+| 5. Finish | `known_bugs/` (one module per IR over `predicate.py`), `mutation/mutants.py`, then `has_generators = True` | `pytest` (the full slot check), campaign, mutation benchmark, `rules --mutate` |
 
 ### Triage a finding
 
