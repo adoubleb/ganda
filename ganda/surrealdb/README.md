@@ -3,8 +3,7 @@
 Ganda's provider for SurrealDB 3.3.4 (`surrealdb/surrealdb:v3.3.4`, the memory backend over
 `/sql`). One instance is stored in three data models -- `doc` (arrays of link objects on the
 source record), `graph` (relation tables and `RELATE` edges), `rel` (junction tables with
-`src` / `dst` record links) -- and every question is asked of each in SurrealQL; the core's
-oracle compares the answers pair by pair. The core reaches this package only through the
+`src` / `dst` record links). The core reaches this package only through the
 `Provider` interface (`core/engine/provider.py`), which `provider/provider.py` implements.
 
 ## Layout
@@ -23,7 +22,7 @@ oracle compares the answers pair by pair. The core reaches this package only thr
 `engine/` imports nothing from `concrete_syntax/`. Names are imported from the module that
 defines them; a package `__init__.py` re-exports only what its `Provider` member exposes.
 
-## What SurrealQL changes
+## SurrealQL quirks
 
 - **Records are their ids.** The logical id `n1/r0` is the record id `n1:r0` (a custom key in
   backticks); no `Ref` resolution, a plan is the same text on every replay. Rows come back with
