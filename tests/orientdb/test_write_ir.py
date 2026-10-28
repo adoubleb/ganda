@@ -150,3 +150,21 @@ def test_write_phase_draws_nothing_from_the_read_streams():
     schema, inst, rng = build(1003, CFG)
     sample_write(rng.for_generator("ir_write"), schema, inst, 0)
     assert [c.queries for c in all_cases(rng, schema, inst, traversal_cases=5, select_cases=5)] == before
+
+
+def test_a_position_write_over_a_class_with_no_record_runs_no_position():
+    # `SELECT max(e.size()) AS n FROM C` answers no row at all over an empty class (the
+    # 12-hour coverage campaign of 2026-10-27, seed 40038, died on the IndexError)
+    from ganda.orientdb.concrete_syntax.query.write import Statements, execute
+
+    class Session:
+        rids: dict = {}
+        asked: list = []
+
+        def sql(self, text, params=None, timeout_ms=None):
+            self.asked.append(text)
+            return []
+
+    st = Statements(door="auto", positions=("SELECT max(e1.size()) AS n FROM n1", ("UPDATE n1 SET e1[{k}].w = 1 WHERE e1.size() > {k}", {})))
+    s = Session()
+    assert execute(s, st) == [] and s.asked == ["SELECT max(e1.size()) AS n FROM n1"]
