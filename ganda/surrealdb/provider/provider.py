@@ -45,7 +45,7 @@ class SurrealDBProvider(Provider):
     config_class = SurrealConfig
     limits = LIMITS
     semantics = SEMANTICS
-    coverage_levels = ("off",)
+    coverage_levels = ("off", "seed", "case", "variant")
     # a hop the doc data model cannot ask (an incoming hop with multiplicity) stays a
     # graph-vs-rel case
     partial_traversals = True
@@ -129,7 +129,14 @@ class SurrealDBProvider(Provider):
         from ganda.surrealdb.engine.connection import SurrealServer
 
         profile = _scale.profile(getattr(args, "scale", None) or "default")
-        return SurrealServer(query_timeout_ms=getattr(args, "query_timeout_ms", None) or profile.query_timeout_ms)
+        return SurrealServer(query_timeout_ms=getattr(args, "query_timeout_ms", None) or profile.query_timeout_ms, profile_dir=_profile_dir(args))
+
+    def coverage(self, server, args):
+        """LLVM source-based coverage of an instrumented build (`ganda.core.engine.llvm_coverage`;
+        the image is `docs/coverage.md`'s) under `--coverage`."""
+        from ganda.core.engine.llvm_coverage import collector
+
+        return collector(server, args)
 
     def database_name(self, namespace: str, data_model: str) -> str:
         from ganda.surrealdb.engine.connection import db_name
@@ -155,3 +162,9 @@ class SurrealDBProvider(Provider):
 
 
 PROVIDER = SurrealDBProvider()
+
+
+def _profile_dir(args) -> "str | None":
+    from ganda.core.engine.llvm_coverage import profile_dir
+
+    return profile_dir(args) if args is not None else None

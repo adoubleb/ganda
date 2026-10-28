@@ -6,6 +6,7 @@ measured, and how (a JVM agent, an instrumented build), is the provider's busine
 """
 from __future__ import annotations
 
+import os
 from contextlib import contextmanager
 
 # `--coverage` levels: off; seed = one window per seed (the growth curve); case /
@@ -44,6 +45,18 @@ class Collector:
 
     def print_summary(self, summary: dict) -> None:
         pass
+
+
+def window_log_path(args) -> "str | None":
+    """`<stats dir>/<tag>-windows.jsonl.gz` under `--coverage variant`
+    (`ganda.core.engine.window_log`), a fresh file."""
+    if getattr(args, "coverage", "off") != "variant":
+        return None
+    os.makedirs(args.stats_dir, exist_ok=True)
+    path = os.path.join(args.stats_dir, f"{args.run_tag}-windows.jsonl.gz")
+    if os.path.exists(path):
+        os.remove(path)
+    return path
 
 
 @contextmanager

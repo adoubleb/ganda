@@ -64,6 +64,10 @@ class DockerServer(Server):
         """Arguments after the image name."""
         return []
 
+    def volumes(self) -> list:
+        """Bind mounts, `host:container` (a coverage profile's directory)."""
+        return []
+
     def is_ready(self) -> bool:
         """Whether the server answers at `base_url`."""
         raise NotImplementedError
@@ -83,6 +87,8 @@ class DockerServer(Server):
         cmd = ["docker", "run", "-d", "--name", self.container_name, "--label", f"{self.engine}-fuzzer=true", "-p", f"127.0.0.1:0:{self.container_port}"]
         for k, v in self.environment().items():
             cmd += ["-e", f"{k}={v}"]
+        for spec in self.volumes():
+            cmd += ["-v", spec]
         if self.memory_limit:
             cmd += ["--memory", self.memory_limit]
         try:

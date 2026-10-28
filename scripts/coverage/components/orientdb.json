@@ -1,0 +1,18 @@
+{
+  "engine": "orientdb",
+  "paths": "<package dir>/<SourceFile>, e.g. com/orientechnologies/orient/core/sql/executor/OSelectExecutionPlanner.java",
+  "scope": "^com/orientechnologies/",
+  "components": [
+    ["^com/orientechnologies/orient/core/sql/parser/", "parser"],
+    ["^com/orientechnologies/orient/core/sql/executor/[^/]*(Planner|PlanningInfo|IndexSearchInfo|IndexCandidate|IndexFinder|Optimiz)[^/]*\\.java$", "planner"],
+    ["^com/orientechnologies/orient/core/sql/(functions|method|operator|filter)/", "expressions"],
+    ["^com/orientechnologies/orient/core/sql/executor/", "executor"],
+    ["^com/orientechnologies/orient/core/(sql|command|query)/", "executor"],
+    ["^com/orientechnologies/orient/core/(index|storage/index)/", "indexes"],
+    ["^com/orientechnologies/orient/core/record/impl/O(Vertex|Edge)", "graph"],
+    ["^com/orientechnologies/orient/core/tx/", "transactions"],
+    ["^com/orientechnologies/orient/core/(storage|serialization|record)/", "storage"],
+    ["^com/orientechnologies/orient/core/metadata/", "catalog"],
+    ["^com/orientechnologies/(orient/server|orient/enterprise|orient/client)/", "server"]
+  ]
+}

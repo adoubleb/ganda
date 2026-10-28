@@ -1,0 +1,75 @@
+{
+  "engine": "arangodb",
+  "paths": "as llvm-cov reports them for the build in /src (sources) and /build/out (generated: the AQL grammar), e.g. /src/arangod/Aql/Optimizer/Rule/HandleViews.cpp",
+  "scope": "^/?(src|build/out)/(arangod|lib)/",
+  "components": [
+    [
+      "/arangod/Aql/Parser/",
+      "parser"
+    ],
+    [
+      "/arangod/Aql/(Ast|AstNode|AstHelper|AstResources|QueryString|BindParameters|Quantifier|VariableGenerator)\\.",
+      "parser"
+    ],
+    [
+      "/arangod/Aql/(Optimizer|IndexJoin)/",
+      "planner"
+    ],
+    [
+      "/arangod/Aql/(Optimizer|OptimizerUtils|OptimizerRulesFeature|OptimizerRulesOptions[A-Za-z]*|Condition|ConditionFinder|ConditionPart|ConditionCoverage|CostEstimate|IndexHint|ExecutionPlan|SortCondition|QueryPlanCache)\\.",
+      "planner"
+    ],
+    [
+      "/arangod/Aql/(Function)/",
+      "expressions"
+    ],
+    [
+      "/arangod/Aql/(Functions|Function|Expression|ExpressionContext|ExecutorExpressionContext|QueryExpressionContext|DocumentExpressionContext|Arithmetic|AqlValue[A-Za-z]*|AttributeAccessor|AttributeNamePath|Range|AqlFunctionFeature|AqlFunctionsInternalCache)\\.",
+      "expressions"
+    ],
+    [
+      "/arangod/Aql/",
+      "executor"
+    ],
+    [
+      "/arangod/Graph/",
+      "graph"
+    ],
+    [
+      "/lib/iresearch/",
+      "indexes"
+    ],
+    [
+      "/arangod/Cache/",
+      "storage"
+    ],
+    [
+      "/arangod/(Indexes|IResearch)/",
+      "indexes"
+    ],
+    [
+      "/arangod/RocksDBEngine/RocksDB[A-Za-z]*Index",
+      "indexes"
+    ],
+    [
+      "/arangod/(Transaction|StorageEngine/TransactionState)",
+      "transactions"
+    ],
+    [
+      "/arangod/(RocksDBEngine|StorageEngine|VocBase/(LogicalCollection|vocbase|Identifiers|ComputedValues))",
+      "storage"
+    ],
+    [
+      "/arangod/(VocBase|Cluster|Agency|Replication|Replication2|Sharding)/",
+      "catalog"
+    ],
+    [
+      "/arangod/(GeneralServer|RestHandler|RestServer|Network|Scheduler|V8Server|Statistics|Auth|Utils)/",
+      "server"
+    ],
+    [
+      "/lib/(Rest|Endpoint|SimpleHttpClient|Ssl)/",
+      "server"
+    ]
+  ]
+}

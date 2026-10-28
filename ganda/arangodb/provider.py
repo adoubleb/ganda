@@ -22,7 +22,7 @@ class ArangoDBProvider(Provider):
     limits = LIMITS
     semantics = SEMANTICS
     predicate_sampling = predicate_sampling
-    coverage_levels = ("off",)
+    coverage_levels = ("off", "seed", "case", "variant")
 
     # The modules below import this one's siblings; they are looked up on first use.
 
@@ -95,7 +95,16 @@ class ArangoDBProvider(Provider):
         from ganda.arangodb.engine.connection import ArangoServer
 
         profile = _scale.profile(getattr(args, "scale", None) or "default")
-        return ArangoServer(query_timeout_ms=getattr(args, "query_timeout_ms", None) or profile.query_timeout_ms)
+        return ArangoServer(query_timeout_ms=getattr(args, "query_timeout_ms", None) or profile.query_timeout_ms, profile_dir=_profile_dir(args))
+
+    def coverage(self, server, args):
+        """LLVM source-based coverage of an instrumented build (`ganda.core.engine.llvm_coverage`;
+        the image is `docs/coverage.md`'s) under `--coverage`."""
+        from ganda.core.engine.llvm_coverage import collector, module_of
+
+        # the build instruments its bundled libraries (V8, ICU, RocksDB, ...) too: only
+        # ArangoDB's own namespace is measured
+        return collector(server, args, scope=lambda name: module_of(name, 1) == "arangodb")
 
     def database_name(self, namespace: str, data_model: str) -> str:
         from ganda.arangodb.engine.connection import db_name
@@ -122,3 +131,9 @@ class ArangoDBProvider(Provider):
 
 
 PROVIDER = ArangoDBProvider()
+
+
+def _profile_dir(args) -> "str | None":
+    from ganda.core.engine.llvm_coverage import profile_dir
+
+    return profile_dir(args) if args is not None else None

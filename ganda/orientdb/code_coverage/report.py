@@ -52,8 +52,13 @@ def image_lib(image: str) -> str:
     """The image's /orientdb/lib, copied out once per image id."""
     proc = subprocess.run(["docker", "image", "inspect", "-f", "{{.Id}}", image], capture_output=True, text=True)
     if proc.returncode != 0:
-        sys.exit(f"docker image inspect {image} failed: {proc.stderr.strip()}")
-    lib = os.path.join(CACHE, "lib-" + proc.stdout.strip().split(":")[-1][:12])
+        # the containerd image store answers "No such image" to a tag of another
+        # platform's image (amd64 on an arm64 host); the image list still names it
+        listed = subprocess.run(["docker", "images", "-q", "--no-trunc", image], capture_output=True, text=True)
+        if listed.returncode != 0 or not listed.stdout.strip():
+            sys.exit(f"docker image inspect {image} failed: {proc.stderr.strip()}")
+        proc = listed
+    lib = os.path.join(CACHE, "lib-" + proc.stdout.strip().splitlines()[0].split(":")[-1][:12])
     if os.path.isdir(lib):
         return lib
     cid = subprocess.run(["docker", "create", image], capture_output=True, text=True, check=True).stdout.strip()

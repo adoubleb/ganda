@@ -86,6 +86,7 @@ class _Shared:
         self.plan_pairs: set = set()
         self.counters: Counter = Counter()
         self.stop = False
+        self.deadline = 0.0  # --duration-hours
         self.coverage = None  # the provider's `coverage.Collector`
 
 
@@ -119,6 +120,8 @@ class _SeedRun:
             self.shared.counters[counter] += 1
 
     def report_state_problem(self, errors: dict, diffs: dict, kind: str, instance=None, **kw) -> str:
+        if getattr(self.args, "no_bundles", False):
+            return "(no bundle: --no-bundles)"
         instance = self.instance if instance is None else instance
         return report_setup_problem(self.engine, self.args.out_dir, self.args.run_tag, self.seed, self.cfg, instance, self.plans, errors, diffs, kind, embed_data=self.args.embed_data, **kw)
 
@@ -133,7 +136,7 @@ def run_instance(engine, server, seed: int, cfg: GeneratorConfig, args, shared: 
         if cfg.write_cases:
             results += _write_phase(run, sessions, rng)
         _tally(shared, results)
-        if args.no_known_bugs:
+        if args.no_known_bugs and not getattr(args, "no_bundles", False):
             _log_failing_pairs(run, results)
         _report_findings(run, results)
     _drop(engine, server, ns)
@@ -184,7 +187,7 @@ def _read_phase(run: _SeedRun, sessions: dict, schema, rng) -> list:
     cov = run.shared.coverage
     hooks = {"after_case": cov.after_case, "after_variant": cov.after_variant} if cov else {}
     cases = all_cases(rng, schema, run.instance, cfg=run.cfg)
-    results = run_cases(cases, sessions, explain=args.explain, keep_known_bugs=args.no_known_bugs, timeouts_are_errors=args.timeouts_are_errors, **hooks)
+    results = run_cases(cases, sessions, explain=args.explain, keep_known_bugs=args.no_known_bugs, timeouts_are_errors=args.timeouts_are_errors, repeat_variants=getattr(args, "coverage_repeat", False), **hooks)
     if args.verify_state and any(run.engine.may_write(r.case) for r in results):
         _check_state_leaks(run, sessions)
     return results
@@ -312,7 +315,10 @@ def _report_findings(run: _SeedRun, results: list) -> None:
             shared.counters["findings" if first else "findings_repeated"] += 1
             if args.max_findings and shared.counters["findings"] >= args.max_findings:
                 shared.stop = True
-        if first or args.bundle_all:
+        if getattr(args, "no_bundles", False):
+            if first:
+                print(f"[seed {run.seed}] {r.finding_class} {r.case.generator_name} {r.case.shape} pairs={r.failing_pairs} (no bundle)", flush=True)
+        elif first or args.bundle_all:
             d = report_bug(run.engine, args.out_dir, args.run_tag, run.seed, run.cfg, run.instance, run.plans, r, times_seen=n, embed_data=args.embed_data, max_value_chars=args.max_value_chars)
             print(f"[seed {run.seed}] {r.finding_class} {r.case.generator_name} {r.case.shape} pairs={r.failing_pairs} -> {d}", flush=True)
 
@@ -329,6 +335,8 @@ def _worker(engine, worker_id: int, seeds: list, cfg: GeneratorConfig, args, sha
     ns = f"w{os.getpid()}_{worker_id}"
     for seed in seeds:
         if shared.stop:
+            return
+        if shared.deadline and time.time() >= shared.deadline:
             return
         for attempt in range(2):
             try:
@@ -392,6 +400,8 @@ def run_campaign(engine, args) -> "tuple[CampaignStats, object]":
     shared = _Shared()
     seeds = list(range(args.seed, args.seed + args.iterations))
     start = time.time()
+    # --duration-hours: no seed starts after it (the running ones finish)
+    shared.deadline = start + args.duration_hours * 3600 if getattr(args, "duration_hours", 0) else 0
     os.makedirs(args.out_dir, exist_ok=True)
     with measured_server(engine, args) as (server, shared.coverage):
         _warn_on_unprobed_build(engine, server)
@@ -486,7 +496,10 @@ def add_arguments(ap: argparse.ArgumentParser, engine) -> None:
     ap.add_argument("--no-known-bugs", action="store_true", help="run the variants that match a filed bug")
     ap.add_argument("--bundle-all", action="store_true", help="bundle every finding, not only the first per key")
     ap.add_argument("--bundle-setup-failures", action="store_true", help="also write a bundle when setup fails in every data model (a partial failure is always bundled)")
+    ap.add_argument("--no-bundles", action="store_true", help="write no finding or state bundle, and no failing-pairs log: findings are only counted (a measurement campaign, e.g. code coverage with --no-known-bugs)")
     ap.add_argument("--coverage", choices=engine.coverage_levels, default="off", help="collect the engine's code coverage: seed = the growth curve; case / variant = also attribute it to the query generator / the variant that ran (--workers 1)")
+    ap.add_argument("--coverage-repeat", action="store_true", help="--coverage variant: ask every variant a second time right after it (the A/A check of a coverage window's noise; the repeat is not compared)")
+    ap.add_argument("--duration-hours", type=float, default=0, help="start no seed after this many hours (the running seeds finish); 0: run every iteration (default: %(default)s)")
     ap.add_argument("--state-sample", type=int, default=None, help="verify the stored state by counts and this many sampled records per class, 0 reads it whole (default: the scale profile's)")
     ap.add_argument("--query-timeout-ms", type=int, default=None, help="how long one query may run before it is a timeout, left out of the comparison (default: the scale profile's)")
     engine.add_arguments(ap)

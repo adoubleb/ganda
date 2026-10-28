@@ -310,17 +310,29 @@ class ArangoServer(DockerServer):
     container_port = 8529
     url_env = "ARANGO_URL"
 
-    def __init__(self, image: "str | None" = None, memory_limit: "str | None" = None, query_timeout_ms: int = DEFAULT_TIMEOUT_MS, streaming_max_bytes: "int | None" = STREAMING_TRANSACTION_MAX_BYTES):
+    def __init__(self, image: "str | None" = None, memory_limit: "str | None" = None, query_timeout_ms: int = DEFAULT_TIMEOUT_MS, streaming_max_bytes: "int | None" = STREAMING_TRANSACTION_MAX_BYTES, profile_dir: "str | None" = None):
         super().__init__(image, memory_limit)
         self.query_timeout_ms = query_timeout_ms
         self.streaming_max_bytes = streaming_max_bytes
+        # an instrumented build's continuous-mode profile (`ganda.core.engine.llvm_coverage`)
+        self.profile_dir = profile_dir
 
     @property
     def password(self) -> str:
         return os.environ.get("ARANGO_PASSWORD", DEFAULT_PASSWORD) if self.external else DEFAULT_PASSWORD
 
     def environment(self) -> dict:
-        return {"ARANGO_ROOT_PASSWORD": DEFAULT_PASSWORD}
+        env = {"ARANGO_ROOT_PASSWORD": DEFAULT_PASSWORD}
+        if self.profile_dir:
+            from ganda.core.engine.llvm_coverage import PROFILE_FILE
+
+            env["LLVM_PROFILE_FILE"] = PROFILE_FILE
+        return env
+
+    def volumes(self) -> list:
+        from ganda.core.engine.llvm_coverage import CONTAINER_DIR
+
+        return [f"{self.profile_dir}:{CONTAINER_DIR}"] if self.profile_dir else []
 
     def command(self) -> list:
         return [f"--transaction.streaming-max-transaction-size={self.streaming_max_bytes}"] if self.streaming_max_bytes else []

@@ -29,6 +29,10 @@ from dataclasses import dataclass, field
 
 from ganda.core.engine.coverage import LEVELS  # noqa: F401
 from ganda.core.engine.coverage import Collector as _CoreCollector
+from ganda.core.engine import mc as _mc
+from ganda.core.engine.window_log import WindowLog
+from ganda.core.oracle.case import comparable_pairs
+from ganda.core.oracle.oracle import REPEAT
 
 JACOCO_VERSION = "0.8.13"
 AGENT_PORT = 6300
@@ -291,7 +295,7 @@ class Collector(_CoreCollector):
     create, DDL, inserts, state checks, drop). A dump that fails (the server crashed)
     loses the window since the last one; the count is reported."""
 
-    def __init__(self, server, level: str):
+    def __init__(self, server, level: str, idle_seconds: float = 5.0, idle_every: float = 900.0, log_path: "str | None" = None):
         if level not in LEVELS[1:]:
             raise ValueError(f"coverage level {level!r} not one of {LEVELS[1:]}")
         self.server = server
@@ -308,6 +312,17 @@ class Collector(_CoreCollector):
         self.dumps = 0
         self.dump_failures = 0
         self.start = time.time()
+        # metamorphic coverage (variant level): each variant's window of the case at hand
+        self.mc = _mc.MetamorphicCoverage() if level == "variant" else None
+        self.case_windows: dict = {}
+        # the background MC leaves out: idle windows after the first setup, then again
+        # after a seed once `idle_every` seconds have passed
+        self.calibrated = idle_seconds <= 0
+        self.idle_seconds = idle_seconds
+        self.idle_every = idle_every
+        self.last_idle = time.time()
+        # the raw windows (`ganda.core.engine.window_log`), variant level only
+        self.log = WindowLog(log_path, {"engine": "orientdb", "element": "jacoco_probe", "agent_includes": AGENT_INCLUDES, "agent_excludes": AGENT_EXCLUDES, "jacoco": JACOCO_VERSION, "idle_seconds": idle_seconds, "idle_every": idle_every}) if log_path and level == "variant" else None
         if level in ("case", "variant"):
             self.window("boot")
 
@@ -324,17 +339,64 @@ class Collector(_CoreCollector):
             if template:
                 self.templates.setdefault(template, ExecData()).merge(delta)
             if variant:
-                self.variants.setdefault(f"{template}/{variant}", ExecData()).merge(delta)
+                if not variant.endswith(REPEAT):
+                    self.variants.setdefault(f"{template}/{variant}", ExecData()).merge(delta)
+                if self.mc is not None:
+                    self.case_windows[variant] = dict(delta.masks)
+                if self.log is not None:
+                    self.log.name_units({str(cid): delta.names[cid] for cid in delta.masks})
+            elif self.log is not None:
+                self.log.name_units({str(cid): delta.names[cid] for cid in delta.masks})
+                self.log.other(template, {str(cid): f"{m:x}" for cid, m in delta.masks.items()})
             if card:
                 self.card_novelty.append({"card": card, "new": self.card_union.merge(delta), "covered": self.card_union.covered()})
 
     def after_setup(self) -> None:
         if self.level in ("case", "variant"):
             self.window("setup")
+        if self.mc is not None and not self.calibrated:
+            self.calibrated = True
+            self._idle()
+
+    def _idle(self) -> None:
+        reads: list = []
+
+        def dump():
+            masks = self._idle_dump()
+            if not reads and self.log is not None:  # the first dump closes the window before
+                self.log.other("setup", {str(cid): f"{m:x}" for cid, m in masks.items()})
+            reads.append(1)
+            return masks
+
+        idle = _mc.idle_windows(dump, self.idle_seconds)
+        self.mc.add_background(idle)
+        self.last_idle = time.time()
+        if self.log is not None:
+            self.log.idle({str(cid): f"{m:x}" for cid, m in idle.items()})
+
+    def _idle_dump(self) -> dict:
+        with self.lock:
+            try:
+                host, port = self.server.coverage_address()
+                d = dump(host, port, reset=True)
+            except (OSError, EOFError, ValueError, RuntimeError):
+                self.dump_failures += 1
+                return {}
+            self.dumps += 1
+            self.total.merge(d)
+            if self.log is not None:
+                self.log.name_units({str(cid): d.names[cid] for cid in d.masks})
+            return dict(d.masks)
 
     def after_case(self, case) -> None:
         if self.level == "case":
             self.window(case.generator_name, card=case.params.get("card") if case.generator_name == "llm_card" else None)
+        if self.mc is not None:
+            self.mc.add_case(case, self.case_windows)
+            if self.log is not None:
+                firsts = [v for v in self.case_windows if not v.endswith(REPEAT)]
+                self.log.case(case, comparable_pairs(case, firsts), {v: {str(cid): f"{m:x}" for cid, m in w.items()} for v, w in self.case_windows.items()})
+            self.case_windows = {}
 
     def after_variant(self, case, variant: str) -> None:
         if self.level == "variant":
@@ -357,6 +419,10 @@ class Collector(_CoreCollector):
                 "probes": self.total.covered(),
                 "classes": self.total.classes_hit(),
             })
+        if self.mc is not None and time.time() - self.last_idle >= self.idle_every:
+            self._idle()
+        if self.log is not None:
+            self.log.seed_done(seed)
 
     # --- the results ---------------------------------------------------------------
 
@@ -389,6 +455,9 @@ class Collector(_CoreCollector):
             uniq = unique_counts(self.variants)
             ranked = sorted(self.variants.items(), key=lambda kv: (-uniq[kv[0]], -kv[1].covered()))
             out["variants"] = {name: {"covered": d.covered(), "unique": uniq[name]} for name, d in ranked}
+        if self.mc is not None:
+            names = self.total.names
+            out["mc"] = self.mc.summary(unit_name=lambda cid: ".".join(names.get(cid, "?").split("/")[:-1][:5]), denominator=t.loaded_probes())
         return out
 
     def write_exec(self, stats_dir: str, tag: str) -> None:
@@ -407,11 +476,16 @@ class Collector(_CoreCollector):
 
     def write(self, stats_dir: str, tag: str) -> None:
         self.write_exec(stats_dir, tag)
+        if self.log is not None:
+            self.log.close()
 
     def record(self, summary: dict, stats_dir: str, tag: str) -> dict:
         path = write_summary(summary, stats_dir, tag)
         print(f"coverage written to {path} (execution data: {tag}-coverage.exec; code_coverage/report.py reads it)")
-        return {**{k: summary[k] for k in HEADLINE}, "json": path}
+        out = {**{k: summary[k] for k in HEADLINE}, "json": path}
+        if "mc" in summary:
+            out["mc"] = {k: summary["mc"][k] for k in _mc.HEADLINE}
+        return out
 
     def print_summary(self, summary: dict) -> None:
         print_summary(summary)
@@ -441,6 +515,8 @@ def print_summary(s: dict, top: int = 12) -> None:
         print("  top sides by unique probes (covered / unique to it):")
         for name, row in list(s["variants"].items())[:top]:
             print(f"    {name:44s} {row['covered']:7d} / {row['unique']:6d}")
+    if "mc" in s:
+        _mc.print_summary(s["mc"], top)
 
 
 def _safe(name: str) -> str:

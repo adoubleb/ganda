@@ -106,7 +106,7 @@ def test_the_collector_attributes_each_window():
     port, _ = _fake_agent(windows)
     server = SimpleNamespace(coverage_address=lambda: ("127.0.0.1", port))
     case = SimpleNamespace(generator_name="t1")
-    c = Collector(server, "variant")
+    c = Collector(server, "variant", idle_seconds=0)
     c.after_setup()
     c.after_variant(case, "s1")
     c.after_variant(case, "s2")

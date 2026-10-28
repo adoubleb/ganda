@@ -243,10 +243,17 @@ class CaseResult:
         return any(not is_empty_value(v) for v in values)
 
 
-def run_case(case: QueryCase, sessions: dict, explain: bool = False, keep_known_bugs: bool = False, after_variant=None, timeouts_are_errors: bool = True) -> CaseResult:
+# a variant asked a second time, for the coverage A/A check (`repeat_variants`)
+REPEAT = "#again"
+
+
+def run_case(case: QueryCase, sessions: dict, explain: bool = False, keep_known_bugs: bool = False, after_variant=None, timeouts_are_errors: bool = True, repeat_variants: bool = False) -> CaseResult:
     """`after_variant(case, data_model)` runs once a data model (and its plan) has been asked --
     a coverage collector closes a window there. `timeouts_are_errors` False leaves a
-    timed-out variant out of the comparison (see the module)."""
+    timed-out variant out of the comparison (see the module). `repeat_variants` asks
+    every variant that ran once more right after it, as `<variant>#again` to
+    `after_variant` -- what code a variant reaches the second time and not the first is
+    the noise of a coverage window; its answer is not compared."""
     rows: dict = {}
     errors: dict = {}
     internal: dict = {}
@@ -283,6 +290,13 @@ def run_case(case: QueryCase, sessions: dict, explain: bool = False, keep_known_
                 plans[variant] = plan
         if after_variant is not None:
             after_variant(case, variant)
+        if repeat_variants and variant in rows:
+            try:
+                session.execute(text, case.bind_vars, case.options_for(variant))
+            except EngineError:
+                pass
+            if after_variant is not None:
+                after_variant(case, variant + REPEAT)
     result = build_result(case, rows, errors)
     result.internal = internal
     result.plans = plans

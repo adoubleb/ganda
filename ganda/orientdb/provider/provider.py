@@ -139,9 +139,10 @@ class OrientDBProvider(Provider):
         level = getattr(args, "coverage", "off")
         if level == "off":
             return None
+        from ganda.core.engine.coverage import window_log_path
         from ganda.orientdb.code_coverage.collector import Collector
 
-        return Collector(server, level)
+        return Collector(server, level, log_path=window_log_path(args))
 
     def probe(self, facts: "list | None" = None) -> int:
         """Re-check live every engine fact the provider rests on."""
