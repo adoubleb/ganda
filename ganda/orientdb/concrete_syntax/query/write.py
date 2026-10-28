@@ -42,6 +42,7 @@ from dataclasses import dataclass, field
 
 from ganda.core.data.model import Instance, Schema
 from ganda.orientdb.concrete_syntax.query.predicate import render_predicate as render_pred
+from ganda.orientdb.concrete_syntax.query.scope import Path
 from ganda.core.data.model import FieldType
 from ganda.core.query.ir.write import EDGE_OPS, WriteQuery
 
@@ -193,7 +194,9 @@ def _change(q: WriteQuery, params: dict) -> str:
 def _returning(q: WriteQuery) -> str:
     if q.returning == "count":
         return ""
-    return f" RETURN {q.returning.upper()} $current.id AS id, $current.{q.field} AS v"
+    # the written record, BEFORE or AFTER the change
+    n = Path("$current.")
+    return f" RETURN {q.returning.upper()} {n.id} AS id, {n.field(q.field)} AS v"
 
 
 # UPSERT only by id (on another predicate it inserts a record with no id)
@@ -277,21 +280,22 @@ def _doc_positions(q: WriteQuery, schema: Schema) -> tuple:
     the engine."""
     et = schema.edge_type(q.edge_type)
     e, f = et.name, q.field
-    elem = f"{e}[{{k}}]"
+    # the written relationship is the source's link element at position k
+    link = Path(f"{e}[{{k}}].", "eid", element=True)
     params: dict = {}
     op = q.op.removeprefix("edge_")
     if op == "set":
-        change, params["wv"] = f"SET {elem}.{f} = :wv", q.value
+        change, params["wv"] = f"SET {link.field(f)} = :wv", q.value
     elif op == "arith":
         as_long = ".asLong()" if schema.field(et.name, f, edge=True).type is FieldType.INT else ""
-        change, params["wd"] = f"SET {elem}.{f} = {elem}.{f}{as_long} {q.sym} :wd", q.value
+        change, params["wd"] = f"SET {link.field(f)} = {link.field(f)}{as_long} {q.sym} :wd", q.value
     elif op == "remove":
-        change = f"REMOVE {elem}.{f}"
+        change = f"REMOVE {link.field(f)}"
     else:
         raise ValueError(q.op)
-    cond = f"{e}.size() > {{k}}" + (f" AND ({render_pred(q.where, f'{elem}.', element=True)})" if q.where is not None else "")
+    cond = f"{e}.size() > {{k}}" + (f" AND ({render_pred(q.where, link)})" if q.where is not None else "")
     if q.extra_notnull:
-        cond += f" AND {elem}.{f} IS NOT NULL"
+        cond += f" AND {link.field(f)} IS NOT NULL"
     return (f"SELECT max({e}.size()) AS n FROM {et.from_type}", (f"UPDATE {et.from_type} {change} WHERE {cond} {_T}", params))
 
 

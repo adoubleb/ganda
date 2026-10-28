@@ -62,7 +62,8 @@ import dataclasses
 from ganda.core.data.model import Schema
 from ganda.core.query.ir.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, FIELD_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, Hop, TraversalQuery
 from ganda.core.query.ir.predicates import fields_of, has_op
-from ganda.orientdb.concrete_syntax.query.predicate import render_predicate as render_pred
+from ganda.orientdb.concrete_syntax.query.predicate import condition, render_predicate as render_pred
+from ganda.orientdb.concrete_syntax.query.scope import CURRENT, RECORD, RENAMED, Lookup, Path, Renamed, Semijoin
 
 from ganda.orientdb.rules import answer, assumes, works_around
 from ganda.orientdb.rules.catalog import ACCEPTED, MATCH, SQL, TRAVERSE, Strategy
@@ -73,17 +74,15 @@ SYNTAXES = {
     "doc": ("path", "unwind", "let_expand", "inpath", "union"),
     "rel": ("let", "flat"),
 }
-# Concrete syntaxes whose text is a correlated subquery with `$parent.$current` in the outer
-# query's scope -- the ones O1 applies to when the outer query is index-served
+# The concrete syntaxes whose text is a correlated subquery with `$parent.$current` in the
+# outer query's scope -- the ones O1 applies to when the outer query is index-served
 # (`traverse` roots its TRAVERSE at `$parent.$current`: campaign c60b, seeds 414, 428
-# and 443, a null root under every index kind).
+# and 443, a null root under every index kind) -- and those that put a target predicate
+# in a BRACKET filter or behind a dotted link (`in.f`), where a property's `ci` collation
+# is ignored (O25; `edgescan` renders the source predicate that way too): the grid's
+# cells say which (`frames.py`).
 # a correlated LET reads the enclosing record under a scan
 assumes("equivalent.correlated_let", SQL, True)
-CORRELATED = {("doc", "let_expand"), ("doc", "inpath"), ("doc", "union"), ("rel", "let"), ("graph", "traverse"), ("graph", "traverse_dfs"), ("graph", "traverse_e")}
-# Concrete syntaxes that put a target predicate in a BRACKET filter or behind a dotted link
-# (`in.f`), where a property's `ci` collation is ignored (O25); `edgescan` renders the
-# source predicate that way too.
-BRACKET = {("graph", "chain"), ("graph", "bag"), ("graph", "edgescan"), ("doc", "path"), ("doc", "unwind"), ("doc", "let_expand"), ("doc", "union")}
 
 _MULTI = ("ids", "field", "distinct_ids", "efield")
 _DISTINCT = ("distinct_ids", "distinct_count", "exists", "nexists")
@@ -99,17 +98,17 @@ def _where(*conds) -> str:
     return f" WHERE {' AND '.join(conds)}" if conds else ""
 
 
-def _sp(q: TraversalQuery, prefix: str = "") -> str:
+def _sp(q: TraversalQuery, at: Path = RECORD) -> str:
     p = q.source_predicate
-    return "" if p is None else render_pred(p, prefix)
+    return "" if p is None else render_pred(p, at)
 
 
-def _cols(extra: tuple, prefix: str = "", alias: bool = False) -> str:
+def _cols(extra: tuple, at: Path = RECORD, alias: bool = False) -> str:
     """The extra source columns a pulled-up inner query projects, as `, f1, f2` (or
-    `, a.f1 AS f1` when `alias`)."""
+    `, a.f1 AS f1` when `alias`), read off the source record `at` names."""
     if not extra:
         return ""
-    return ", " + ", ".join(f"{prefix}{f} AS {f}" if alias else f"{prefix}{f}" for f in extra)
+    return ", " + ", ".join(f"{at.field(f)} AS {f}" if alias else at.field(f) for f in extra)
 
 
 def _group(extra: tuple) -> str:
@@ -231,26 +230,25 @@ def syntaxes_for(q: TraversalQuery, schema: Schema, data_model: str) -> list:
 # --- projections ----------------------------------------------------------------------------
 
 
-def _projected(expr: str, q: TraversalQuery, data_model_field: str = "id", value_field: "str | None" = None, extra: tuple = ()) -> "tuple[str, str]":
+def _projected(expr: str, q: TraversalQuery, elem: "Path | Renamed" = RECORD, extra: tuple = ()) -> "tuple[str, str]":
     """(projection text, tail): the projection over the final collection `expr` and the
-    GROUP BY tail an aggregate needs. `data_model_field` is how an element's id is read,
-    `value_field` how its projected field is (a LET subquery has already renamed it
-    `v`; a record or relationship collection reads `q.field` itself)."""
+    GROUP BY tail an aggregate needs. `elem` is what an element of the collection is: a
+    record or relationship reads its id and `q.field` itself, a LET subquery's row has
+    already renamed its value `v` (`RENAMED`)."""
     proj = q.projection
-    vf = value_field or q.field
     kind = proj[1:] if proj in EDGE_PROJECTIONS else proj
     if kind == "ids":
-        return f"{expr}.{data_model_field}", ""
+        return f"{expr}.{elem.id}", ""
     if kind == "distinct_ids":
-        return f"{expr}.{data_model_field}.asSet()", ""
+        return f"{expr}.{elem.id}.asSet()", ""
     if kind == "count":
         return f"{expr}.size()", ""
     if kind == "distinct_count":
-        return f"{expr}.{data_model_field}.asSet().size()", ""
+        return f"{expr}.{elem.id}.asSet().size()", ""
     if kind == "field":
-        return f"{expr}.{vf}", ""
+        return f"{expr}.{elem.field(q.field)}", ""
     if kind in AGG_PROJECTIONS:
-        return f"{kind}({expr}.{vf})", _group(extra)
+        return f"{kind}({expr}.{elem.field(q.field)})", _group(extra)
     raise ValueError(proj)
 
 
@@ -354,23 +352,28 @@ def _graph_match(q: TraversalQuery, schema: Schema, extra: tuple = (), optional:
         else:
             parts.append(f".{'out' if out else 'in'}('{h.edge_type}') {{as: av{k}{twhere}{opt}}}")
     distinct = " DISTINCT" if q.projection == "distinct_ids" else ""
+    # in RETURN the aliases are prefixes; in a `where:` the alias's record is the current one
+    a = Path("a.")
     if q.edge_projection:
-        value = f"ae{n}.{q.field}"
+        value = Path(f"ae{n}.").field(q.field)
     else:
-        value = f"av{n}.{q.field if q.projection == 'field' else 'id'}"
-    return f"MATCH {' '.join(parts)} RETURN{distinct} a.id AS id{_cols(extra, 'a.', alias=True)}, {value} AS v"
+        last = Path(f"av{n}.")
+        value = last.field(q.field) if q.projection == "field" else last.id
+    return f"MATCH {' '.join(parts)} RETURN{distinct} {a.id} AS id{_cols(extra, a, alias=True)}, {value} AS v"
 
 
 def _graph_edgescan_part(q: TraversalQuery, out: bool, extra: tuple = ()) -> str:
     h = q.hops[0]
     near, far = ("out", "in") if out else ("in", "out")
+    # the E class's record is the edge; the source and the target are its ends
+    src, tgt = Path(f"{near}."), Path(f"{far}.")
     conds = []
     if h.edge_predicate:
         conds.append(render_pred(h.edge_predicate))
     if h.target_predicate:
-        conds.append(render_pred(h.target_predicate, f"{far}."))
+        conds.append(render_pred(h.target_predicate, tgt))
     if q.source_predicate:
-        conds.append(_sp(q, f"{near}."))
+        conds.append(_sp(q, src))
     distinct = " DISTINCT" if q.projection == "distinct_ids" else ""
     if q.edge_projection:
         value = q.field
@@ -378,7 +381,7 @@ def _graph_edgescan_part(q: TraversalQuery, out: bool, extra: tuple = ()) -> str
         rest = _graph_expr(q, q.hops[1:]) if len(q.hops) > 1 else ""
         expr = f"{far}.{rest}" if rest else far
         value = f"{expr}.{q.field if q.projection == 'field' else 'id'}"
-    return f"SELECT{distinct} {near}.id AS id{_cols(extra, f'{near}.', alias=True)}, {value} AS v FROM {h.edge_type}{_where(*conds)}"
+    return f"SELECT{distinct} {src.id} AS id{_cols(extra, src, alias=True)}, {value} AS v FROM {h.edge_type}{_where(*conds)}"
 
 
 def _graph_edgescan(q: TraversalQuery, schema: Schema, extra: tuple = ()) -> str:
@@ -413,7 +416,7 @@ def _graph_reach_chain(q: TraversalQuery, extra: tuple) -> str:
 def _graph_reach_match(q: TraversalQuery, extra: tuple) -> str:
     et = q.hops[0].edge_type
     where = f", where: ({_sp(q)})" if q.source_predicate else ""
-    inner = f"MATCH {{class: {q.source_table}, as: a{where}}}.out('{et}') {{as: b, while: ($depth < {q.reach_depth})}} RETURN DISTINCT a.id AS id{_cols(extra, 'a.', alias=True)}, b.id AS bid"
+    inner = f"MATCH {{class: {q.source_table}, as: a{where}}}.out('{et}') {{as: b, while: ($depth < {q.reach_depth})}} RETURN DISTINCT a.id AS id{_cols(extra, Path('a.'), alias=True)}, b.id AS bid"
     if q.projection in ("reach2", "reach3"):
         return f"SELECT id{_cols(extra)}, bid AS v FROM ({inner})"
     return f"SELECT id{_cols(extra)}, count(*) AS v FROM ({inner}){_group(extra)}"
@@ -475,12 +478,13 @@ def _doc_reach(q: TraversalQuery, extra: tuple) -> str:
 def _rel_reach_level(et: str, depth: int, ref: str = "id") -> str:
     """The junction subquery answering the records exactly `depth` hops away from
     the enclosing record (its endpoint column `ref`), unwound flat at every level."""
+    cur = Path(CURRENT, ref)
     if depth == 1:
-        return f"(SELECT dst_id AS v FROM {et} WHERE src_id = $parent.$current.{ref})"
+        return f"(SELECT dst_id AS v FROM {et} WHERE src_id = {cur.id})"
     inner = _rel_reach_level(et, depth - 1, "dst_id")
     # a junction row whose next level is empty is dropped (`$h.size() > 0`) rather
     # than unwound into a null row (smoke4b seed 712: the count took the null)
-    return f"(SELECT $h{depth}.v AS v FROM {et} LET $h{depth} = {inner} WHERE src_id = $parent.$current.{ref} AND $h{depth}.size() > 0 UNWIND v)"
+    return f"(SELECT $h{depth}.v AS v FROM {et} LET $h{depth} = {inner} WHERE src_id = {cur.id} AND $h{depth}.size() > 0 UNWIND v)"
 
 
 def _rel_reach(q: TraversalQuery, extra: tuple) -> str:
@@ -552,7 +556,7 @@ def _doc_in_subquery(q: TraversalQuery, schema: Schema) -> str:
     h = q.hops[0]
     et = h.edge_type
     src_class = schema.edge_type(et).from_type
-    me = "$parent.$current.@rid"
+    me = Path(CURRENT, "@rid").id
     elem = [f"target = {me}"]
     if h.edge_predicate:
         elem.append(render_pred(h.edge_predicate))
@@ -574,7 +578,7 @@ def _doc_inpath(q: TraversalQuery, schema: Schema, extra: tuple = ()) -> str:
     tgt = q.source_table
     if q.projection in SET_PROJECTIONS:
         return f"SELECT id{_cols(extra)} FROM {tgt} {let}{_where(_sp(q), _set_filter('$s', q))}"
-    proj, tail = _projected("$s", q, data_model_field="v", value_field="v", extra=extra)
+    proj, tail = _projected("$s", q, RENAMED, extra=extra)
     return f"SELECT id{_cols(extra)}, {proj} AS v FROM {tgt} {let}{_where(_sp(q))}{tail}"
 
 
@@ -611,35 +615,34 @@ assumes("let.nested.parent_is_enclosing_query", SQL, True)
 assumes("equivalent.let_first_element", SQL, True)
 
 
-def _rel_sub(q: TraversalQuery, schema: Schema, k: int, cur_ref: str, direction: "str | None" = None) -> str:
-    """The correlated subquery answering hops `k..` from the junction row whose
-    endpoint column `cur_ref` names the current record (`id` at the outer level).
+def _rel_sub(q: TraversalQuery, schema: Schema, k: int, cur: Path, direction: "str | None" = None) -> str:
+    """The correlated subquery answering hops `k..` from the record `cur` names (the
+    outer record's `id`, then the enclosing junction row's endpoint column).
     `direction` overrides the hop's (one of the two parts of a `both` hop)."""
     hop = q.hops[k]
     direction = direction or hop.direction
     out = direction == "out"
     near, far = ("src_id", "dst_id") if out else ("dst_id", "src_id")
     et = schema.edge_type(hop.edge_type)
-    tgt = et.to_type if out else et.from_type
-    lets, where = [], [f"{near} = $parent.$current.{cur_ref}"]
+    # the junction row is the edge; its target is looked up by the far column
+    target = Lookup(et.to_type if out else et.from_type, Path(CURRENT, far).id, k)
+    lets, where = [], [f"{near} = {cur.id}"]
     if hop.edge_predicate:
         where.append(render_pred(hop.edge_predicate))
     if hop.target_predicate:
-        tp = hop.target_predicate
-        lets.append(f"$n{k} = (SELECT FROM {tgt} WHERE id = $parent.$current.{far} AND {render_pred(tp)})")
-        where.append(f"$n{k}.size() > 0")
+        text, binds = condition(hop.target_predicate, target)
+        lets += binds
+        where.append(text)
     last = k == len(q.hops) - 1
     if not last:
-        lets.append(f"$h{k + 1} = {_rel_sub(q, schema, k + 1, far)}")
+        lets.append(f"$h{k + 1} = {_rel_sub(q, schema, k + 1, Path(CURRENT, far))}")
         select = f"$h{k + 1}.v AS v"
     elif q.edge_projection:
         select = f"{q.field} AS v"
     elif q.projection in FIELD_PROJECTIONS:
-        # `[0]`: the lookup by id yields at most one record, and indexing it keeps the
-        # projection flat (a `$f.v` list-of-lists is a ClassCastException under an
-        # aggregate, probed)
-        lets.append(f"$f{k} = (SELECT {q.field} AS v FROM {tgt} WHERE id = $parent.$current.{far})")
-        select = f"$f{k}[0].v AS v"
+        text, binds = target.value(q.field)
+        lets += binds
+        select = f"{text} AS v"
     else:
         select = f"{far} AS v"
     let = f" LET {', '.join(lets)}" if lets else ""
@@ -649,19 +652,19 @@ def _rel_sub(q: TraversalQuery, schema: Schema, k: int, cur_ref: str, direction:
 def _rel_let(q: TraversalQuery, schema: Schema, extra: tuple = ()) -> str:
     src = q.source_table
     if q.hops[0].direction == "both":
-        let = f"LET $h0 = {_rel_sub(q, schema, 0, 'id', 'out')}, $g0 = {_rel_sub(q, schema, 0, 'id', 'in')}"
+        let = f"LET $h0 = {_rel_sub(q, schema, 0, Path(CURRENT), 'out')}, $g0 = {_rel_sub(q, schema, 0, Path(CURRENT), 'in')}"
         coll = "unionall($h0.v, $g0.v)"
         if q.projection in SET_PROJECTIONS:
             return f"SELECT id{_cols(extra)} FROM {src} {let}{_where(_sp(q), _set_filter(coll, q))}"
         proj, tail = _projected_flat(coll, q, extra=extra)
         return f"SELECT id{_cols(extra)}, {proj} AS v FROM {src} {let}{_where(_sp(q))}{tail}"
-    let = f"LET $h0 = {_rel_sub(q, schema, 0, 'id')}"
+    let = f"LET $h0 = {_rel_sub(q, schema, 0, Path(CURRENT))}"
     if q.projection in SET_PROJECTIONS:
         return f"SELECT id{_cols(extra)} FROM {src} {let}{_where(_sp(q), _set_filter('$h0', q))}"
     if q.projection == "count":
         proj, tail = "$h0.size()", ""
     else:
-        proj, tail = _projected("$h0", q, data_model_field="v", value_field="v", extra=extra)
+        proj, tail = _projected("$h0", q, RENAMED, extra=extra)
     return f"SELECT id{_cols(extra)}, {proj} AS v FROM {src} {let}{_where(_sp(q))}{tail}"
 
 
@@ -670,13 +673,14 @@ def _rel_flat_conds(q: TraversalQuery, schema: Schema, out: bool) -> "tuple[str,
     near, far = ("src_id", "dst_id") if out else ("dst_id", "src_id")
     et = schema.edge_type(h.edge_type)
     tgt = et.to_type if out else et.from_type
+    # the junction row is the edge; the source and the target are semi-joined by its columns
     where = []
     if q.source_predicate:
-        where.append(f"{near} IN (SELECT id FROM {q.source_table} WHERE {_sp(q)})")
+        where.append(condition(q.source_predicate, Semijoin(near, q.source_table))[0])
     if h.edge_predicate:
         where.append(render_pred(h.edge_predicate))
     if h.target_predicate:
-        where.append(f"{far} IN (SELECT id FROM {tgt} WHERE {render_pred(h.target_predicate)})")
+        where.append(condition(h.target_predicate, Semijoin(far, tgt))[0])
     return near, far, tgt, where
 
 
@@ -685,13 +689,14 @@ def _rel_flat_part(q: TraversalQuery, schema: Schema, out: bool) -> str:
     near, far, tgt, where = _rel_flat_conds(q, schema, out)
     lets = []
     if len(q.hops) > 1:
-        lets.append(f"$h1 = {_rel_sub(q, schema, 1, far)}")
+        lets.append(f"$h1 = {_rel_sub(q, schema, 1, Path(CURRENT, far))}")
         value = "$h1.v"
     elif q.edge_projection:
         value = q.field
     elif q.projection in FIELD_PROJECTIONS:
-        lets.append(f"$f0 = (SELECT {q.field} AS v FROM {tgt} WHERE id = $parent.$current.{far})")
-        value = "$f0[0].v"
+        # projected, the target is looked up per row
+        value, binds = Lookup(tgt, Path(CURRENT, far).id).value(q.field)
+        lets += binds
     else:
         value = far
     let = f" LET {', '.join(lets)}" if lets else ""
@@ -767,7 +772,7 @@ def render(q: TraversalQuery, schema: Schema, data_model: str, syntax: str, pull
     inner_q = dataclasses.replace(q, source_predicate=None)
     if data_model == "rel" and syntax == "flat" and q.projection != "nexists":
         inner = fn(inner_q, schema, ())
-        cond = f"id IN (SELECT id FROM {q.source_table} WHERE {_sp(q)})"
+        cond = condition(q.source_predicate, Semijoin("id", q.source_table))[0]
     else:
         inner = fn(inner_q, schema, tuple(fields_of(q.source_predicate)))
         cond = _sp(q)

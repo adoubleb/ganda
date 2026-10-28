@@ -57,6 +57,7 @@ from dataclasses import dataclass, field
 
 from ganda.core.data.model import Instance, Schema
 from ganda.orientdb.concrete_syntax.query.predicate import render_predicate as render_pred
+from ganda.orientdb.concrete_syntax.query.scope import CURRENT, Path
 from ganda.core.query.ir.predicates import MIRROR
 from ganda.orientdb.concrete_syntax.query.support import METHODS  # noqa: F401 -- the method catalog
 from ganda.core.query.ir.select import DOC_EDGE_KINDS, SelectQuery, notnull_fields
@@ -162,8 +163,10 @@ def _source(q: SelectQuery, schema: Schema, sp: SelectSyntax, where: "str | None
 
 
 def _join_let(q: SelectQuery, sp: SelectSyntax) -> str:
+    # `n` is the LET's record, `x` the enclosing one it is joined with
     f, op = q.field, q.fn
-    cond = f"$parent.$current.{f} {MIRROR[op]} {f}" if sp.form == "jrev" else f"{f} {op} $parent.$current.{f}"
+    x = Path(CURRENT).field(f)
+    cond = f"{x} {MIRROR[op]} {f}" if sp.form == "jrev" else f"{f} {op} {x}"
     return f"LET $m = (SELECT id FROM {q.table} WHERE {cond})"
 
 

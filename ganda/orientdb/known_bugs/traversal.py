@@ -9,7 +9,7 @@ from ganda.core.query.ir import predicates
 from ganda.core.oracle.case import QueryCase
 from ganda.core.query.ir.traversal import REACH_PROJECTIONS, TraversalQuery
 from ganda.orientdb.concrete_syntax.query.predicate_sampling.predicate_steering import evaluate
-from ganda.orientdb.concrete_syntax.query.traversal import BRACKET, CORRELATED
+from ganda.orientdb.concrete_syntax.query.frames import BRACKET, CORRELATED
 from ganda.orientdb.rules import works_around
 from ganda.orientdb.known_bugs.predicate import _any_indexed, _ci_column, _int32, _leaves, list_ops_known, node_case_known, o10_predicate, o13_predicate, o16_predicate, o17_predicate, o20_predicate, o21_predicate, o27_predicate, o36_predicate, o39_predicate, o43_predicate, o7_predicate
 

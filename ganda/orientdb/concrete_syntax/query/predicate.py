@@ -2,10 +2,11 @@
 parameter syntax (`:p1`), its operator concrete syntaxes (`m.values() CONTAINS`,
 `m[:k]`), the semi-join's subquery and the reversed, arithmetic and literal
 forms. Identical on every data model, the field expression being the data model's
-own (`f1`, `in.f1`, `$n.f1`) via `prefix`."""
+own (`f1`, `in.f1`, `e[k].f1`) through the scope's `Path` (`scope.py`)."""
 from __future__ import annotations
 
 from ganda.core.query.ir.predicates import MIRROR, NO_BIND_OPS, Compound
+from ganda.orientdb.concrete_syntax.query.scope import RECORD, Path
 from ganda.orientdb.rules import assumes
 from ganda.orientdb.rules.catalog import SQL
 
@@ -51,18 +52,18 @@ def _constant(p, suffix: str = "") -> str:
 assumes("element.keys.defined_fields", SQL, True)
 
 
-def render_predicate(p, prefix: str = "", element: bool = False) -> str:
-    """The OrientDB text of a predicate tree; a compound is always parenthesized so
-    the data models never rely on operator precedence. With `element` the prefix is a
-    list element (`e[k].`), whose definedness tests read its keys."""
+def render_predicate(p, at: Path = RECORD) -> str:
+    """The OrientDB text of a predicate tree over the record `at` names; a compound is
+    always parenthesized so the data models never rely on operator precedence. A list
+    element (`e[k].`, `at.element`) answers its definedness tests through its keys."""
     if isinstance(p, Compound):
         if p.op == "NOT":
-            return f"NOT ({render_predicate(p.children[0], prefix, element)})"
-        return "(" + f" {p.op} ".join(render_predicate(c, prefix, element) for c in p.children) + ")"
-    if element and p.op in ("IS PRESENT", "IS ABSENT") and p.key is None:
-        has = f"{prefix.removesuffix('.')}.keys() CONTAINS '{p.field}'"
+            return f"NOT ({render_predicate(p.children[0], at)})"
+        return "(" + f" {p.op} ".join(render_predicate(c, at) for c in p.children) + ")"
+    if at.element and p.op in ("IS PRESENT", "IS ABSENT") and p.key is None:
+        has = f"{at.prefix.removesuffix('.')}.keys() CONTAINS '{p.field}'"
         return has if p.op == "IS PRESENT" else f"NOT ({has})"
-    expr = prefix + p.field
+    expr = at.field(p.field)
     if p.sub is not None:
         t2, g, q, _scan = p.sub
         return f"{expr} IN (SELECT {g} FROM {t2}" + (f" WHERE {render_predicate(q)}" if q is not None else "") + ")"
@@ -81,3 +82,12 @@ def render_predicate(p, prefix: str = "", element: bool = False) -> str:
     if p.op == "VALUES HAS":
         return f"{expr}.values() CONTAINS {_constant(p)}"
     return f"{expr} {sql_op(p.op)} {_constant(p)}"
+
+
+def condition(p, at=RECORD) -> "tuple[str, tuple]":
+    """(text, lets): the predicate over the record `at` names, and the LET bindings the
+    text needs (a `Lookup`'s). A `Semijoin` or a `Lookup` takes the predicate rendered
+    over its subquery's own record."""
+    if isinstance(at, Path):
+        return render_predicate(p, at), ()
+    return at.condition(render_predicate(p))

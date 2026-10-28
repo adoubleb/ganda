@@ -12,39 +12,39 @@ baseline: 3.2.57, every check of a rule held
 | order.string.order_by | osql@index | utf-16-code-unit | C24, C25 | known_bugs/select.py:188 |
 | compare.negative_zero_below_zero | osql | true | C14, C15 | engine/semantics.py:103, provider/physical_design.py:59 |
 | aggregate.ungrouped.empty_input.rows | osql | no-row | C267, C285 | concrete_syntax/query/path.py:25 |
-| match.undirected.self_loop.rows | osql | 2 | C127, C193 | concrete_syntax/query/traversal.py:314 |
-| match.parallel_edges.rows | osql | 2 | C126 | concrete_syntax/query/traversal.py:313 |
-| match.parallel_edges.rows | match | 2 | C128 | concrete_syntax/query/traversal.py:326 |
-| traverse.default_strategy | traverse | depth-first | C282 | concrete_syntax/query/traversal.py:434 |
-| match.optional.no_path.rows | match | one-row | C191 | concrete_syntax/query/traversal.py:327 |
-| expand.embedded.wrapped_under_value | osql | true | C333 | concrete_syntax/query/traversal.py:134 |
-| delete_vertex.cascades_edges | osql | true | C130 | concrete_syntax/query/write.py:224 |
+| match.undirected.self_loop.rows | osql | 2 | C127, C193 | concrete_syntax/query/traversal.py:312 |
+| match.parallel_edges.rows | osql | 2 | C126 | concrete_syntax/query/traversal.py:311 |
+| match.parallel_edges.rows | match | 2 | C128 | concrete_syntax/query/traversal.py:324 |
+| traverse.default_strategy | traverse | depth-first | C282 | concrete_syntax/query/traversal.py:437 |
+| match.optional.no_path.rows | match | one-row | C191 | concrete_syntax/query/traversal.py:325 |
+| expand.embedded.wrapped_under_value | osql | true | C333 | concrete_syntax/query/traversal.py:133 |
+| delete_vertex.cascades_edges | osql | true | C130 | concrete_syntax/query/write.py:227 |
 | shortest_path.unreachable.result | osql | 0 | C279 | concrete_syntax/query/path.py:23 |
 | shortest_path.same_record.result | osql | 1 | C279 | concrete_syntax/query/path.py:24 |
-| delete.document.keeps_incoming_links | osql | true | C301 | concrete_syntax/query/write.py:225 |
+| delete.document.keeps_incoming_links | osql | true | C301 | concrete_syntax/query/write.py:228 |
 | value.double.exact_round_trip | osql | true | C2, C3 | provider/physical_design.py:64 |
 | value.string.exact_round_trip | osql | true | C22 | provider/physical_design.py:65 |
 | value.binary.base64_round_trip | osql | true | C321 | engine/dialect.py:29 |
-| value.absent_list.size | osql | 0 | C31, C329 | concrete_syntax/query/traversal.py:122, engine/connection.py:91 |
-| value.absent_is_null | osql | true | C10 | concrete_syntax/query/traversal.py:213 |
-| filter.case_insensitive.operators | osql | `= <> < <= > >=` | C331 | concrete_syntax/query/predicate_sampling/predicate_steering.py:58, concrete_syntax/query/traversal.py:205 |
-| projection.keeps_absent_field | osql | false | C332 | concrete_syntax/query/traversal.py:211 |
-| update.list_position.sets_element | osql | true | C339 | concrete_syntax/query/write.py:265 |
-| update.list_position.past_end_counts_record | osql | true | C340 | concrete_syntax/query/write.py:266 |
-| arithmetic.as_long.exact | osql | true | C341 | concrete_syntax/query/write.py:269 |
-| link.deleted_target.reads_null | osql | true | C342 | concrete_syntax/query/write.py:226 |
-| element.keys.defined_fields | osql | true | C343 | concrete_syntax/query/predicate.py:51 |
-| aggregate.max.empty_input | osql | null | C29 | concrete_syntax/query/traversal.py:139 |
-| let.nested.parent_is_enclosing_query | osql | true | C73 | concrete_syntax/query/traversal.py:610 |
-| path.link_list.maps_field_access | osql | true | C83 | concrete_syntax/query/traversal.py:141 |
+| value.absent_list.size | osql | 0 | C31, C329 | concrete_syntax/query/traversal.py:121, engine/connection.py:91 |
+| value.absent_is_null | osql | true | C10 | concrete_syntax/query/traversal.py:212 |
+| filter.case_insensitive.operators | osql | `= <> < <= > >=` | C331 | concrete_syntax/query/predicate_sampling/predicate_steering.py:58, concrete_syntax/query/traversal.py:204 |
+| projection.keeps_absent_field | osql | false | C332 | concrete_syntax/query/traversal.py:210 |
+| update.list_position.sets_element | osql | true | C339 | concrete_syntax/query/write.py:268 |
+| update.list_position.past_end_counts_record | osql | true | C340 | concrete_syntax/query/write.py:269 |
+| arithmetic.as_long.exact | osql | true | C341 | concrete_syntax/query/write.py:272 |
+| link.deleted_target.reads_null | osql | true | C342 | concrete_syntax/query/write.py:229 |
+| element.keys.defined_fields | osql | true | C343 | concrete_syntax/query/predicate.py:52 |
+| aggregate.max.empty_input | osql | null | C29 | concrete_syntax/query/traversal.py:138 |
+| let.nested.parent_is_enclosing_query | osql | true | C73 | concrete_syntax/query/traversal.py:614 |
+| path.link_list.maps_field_access | osql | true | C83 | concrete_syntax/query/traversal.py:140 |
 | index.unique.ignore_nulls.accepts_null_keys | osql@index | true | C121 | concrete_syntax/setup/common.py:70 |
-| match.classless_alias.is_root | match | false | C134 | concrete_syntax/query/traversal.py:331 |
+| match.classless_alias.is_root | match | false | C134 | concrete_syntax/query/traversal.py:329 |
 | parameter.rid_string.becomes_link | osql | true | C143 | concrete_syntax/setup/document.py:38 |
-| unionall.absent_operand.empty | osql | true | C194 | concrete_syntax/query/traversal.py:582 |
+| unionall.absent_operand.empty | osql | true | C194 | concrete_syntax/query/traversal.py:586 |
 | update_edge.content.keeps_endpoints | osql | true | C212 | concrete_syntax/setup/common.py:211 |
 | max_depth.reaches_bound | match | true | C281 | concrete_syntax/query/path.py:58 |
 | max_depth.reaches_bound | traverse | true | C281 | concrete_syntax/query/path.py:57 |
-| unwind.bracket_projection.row_per_element | osql | true | C310 | concrete_syntax/query/select.py:170 |
+| unwind.bracket_projection.row_per_element | osql | true | C310 | concrete_syntax/query/select.py:173 |
 | traverse.embedded_document.adds_depth | traverse | false | C314 | concrete_syntax/query/path.py:59 |
 
 ## ask
@@ -54,17 +54,17 @@ baseline: 3.2.57, every check of a rule held
 | accepts.update.arithmetic_parameter | osql | accepted | C211 | concrete_syntax/setup/common.py:142 |
 | accepts.create_class.clusters | osql | accepted | C213 | concrete_syntax/setup/common.py:43 |
 | accepts.rebuild_index.all | osql | accepted | C214 | concrete_syntax/setup/common.py:445 |
-| accepts.match.end_at_edge_alias | match | accepted | C192 | concrete_syntax/query/traversal.py:332 |
+| accepts.match.end_at_edge_alias | match | accepted | C192 | concrete_syntax/query/traversal.py:330 |
 | accepts.map_parameter | batch | accepted | C337 | concrete_syntax/setup/common.py:325 |
 
 ## equivalent
 
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
-| equivalent.correlated_let | osql | true | C37 | concrete_syntax/query/traversal.py:81 |
-| equivalent.pulled_up | osql | true | C70 | concrete_syntax/query/traversal.py:755 |
-| equivalent.let_first_element | osql | true | C72 | concrete_syntax/query/traversal.py:611 |
-| equivalent.unionall_inline | osql | true | C197 | concrete_syntax/query/traversal.py:395 |
+| equivalent.correlated_let | osql | true | C37 | concrete_syntax/query/traversal.py:85 |
+| equivalent.pulled_up | osql | true | C70 | concrete_syntax/query/traversal.py:760 |
+| equivalent.let_first_element | osql | true | C72 | concrete_syntax/query/traversal.py:615 |
+| equivalent.unionall_inline | osql | true | C197 | concrete_syntax/query/traversal.py:398 |
 
 ## exact
 
@@ -107,7 +107,7 @@ baseline: 3.2.57, every check of a rule held
 | O19 | osql | C148, C202 | reproduces | known_bugs/traversal.py:235 |
 | O20 | osql | C161, C162 | reproduces | known_bugs/predicate.py:201 |
 | O21 | osql | C169, C170 | reproduces | known_bugs/predicate.py:215 |
-| O22 | match | C189, C190 | reproduces | concrete_syntax/query/traversal.py:135 |
+| O22 | match | C189, C190 | reproduces | concrete_syntax/query/traversal.py:134 |
 | O23 | osql@index | C206, C207, C274 | reproduces | known_bugs/select.py:19 |
 | O24 | osql | C145 | reproduces | engine/semantics.py:220 |
 | O25 | osql | C176, C177, C179 | reproduces | known_bugs/traversal.py:152 |
@@ -117,13 +117,13 @@ baseline: 3.2.57, every check of a rule held
 | O35 | osql | C280 | reproduces | concrete_syntax/query/path.py:26 |
 | O36 | osql@index | C91 | reproduces | known_bugs/predicate.py:101 |
 | O37 | osql@index | C293, C294, C295 | reproduces | known_bugs/write.py:19 |
-| O38 | script | C302 | reproduces | concrete_syntax/query/write.py:227 |
+| O38 | script | C302 | reproduces | concrete_syntax/query/write.py:230 |
 | O39 | osql | C300 | reproduces | known_bugs/predicate.py:296 |
 | O40 | osql | C313 | reproduces | concrete_syntax/query/path.py:97 |
 | O41 | osql | C315 | reproduces | known_bugs/select.py:165 |
 | O43 | osql | C317 | reproduces | known_bugs/predicate.py:277 |
-| O44 | traverse | C318 | reproduces | concrete_syntax/query/traversal.py:435, known_bugs/traversal.py:198 |
-| O45 | match | C132, C133, C138, C141 | reproduces | concrete_syntax/query/traversal.py:330 |
+| O44 | traverse | C318 | reproduces | concrete_syntax/query/traversal.py:438, known_bugs/traversal.py:198 |
+| O45 | match | C132, C133, C138, C141 | reproduces | concrete_syntax/query/traversal.py:328 |
 | O46 | osql | C322 | reproduces | engine/dialect.py:28 |
 
 ## error classes
