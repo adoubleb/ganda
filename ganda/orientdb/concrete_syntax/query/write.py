@@ -347,7 +347,9 @@ def execute(session, st) -> list:
     from ganda.core.engine.setup_plan import resolve_refs
 
     if st.positions is not None:
-        st = st.at_positions(session.sql(st.positions[0])[0].get("n") or 0)
+        # `max()` over a class with no record answers no row: no list, no position
+        rows = session.sql(st.positions[0])
+        st = st.at_positions((rows[0].get("n") if rows else 0) or 0)
     if st.door == "tx":
         if not st.prelude and not st.main:
             return []

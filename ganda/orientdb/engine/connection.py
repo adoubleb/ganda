@@ -551,7 +551,13 @@ class OrientServer(Server):
         return s
 
     def create_database(self, name: str) -> None:
-        r = self._root().post(f"{self.base_url}/database/{name}/plocal", timeout=60)
+        # an unanswered request is a server that stopped answering, as for the drop: the
+        # campaign restarts it (a 12-hour coverage campaign of 2026-10-27 died on the
+        # ReadTimeout this used to raise)
+        try:
+            r = self._root().post(f"{self.base_url}/database/{name}/plocal", timeout=60)
+        except requests.exceptions.RequestException as e:
+            raise OrientCrash(str(e)) from e
         if r.status_code not in (200, 201):
             raise OrientError(f"create database {name} answered {r.status_code}: {r.text[:300]}", status=r.status_code)
 
