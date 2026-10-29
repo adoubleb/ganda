@@ -44,10 +44,11 @@ baseline: 3.2.57, every check of a rule held
 | update_edge.content.keeps_endpoints | osql | true | C212 | concrete_syntax/setup/common.py:211 |
 | max_depth.reaches_bound | match | true | C281 | concrete_syntax/query/path.py:58 |
 | max_depth.reaches_bound | traverse | true | C281 | concrete_syntax/query/path.py:57 |
-| unwind.bracket_projection.row_per_element | osql | true | C310, C345 | concrete_syntax/query/path.py:105, concrete_syntax/query/select.py:173 |
+| unwind.bracket_projection.row_per_element | osql | true | C310, C345 | concrete_syntax/query/path.py:105, concrete_syntax/query/select.py:182 |
 | traverse.embedded_document.adds_depth | traverse | false | C314, C344 | concrete_syntax/query/path.py:59, concrete_syntax/query/traversal.py:450 |
 | traverse.embedded_document.answers_row | traverse | false | C344 | concrete_syntax/query/traversal.py:451 |
 | in_subquery.dotted_projection | osql | true | C345 | concrete_syntax/query/path.py:104 |
+| unwind.embedded_document.row_per_document | osql | true | C348 | concrete_syntax/query/select.py:273 |
 
 ## ask
 
@@ -127,6 +128,7 @@ baseline: 3.2.57, every check of a rule held
 | O44 | traverse | C318 | reproduces | concrete_syntax/query/traversal.py:463, known_bugs/traversal.py:198 |
 | O45 | match | C132, C133, C138, C141 | reproduces | concrete_syntax/query/traversal.py:339 |
 | O46 | osql | C322 | reproduces | engine/dialect.py:28 |
+| O51 | osql | C347 | reproduces | known_bugs/select.py:366 |
 
 ## error classes
 
@@ -134,4 +136,4 @@ baseline: 3.2.57, every check of a rule held
 |---|---|---|---|
 | timeout | any | `OTimeoutException`; `OCommandInterruptedException` | C330 |
 
-57 rules (0 IR definitions): 57 checked by a probe fact, 0 unchecked; 57 read by code, 0 unread; 36 defects (36 reproduced by a probe fact); 1 error classes
+58 rules (0 IR definitions): 58 checked by a probe fact, 0 unchecked; 58 read by code, 0 unread; 37 defects (37 reproduced by a probe fact); 1 error classes

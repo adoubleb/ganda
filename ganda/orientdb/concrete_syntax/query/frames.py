@@ -24,6 +24,7 @@ position of the frame (`scope.py`).
     select     select_nodes      the kind x form over FROM t (no slot: a node  graph doc rel
                                  is stored alike on every data model)
                select_edges      the kind x form over FROM <records>           graph rel
+                                                                             doc*
                select_links      the link ids unwound from FROM src            doc
     write      node_update       UPDATE t <change> [RETURN] WHERE p            graph doc rel
                node_delete       <verb> t WHERE p, the cascade around it       graph doc rel
@@ -144,6 +145,7 @@ SELECT = (
     Cell("select_nodes", "rel", "node"),
     Cell("select_edges", "graph", "edge"),
     Cell("select_edges", "rel", "edge"),
+    Cell("select_edges", "doc", "unwound", gated=True),
     Cell("select_links", "doc", "edge", "bracket"),
 )
 

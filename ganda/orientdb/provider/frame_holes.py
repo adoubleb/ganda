@@ -2,8 +2,9 @@
 (`concrete_syntax/query/frames.py`), asked beside the cells every data model already
 fills, `frame_hole_cases` per instance (0 by default, so a seed's cases are what they
 were). A gated cell fills a frame a data model had no text in -- doc's reach through
-TRAVERSE, the level union on graph and doc -- and is asked here until a campaign has
-shown it answers alike; it then moves into its IR's own generator.
+TRAVERSE, the level union on graph and doc, doc's edge-type select over its links
+unwound into rows -- and is asked here until a campaign has shown it answers alike; it
+then moves into its IR's own generator.
 
 A case is the IR generator's own case for a question it draws (every data model's
 drawn texts, the pull-ups, the known-bug marks) plus a variant `<data model>:<syntax>`
@@ -18,11 +19,14 @@ import random
 from ganda.core.data.model import Instance, Schema
 from ganda.core.oracle.case import QueryCase
 from ganda.core.query.generators import path as path_generator
+from ganda.core.query.generators import select as select_generator
 from ganda.core.query.generators import traversal as traversal_generator
 from ganda.core.query.ir.traversal import REACH_PROJECTIONS
-from ganda.orientdb.concrete_syntax.query import path, traversal
+from ganda.core.query.ir.select import EDGE_KINDS, present_values
+from ganda.orientdb.concrete_syntax.query import path, select, traversal
 from ganda.orientdb.concrete_syntax.query.frames import CELLS
 from ganda.orientdb.known_bugs import mark_known_bugs
+from ganda.orientdb.known_bugs.select import unwound_known
 
 GENERATOR = "frame_holes"
 # questions drawn before giving up on one a gated cell admits (a reach question needs a
@@ -67,8 +71,31 @@ def _path(rng: random.Random, schema: Schema, instance: Instance) -> "QueryCase 
     return dataclasses.replace(case, generator_name=GENERATOR, queries={**case.queries, **gated})
 
 
+def _select(rng: random.Random, schema: Schema, instance: Instance) -> "QueryCase | None":
+    """An edge-type select of any kind (the doc data model's own `ids` / `count` too:
+    the unwound rows against its bracket filter)."""
+    targets = [et.name for et in schema.edge_types if et.fields and instance.edges_of(et.name)]
+    if not targets:
+        return None
+    q = select_generator.sample_select(rng, schema, instance, rng.choice(targets), kind=rng.choice(EDGE_KINDS), edge=True)
+    if q is None:
+        return None
+    if not select.unwound_applicable(q, schema, present_values(q, instance) if q.kind == "method" else []):
+        return None
+    case = select_generator.build_case(q, rng, schema, instance)
+    name = "doc:unwound"
+    queries = {**case.queries, name: select.render_unwound(q, schema)}
+    known_bugs = dict(case.known_bugs)
+    fid = unwound_known(q, schema, instance)
+    if fid:
+        known_bugs[name] = fid
+    # the doc data model's base text stays absent where its kind has none (`partial`)
+    params = {**case.params, "concrete_syntax": {**case.params["concrete_syntax"], name: "unwound"}}
+    return dataclasses.replace(case, generator_name=GENERATOR, queries=queries, known_bugs=known_bugs, params=params)
+
+
 # a gated cell's frame -> the case builder that asks it
-BUILDERS = {"reach_traverse": _reach, "path_levels": _path}
+BUILDERS = {"reach_traverse": _reach, "path_levels": _path, "select_edges": _select}
 
 
 def generate(rng: random.Random, schema: Schema, instance: Instance, cfg) -> list:

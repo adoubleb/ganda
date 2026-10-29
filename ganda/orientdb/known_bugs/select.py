@@ -12,7 +12,7 @@ from ganda.core.query.ir.predicates import Predicate
 from ganda.core.rules.vocabulary import StringOrder
 from ganda.orientdb.rules import assumes, works_around
 from ganda.orientdb.rules.catalog import SQL, SQL_INDEX
-from ganda.orientdb.known_bugs.predicate import _any_indexed, _column_type, _composite_members, _converts, _field_indexes, _leaves, _plain, edge_case_known, list_ops_known, node_case_known, o39_predicate
+from ganda.orientdb.known_bugs.predicate import _any_indexed, _column_type, _composite_members, _converts, _field_indexes, _int32, _leaves, _mixed_boxes, _plain, edge_case_known, list_ops_known, node_case_known, o39_predicate
 
 
 works_around("O18")
@@ -361,3 +361,51 @@ def select_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Ins
     if fid is None and q.tx:
         fid = _tx_known(q, sp, data_model, schema, eff)
     return fid or select_shape_known(q, sp, data_model, schema, shape_instance, rewrites.present)
+
+
+works_around("O51")
+
+
+def _wraps(values: list) -> bool:
+    """Whether an Integer-boxed running sum over these values may leave 32 bits in
+    some visiting order (O19: `sum` / `avg` add Integers in 32-bit arithmetic)."""
+    ints = [v for v in values if isinstance(v, int) and not isinstance(v, bool) and _int32(v)]
+    return sum(v for v in ints if v > 0) >= 2**31 or sum(v for v in ints if v < 0) < -(2**31)
+
+
+def unwound_known(q, schema: Schema, instance: Instance) -> "str | None":
+    """The known bug the doc data model's edge-type select over its links unwound into
+    rows (`select.render_unwound`, a gated cell) is the exact shape of. The link
+    documents are undeclared: no collation (O25: a filter, an order, a group or a
+    distinct over a `ci` attribute), and a number boxed by its value -- Integer,
+    Long, Double -- where the E class and the junction class declare one type: an
+    ORDER BY whose key mixes boxes does not sort (O51; `max` / `min` over the rows
+    are right, C347, unlike O15's over an embedded list), a sum of Integers wraps in
+    32 bits (O19). The filter is judged as the bracket filter is (`edge_case_known`)."""
+    from ganda.core.query.ir.select import column, hits
+
+    if q.where is not None:
+        fid = edge_case_known(q.table, q.where, schema, instance).get("doc")
+        if fid:
+            return fid
+        if any(leaf.case_insensitive for leaf in _leaves(q.where)):
+            return "O25"
+    used = set(q.fields) | ({q.arg} if q.kind == "group" and q.arg else set())
+    if q.kind in ("group", "distinct", "page", "keys", "agg") and any(column(schema, q, f).case_insensitive for f in used):
+        return "O25"
+    rows = hits(q, instance)
+
+    def values(f) -> list:
+        return [r.values.get(f) for r in rows if r.values.get(f) is not None]
+
+    if q.kind in ("page", "keys") and any(_mixed_boxes(values(f)) for f in q.fields):
+        return "O51"
+    if q.kind == "agg" and q.fn in ("sum", "avg", "median") and _wraps(values(q.field)):
+        return "O19"
+    if q.kind == "group" and q.fn in ("sum", "avg", "median") and q.arg:
+        groups: dict = {}
+        for r in rows:
+            groups.setdefault(tuple(repr(r.values.get(k)) for k in q.fields), []).append(r.values.get(q.arg))
+        if any(_wraps([v for v in g if v is not None]) for g in groups.values()):
+            return "O19"
+    return None

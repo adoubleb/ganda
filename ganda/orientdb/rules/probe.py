@@ -648,6 +648,25 @@ def main() -> int:
               (err(s, "SELECT id, $t.id AS v FROM q44 LET $t = (SELECT FROM (TRAVERSE out('q44e') FROM $parent.$current MAXDEPTH 1 STRATEGY BREADTH_FIRST)) WHERE id = '0'"),
                err(s, "SELECT id, $t.id AS v FROM qzd LET $t = (SELECT FROM (TRAVERSE e1, target FROM $parent.$current MAXDEPTH 1 STRATEGY BREADTH_FIRST)) WHERE id = 'A'")),
               ("internal:other", "internal:other"))
+
+        print("--- the frame grid's gated cells: doc's edge-type select over its links unwound into rows")
+        s.sql("CREATE CLASS q51")
+        s.sql('INSERT INTO q51 CONTENT {"id": "A", "e": [{"eid": "a", "w": 1, "s": "b"}, {"eid": "c", "w": 1099511627776}]}')
+        s.sql('INSERT INTO q51 CONTENT {"id": "B", "e": [{"eid": "z", "w": -3, "s": "a"}]}')
+        s.sql('INSERT INTO q51 CONTENT {"id": "C"}')
+        s.sql('INSERT INTO q51 CONTENT {"id": "D", "e": []}')
+        u51 = "FROM (SELECT e AS l FROM q51 UNWIND l) WHERE l IS NOT NULL"
+        check("C348", "the links unwound into rows (`SELECT e AS l FROM src UNWIND l`, an absent or empty list a null row) answer one row per link document, its fields as `l.f`, its keys telling which are present",
+              (sorted(col(s, f"SELECT l.eid AS v {u51}")), col(s, f"SELECT count(*) AS v {u51}"), sorted(col(s, f"SELECT l.eid AS v {u51} AND l.keys() CONTAINS 's'")),
+               sorted((r["k"] or "", r["v"]) for r in rows(s, f"SELECT l.s AS k, count(*) AS v {u51} GROUP BY l.s"))),
+              (["a", "c", "z"], [3], ["a", "z"], [("", 1), ("a", 1), ("b", 1)]))
+        s.sql("CREATE CLASS q51c")
+        for k, v in [("a", 1), ("c", 2**40), ("z", -3)]:
+            s.sql("INSERT INTO q51c SET id = :k, w = :v", {"k": k, "v": v})
+        check("C347", "O51: ORDER BY over a key mixing Integer and Long does not sort (`Integer.compareTo(Long)` throws, read as equal) -- over the unwound links and over an undeclared class field alike, both directions; `asLong()` sorts, `max` / `min` over the rows are right",
+              (col(s, f"SELECT l.eid AS v {u51} ORDER BY l.w ASC"), col(s, f"SELECT l.eid AS v {u51} ORDER BY l.w DESC"), col(s, "SELECT id AS v FROM q51c ORDER BY w ASC"), col(s, "SELECT id AS v FROM q51c ORDER BY w DESC"),
+               col(s, f"SELECT l.eid AS v, l.w.asLong() AS x {u51} ORDER BY x ASC"), [(r["a"], r["b"]) for r in rows(s, f"SELECT max(l.w) AS a, min(l.w) AS b {u51}")]),
+              (["a", "c", "z"], ["a", "c", "z"], ["a", "c", "z"], ["a", "c", "z"], ["z", "a", "c"], [(2**40, -3)]))
         for q in ["CREATE CLASS q5 ABSTRACT", "CREATE PROPERTY q5.b1 BOOLEAN", "CREATE PROPERTY q5.m EMBEDDEDMAP LONG",
                   "CREATE CLASS q5a EXTENDS q5", "CREATE PROPERTY q5a.f1 DATE", "CREATE PROPERTY q5a.f2 DATETIME",
                   "CREATE CLASS q5b EXTENDS q5", "CREATE PROPERTY q5b.f1 BOOLEAN", "CREATE PROPERTY q5b.f2 EMBEDDEDLIST LONG",

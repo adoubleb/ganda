@@ -72,8 +72,14 @@ def test_write_cells_are_the_forms():
 
 
 def test_holes():
-    # doc's edge selects beyond `ids` / `count`
-    assert frames.holes() == {"select_edges": ("doc",)}
+    assert frames.holes() == {}
+
+
+def test_unwound_select_is_the_edge_frame_over_the_links():
+    schema = Schema(node_types=(NodeTypeSpec("n1", ()),), edge_types=(EdgeTypeSpec("e1", "n1", "n1", ()),))
+    q = SimpleNamespace(table="e1", where=None, kind="page", fields=("w",), field="w", directions=("DESC",), skip=1, limit=2, edge=True)
+    assert select._kind_text(q, select.BASE, "FROM e1", select.EDGE) == "SELECT eid AS id FROM e1 ORDER BY w DESC, eid ASC SKIP 1 LIMIT 2"
+    assert select.render_unwound(q, schema) == "SELECT l.eid AS id FROM (SELECT e1 AS l FROM n1 UNWIND l) WHERE l IS NOT NULL ORDER BY l.w DESC, l.eid ASC SKIP 1 LIMIT 2"
 
 
 def test_gated_cells_are_asked_by_frame_holes_only():

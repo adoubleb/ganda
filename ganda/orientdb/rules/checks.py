@@ -34,6 +34,7 @@ from ganda.orientdb.rules.catalog import (
     INDEX_KEY_MAX_BYTES,
     IN_LIST_IDS,
     IN_SUBQUERY_DOTTED,
+    UNWIND_DOCUMENT_ROWS,
     LINK_LIST_FIELD_ACCESS,
     LONG_PARAMETER_BELOW,
     MAX_DEPTH_REACHES_BOUND,
@@ -142,6 +143,7 @@ _RULE_CHECKS |= {
     "C343": (Rule(ELEMENT_KEYS_DEFINED, SQL, True),),
     "C344": (Rule(EMBEDDED_ADDS_DEPTH, TRAVERSE, False), Rule(EMBEDDED_ANSWERS_ROW, TRAVERSE, False)),
     "C345": (Rule(IN_SUBQUERY_DOTTED, SQL, True), Rule(UNWIND_ROW_PER_ELEMENT, SQL, True)),
+    "C348": (Rule(UNWIND_DOCUMENT_ROWS, SQL, True),),
     "C330": ERRORS,
 }
 
@@ -182,6 +184,7 @@ REPRODUCED_BY = {
     "O44": ("C318",),
     "O45": ("C132", "C133", "C138", "C141"),
     "O46": ("C322",),
+    "O51": ("C347",),
 }
 
 _DEFECT = {d.id: d for d in DEFECTS}

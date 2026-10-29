@@ -90,7 +90,7 @@ over the links unwound into rows (`FROM (SELECT e1 AS l FROM src UNWIND l)`) bes
 data model's E class and the rel data model's junction class answered alike on filters,
 aggregates, groups and distinct values, and differently on `page` / `keys` ordered by an
 attribute holding a 2^40 among small integers. The graph and rel data models declare the
-attribute LONG, the doc data model's embedded documents do not. Ganda does not ask such a select
-of the doc data model yet, so no campaign meets it and no guard reads it; once it does, the
-guard withholds the doc data model's ordered kinds where the attribute's stored integers do not
-share one width, as O15's does for `emax` / `emin`.
+attribute LONG, the doc data model's embedded documents do not. The gated cell `doc:unwound`
+(`--frame-hole-cases`) asks these selects now; its guard (`known_bugs/select.unwound_known`)
+withholds the ordered kinds where an ordered attribute's stored numbers do not share one box,
+and the probe's C347 reproduces the face on the unwound links and on an undeclared class field.
