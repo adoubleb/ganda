@@ -65,32 +65,57 @@ def _doc(q: PathQuery, schema: Schema, depth: int) -> str:
     return f"SELECT min($depth) + 1 AS v FROM (TRAVERSE {fields} FROM {_start(q)} MAXDEPTH {depth} STRATEGY BREADTH_FIRST) WHERE id = :b"
 
 
-def _rel_levels(q: PathQuery) -> list:
-    """The union's parts: level 0 (the start is the goal), then level d -- a junction
-    row from level d - 1's targets reaching the goal -- for d in 1..k."""
-    near, far = ("src_id", "dst_id") if q.direction == "OUT" else ("dst_id", "src_id")
-    et = q.edge_type
+def _levels(q: PathQuery, rows: str, ends: "tuple[str, str]") -> list:
+    """The union's parts: level 0 (the start is the goal), then level d -- a
+    relationship row from level d - 1's targets reaching the goal -- for d in 1..k.
+    `rows` are the relationship records, `ends` the (source, target) ids of one (the
+    path frame's slot: the junction class, the E class, the doc side's unwound links)."""
+    near, far = ends if q.direction == "OUT" else ends[::-1]
 
     def targets(d: int) -> str:
         if d == 1:
-            return f"SELECT {far} FROM {et} WHERE {near} = :a"
-        return f"SELECT {far} FROM {et} WHERE {near} IN ({targets(d - 1)})"
+            return f"SELECT {far} FROM {rows} WHERE {near} = :a"
+        return f"SELECT {far} FROM {rows} WHERE {near} IN ({targets(d - 1)})"
 
     parts = [f"(SELECT 0 AS d FROM {q.start_type} WHERE id = :a AND id = :b)"]
     for d in range(1, q.depth + 1):
         src = "= :a" if d == 1 else f"IN ({targets(d - 1)})"
-        parts.append(f"(SELECT {d} AS d FROM {et} WHERE {near} {src} AND {far} = :b)")
+        parts.append(f"(SELECT {d} AS d FROM {rows} WHERE {near} {src} AND {far} = :b)")
     return parts
 
 
-def _rel(q: PathQuery) -> dict:
-    parts = _rel_levels(q)
+def _let_union(parts: list) -> str:
     lets = ", ".join(f"$l{d} = {p}" for d, p in enumerate(parts))
     union = ", ".join(f"$l{d}" for d in range(len(parts)))
+    return f"SELECT min(d) + 1 AS v FROM (SELECT expand($c) LET {lets}, $c = unionall({union}))"
+
+
+def _rel(q: PathQuery) -> dict:
+    parts = _levels(q, q.edge_type, ("src_id", "dst_id"))
     return {
-        "rel": f"SELECT min(d) + 1 AS v FROM (SELECT expand($c) LET {lets}, $c = unionall({union}))",
+        "rel": _let_union(parts),
         "rel:inline": f"SELECT min(d) + 1 AS v FROM (SELECT expand(unionall({', '.join(reversed(parts))})))",
         "rel:asc": f"SELECT min(d) + 1 AS v FROM (SELECT expand(unionall({', '.join(parts)})))",
+    }
+
+
+# `x IN (SELECT in.id FROM e ...)` tests x against the dotted link's projected value, and
+# the doc side's links unwind one row per link
+assumes("in_subquery.dotted_projection", SQL, True)
+assumes("unwind.bracket_projection.row_per_element", SQL, True)
+
+
+def render_gated(q: PathQuery, schema: Schema) -> dict:
+    """The level union on the graph and doc data models (the frame grid's gated
+    `path_levels` cells), in the LET form (O40 spares it): the E class's rows by their
+    ends' ids, the doc side's link lists unwound into (source, target) rows."""
+    if q.edge_type is None or q.direction == "BOTH":
+        return {}
+    et = schema.edge_type(q.edge_type)
+    links = f"(SELECT id AS src_id, {et.name}.target.id AS dst_id FROM {et.from_type} UNWIND dst_id)"
+    return {
+        "graph:levels": _let_union(_levels(q, et.name, ("out.id", "in.id"))),
+        "doc:levels": _let_union(_levels(q, links, ("src_id", "dst_id"))),
     }
 
 

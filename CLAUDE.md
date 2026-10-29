@@ -114,14 +114,14 @@ decides on. The catalog holds no IR definition (the code compares no subject wit
 IR). `ganda orientdb rules --write` renders
 `ganda/orientdb/rules/RULES.md`; `tests/orientdb/test_rules.py` keeps them in step. Layout: `engine/dialect.py` (declared types, index kinds, key charset), `provider/physical_design.py` (the index, storage and write-form draws), `provider/config.py`,
 `engine/limits.py` (what the engine can hold), `engine/connection.py`, `engine/plan.py` (the setup-plan steps it executes: `Sql`, `Script`, `Batch`), `engine/semantics.py` (value order, equality, arithmetic),
-`concrete_syntax/` (`setup/`: instance → setup plan, one mapper per data model; `query/`: `predicate`, `predicate_sampling/` (`operators`, `constants`, `forms`: the provider's `predicate_sampling` slot; `predicate_steering`: how a scan answers a predicate, `predicate_hit` / `evaluate`; the provider assembles both into its `OrientSemantics`), `traversal`, `select`, `path`, `write`, `support`, `frames` (the frame grid: every concrete syntax as a frame, the data model filling its slot, the scope; `CORRELATED` / `BRACKET` and the holes read off it, `tests/orientdb/test_frames.py` keeps it in step), `scope` (`Path` / `Renamed` / `Semijoin` / `Lookup`: what an IR name is at a frame position)),
+`concrete_syntax/` (`setup/`: instance → setup plan, one mapper per data model; `query/`: `predicate`, `predicate_sampling/` (`operators`, `constants`, `forms`: the provider's `predicate_sampling` slot; `predicate_steering`: how a scan answers a predicate, `predicate_hit` / `evaluate`; the provider assembles both into its `OrientSemantics`), `traversal`, `select`, `path`, `write`, `support`, `frames` (the frame grid: every concrete syntax as a frame, the data model filling its slot, the scope; `CORRELATED` / `BRACKET`, the holes and the GATED cells read off it -- a gated cell is applicable but asked only by `provider/frame_holes.py`, `--frame-hole-cases`, off by default, so a seed's cases stay what they were; `tests/orientdb/test_frames.py` keeps it in step), `scope` (`Path` / `Renamed` / `Semijoin` / `Lookup`: what an IR name is at a frame position)),
 `known_bugs/` (most of O1..O46, one module per IR over the predicate guards; O4 retired, fixed in 3.2.57; O12, O22, O24, O45 and O46 are avoided by the renderers or the core's value pools instead, O35 and O40 guarded in `concrete_syntax/query/path.py`) with `known_bugs/java_hash.py`, `mutation/mutants.py`, `code_coverage/` (`collector.py`: the JaCoCo agent's probes during a run; `report.py` and `jacoco/`: line / branch reports from the `.exec` files),
 `rules/` (`catalog.py`, `checks.py`, `probe.py`: the live checks, `baseline.json`, `RULES.md`).
 
 Adding a concrete syntax: a choice in the catalog of its module (`SYNTAXES` and
 `_RENDERERS` for a traversal; an axis of `SelectSyntax`), its cell in
 `concrete_syntax/query/frames.py` (the frame, the scope of its target, whether it is
-correlated), what it admits in `applicable`, its text in `render`, and its judgement in
+correlated; `gated` while it fills a hole no campaign has run yet), what it admits in `applicable`, its text in `render`, and its judgement in
 `known_bugs`. Then `pytest`,
 the probe if a new fact is relied on, a campaign, and the mutation benchmark A/B over
 the same seeds.

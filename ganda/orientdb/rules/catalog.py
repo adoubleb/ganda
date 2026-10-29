@@ -84,6 +84,8 @@ UPDATE_EDGE_KEEPS_ENDPOINTS = Question("update_edge.content.keeps_endpoints", bo
 MAX_DEPTH_REACHES_BOUND = Question("max_depth.reaches_bound", bool, COMPARE)
 UNWIND_ROW_PER_ELEMENT = Question("unwind.bracket_projection.row_per_element", bool, COMPARE)
 EMBEDDED_ADDS_DEPTH = Question("traverse.embedded_document.adds_depth", bool, COMPARE)
+EMBEDDED_ANSWERS_ROW = Question("traverse.embedded_document.answers_row", bool, COMPARE)
+IN_SUBQUERY_DOTTED = Question("in_subquery.dotted_projection", bool, COMPARE)
 LONG_PARAMETER_BELOW = exact("parameter.long.below", int)
 INDEX_KEY_MAX_BYTES = exact("index_key.bytes.max", int)
 REQUEST_MAX_BYTES = exact("request.bytes.max", int)
@@ -130,6 +132,8 @@ COMPARE_RULES = (
     Rule(MAX_DEPTH_REACHES_BOUND, MATCH, True),
     Rule(UNWIND_ROW_PER_ELEMENT, SQL, True),
     Rule(EMBEDDED_ADDS_DEPTH, TRAVERSE, False),
+    Rule(EMBEDDED_ANSWERS_ROW, TRAVERSE, False),
+    Rule(IN_SUBQUERY_DOTTED, SQL, True),
 )
 
 # --- ask: a construct a path refuses is not rendered --------------------------------------------

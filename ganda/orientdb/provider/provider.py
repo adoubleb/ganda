@@ -75,6 +75,12 @@ class OrientDBProvider(Provider):
         return write_syntax
 
     @property
+    def extra_generators(self) -> dict:
+        from ganda.orientdb.provider.frame_holes import GENERATOR, generate
+
+        return {GENERATOR: generate}
+
+    @property
     def known_bugs(self):
         from ganda.orientdb import known_bugs
 

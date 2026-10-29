@@ -62,6 +62,7 @@ import dataclasses
 from ganda.core.data.model import Schema
 from ganda.core.query.ir.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, FIELD_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, Hop, TraversalQuery
 from ganda.core.query.ir.predicates import fields_of, has_op
+from ganda.orientdb.concrete_syntax.query.frames import GATED
 from ganda.orientdb.concrete_syntax.query.predicate import condition, render_predicate as render_pred
 from ganda.orientdb.concrete_syntax.query.scope import CURRENT, RECORD, RENAMED, Lookup, Path, Renamed, Semijoin
 
@@ -71,7 +72,7 @@ from ganda.core.rules.vocabulary import EmptyAggregate, EmptyInputRows
 
 SYNTAXES = {
     "graph": ("chain", "match", "match_opt", "edgescan", "bag", "traverse", "traverse_dfs", "traverse_e"),
-    "doc": ("path", "unwind", "let_expand", "inpath", "union"),
+    "doc": ("path", "unwind", "let_expand", "inpath", "union", "traverse"),
     "rel": ("let", "flat"),
 }
 # The concrete syntaxes whose text is a correlated subquery with `$parent.$current` in the
@@ -159,7 +160,7 @@ def applicable(q: TraversalQuery, schema: Schema, data_model: str, syntax: str) 
         if data_model == "graph":
             return syntax in GRAPH_REACH_SYNTAXES
         if data_model == "doc":
-            return syntax == "path"
+            return syntax in ("path", "traverse")
         return syntax == "let"
     if syntax in ("traverse_dfs", "traverse_e"):
         return False
@@ -223,8 +224,18 @@ def can_pull_up(q: TraversalQuery) -> bool:
     return not any(leaf.case_insensitive and leaf.op in _CI_OPS for leaf in p.leaves())
 
 
+def _ir(q: TraversalQuery) -> str:
+    return "reach" if q.projection in REACH_PROJECTIONS else "traversal"
+
+
 def syntaxes_for(q: TraversalQuery, schema: Schema, data_model: str) -> list:
-    return [s for s in SYNTAXES[data_model] if applicable(q, schema, data_model, s)]
+    """The applicable syntaxes the traversal generator draws from; a gated cell's
+    (`frames.GATED`) are asked by the `frame_holes` generator only."""
+    return [s for s in SYNTAXES[data_model] if (_ir(q), data_model, s) not in GATED and applicable(q, schema, data_model, s)]
+
+
+def gated_syntaxes_for(q: TraversalQuery, schema: Schema, data_model: str) -> list:
+    return [s for s in SYNTAXES[data_model] if (_ir(q), data_model, s) in GATED and applicable(q, schema, data_model, s)]
 
 
 # --- projections ----------------------------------------------------------------------------
@@ -422,12 +433,26 @@ def _graph_reach_match(q: TraversalQuery, extra: tuple) -> str:
     return f"SELECT id{_cols(extra)}, count(*) AS v FROM ({inner}){_group(extra)}"
 
 
-def _graph_reach_traverse(q: TraversalQuery, extra: tuple, strategy: str = "", fn: "str | None" = None) -> str:
-    et = q.hops[0].edge_type
-    walk = fn or f"out('{et}')"
-    tail = f" WHERE @class = '{q.source_table}'" if fn else ""
+def _reach_traverse(q: TraversalQuery, extra: tuple, walk: str, strategy: str = "", tail: str = "") -> str:
+    """The records TRAVERSE visits from the current one within `reach_depth` hops of
+    `walk` (the start included): graph's vertex bags, doc's link lists."""
     let = f"LET $t = (SELECT FROM (TRAVERSE {walk} FROM $parent.$current MAXDEPTH {q.reach_depth}{strategy}){tail})"
     return _reach_set("$t.id", q, extra, q.source_table, let)
+
+
+def _graph_reach_traverse(q: TraversalQuery, extra: tuple, strategy: str = "", fn: "str | None" = None) -> str:
+    walk = fn or f"out('{q.hops[0].edge_type}')"
+    # `outE().inV()` visits the edges too: the source class keeps the vertices
+    return _reach_traverse(q, extra, walk, strategy, f" WHERE @class = '{q.source_table}'" if fn else "")
+
+
+# the doc side walks its link lists: a link document adds no depth and answers no row
+assumes("traverse.embedded_document.adds_depth", TRAVERSE, False)
+assumes("traverse.embedded_document.answers_row", TRAVERSE, False)
+
+
+def _doc_reach_traverse(q: TraversalQuery, extra: tuple) -> str:
+    return _reach_traverse(q, extra, f"{q.hops[0].edge_type}, target", " STRATEGY BREADTH_FIRST")
 
 
 GRAPH_REACH_SYNTAXES = ("chain", "match", "traverse", "traverse_dfs", "traverse_e")
@@ -752,7 +777,7 @@ def _reach_renderer(data_model: str, syntax: str):
     if data_model == "graph":
         return lambda q, s, x: _graph_reach(q, syntax, x)
     if data_model == "doc":
-        return lambda q, s, x: _doc_reach(q, x)
+        return (lambda q, s, x: _doc_reach_traverse(q, x)) if syntax == "traverse" else (lambda q, s, x: _doc_reach(q, x))
     return lambda q, s, x: _rel_reach(q, x)
 
 

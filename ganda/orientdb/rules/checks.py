@@ -29,9 +29,11 @@ from ganda.orientdb.rules.catalog import (
     BINARY_ROUND_TRIP,
     CLASSLESS_ALIAS_ROOT,
     EMBEDDED_ADDS_DEPTH,
+    EMBEDDED_ANSWERS_ROW,
     ERRORS,
     INDEX_KEY_MAX_BYTES,
     IN_LIST_IDS,
+    IN_SUBQUERY_DOTTED,
     LINK_LIST_FIELD_ACCESS,
     LONG_PARAMETER_BELOW,
     MAX_DEPTH_REACHES_BOUND,
@@ -138,11 +140,13 @@ _RULE_CHECKS |= {
     "C341": (Rule(AS_LONG_EXACT, SQL, True),),
     "C342": (Rule(DELETED_TARGET_NULL, SQL, True),),
     "C343": (Rule(ELEMENT_KEYS_DEFINED, SQL, True),),
+    "C344": (Rule(EMBEDDED_ADDS_DEPTH, TRAVERSE, False), Rule(EMBEDDED_ANSWERS_ROW, TRAVERSE, False)),
+    "C345": (Rule(IN_SUBQUERY_DOTTED, SQL, True), Rule(UNWIND_ROW_PER_ELEMENT, SQL, True)),
     "C330": ERRORS,
 }
 
 REPRODUCED_BY = {
-    "O1": ("C38", "C39", "C41", "C69"),
+    "O1": ("C38", "C39", "C41", "C69", "C346"),
     "O2": ("C42", "C43", "C47", "C48", "C49", "C50", "C53", "C55", "C57", "C59", "C60", "C61", "C64"),
     "O5": ("C34", "C71", "C233", "C265", "C305", "C307", "C319"),
     "O6": ("C24", "C25"),

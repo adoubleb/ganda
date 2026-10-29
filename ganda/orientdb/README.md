@@ -10,7 +10,7 @@ the answers pair by pair. The core reaches this package only through the `Provid
 
 | Folder | Holds | `Provider` member |
 |---|---|---|
-| `provider/` | `provider.py` (the interface's implementation), `config.py` (campaign flags), `physical_design.py` (index, storage and write-form draws per data model) | `config_class`, `physical_design`, `semantics` (assembled here) |
+| `provider/` | `provider.py` (the interface's implementation), `config.py` (campaign flags), `physical_design.py` (index, storage and write-form draws per data model), `frame_holes.py` (the generator asking the frame grid's gated cells, `--frame-hole-cases`, off by default) | `config_class`, `physical_design`, `semantics` (assembled here), `extra_generators` |
 | `engine/` | `connection.py` (REST, Docker), `plan.py` (setup steps `Sql` / `Script` / `Batch`), `semantics.py` (value order, equality, arithmetic), `dialect.py` (declared types, index kinds, key charset), `limits.py` | `server`, `limits` |
 | `concrete_syntax/setup/` | the instance as a setup plan, one mapper per data model | `mappers` |
 | `concrete_syntax/query/` | one renderer per IR (`traversal`, `select`, `path`, `write`), `predicate.py`, `support.py`; `frames.py` (every concrete syntax as a frame, the data model filling its slot and the scope it takes there; the holes), `scope.py` (what an IR name is at a frame position: `Path`, `Renamed`, `Semijoin`, `Lookup`) | `*_syntax` |

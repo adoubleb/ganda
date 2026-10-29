@@ -12,13 +12,13 @@ position of the frame (`scope.py`).
                rows              one (id, v) row per path from <R>, folded     graph doc rel
                                  by id
     reach      reach_union       unionall([@this], <L1>, .., <Lk>).asSet()     graph doc rel
-               reach_traverse    TRAVERSE <walk> FROM $parent.$current         graph
+               reach_traverse    TRAVERSE <walk> FROM $parent.$current         graph doc*
                                  MAXDEPTH k STRATEGY s
                reach_match       MATCH .out(e){while: ($depth < k)}            graph
     path       path_traverse     min($depth) + 1 FROM (TRAVERSE <walk> FROM    graph doc
                                  start MAXDEPTH k BREADTH_FIRST) WHERE id = :b
-               path_levels       min(d) + 1 over the union of the levels       rel
-                                 reaching :b
+               path_levels       min(d) + 1 over the union of the levels of    graph* doc*
+                                 <rows> reaching :b                            rel
                shortest_path     shortestPath(a, b, dir, e[, maxDepth])        graph
                path_match        MATCH .out(e){maxDepth | while, depthAlias}   graph
     select     select_nodes      the kind x form over FROM t (no slot: a node  graph doc rel
@@ -31,6 +31,8 @@ position of the frame (`scope.py`).
                edge_delete       <verb> <records> WHERE p                      graph rel
                owner_rewrite     UPDATE src SET e = <rewritten list>           doc
 
+(* a gated cell, below.)
+
 A cell's `target` says how its hop's target (and edge) predicates are scoped: `record`
 (the subquery's or the alias's own record), `bracket` (a bracket filter over a
 collection's elements), `dotted` (an edge's end, `in.f`), `lookup` (a LET per row,
@@ -40,7 +42,10 @@ O1 and O25).
 
 A frame's `fillable` is the data models that could fill it; one of them without a cell is
 a HOLE (`holes()`), a question the data models could be compared on and are not. The
-others are conceded, `why` says on what ground.
+others are conceded, `why` says on what ground. A filled hole stays GATED until a campaign
+has shown it answers alike: its syntax is applicable, but the IR's own generator does not
+draw it (so a seed's cases are what they were); the `frame_holes` generator asks it,
+`frame_hole_cases` per instance (`provider/frame_holes.py`, off by default).
 """
 from __future__ import annotations
 
@@ -66,6 +71,7 @@ class Cell:
     syntax: str
     target: str = "record"
     correlated: bool = False
+    gated: bool = False
 
 
 FRAMES = {f.name: f for f in (
@@ -112,6 +118,7 @@ REACH = (
     Cell("reach_traverse", "graph", "traverse", correlated=True),
     Cell("reach_traverse", "graph", "traverse_dfs", correlated=True),
     Cell("reach_traverse", "graph", "traverse_e", correlated=True),
+    Cell("reach_traverse", "doc", "traverse", correlated=True, gated=True),
     Cell("reach_match", "graph", "match"),
 )
 
@@ -123,6 +130,8 @@ PATH = (
     Cell("path_levels", "rel", ""),
     Cell("path_levels", "rel", "inline"),
     Cell("path_levels", "rel", "asc"),
+    Cell("path_levels", "graph", "levels", gated=True),
+    Cell("path_levels", "doc", "levels", gated=True),
     Cell("shortest_path", "graph", ""),
     Cell("shortest_path", "graph", "unbounded"),
     Cell("path_match", "graph", "match"),
@@ -160,6 +169,8 @@ CELLS = TRAVERSAL + REACH + PATH + SELECT + WRITE
 # that put a target predicate in a bracket filter or behind a dotted link (O25)
 CORRELATED = frozenset((c.data_model, c.syntax) for c in TRAVERSAL + REACH if c.correlated)
 BRACKET = frozenset((c.data_model, c.syntax) for c in TRAVERSAL if c.target in ("bracket", "dotted"))
+# (IR, data model, syntax) of the gated cells
+GATED = frozenset((FRAMES[c.frame].ir, c.data_model, c.syntax) for c in CELLS if c.gated)
 
 
 def holes() -> dict:

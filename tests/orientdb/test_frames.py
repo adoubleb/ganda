@@ -28,23 +28,24 @@ def test_cells_are_unique_and_fillable():
 
 def test_traversal_cells_are_the_renderers():
     assert _keys(TRAVERSAL) == set(traversal._RENDERERS)
-    assert _keys(REACH) == {("graph", s) for s in traversal.GRAPH_REACH_SYNTAXES} | {("doc", "path"), ("rel", "let")}
+    assert _keys(REACH) == {("graph", s) for s in traversal.GRAPH_REACH_SYNTAXES} | {("doc", "path"), ("doc", "traverse"), ("rel", "let")}
     for dm, syntaxes in traversal.SYNTAXES.items():
         assert {s for d, s in _keys(TRAVERSAL + REACH) if d == dm} == set(syntaxes), dm
     assert len(_keys(TRAVERSAL)) == len(TRAVERSAL)
 
 
 def test_guard_sets_read_off_the_grid():
-    assert frames.CORRELATED == {("doc", "let_expand"), ("doc", "inpath"), ("doc", "union"), ("rel", "let"), ("graph", "traverse"), ("graph", "traverse_dfs"), ("graph", "traverse_e")}
+    assert frames.CORRELATED == {("doc", "let_expand"), ("doc", "inpath"), ("doc", "union"), ("rel", "let"), ("graph", "traverse"), ("graph", "traverse_dfs"), ("graph", "traverse_e"), ("doc", "traverse")}
     assert frames.BRACKET == {("graph", "chain"), ("graph", "bag"), ("graph", "edgescan"), ("doc", "path"), ("doc", "unwind"), ("doc", "let_expand"), ("doc", "union")}
 
 
 def test_path_cells_are_the_variants():
     schema = Schema(node_types=(NodeTypeSpec("n1", ()),), edge_types=(EdgeTypeSpec("e1", "n1", "n1", ()),))
     inst = Instance(schema, [NodeRow("n1", i, {}) for i in range(4)], [EdgeRow("e1", i, f"n1/r{i}", f"n1/r{i + 1}", {}) for i in range(3)])
-    queries, _ = path.render_all(PathQuery("n1/r0", "n1", "n1/r3", "n1", "OUT", "e1", 3), schema, inst)
-    tags = {tuple(v.split(":")) if ":" in v else (v, "") for v in queries}
-    assert tags == _keys(PATH)
+    q = PathQuery("n1/r0", "n1", "n1/r3", "n1", "OUT", "e1", 3)
+    tags = lambda queries: {tuple(v.split(":")) if ":" in v else (v, "") for v in queries}  # noqa: E731
+    assert tags(path.render_all(q, schema, inst)[0]) == _keys(c for c in PATH if not c.gated)
+    assert tags(path.render_gated(q, schema)) == _keys(c for c in PATH if c.gated)
 
 
 def test_select_cells_are_the_targets():
@@ -71,6 +72,28 @@ def test_write_cells_are_the_forms():
 
 
 def test_holes():
-    # TRAVERSE e, target for doc's reach; the level union over the E class and the
-    # unwound links; doc's edge selects beyond `ids` / `count`
-    assert frames.holes() == {"reach_traverse": ("doc",), "path_levels": ("doc", "graph"), "select_edges": ("doc",)}
+    # doc's edge selects beyond `ids` / `count`
+    assert frames.holes() == {"select_edges": ("doc",)}
+
+
+def test_gated_cells_are_asked_by_frame_holes_only():
+    from tests.orientdb.helpers import GeneratorConfig, build
+    from ganda.core.query.generators.registry import all_cases
+    from ganda.orientdb.provider import frame_holes
+
+    assert set(frame_holes.BUILDERS) == {c.frame for c in CELLS if c.gated}
+    asked = Counter()
+    for seed in range(1, 31):
+        cfg = GeneratorConfig(frame_hole_cases=4)
+        schema, instance, rng = build(seed, cfg)
+        for case in all_cases(rng, schema, instance, cfg=cfg):
+            gated = {v for v in case.queries if tuple(v.split(":")) in {(dm, sp) for _ir, dm, sp in frames.GATED}}
+            if case.generator_name == frame_holes.GENERATOR:
+                assert gated
+                asked.update(gated)
+            else:
+                assert not gated, (case.generator_name, gated)
+    assert set(asked) == {f"{dm}:{sp}" for _ir, dm, sp in frames.GATED}
+    # off by default
+    schema, instance, rng = build(1, GeneratorConfig())
+    assert not [c for c in all_cases(rng, schema, instance, cfg=GeneratorConfig()) if c.generator_name == frame_holes.GENERATOR]
