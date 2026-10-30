@@ -1,10 +1,6 @@
 # OrientDB provider
 
-Ganda's provider for OrientDB 3.2.57 (`orientdb:3.2.57`). One instance is stored in three
-data models -- `doc` (embedded link lists), `graph` (vertices and edges), `rel` (junction
-classes) -- and every question is asked of each in OrientDB SQL; the core's oracle compares
-the answers pair by pair. The core reaches this package only through the `Provider` interface
-(`core/engine/provider.py`), which `provider/provider.py` implements.
+Ganda's provider for OrientDB 3.2.57 (`orientdb:3.2.57`).
 
 ## Layout
 
@@ -20,27 +16,24 @@ the answers pair by pair. The core reaches this package only through the `Provid
 | `mutation/` | the benchmark's mutants | `mutants` |
 | `code_coverage/` | JaCoCo collector and report | `coverage` |
 
-`engine/` imports nothing from `concrete_syntax/`. Names are imported from the module
-that defines them; a package `__init__.py` re-exports only what its `Provider` member exposes
-(`provider/`, `known_bugs/`, `predicate_sampling/`).
 
-## A case, end to end
+## Example flow
 
-1. The core draws a schema and instance; `physical_design` gives each data model its
+1. The core samples a schema and instance; `physical_design` gives each data model its
    own indexes, clusters and write forms; `mappers` render the setup plans and
    `engine/connection.py` runs them.
-2. A core generator draws an IR question; `predicate_sampling` shapes its filter, the
+2. A core generator samples an IR question; `predicate_sampling` shapes its filter, the
    IR's renderer writes one text per data model and syntax.
 3. `known_bugs` withholds the variants that would only re-report a filed defect.
 4. Each text runs on its database; the oracle compares the answers.
 
 ## Rules and defects
 
-Engine facts the code depends on are records in `rules/catalog.py`, read through
-`assumes(...)`, `answer(...)` and `works_around("O<n>")`. Keep a rule only if a
-different answer would change how a question is made equivalent across data models
-or how setup works. `rules/probe.py` re-checks every record live and writes
-`baseline.json`; `ganda orientdb rules --mutate` checks that the code depends on each.
+Rules are for semantic alignment. For example: deleting a vertex `v` in the graph model deletes all incident edges on `v`. However, consider the equivalent process in the document model. Deleting the entry `v` deletes only the outwards edges from `v`, which is stored as an EmbeddedList field in `v`. Thus, we have to iterate over all vertex entries and their list of outgoing edges and remove any that points to `v`.
+
+Okay, but why not just comment this fact in the translation function?
+
+I would like to move torwards a more systematic way of generating the translation functions (which is very adhoc now). I think some attempt to give structure to the domain knowledge that produces these queries might help towards this goal.
 
 ## Common changes
 
