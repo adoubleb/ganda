@@ -25,7 +25,7 @@ baseline: 3.3.4, every check of a rule held
 | delete.record.cascades_relations | graph | true | C15 | concrete_syntax/query/write.py:43, concrete_syntax/setup/graph.py:39 |
 | link.deleted_target.field_reads_none | surql | true | C16 | concrete_syntax/query/write.py:44, concrete_syntax/setup/document.py:38 |
 | transaction.cancelled.let_value_survives | transaction | true | C17 | concrete_syntax/query/select.py:65 |
-| transaction.cancelled.statements_report_cancelled | transaction | true | C18 | concrete_syntax/setup/common.py:224, engine/connection.py:51 |
+| transaction.cancelled.statements_report_cancelled | transaction | true | C18 | concrete_syntax/setup/common.py:224, engine/connection.py:52 |
 | subquery.parent.bound_in_closure | subquery | true | C19 | concrete_syntax/query/traversal.py:61 |
 | subquery.parent.bound_in_bracket_filter | subquery | false | C20 | concrete_syntax/query/traversal.py:62 |
 | recursion.shortest.excludes_start | recursion | true | C21 | concrete_syntax/query/path.py:25 |

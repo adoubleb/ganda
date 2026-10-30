@@ -24,6 +24,7 @@ transaction keeps its value for a `RETURN` after the CANCEL (the read door, prob
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 
@@ -139,7 +140,8 @@ class SurrealSession(Session):
             plan = self.query(lets + body + " EXPLAIN;")[-1]
         except EngineError:
             return None
-        return plan if isinstance(plan, list) else [plan]
+        # each step an object (`operation`, `detail`): the fingerprint is hashable text
+        return [json.dumps(step, sort_keys=True, default=str) for step in (plan if isinstance(plan, list) else [plan])]
 
     # --- setup and the state check -------------------------------------------------------
 
