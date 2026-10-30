@@ -1,18 +1,5 @@
-"""How an ArangoDB collection SCAN answers a predicate over a record (`rules/probe.py`):
-the leaves (`predicate_hit`) and the two-valued logic over them (`evaluate`). The
-generators steer with it (a filter that keeps some records, a write that matches some),
-`write.apply` keeps the `Instance` in step with it, and the guards read which records a
-defect's shape would touch; no answer is predicted from it. Values are ordered and
-compared under `ganda.arangodb.engine.semantics` (AQL comparison is total: a null or
-absent value sorts below every other). The rules:
-
-- **`LIKE`** is case-sensitive, `%` any run and `_` one character, across a newline
-  too but not across the Unicode line and paragraph separators (the pattern is an ICU
-  regex: probed 2026-10-24); the generator never builds a pattern from a value holding a
-  wildcard or a line terminator.
-- **`IN`** compares with `==`, so a null element matches a null value (a semi-join's
-  answered nulls do match the records lacking the field).
-"""
+"""How an ArangoDB collection scan answers a predicate over a record: what the generators
+steer with and the guards read; no answer is predicted from it."""
 from __future__ import annotations
 
 import re

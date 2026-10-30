@@ -1,20 +1,5 @@
-"""The document data model: a relationship is an array of embedded link objects on the
-source document, each holding the target's engine id under `target`, the relationship's
-logical id under `eid`, and its attributes -- the denormalized "links inside the
-document" pattern, with the engine's own `_id` as the foreign reference:
-
-    n1/r0 { id: "n1/r0", f1: "a", e1: [ { eid: "e1/e0", target: "n2/r3", w: 3 }, ... ] }
-
-A hop is `DOCUMENT(l.target)` (or a join on `_id`), an incoming hop a scan of the
-sources whose array holds the record -- or, through the array index every source
-collection carries on its link targets (`fk_<e>_target` over `e[*].target`), a lookup. Node documents are written with their INITIAL
-link arrays embedded, so one bulk insert per collection carries everything; churn then
-rewrites arrays: a source whose relationship changes or disappears (EdgeUpdate,
-EdgeDelete, the cascade of a NodeDelete) gets its array for that edge type re-set to the
-final adjacency -- that rewrite IS this data model's cascade (the engine removes no
-link on its own, so a dangling link exists only as a mutant). A deleted node's own
-document is removed.
-"""
+"""The document data model: a relationship is a link object `{eid, target, ...}` in an
+array on its source; churn rewrites the arrays, which is this data model's cascade."""
 from __future__ import annotations
 
 from ganda.core.data.model import EdgeUpdate, Instance, NodeDelete

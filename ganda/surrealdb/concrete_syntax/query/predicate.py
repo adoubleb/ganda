@@ -1,17 +1,5 @@
-"""SurrealQL text for the abstract predicate IR (`predicates`): the engine's bind
-variables (`$p1`), its operator spellings (`CONTAINS`, `object::keys(m) CONTAINS`,
-`m[$k]`), the semi-join's subquery and the reversed, arithmetic and literal forms.
-Identical on every data model, the field expression being the data model's own (`f1`,
-`out.f1`, `$l.f1`) via `prefix`.
-
-The engine's null rules the text keeps the core's semantics under: an omitted field is
-NONE and an explicit null NULL, both below every value (`<`, `<=`, `!=` hold, `=`,
-`>`, `>=`, `IN` fail), so `IS NULL` is `IS NONE OR IS NULL`, `IS PRESENT` is `IS NOT
-NONE`; a function or arithmetic over a missing value is REFUSED, so a method, a cast
-or an arithmetic leaf is guarded by the field's presence (and answers false for a
-missing value: `predicate_steering.evaluate` mirrors that). A datetime, decimal or
-byte-string constant is always written as a typed literal (a `LET` carries no type).
-"""
+"""SurrealQL text for the predicate IR; the field expression is the data model's own (`prefix`).
+NONE and NULL sort below every value (`IS NULL` is `IS NONE OR IS NULL`); a leaf that could fail on a missing value is guarded by its presence."""
 from __future__ import annotations
 
 import json

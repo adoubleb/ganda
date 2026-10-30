@@ -1,15 +1,5 @@
-"""The mutation benchmark's catalog for ArangoDB: the core's instance-level mutants and
-this provider's corruptions of its own query text.
-
-Categories beside the core's: render (a comparison operator loosened on one data model's
-first filter; a hop predicate dropped; an id projection deduplicated) and index (an
-INDEX-path defect on one data model: the texts whose filter or SORT a persistent index
-of that data model may serve are corrupted the way a broken index would answer them --
-a strict range bound served inclusively, null keys returned by a lookup, a DESC walk
-answered ascending -- while the scan twins of the same question (`NOOPT`, `disableIndex`,
-the other data models' identical base text) stay right). Every mutant is a corruption
-one data model has and the others lack: the oracle is differential.
-"""
+"""ArangoDB's mutants: the core's instance mutants plus render and index-path corruptions
+of one data model's text."""
 from __future__ import annotations
 
 import dataclasses

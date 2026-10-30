@@ -1,10 +1,5 @@
-"""The ArangoDB provider: this package's modules behind the core's contract.
-
-Three data models of one ArangoDB server -- embedded link arrays (`doc`), edge
-collections (`graph`) and junction collections (`rel`) -- each asked every question in
-AQL through its own storage path. `rules/catalog.py` holds the engine rules the oracle
-rests on (`ganda arangodb rules` renders them), `rules/baseline.json` the build the probe
-last verified."""
+"""The ArangoDB provider: doc (link arrays), graph (edge collections) and rel (junction
+collections), every question in AQL."""
 from __future__ import annotations
 
 from ganda.core.engine.provider import Provider, Semantics

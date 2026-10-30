@@ -1,35 +1,3 @@
-"""The concrete syntax catalog: HOW each data model -- and each of that data model's
-syntaxes -- asks a `TraversalQuery`. One abstract question is rendered through every
-engine path the storage model offers, and each rendering is a variant the oracle
-compares against the other data models'.
-
-    data model   concrete syntax    the engine path
-    graph  arrow       the graph idioms `->e1[WHERE p]->n2[WHERE q]` (`<-` / `<->`) chained
-                       per hop over the edge tables' `in` / `out`
-    graph  edgescan    a scan of the edge table, `in` / `out` dereferenced (one hop)
-    graph  subquery    `(SELECT VALUE out FROM e1 WHERE in = $parent.id ...)`, nested per hop
-    graph  recursion   the reach forms through `@.{1..k+collect}(->e1->n1)`
-    doc    links       `(e1 ?? [])[WHERE p].target[WHERE q]` over the embedded link arrays,
-                       flattened per hop; an incoming first hop as a correlated subquery over
-                       the sources, one id per matching link (`array::repeat`)
-    doc    closure     the same with the edge predicate in `array::filter(.., |$l| ..)`
-    rel    subquery    `(SELECT VALUE dst FROM e1 WHERE src = $parent.id ...)`, nested per hop
-                       through the junction table, flattened per level
-    rel    flat        the junction table scanned into (source, target) rows (one hop)
-
-Every concrete syntax also has a PULLED-UP form (`render(..., pull_up=True)`, the
-`<data model>:pull_up` variant): the source predicate is lifted out of the syntax into
-an enclosing `SELECT id, v FROM (<syntax>) WHERE <source predicate>`, the inner query
-projecting the source fields it needs -- the same transformation on every data model.
-
-Facts each rests on (probed 3.3.4, `rules/probe.py`): `$parent` inside a closure is
-the enclosing query's record, inside a bracket filter it is not (so an incoming hop
-counts its links through `array::filter`); a field read through an array of records
-maps over them (`->e1->n2.f1`, `(e1 ?? []).target.f1`); a missing array reads NONE
-(`?? []`), and a NONE element of a flattened path is dropped before the next hop; the
-aggregate functions refuse a NONE / NULL element (filtered first) and answer NONE over
-nothing; `->` answers parallel edges twice.
-"""
 from __future__ import annotations
 
 import dataclasses

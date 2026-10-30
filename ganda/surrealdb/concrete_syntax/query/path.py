@@ -1,19 +1,5 @@
-"""The PATH IR on SurrealDB: the vertex count of a shortest path (1 for the same record,
-0 when the goal is unreachable within the bound), asked through the recursive shortest
-path idiom on the graph data model and level by level (`LET $l<k> = ...`) on every
-data model.
-
-    graph         `LET $p = a.{..+shortest=b}(->e1->n1); RETURN IF a = b THEN 1 ELSE IF $p =
-                  NONE OR array::len($p) > k THEN 0 ELSE array::len($p) + 1 END`: the idiom
-                  answers the path's records without the start (probed), NONE when none
-    graph:levels  the frontier k times over the arrows, `b IN $l<d>`
-    doc           the frontier over the link arrays (outgoing only)
-    rel           the frontier over the junction table (`src IN $l`, any direction, every
-                  edge type when the question names none)
-
-A bounded `{..k+shortest=b}` below the distance answers nested paths instead of NONE
-(F6): the idiom is always asked unbounded and the bound applied to its length.
-"""
+"""The path IR: a shortest path's vertex count through the shortest-path idiom (graph) and frontier levels.
+F6: a bounded `{..k+shortest=b}` answers nested paths, so the idiom is asked unbounded and the bound applied to its length."""
 from __future__ import annotations
 
 from ganda.core.data.model import Instance, Schema

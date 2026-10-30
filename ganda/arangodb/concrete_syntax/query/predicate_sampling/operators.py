@@ -1,12 +1,5 @@
-"""ArangoDB's predicate operators: the ones a leaf may draw per column type, and the
-characters a `LIKE` pattern never holds.
-
-A STRING (or BINARY) column takes the equality family only: AQL orders strings by ICU
-collation (`order.string` in `rules/catalog.py`), which the generators' walk of the
-Instance does not model, so an ordered comparison on one would steer nothing. The
-model's date types are strings of one fixed shape, ordered alike by ICU and by code
-point, so they keep every operator.
-"""
+"""ArangoDB's predicate operators per column type. A string column takes the equality
+family only: AQL orders strings by ICU collation, which steering does not model."""
 from __future__ import annotations
 
 from ganda.core.data.model import FieldType

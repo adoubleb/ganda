@@ -1,28 +1,5 @@
-"""ArangoDB's connection layer: a server in Docker and one HTTP session per database.
-
-AQL runs through the cursor API with every value a bind variable (`@p`), which is
-exactly the case's `bind_vars` -- narrowed per text to the names it uses, because a
-bind variable a query does not name is errorNum 1552 (and one it names and lacks is the
-engine's own error, 1551). A variant's options (`QueryCase.variant_options`) travel as
-the cursor's `options`; `failOnWarning` turns a warning into an error on every data
-model alike; `maxRuntime` is the session's query timeout. Every data model of a seed is
-its own database.
-
-Three error classes:
-- `EngineError`: the server understood the request and rejected it (a parse error, a
-  unique-constraint violation). `internal` marks a 5xx the server ANSWERED (an error
-  from inside the engine: a finding on its own) unless the catalog's error classes
-  (`rules/catalog.py`) read the errorNum as a documented rejection; `timeout` marks a
-  query the engine killed at `maxRuntime`, a cursor gone before its next batch, or a
-  request the transport gave up on while the server still answers (no answer, not a
-  rejection: the oracle leaves it out).
-- `EngineCrash`: the server could not be talked to at all.
-
-The transaction door (`ganda.arangodb.engine.tx`): a door text begins a stream transaction
-over the collections it names, runs its statements and its question inside it, and
-aborts it whatever happened. A setup plan's `Transaction` step is the same stream
-transaction, committed.
-"""
+"""ArangoDB's connection layer: a server in Docker and one HTTP session per database, AQL
+through the cursor API with every value a bind variable."""
 from __future__ import annotations
 
 import os
@@ -299,11 +276,8 @@ class ArangoSession(Session):
 
 
 class ArangoServer(DockerServer):
-    """A running ArangoDB server (`arangodb/arangodb:latest`, or `ARANGO_IMAGE`), or one
-    reached at `ARANGO_URL` (with `ARANGO_PASSWORD`). `query_timeout_ms` is every
-    session's `maxRuntime`, with the HTTP read timeout a minute past it;
-    `streaming_max_bytes` the server's bound on one stream transaction's writes (a
-    data model's whole setup may run in one)."""
+    """A running ArangoDB server (`ARANGO_IMAGE`), or one at `ARANGO_URL`;
+    `query_timeout_ms` is every session's `maxRuntime`."""
 
     engine = "arangodb"
     image = os.environ.get("ARANGO_IMAGE", "arangodb/arangodb:latest")

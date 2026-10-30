@@ -171,7 +171,8 @@ false` on every update door), `engine/semantics.py` (the total type order, exact
 point string equality), `concrete_syntax/query/predicate_sampling/` (`operators.ordered_ops`: a string
 column takes the equality family only -- ICU collation orders them; `forms.leaf_form`;
 `predicate_steering`, `LIKE` as an ICU regex),
-`concrete_syntax/query/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),
+`concrete_syntax/query/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`, `frames`: the frame grid as
+OrientDB's, its holes graph's `reach_union` and `path_levels`; no `scope` module, AQL binds every position to a variable),
 `known_bugs/` (A25 and A42 in `predicate.py`, A43 in `select.py`), `mutation/mutants.py` (the core's instance mutants,
 three render mutants and three index-path mutants, as OrientDB's), `rules/probe.py`.
 
@@ -457,7 +458,8 @@ the cancelled-statement rule, the state-check readers, `SurrealServer`), `engine
 `recursion`, doc `links` / `closure`, rel `subquery` / `flat`, every one with a pull-up --,
 `select` -- positions `table` / `poly` / `polyin`, forms `base` / `group_all` / `order` / `jrev`
 --, `path` -- the shortest-path idiom and level-by-level frontiers --, `write` -- targets
-`table` / `sub`, doors `auto` / `tx`, the doc data model's `closure` form --, `support`),
+`table` / `sub`, doors `auto` / `tx`, the doc data model's `closure` form --, `support`, `frames`: the frame grid as OrientDB's, its holes doc's
+`rows`, `reach_traverse`, `shortest_path` and `select_edges`; no `scope` module, the predicate renderer's prefix is one),
 `known_bugs/` (`predicate`, `traversal`, `select`, `write`, `issue-drafts/`), `mutation/mutants.py`,
 `rules/` (`catalog`, `checks`, `probe`, `baseline.json`, `RULES.md`).
 

@@ -1,8 +1,4 @@
-"""Which rules each probe fact (`probe.py`) checks and which defects it
-reproduces: a fact is listed against a rule only where its check asserts that rule's
-answer (the `L` limit facts and the `T` timeout fact assert the `limits` slot and the
-error classes, which are no rules), against a defect only where its expected answer is
-the defect's."""
+"""Which rules each probe fact checks and which defects it reproduces."""
 from __future__ import annotations
 
 from ganda.core.rules.model import Rule

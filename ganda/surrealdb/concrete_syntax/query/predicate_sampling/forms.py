@@ -1,8 +1,4 @@
-"""SurrealDB's predicate forms: a drawn leaf in one of SurrealQL's spellings of the same
-question (reversed operands, the field under arithmetic, a literal, a parameter-keyed
-map entry). A datetime, decimal or byte-string constant is always a literal: a `LET`
-bind variable carries no type, and a string beside a datetime compares by kind.
-"""
+"""A drawn leaf in one of SurrealQL's spellings; a datetime, decimal or byte-string constant is always a literal."""
 from __future__ import annotations
 
 import dataclasses
@@ -29,11 +25,7 @@ _ARITH_CHOICES = {
 
 
 def leaf_form(rng: random.Random, p):
-    """The drawn leaf `p` in one of SurrealQL's forms, each another question asked alike
-    on every data model: reversed operands (`$p > f`), the field under arithmetic
-    (`(f * $c) > $p`, the drawn constant shifted alike), a literal (`f > 5`), a map
-    entry keyed by a parameter (`m[$k] = $p`); or `p` as drawn. A typed constant (a
-    datetime, a decimal, a byte string) is a literal whatever is drawn."""
+    """The drawn leaf `p` in one of SurrealQL's forms, or as drawn; a typed constant is always a literal (a `LET` carries no type)."""
     if p.ftype in LITERAL_TYPES and p.sub is None and p.key is None and p.op not in ("IS NULL", "IS NOT NULL", "IS PRESENT", "IS ABSENT"):
         p = dataclasses.replace(p, literal=True)
     if p.key is not None and not p.key_bind and p.sub is None and rng.random() < KEY_BIND_PROBABILITY:

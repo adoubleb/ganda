@@ -1,17 +1,4 @@
-"""Relational-style materialization: every edge type is an ordinary table used as a
-junction table, with `src` / `dst` holding the endpoints as record links -- so the
-engine builds no graph edge for it, and a hop is a correlated subquery joining through
-the junction:
-
-    e1:e0 { src: n1:r0, dst: n2:r3, w: 3 }
-    (SELECT VALUE dst FROM e1 WHERE src = $parent.id)
-
-`src` carries an index (every relational engine wants one on the column a query joins
-through) and `dst` another for the incoming direction. Churned edges are
-`DELETE e1:e0`; a churned-away node has its junction rows removed explicitly (nothing
-cascades through a plain record link) before its own record. A SCHEMAFULL junction
-declares `src` / `dst` as `record<n1>` / `record<n2>` and every attribute.
-"""
+"""Relational materialization: an edge type is a junction table of indexed `src` / `dst` record links; a node delete removes its rows first."""
 from __future__ import annotations
 
 from ganda.core.data.generator import initial_node_values, initial_nodes

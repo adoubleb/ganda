@@ -1,13 +1,5 @@
-"""The graph data model: every edge type is an ArangoDB EDGE COLLECTION whose documents
-carry `_from` / `_to` (the endpoints' engine ids) plus the relationship's logical id
-`eid` and its attributes -- the engine's native graph feature, traversed with
-`FOR v, e IN 1..1 OUTBOUND n e1`:
-
-    e1/e0 { _from: "n1/r0", _to: "n1/r2", eid: "e1/e0", w: 3 }
-
-A churned relationship is `REMOVE`d; a churned-away node has its incident edges
-removed first (the engine's vertex removal leaves edges dangling), then its document.
-"""
+"""The graph data model: an edge type is an edge collection (`_from` / `_to`, `eid`); a
+removed node's incident edges are removed first."""
 from __future__ import annotations
 
 from ganda.core.data.model import EdgeDelete, Instance, NodeDelete

@@ -1,38 +1,3 @@
-"""The concrete syntax catalog of the SELECT IR: HOW a `SelectQuery` is asked. A
-concrete syntax is two independent choices, and every applicable combination is an
-equivalent text:
-
-    axis       choice     the text
-    position   table      `FROM t [WHERE p]` (the base class: `FROM n1, n2, ...`, its
-                          subclass tables -- the engine has no inheritance)
-               poly       `FROM n1, n2, ... WHERE record::tb(id) = $cls [AND (p)]`
-               polyin     `FROM n1, n2, ... WHERE record::tb(id) IN $clsl [AND (p)]`
-    form       base       the kind's own text (an aggregate as a function over `SELECT VALUE`)
-               group_all  an aggregate or a count through the aggregate operator, `GROUP ALL`
-               order      `max(f)` / `min(f)` as the first row of `ORDER BY f DESC|ASC LIMIT 1`
-               jrev       a join's correlation reversed (`$parent.f > f` for `f < $parent.f`)
-
-The filter is the drawn predicate's own text (`predicate.render_predicate`). A data
-model's name is `<data model>:<tag>`, the tag the non-default choices joined by `+`
-(`graph:order+poly`); the base syntax is the same text on every data model.
-
-A join puts its correlated subquery in the projection: `(SELECT VALUE id FROM t WHERE
-f op $parent.f)`. An EDGE-TYPE target reads the edge table (graph) and the junction
-table (rel); the doc data model has no relationship table, so it renders `ids` and
-`count` alone, through the source records' link arrays -- and every data model then
-answers the relationship KEYS as a list (`record::id(id)`, the entry's `eid`).
-
-The TRANSACTION door wraps every syntax of a `tx` question the same way: `BEGIN
-TRANSACTION; <write>; LET $r = <text>; CANCEL TRANSACTION; RETURN $r;` -- a variable
-bound inside a cancelled transaction keeps its value (probed), so the pairs compare
-transaction views alike.
-
-Facts (probed 3.3.4): `GROUP BY` keeps a NONE key apart from a NULL one (the key is
-`k ?? NULL`); `count(f)` counts truthy values (`count(f IS NOT NONE AND f IS NOT NULL)`
-counts present ones); `math::sum` over a group skips missing values, over an array
-refuses them (the array is filtered); `ORDER BY` takes a projection alias; `LIMIT`
-precedes `START`.
-"""
 from __future__ import annotations
 
 import itertools

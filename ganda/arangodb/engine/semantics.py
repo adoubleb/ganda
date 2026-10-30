@@ -1,29 +1,5 @@
-"""AQL's value semantics (`ganda arangodb probe` checks them; the rules they mirror are
-in `rules/catalog.py`): the value order and equality the oracle and the state check
-compare answers under, and the arithmetic the generators and the guards walk the
-`Instance` with. How a scan answers a predicate is
-`concrete_syntax/query/predicate_sampling/predicate_steering.py`; the provider
-assembles both into the core's `Semantics` (`ArangoSemantics`). No answer is predicted
-from them.
-
-- **Order across types** is total: null < bool < number < string < array < object. So
-  a comparison never fails for an absent or null value: `null < 5` and `null <= 5`
-  hold, `null > 5` does not, `null != 5` holds, `null == null` holds. An absent
-  attribute reads as null; `HAS()` tells them apart.
-- **Numbers** are one type: `1 == 1.0`; a 64-bit integer compared with a double is
-  compared EXACTLY (`2^53 + 1 == 9007199254740992.0` is false, probed 2026-10-24). A stored `-0.0` is one value to comparison and two to hashing
-  (A1), which is why the generator stores none.
-- **Strings** compare for equality code point by code point (no Unicode
-  normalization); their ORDER is ICU collation, which Python does not reproduce, so
-  the generators' filters never hold an ordered comparison on a string column
-  (`predicate_sampling.ordered_ops`); `key` orders strings by code point for the oracle's own
-  canonical forms only. The model's DATETIME / DATE values are strings of one fixed
-  shape, on which ICU and code-point order agree digit by digit.
-- **Aggregates**: `MAX` / `MIN` skip null and answer null over nothing; `SUM` reads
-  null as 0 and answers 0 over nothing; `COUNT_DISTINCT` over nothing is 0; `AVERAGE`
-  and `MEDIAN` over nothing are null. Sums run in double: a sum is exact only over
-  integers whose absolute total stays under 2^53.
-"""
+"""AQL's value semantics: a total type order (null < bool < number < string < array <
+object), exact number comparison, code-point string equality, ICU string order."""
 from __future__ import annotations
 
 from typing import Any

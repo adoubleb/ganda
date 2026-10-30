@@ -1,44 +1,5 @@
-"""ArangoDB's engine rules (`ganda.core.rules`): what the fuzzer acts on so that it asks
-and compares only what the engine's execution paths answer alike. Its three data models
-speak one language, AQL, so a subject is an execution path: a collection scan (a FOR
-loop, its FILTER, COLLECT and the functions), the same statement served by a persistent
-index, the graph traversal operator, the path functions, a stream transaction and the
-REST document API. The probe facts that check the rules and reproduce the defects are
-in `checks.py` (`probe.py` runs them).
-
-The defects -- those that can make two data models differ: **A25** (the legacy port's,
-found again by this port's first campaign with the catalog: an OR of two whole-array
-equalities on a LIST attribute -- `replace-or-with-in` -- is served from the expanded array
-index's ELEMENT keys and answers nothing; withheld by `known_bugs/predicate.py` on the data
-models holding the index); **A42** (found by the large-scale
-campaign of 2026-10-24, seed 6: `LIKE` with a wildcard over a stored string of 125 000
-code points or more fails the query -- errorNum 1543, "invalid regex value": the `%` is
-spelled `(.|[\\r\\n])*`, which backtracks one frame per character into ICU's stack
-limit -- where `==`, `CONTAINS`, `STARTS_WITH` and `LENGTH` over the same value answer;
-withheld by `known_bugs/predicate.py` where a column the LIKE reads holds such a value, the
-large scale's grown strings); **A43** (a correlated strict bound served by a sparse
-persistent index loses the null and absent records; withheld there); **A40** (`NOT (x IN
-f)` rewritten into `x NOT IN f`, false over a null, absent or scalar `f`: retired
-2026-10-25 as alike on every data model, restored 2026-10-30 when the symmetric-design
-campaign found three placements that are not -- doc's `[* FILTER NOT (p)]` edge delete, a
-NOT over an AND / OR pushed into a traversal by `optimize-traversals`, and the same NOT
-pushed through by `use-indexes` on a pulled-up filter whose subquery one data model's
-form inlines; withheld by `known_bugs/write.py`
-and `known_bugs/traversal.py`); **A39** (the legacy port's, met again: `use-indexes`
-merges an integer constant with a double one or two ulps from it as one number and
-plans the conjunction as empty; withheld by `known_bugs/predicate.py`); **A44** (found by
-the same campaign: two `HAS` tests of an object holding a subquery result fail
-`use-indexes` with a 500; withheld by `known_bugs/traversal.py` on the pulled-up forms).
-Retired 2026-10-25, as unable to make two data models differ (each answers alike on
-every one): A1 and A2 (a stored `-0.0`: the pools still hold none) and A41 (a vertex
-filter moved into a traversal evaluated on the start vertex: the `IS_OBJECT` ternary
-stays). The legacy
-port's other findings (`../arangoDB/issue-drafts/`, A3..A38) are outside this surface
-(ArangoSearch views, MDI and geo indexes, the JavaScript door) or unreachable by
-construction: no ordered comparison on a string column (A9, A14, A34: `order.string` is
-collation), no `JoinNode` over a top-level two-loop (A20); A24's pair (an expanded index
-with `storedValues`) is never built.
-"""
+"""ArangoDB's engine rules and the defects (A25, A39, A40, A42, A43, A44) that can make
+two data models differ; `checks.py` maps the probe facts to them."""
 from __future__ import annotations
 
 import enum

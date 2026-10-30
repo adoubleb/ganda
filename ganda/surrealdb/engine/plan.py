@@ -1,8 +1,4 @@
-"""SurrealDB's setup-plan vocabulary: one step, `Surql`, a script of statements sent as
-one `/sql` request (`connection.SurrealSession.apply_setup`). Records are addressed by
-their record ids, which the mappers spell from the logical ids (`dialect.engine_id`), so
-a plan needs no `Ref`: the same text runs on every replay.
-"""
+"""SurrealDB's setup step `Surql`, a script sent as one `/sql` request; records are addressed by record id, so no `Ref`."""
 from __future__ import annotations
 
 from dataclasses import dataclass

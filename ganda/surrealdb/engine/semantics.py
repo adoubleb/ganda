@@ -1,25 +1,5 @@
-"""SurrealDB's value semantics (live-probed 3.3.4, `rules/probe.py`): the value order and
-equality the oracle and the state check compare answers under, and the arithmetic the
-generators and the guards walk the `Instance` with. How a scan answers a predicate is
-`concrete_syntax/query/predicate_sampling/predicate_steering.py`; the provider assembles
-both into the core's `Semantics` (`SurrealSemantics`). No answer is predicted from them.
-The rules:
-
-- **Order.** Values of different kinds are totally ordered: NONE < NULL < bool < number
-  < string < datetime < array < object. Numbers compare by value across int, float and
-  decimal (`1 = 1.0`, `0.1dec = 0.1`; `-0.0 = 0.0`). Strings compare by code point (a
-  Rust `String`; no collation, no normalization).
-- **Arithmetic.** `+` on two ints is refused past the 64-bit range (the statement
-  errors), where `math::sum` wraps silently (F26); decimals are exact to 28 digits;
-  floats are doubles. A null or absent operand is refused too (`null + 1` errors), so
-  no arithmetic is asked of a value that may be missing.
-- **Aggregates.** `math::sum([])` is 0, `math::max([])` / `math::min([])` / `math::mean([])`
-  are NONE; every one refuses a NULL or NONE element, so a sum is asked only over the
-  values present.
-- **Wire forms.** A decimal arrives as its text (`"1.5"`, `"5"` for `5.0dec`), a datetime
-  as ISO text (`"1970-01-01T00:00:00Z"`), bytes as a list of byte values; every data
-  model answers the same form, so nothing is canonicalized.
-"""
+"""SurrealDB's value order, equality and arithmetic (probed 3.3.4): NONE < NULL < bool < number < string < datetime < array < object.
+Integer `+` is refused past 64 bits and over a missing operand; aggregates refuse a NULL or NONE element."""
 from __future__ import annotations
 
 import math

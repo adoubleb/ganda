@@ -1,16 +1,7 @@
 #!/usr/bin/env python3
-"""Re-check every SurrealQL fact the fuzzer's design rests on, live, and exit non-zero
-if one has changed. Each check is one statement (or a few) with the expected answer
-observed on 3.3.4; the output names the rule a failing check checks, or the defect it
-reproduces, and the code reading it. A failing check of a rule (or of nothing in the
-catalog) fails the run; a defect that no longer reproduces is recorded as fixed on the
-build. A run in which every check of a rule holds writes `rules/baseline.json` and
-re-renders `RULES.md`.
+"""Re-check every SurrealQL fact the fuzzer rests on, live; a run where every rule holds writes `baseline.json` and `RULES.md`.
 
-    python3 -m ganda surrealdb probe                # Docker
-    SURREAL_URL=http://127.0.0.1:8000 python3 -m ganda surrealdb probe
-    python3 -m ganda surrealdb probe C4 C2          # some checks (an id or a prefix)
-"""
+    python3 -m ganda surrealdb probe [C4 C2]   # Docker, or SURREAL_URL=..."""
 from __future__ import annotations
 
 import pathlib

@@ -1,27 +1,5 @@
-"""The path IR in AQL: the vertex count of a shortest path between two records, through
-every path machinery each storage model has.
-
-    data model  variant   the text
-    graph  (base)   `SHORTEST_PATH @a TO @b`, its vertex count, cut at the bound
-           ksp      the first of `K_SHORTEST_PATHS`
-           asp      the first of `ALL_SHORTEST_PATHS`
-           bfs      the first hit of a `0..k` traversal under `order: 'bfs',
-                    uniqueVertices: 'global'`
-           walk     `MIN` over the default (depth-first, path-unique) `0..k` traversal
-    doc    (base)   the frontier per depth out of the link arrays (`DOCUMENT()`-free:
-                    the source joined on `_id`); an incoming step scans the sources
-                    whose array holds a frontier record
-           join     the frontier dereferenced through the target collection
-    rel    (base)   the frontier per depth out of the junction (logical ids)
-           deref    each step joined through the node collection's `id` index
-
-The answer is one row holding the path's VERTEX count (the hop count plus one), or NO
-row when the goal is unreachable or farther than the bound (every form is wrapped to
-answer nothing there: a `FILTER` on the computed count). Every graph form answers one
-vertex for the start itself. The bind variables are the endpoints as engine ids (`a`,
-`b`: what the graph functions and the link arrays hold) and as logical ids (`la`, `lb`:
-what the junction holds); the session passes each text the names it uses.
-"""
+"""The path IR in AQL: the shortest path's vertex count, or no row when the goal is
+unreachable or beyond the bound."""
 from __future__ import annotations
 
 from ganda.core.query.ir.path import PathQuery

@@ -1,20 +1,5 @@
-"""The setup steps of ArangoDB's data models and what the three mappings share.
-
-The steps are `engine/plan.py`'s.
-
-**No engine id appears in a plan as something to capture.** A document's `_key` is a
-function of its logical id (`dialect.document_key`), so `_from`, `_to` and a link's
-`target` are known before anything is written, and a plan is the same text on every
-replay. The data steps are chunked (`insert_steps`): at most `WriteForm.chunk_size`
-documents per request (the `statements_per_request` axis; the whole collection when 0)
-and always under half the request bound (`ganda.arangodb.engine.limits`).
-
-What the three data models share: the node documents (byte-identical values, the
-logical `id` on every one), the churn discipline (initial values first, then the update
-to the final ones through the data model's drawn form; churned relationships written
-then removed; churned-away nodes removed with the per-model cascade -- the engine
-removes no incident edge on its own), the write forms and the cancelled-junk block.
-"""
+"""The setup steps the three ArangoDB mappings share. No engine id is captured: a `_key`
+is a function of the logical id, so a plan is the same text on every replay."""
 from __future__ import annotations
 
 import base64
@@ -163,16 +148,8 @@ def insert_steps(docs_by_collection: dict, form: WriteForm) -> list:
 
 
 def node_update_steps(instance: Instance, form: WriteForm, extras: "dict | None" = None) -> list:
-    """NodeUpdate churn: from the initial values the node was written with to its final
-    `values`, through the data model's drawn update form. A whole-document form
-    (REPLACE / PUT / `overwriteMode: replace`) carries `extras` (record id -> the
-    attributes the data model keeps on the document besides its values: the doc data
-    model's link arrays as they stand) so it does not wipe the relationship. A merging
-    form (UPDATE / PATCH / UPSERT) unsets the fields the final state lacks in a separate
-    `keepNull: false` step: folded into the final write it would strip an explicit
-    final null too, and `HAS()` tells the two apart. Every merging form carries
-    `mergeObjects: false`: AQL's default merges a map VALUE key by key into the stored
-    one, so a map that lost a key would keep it (found live, seed 2 of the first smoke)."""
+    """NodeUpdate churn to the final `values` through the drawn form: a whole-document form
+    keeps `extras`, a merging one unsets dropped fields in a separate `keepNull: false` step."""
     steps = []
     extras = extras or {}
     for op in instance.churn:
@@ -352,15 +329,8 @@ def _bulk(sig, chunk: list):
 
 
 def fold_steps(data: list, size: int) -> list:
-    """The churn's statements folded into bulk ones: every run of statements of ONE
-    shape (the same text, or the same document-API call) becomes `FOR r IN @rows
-    <statement over r.key, r.doc, ...>` (or one bulk PATCH / PUT) of at most `size`
-    documents, emitted where the shape first occurred. Statements of different shapes
-    keep their relative order, and the statements of one shape address distinct
-    documents, so what each document goes through is the sequence it went through
-    before (a dropped-fields step before its final one, an update before a removal).
-    The engine's own bulk door, where a plan of a hundred thousand single statements
-    (a hundred thousand requests) is what a large instance would otherwise be."""
+    """The churn's statements folded into bulk ones of at most `size` documents per run of one
+    shape; every document goes through the same sequence as before."""
     groups: dict = {}
     slots: list = []
     for step in data:

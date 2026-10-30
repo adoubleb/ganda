@@ -1,27 +1,5 @@
-"""SurrealDB's connection layer: a server in Docker and one HTTP session per database.
-
-Statements go to `POST /sql` as text. A session selects its namespace and database
-with a `USE` preamble on every request (the server keeps no session state over HTTP)
-and drops that statement's result. Every data model of a seed is a DATABASE of the one
-namespace `ganda`.
-
-A case's bind variables travel as a `LET $name = <literal>;` prelude (`dialect.surql_literal`
-renders a plain value; a typed constant -- a datetime, a decimal, a byte string -- is
-written into the text as a literal by the renderers, since a `LET` carries no column
-type). Rows come back with `id` as the logical id (`dialect.logical_id`); every other
-record id in an answer stays the engine's text, the same on every data model.
-
-Three error classes:
-- `EngineError`: the server understood the request and rejected a statement (a parse
-  error, a unique-index violation, a type coercion). `internal` marks a message the
-  catalog's error classes read as a fault inside the engine; `timeout` marks a statement
-  the engine stopped at its `TIMEOUT` or a request the transport gave up on while the
-  server still answers (no answer, not a rejection: the oracle leaves it out).
-- `EngineCrash`: the server could not be talked to at all, or answered 5xx.
-A statement inside a cancelled transaction reports "not executed due to a cancelled
-transaction": that is the CANCEL's doing, not a rejection, and a `LET` bound inside the
-transaction keeps its value for a `RETURN` after the CANCEL (the read door, probed).
-"""
+"""SurrealDB's connection layer: a server in Docker, one `/sql` session per database (a `USE` preamble, binds as a `LET` prelude).
+`EngineError` is a rejected statement (`internal` / `timeout` mark faults and timeouts); `EngineCrash` an unreachable server or a 5xx."""
 from __future__ import annotations
 
 import json

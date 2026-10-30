@@ -1,19 +1,5 @@
-"""Re-check live the ArangoDB facts the provider rests on (`ganda arangodb probe`), each
-with an id: the value semantics (`V`), the statement forms the renderers emit (`S`), the
-write doors (`W`), the limits the large scale walks into (`L`), the timeout (`T`) and the
-defects pinned as current behaviour (`A`). `rules/checks.py` lists the rules each fact
-checks and the defects it reproduces; a failing fact prints them with the code reading
-them. A failing fact of a rule (or of nothing in the catalog) fails the run: the
-provider changes, never the probe -- unless the probe's own AQL tested a form the
-provider never emits. A defect that no longer reproduces is a bug fixed on the build,
-recorded, not failed. A run in which every fact of a rule holds writes
-`rules/baseline.json` (the build, the facts that held, the defects fixed there) and
-re-renders `rules/RULES.md`. Exit code: 1 when a fact of a rule failed.
-
-    python3 -m ganda arangodb probe            # a disposable server in Docker
-    python3 -m ganda arangodb probe V S        # a subset (ids or prefixes)
-    ARANGO_URL=http://127.0.0.1:8529 ARANGO_PASSWORD=... python3 -m ganda arangodb probe
-"""
+"""Re-check live the ArangoDB facts the provider rests on (`ganda arangodb probe [ids]`);
+a failing fact of a rule fails the run."""
 from __future__ import annotations
 
 import base64

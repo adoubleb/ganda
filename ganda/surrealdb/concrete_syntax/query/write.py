@@ -1,30 +1,3 @@
-"""The concrete syntax catalog of the WRITE IR: HOW each data model issues a `WriteQuery`.
-A write runs ONCE per database, so a case does not carry variants: the data models
-share the target and the door, each with its own form, and the answers and the
-resulting states are compared with each other. Every data model's statement states the
-filter, so the engine chooses the records on each (the Instance with the write applied
-steers later draws only). The choices:
-
-    axis     choice    the text
-    target   table     `UPDATE t ... WHERE p`
-             sub       `UPDATE t ... WHERE id IN (SELECT VALUE id FROM t WHERE p)`: the
-                       records chosen before any is written
-    door     auto      auto-committed statements
-             tx        `BEGIN TRANSACTION; ...; LET $r = <write>; COMMIT TRANSACTION; RETURN $r`
-    form     closure   the doc data model's relationship write: each source's link array
-                       rebuilt in the engine, `array::map(e ?? [], |$l| IF p($l) THEN $l + {f:
-                       v} ELSE $l END)`, a delete as `array::filter(e ?? [], |$l| NOT (p($l)))`
-
-Per data model: a node delete is `DELETE t WHERE p`, and its cascade is the engine's own
-on the graph data model (a record's relations go with it), `DELETE e WHERE src IN (...)
-OR dst IN (...)` first on the rel data model, and on the doc data model `e = (e ??
-[])[WHERE target.id IS NOT NONE]` on every source after the delete (a link to a deleted
-record reads NONE). A node update on the base class writes every subclass table in one
-statement (`UPDATE n1, n2 ...`). The answer is `{ count: array::len((<write>)) }`, or the
-matched records' `id` and the field before / after the write (`RETURN id, $before.f AS
-v`); the doc data model's relationship write counts the matching links before the
-rewrite.
-"""
 from __future__ import annotations
 
 import random
