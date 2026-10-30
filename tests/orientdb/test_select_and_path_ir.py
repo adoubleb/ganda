@@ -118,10 +118,12 @@ def test_edge_target_doc_syntax():
     assert render_select(q, schema, BASE, t, "doc") == "SELECT v AS id FROM (SELECT v FROM (SELECT e1[w > :p].eid AS v FROM n1 UNWIND v) WHERE v IS NOT NULL)"
     assert not applicable(q, schema, SelectSyntax(position="poly"), t, "graph")
     page = SelectQuery("e1", None, "page", ("w",), directions=("DESC",), limit=2, edge=True)
-    assert not applicable(page, schema, BASE, t, "doc")
     assert render_select(page, schema, BASE, t, "rel") == "SELECT eid AS id FROM e1 ORDER BY w DESC, eid ASC SKIP 0 LIMIT 2"
+    # every other kind over the links unwound into rows
+    assert render_select(page, schema, BASE, t, "doc") == "SELECT l.eid AS id FROM (SELECT e1 AS l FROM n1 UNWIND l) WHERE l IS NOT NULL ORDER BY l.w DESC, l.eid ASC SKIP 0 LIMIT 2"
+    assert not applicable(page, schema, SelectSyntax(form="order"), t, "doc")
     c = build_case(page, random.Random(1), schema, inst)
-    assert c.params["partial"] and "doc" not in c.queries and {"graph", "rel"} <= set(c.queries)
+    assert not c.params.get("partial") and {"doc", "graph", "rel"} <= set(c.queries)
 
 
 # --- the transaction door ---------------------------------------------------------------------

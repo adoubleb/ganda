@@ -212,6 +212,12 @@ def _ci_column(schema: Schema, table: str, field_name: str, edge: bool = False) 
         return False
 
 
+def o25_embedded(p) -> bool:
+    """A filter over the doc data model's link documents, which are undeclared and keep no
+    collation: a leaf on a `ci` attribute compares case-sensitively (O25)."""
+    return any(leaf.case_insensitive for leaf in _leaves(p))
+
+
 works_around("O21")
 
 

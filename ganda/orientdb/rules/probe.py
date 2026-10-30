@@ -621,6 +621,52 @@ def main() -> int:
         reach = {st: sorted(col(s, f"SELECT id AS v FROM (TRAVERSE out('q44e') FROM (SELECT FROM q44 WHERE id = '0') MAXDEPTH 3{st})")) for st in ("", " STRATEGY DEPTH_FIRST", " STRATEGY BREADTH_FIRST")}
         check("C318", "O44: TRAVERSE MAXDEPTH 3 depth-first (the default) expands the start's last neighbour first, meets `x` at depth 3 through 0-a-y-x before 0-b-x and never expands it, missing `z`; breadth-first is complete",
               (reach[""], reach[" STRATEGY DEPTH_FIRST"], reach[" STRATEGY BREADTH_FIRST"]), (["0", "a", "b", "x", "y"], ["0", "a", "b", "x", "y"], ["0", "a", "b", "x", "y", "z"]))
+
+        print("--- the frame grid's filled holes: doc's reach through TRAVERSE, the level union on graph and doc")
+        # qzd: A -> B, B -> C and B -> B, C -> D (C314's link lists; C310's d0..d2 beside them)
+        docreach = "SELECT id, $t.id.asSet() AS v FROM qzd LET $t = (SELECT FROM (TRAVERSE e1, target FROM $parent.$current MAXDEPTH {k} STRATEGY BREADTH_FIRST))"
+        check("C344", "the doc side's reach through TRAVERSE over its link lists rooted at `$parent.$current` (a scanned outer query): a link document adds no depth and answers no row, so the reach set is the records within k hops, as the path union's",
+              tuple([sorted(r["v"]) for r in sorted(rows(s, docreach.format(k=k)), key=lambda r: r["id"]) if r["id"] in ("A", "B", "C", "D")] for k in (1, 2)),
+              ([["A", "B"], ["B", "C"], ["C", "D"], ["D"]], [["A", "B", "C"], ["B", "C", "D"], ["C", "D"], ["D"]]))
+        glv = ["(SELECT 0 AS d FROM q44 WHERE id = :a AND id = :b)", "(SELECT 1 AS d FROM q44e WHERE out.id = :a AND in.id = :b)",
+               "(SELECT 2 AS d FROM q44e WHERE out.id IN (SELECT in.id FROM q44e WHERE out.id = :a) AND in.id = :b)",
+               "(SELECT 3 AS d FROM q44e WHERE out.id IN (SELECT in.id FROM q44e WHERE out.id IN (SELECT in.id FROM q44e WHERE out.id = :a)) AND in.id = :b)"]
+        links = "(SELECT id AS src_id, e1.target.id AS dst_id FROM qzd UNWIND dst_id)"
+        dlv = ["(SELECT 0 AS d FROM qzd WHERE id = :a AND id = :b)", f"(SELECT 1 AS d FROM {links} WHERE src_id = :a AND dst_id = :b)",
+               f"(SELECT 2 AS d FROM {links} WHERE src_id IN (SELECT dst_id FROM {links} WHERE src_id = :a) AND dst_id = :b)",
+               f"(SELECT 3 AS d FROM {links} WHERE src_id IN (SELECT dst_id FROM {links} WHERE src_id IN (SELECT dst_id FROM {links} WHERE src_id = :a)) AND dst_id = :b)"]
+
+        def levels(lv, a, b):
+            return col(s, "SELECT min(d) + 1 AS v FROM (SELECT expand($c) LET " + ", ".join(f"$l{i} = {x}" for i, x in enumerate(lv)) + ", $c = unionall($l0, $l1, $l2, $l3))", {"a": a, "b": b})
+
+        check("C345", "the level union over the E class (`out.id IN (SELECT in.id ...)`: a dotted link's projection in an IN subquery) and over the doc side's links unwound into (source, target) rows answers the hop count + 1 within the bound, nothing beyond",
+              ([levels(glv, "0", b) for b in ("0", "x", "z")], levels(glv, "z", "0"), [levels(dlv, "A", b) for b in ("A", "C", "D")], levels(dlv, "D", "A")),
+              ([[1], [3], [4]], [], [[1], [3], [4]], []))
+        s.sql("CREATE INDEX q44_id ON q44 (id) UNIQUE")
+        s.sql("CREATE INDEX qzd_id ON qzd (id) UNIQUE")
+        check("C346", "O1 (breadth-first face): a BREADTH_FIRST TRAVERSE rooted at `$parent.$current` under an index-served outer query is a NoSuchElementException (depth-first answers nothing, C41)",
+              (err(s, "SELECT id, $t.id AS v FROM q44 LET $t = (SELECT FROM (TRAVERSE out('q44e') FROM $parent.$current MAXDEPTH 1 STRATEGY BREADTH_FIRST)) WHERE id = '0'"),
+               err(s, "SELECT id, $t.id AS v FROM qzd LET $t = (SELECT FROM (TRAVERSE e1, target FROM $parent.$current MAXDEPTH 1 STRATEGY BREADTH_FIRST)) WHERE id = 'A'")),
+              ("internal:other", "internal:other"))
+
+        print("--- the frame grid's filled holes: doc's edge-type select over its links unwound into rows")
+        s.sql("CREATE CLASS q51")
+        s.sql('INSERT INTO q51 CONTENT {"id": "A", "e": [{"eid": "a", "w": 1, "s": "b"}, {"eid": "c", "w": 1099511627776}]}')
+        s.sql('INSERT INTO q51 CONTENT {"id": "B", "e": [{"eid": "z", "w": -3, "s": "a"}]}')
+        s.sql('INSERT INTO q51 CONTENT {"id": "C"}')
+        s.sql('INSERT INTO q51 CONTENT {"id": "D", "e": []}')
+        u51 = "FROM (SELECT e AS l FROM q51 UNWIND l) WHERE l IS NOT NULL"
+        check("C348", "the links unwound into rows (`SELECT e AS l FROM src UNWIND l`, an absent or empty list a null row) answer one row per link document, its fields as `l.f`, its keys telling which are present",
+              (sorted(col(s, f"SELECT l.eid AS v {u51}")), col(s, f"SELECT count(*) AS v {u51}"), sorted(col(s, f"SELECT l.eid AS v {u51} AND l.keys() CONTAINS 's'")),
+               sorted((r["k"] or "", r["v"]) for r in rows(s, f"SELECT l.s AS k, count(*) AS v {u51} GROUP BY l.s"))),
+              (["a", "c", "z"], [3], ["a", "z"], [("", 1), ("a", 1), ("b", 1)]))
+        s.sql("CREATE CLASS q51c")
+        for k, v in [("a", 1), ("c", 2**40), ("z", -3)]:
+            s.sql("INSERT INTO q51c SET id = :k, w = :v", {"k": k, "v": v})
+        check("C347", "O51: ORDER BY over a key mixing Integer and Long does not sort (`Integer.compareTo(Long)` throws, read as equal) -- over the unwound links and over an undeclared class field alike, both directions; `asLong()` sorts, `max` / `min` over the rows are right",
+              (col(s, f"SELECT l.eid AS v {u51} ORDER BY l.w ASC"), col(s, f"SELECT l.eid AS v {u51} ORDER BY l.w DESC"), col(s, "SELECT id AS v FROM q51c ORDER BY w ASC"), col(s, "SELECT id AS v FROM q51c ORDER BY w DESC"),
+               col(s, f"SELECT l.eid AS v, l.w.asLong() AS x {u51} ORDER BY x ASC"), [(r["a"], r["b"]) for r in rows(s, f"SELECT max(l.w) AS a, min(l.w) AS b {u51}")]),
+              (["a", "c", "z"], ["a", "c", "z"], ["a", "c", "z"], ["a", "c", "z"], ["z", "a", "c"], [(2**40, -3)]))
         for q in ["CREATE CLASS q5 ABSTRACT", "CREATE PROPERTY q5.b1 BOOLEAN", "CREATE PROPERTY q5.m EMBEDDEDMAP LONG",
                   "CREATE CLASS q5a EXTENDS q5", "CREATE PROPERTY q5a.f1 DATE", "CREATE PROPERTY q5a.f2 DATETIME",
                   "CREATE CLASS q5b EXTENDS q5", "CREATE PROPERTY q5b.f1 BOOLEAN", "CREATE PROPERTY q5b.f2 EMBEDDEDLIST LONG",

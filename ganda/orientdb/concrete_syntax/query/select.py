@@ -33,9 +33,11 @@ as it reads the base class's).
 
 An EDGE-TYPE target reads `eid AS id` from the graph E class and the junction class
 (the `table` position); the doc data model has no relationship
-class, so it renders `ids` and `count` alone, through the source records' embedded
+class: it renders `ids` and `count` through the source records' embedded
 link lists -- `SELECT v AS id FROM (SELECT e[p].eid AS v FROM src UNWIND v) WHERE v
-IS NOT NULL` (a bracket filter is never index-served, so the positions are one).
+IS NOT NULL` (a bracket filter is never index-served, so the positions are one); every
+other kind is the kind's text over the link documents unwound into rows
+(`render_unwound`: `FROM (SELECT e AS l FROM src UNWIND l)`, a link the record).
 
 The TRANSACTION door wraps every concrete syntax of a `tx` question the same way:
 `BEGIN; <write>; LET $r = (<text> TIMEOUT ...); ROLLBACK; RETURN $r`, the write
@@ -55,8 +57,9 @@ import itertools
 import random
 from dataclasses import dataclass, field
 
-from ganda.core.data.model import Instance, Schema
+from ganda.core.data.model import FieldType, Instance, Schema
 from ganda.orientdb.concrete_syntax.query.predicate import render_predicate as render_pred
+from ganda.orientdb.concrete_syntax.query.scope import CURRENT, RECORD, Path
 from ganda.core.query.ir.predicates import MIRROR
 from ganda.orientdb.concrete_syntax.query.support import METHODS  # noqa: F401 -- the method catalog
 from ganda.core.query.ir.select import DOC_EDGE_KINDS, SelectQuery, notnull_fields
@@ -104,7 +107,7 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
     if q.edge:
         if sp.position in ("poly", "polyin"):
             return False
-        if data_model == "doc" and (q.kind not in DOC_EDGE_KINDS or sp.position != "table" or sp.form != "base"):
+        if data_model == "doc" and (sp.position != "table" or sp.form != "base"):
             return False
     if sp.form == "jrev" and q.kind != "join":
         return False
@@ -119,10 +122,7 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
 
 
 def base_data_models(q: SelectQuery) -> tuple:
-    """The data models the question has a concrete syntax on (the doc data model lacks an edge
-    type's kinds beyond `ids` / `count`)."""
-    if q.edge and q.kind not in DOC_EDGE_KINDS:
-        return ("graph", "rel")
+    """The data models the question has a concrete syntax on: every one."""
     return ("doc", "graph", "rel")
 
 
@@ -133,14 +133,20 @@ def syntaxes_for(q: SelectQuery, schema: Schema, rewrites: Rewrites, data_model:
 # --- rendering -------------------------------------------------------------------------------
 
 
-def _filter_text(q: SelectQuery) -> "str | None":
-    return None if q.where is None else render_pred(q.where)
+# the record a select reads: a node, an edge type's record on the graph E class and the
+# junction class (`eid`), doc's link document unwound into a row (`render_unwound`)
+EDGE = Path(identity="eid")
+LINK = Path("l.", "eid", element=True)
 
 
-def _where_text(q: SelectQuery, sp: SelectSyntax) -> "str | None":
+def _filter_text(q: SelectQuery, at: Path = RECORD) -> "str | None":
+    return None if q.where is None else render_pred(q.where, at)
+
+
+def _where_text(q: SelectQuery, sp: SelectSyntax, at: Path = RECORD) -> "str | None":
     """The concrete syntax's filter text with its `IS NOT NULL` conjuncts."""
-    pred = _filter_text(q)
-    extra = [f"{f} IS NOT NULL" for f in notnull_fields(q, sp.form)]
+    pred = _filter_text(q, at)
+    extra = [f"{at.field(f)} IS NOT NULL" for f in notnull_fields(q, sp.form)]
     if pred is None:
         return " AND ".join(extra) or None
     return " AND ".join([f"({pred})" if extra else pred] + extra)
@@ -162,8 +168,10 @@ def _source(q: SelectQuery, schema: Schema, sp: SelectSyntax, where: "str | None
 
 
 def _join_let(q: SelectQuery, sp: SelectSyntax) -> str:
+    # `n` is the LET's record, `x` the enclosing one it is joined with
     f, op = q.field, q.fn
-    cond = f"$parent.$current.{f} {MIRROR[op]} {f}" if sp.form == "jrev" else f"{f} {op} $parent.$current.{f}"
+    x = Path(CURRENT).field(f)
+    cond = f"{x} {MIRROR[op]} {f}" if sp.form == "jrev" else f"{f} {op} {x}"
     return f"LET $m = (SELECT id FROM {q.table} WHERE {cond})"
 
 
@@ -186,8 +194,8 @@ def _doc_edge(q: SelectQuery, schema: Schema) -> str:
 # the `set` form carries no IS NOT NULL: set() drops nulls
 
 
-def _agg_text(q: SelectQuery, sp: SelectSyntax, src: str) -> str:
-    f = q.field
+def _agg_text(q: SelectQuery, sp: SelectSyntax, src: str, at: Path = RECORD) -> str:
+    f = at.field(q.field)
     if sp.form == "order":
         return f"SELECT {f} AS v {src} ORDER BY {f} {'DESC' if q.fn == 'max' else 'ASC'} LIMIT 1"
     if sp.form == "set":
@@ -220,10 +228,16 @@ def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites,
 
 def _render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str) -> str:
     if q.edge and data_model == "doc":
-        return _doc_edge(q, schema)
+        return _doc_edge(q, schema) if q.kind in DOC_EDGE_KINDS else render_unwound(q, schema)
+    src = _source(q, schema, sp, _where_text(q, sp), _join_let(q, sp) if q.kind == "join" else "")
+    return _kind_text(q, sp, src, EDGE if q.edge else RECORD)
+
+
+def _kind_text(q: SelectQuery, sp: SelectSyntax, src: str, at: Path) -> str:
+    """The kind's text over `src`, the record `at` names."""
     kind = q.kind
-    src = _source(q, schema, sp, _where_text(q, sp), _join_let(q, sp) if kind == "join" else "")
-    rid = "eid AS id" if q.edge else "id"
+    rid = at.id if at.id == "id" else f"{at.id} AS id"
+    f = at.field(q.field) if q.fields else None
     if kind == "join":
         return f"SELECT id, {'$m.size()' if q.arg == 'count' else '$m.id'} AS v {src}"
     if kind == "ids":
@@ -231,26 +245,45 @@ def _render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites
     if kind == "count":
         return f"SELECT count(*) AS v {src}"
     if kind == "field":
-        return f"SELECT {rid}, {q.field} AS v {src}"
+        return f"SELECT {rid}, {f} AS v {src}"
     if kind == "method":
-        return f"SELECT {rid}, {q.fn.format(f=q.field)} AS v {src}"
+        return f"SELECT {rid}, {q.fn.format(f=f)} AS v {src}"
     if kind == "agg":
-        return _agg_text(q, sp, src)
+        return _agg_text(q, sp, src, at)
     if kind == "group":
-        keys = ", ".join(f"{k} AS {name}" for k, name in zip(q.fields, ("k", "k2")))
-        value = "count(*)" if q.fn == "count_star" else f"{q.fn}({q.arg})"
-        return f"SELECT {keys}, {value} AS v {src} GROUP BY {', '.join(q.fields)}"
+        keys = ", ".join(f"{at.field(k)} AS {name}" for k, name in zip(q.fields, ("k", "k2")))
+        value = "count(*)" if q.fn == "count_star" else f"{q.fn}({at.field(q.arg)})"
+        return f"SELECT {keys}, {value} AS v {src} GROUP BY {', '.join(at.field(k) for k in q.fields)}"
     if kind == "distinct":
-        cols = ", ".join(f"{f} AS {name}" for f, name in zip(q.fields, ("v", "w")))
+        cols = ", ".join(f"{at.field(k)} AS {name}" for k, name in zip(q.fields, ("v", "w")))
         return f"SELECT DISTINCT {cols} {src}"
     if kind == "page":
-        tie = "eid" if q.edge else "id"
-        return f"SELECT {rid} {src} ORDER BY {q.field} {q.directions[0]}, {tie} ASC SKIP {q.skip} LIMIT {q.limit}"
+        return f"SELECT {rid} {src} ORDER BY {f} {q.directions[0]}, {at.id} ASC SKIP {q.skip} LIMIT {q.limit}"
     if kind == "keys":
-        cols = ", ".join(f"{k} AS {'ab'[i]}" for i, k in enumerate(q.fields))
-        order = ", ".join(f"{k} {d}" for k, d in zip(q.fields, q.directions))
+        cols = ", ".join(f"{at.field(k)} AS {'ab'[i]}" for i, k in enumerate(q.fields))
+        order = ", ".join(f"{at.field(k)} {d}" for k, d in zip(q.fields, q.directions))
         return f"SELECT {cols} {src} ORDER BY {order}" + (f" SKIP {q.skip}" if q.skip else "") + (f" LIMIT {q.limit}" if q.limit else "")
     raise ValueError(kind)
+
+
+assumes("unwind.embedded_document.row_per_document", SQL, True)
+assumes("arithmetic.as_long.exact", SQL, True)
+
+
+def render_unwound(q: SelectQuery, schema: Schema) -> str:
+    """The doc data model's edge-type select of a kind beyond `ids` / `count`: the
+    select_edges frame over the source class's link documents unwound one row per
+    link, a link the record (`LINK`: `l.f`, `l.eid`, its definedness through its keys)
+    -- `FROM (SELECT e AS l FROM src UNWIND l) WHERE l IS NOT NULL [AND p]` (an empty
+    or absent list unwinds to a null row)."""
+    et = schema.edge_type(q.table)
+    where = _where_text(q, BASE, LINK)
+    src = f"FROM (SELECT {et.name} AS l FROM {et.from_type} UNWIND l) WHERE l IS NOT NULL" + (f" AND {where}" if where else "")
+    if q.kind == "method" and schema.field(q.table, q.field, edge=True).type is FieldType.INT:
+        # an undeclared INT holds a value within 32 bits as an Integer, whose
+        # arithmetic wraps (`* 2`, `math_abs(-2^31)`): read as the LONG the others declare
+        return f"SELECT {LINK.id} AS id, {q.fn.format(f=LINK.field(q.field) + '.asLong()')} AS v {src}"
+    return _kind_text(q, BASE, src, LINK)
 
 
 # --- the per-case material ------------------------------------------------------------
