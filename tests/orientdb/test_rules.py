@@ -25,15 +25,16 @@ def test_the_catalog_is_well_formed_and_its_checks_name_probe_checks():
     assert validate(CATALOG, set(_probe_ids())) == []
 
 
-def test_the_defects_are_o1_to_o51_but_the_retired_each_reproduced_by_a_probe_check():
+def test_the_defects_are_o1_to_o51_but_the_retired_and_unguarded_each_reproduced_by_a_probe_check():
     # O3: the `index:` door is no longer asked; O4: fixed in 3.2.57; O30: the null rows
     # under arithmetic matter only against the plain filter, which is no longer compared
     # O11, O28, O33: they answer alike on every data model (two guards-off campaigns:
     # 0 failing of 85-258 compared pairs each)
     # O32: its failing pairs were other defects underneath
-    # O47-O50: issue drafts no question of Ganda's meets, so no guard reads them
-    retired = {"O3", "O4", "O11", "O28", "O29", "O30", "O32", "O33", "O34", "O42", "O47", "O48", "O49", "O50"}
-    assert [d.id for d in CATALOG.defects] == [f"O{n}" for n in range(1, 52) if f"O{n}" not in retired]
+    retired = {"O3", "O4", "O11", "O28", "O29", "O30", "O32", "O33", "O34", "O42"}
+    # issue drafts no question of Ganda's meets, so no guard reads them
+    unguarded = {"O47", "O48", "O49", "O50"}
+    assert [d.id for d in CATALOG.defects] == [f"O{n}" for n in range(1, 52) if f"O{n}" not in retired | unguarded]
     assert CATALOG.unreproduced() == []
 
 

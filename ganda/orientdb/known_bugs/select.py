@@ -12,7 +12,7 @@ from ganda.core.query.ir.predicates import Predicate
 from ganda.core.rules.vocabulary import StringOrder
 from ganda.orientdb.rules import assumes, works_around
 from ganda.orientdb.rules.catalog import SQL, SQL_INDEX
-from ganda.orientdb.known_bugs.predicate import _any_indexed, _column_type, _composite_members, _converts, _field_indexes, _int32, _leaves, _mixed_boxes, _plain, edge_case_known, list_ops_known, node_case_known, o39_predicate
+from ganda.orientdb.known_bugs.predicate import _any_indexed, _column_type, _composite_members, _converts, _field_indexes, _int32, _leaves, _mixed_boxes, _plain, edge_case_known, list_ops_known, node_case_known, o25_embedded, o39_predicate
 
 
 works_around("O18")
@@ -390,7 +390,7 @@ def unwound_known(q, schema: Schema, instance: Instance) -> "str | None":
         fid = edge_case_known(q.table, q.where, schema, instance).get("doc")
         if fid:
             return fid
-        if any(leaf.case_insensitive for leaf in _leaves(q.where)):
+        if o25_embedded(q.where):
             return "O25"
     used = set(q.fields) | ({q.arg} if q.kind == "group" and q.arg else set())
     if q.kind in ("group", "distinct", "page", "keys", "agg") and any(column(schema, q, f).case_insensitive for f in used):

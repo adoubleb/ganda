@@ -660,12 +660,6 @@ def main() -> int:
               (sorted(col(s, f"SELECT l.eid AS v {u51}")), col(s, f"SELECT count(*) AS v {u51}"), sorted(col(s, f"SELECT l.eid AS v {u51} AND l.keys() CONTAINS 's'")),
                sorted((r["k"] or "", r["v"]) for r in rows(s, f"SELECT l.s AS k, count(*) AS v {u51} GROUP BY l.s"))),
               (["a", "c", "z"], [3], ["a", "z"], [("", 1), ("a", 1), ("b", 1)]))
-        s.sql("CREATE CLASS q51m")
-        s.sql('INSERT INTO q51m CONTENT {"id": "E", "e": [{"eid": "m", "w": -2147483648}]}')
-        um = "FROM (SELECT e AS l FROM q51m UNWIND l) WHERE l IS NOT NULL"
-        check("C349", "an undeclared attribute within 32 bits is an Integer, whose arithmetic wraps (`math_abs(-2^31)` is -2^31, `* 2` 0); read through `asLong()` it takes LONG arithmetic",
-              (col(s, f"SELECT math_abs(l.w) AS v {um}"), col(s, f"SELECT l.w * 2 AS v {um}"), col(s, f"SELECT math_abs(l.w.asLong()) AS v {um}"), col(s, f"SELECT l.w.asLong() * 2 AS v {um}")),
-              ([-(2**31)], [0], [2**31], [-(2**32)]))
         s.sql("CREATE CLASS q51c")
         for k, v in [("a", 1), ("c", 2**40), ("z", -3)]:
             s.sql("INSERT INTO q51c SET id = :k, w = :v", {"k": k, "v": v})

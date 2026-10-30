@@ -84,10 +84,8 @@ def render_predicate(p, at: Path = RECORD) -> str:
     return f"{expr} {sql_op(p.op)} {_constant(p)}"
 
 
-def condition(p, at=RECORD) -> "tuple[str, tuple]":
-    """(text, lets): the predicate over the record `at` names, and the LET bindings the
-    text needs (a `Lookup`'s). A `Semijoin` or a `Lookup` takes the predicate rendered
-    over its subquery's own record."""
-    if isinstance(at, Path):
-        return render_predicate(p, at), ()
+def condition(p, at) -> "tuple[str, tuple]":
+    """(text, lets): the predicate over the record a `Semijoin` or a `Lookup` names, and
+    the LET bindings the text needs (a `Lookup`'s); it is rendered over the subquery's
+    own record."""
     return at.condition(render_predicate(p))

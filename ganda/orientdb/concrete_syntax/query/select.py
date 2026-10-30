@@ -267,8 +267,7 @@ def _kind_text(q: SelectQuery, sp: SelectSyntax, src: str, at: Path) -> str:
 
 
 assumes("unwind.embedded_document.row_per_document", SQL, True)
-# an Integer read through `asLong()` takes LONG arithmetic
-assumes("method.as_long.widens_integer", SQL, True)
+assumes("arithmetic.as_long.exact", SQL, True)
 
 
 def render_unwound(q: SelectQuery, schema: Schema) -> str:

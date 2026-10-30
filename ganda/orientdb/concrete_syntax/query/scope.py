@@ -1,8 +1,6 @@
 """The scope of a rendering: the text that stands for a record the IR names -- the
 source record, a hop's target or edge, a select's or a write's record, the record a
-correlated subquery is asked for -- at one position of a frame (`frames.py`: the frame
-is the text every data model shares, the model-specific part the slot a data model
-fills, the scope what the IR's names are there).
+correlated subquery is asked for -- at one position of a frame (`frames.py`).
 
     ref        stands for                                    e.g.
     Path       a record reached by a prefix: its field `f`   `f` (the current record, a
@@ -20,11 +18,11 @@ fills, the scope what the IR's names are there).
                a predicate is `$n<k>.size() > 0`, a field
                `$f<k>[0].v`
 
-`value(f)` and `condition(text)` answer (text, lets): the lets are the LET bindings the
-text needs, which the frame puts in its LET slot. A predicate on a Semijoin or a Lookup
-is rendered against the plain record (inside the subquery the record is the current
-one) and handed over as text (`predicate.condition`); a Path renders the predicate
-itself, since its prefix reaches every leaf.
+`Lookup.value(f)` and `condition(text)` answer (text, lets): the lets are the LET
+bindings the text needs, which the frame puts in its LET slot. A predicate on a Semijoin
+or a Lookup is rendered against the plain record (inside the subquery the record is the
+current one) and handed over as text (`predicate.condition`); a Path renders the
+predicate itself (`predicate.render_predicate`), since its prefix reaches every leaf.
 """
 from __future__ import annotations
 
@@ -48,9 +46,6 @@ class Path:
     def id(self) -> str:
         return self.prefix + self.identity
 
-    def value(self, f: str) -> "tuple[str, tuple]":
-        return self.field(f), ()
-
 
 @dataclass(frozen=True)
 class Renamed:
@@ -62,9 +57,6 @@ class Renamed:
     @property
     def id(self) -> str:
         return self.name
-
-    def value(self, f: str) -> "tuple[str, tuple]":
-        return self.name, ()
 
 
 @dataclass(frozen=True)

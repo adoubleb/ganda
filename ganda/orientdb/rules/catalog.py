@@ -87,7 +87,6 @@ EMBEDDED_ADDS_DEPTH = Question("traverse.embedded_document.adds_depth", bool, CO
 EMBEDDED_ANSWERS_ROW = Question("traverse.embedded_document.answers_row", bool, COMPARE)
 IN_SUBQUERY_DOTTED = Question("in_subquery.dotted_projection", bool, COMPARE)
 UNWIND_DOCUMENT_ROWS = Question("unwind.embedded_document.row_per_document", bool, COMPARE)
-AS_LONG_WIDENS = Question("method.as_long.widens_integer", bool, COMPARE)
 LONG_PARAMETER_BELOW = exact("parameter.long.below", int)
 INDEX_KEY_MAX_BYTES = exact("index_key.bytes.max", int)
 REQUEST_MAX_BYTES = exact("request.bytes.max", int)
@@ -137,7 +136,6 @@ COMPARE_RULES = (
     Rule(EMBEDDED_ANSWERS_ROW, TRAVERSE, False),
     Rule(IN_SUBQUERY_DOTTED, SQL, True),
     Rule(UNWIND_DOCUMENT_ROWS, SQL, True),
-    Rule(AS_LONG_WIDENS, SQL, True),
 )
 
 # --- ask: a construct a path refuses is not rendered --------------------------------------------

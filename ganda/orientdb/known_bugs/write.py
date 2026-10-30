@@ -6,7 +6,7 @@ from ganda.core.data.model import Instance, Schema
 from ganda.orientdb.engine.dialect import RANGE_KINDS
 from ganda.core.query.ir.predicates import Compound, Predicate
 from ganda.orientdb.rules import works_around
-from ganda.orientdb.known_bugs.predicate import _conjunct_leaves, _leaves, _plain, edge_case_known, node_case_known, o39_predicate
+from ganda.orientdb.known_bugs.predicate import _conjunct_leaves, _plain, edge_case_known, node_case_known, o25_embedded, o39_predicate
 
 
 # `IS NOT NULL` through an index is a walk of every non-null key (the arithmetic
@@ -79,7 +79,7 @@ def write_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Inst
         else:
             # the bracket filter, or the filter on each position's element: untyped JSON
             # on the doc data model, with no collation
-            fid = edge_case_known(q.edge_type, eff, schema, instance).get("doc") or ("O25" if any(leaf.case_insensitive for leaf in _leaves(eff)) else None)
+            fid = edge_case_known(q.edge_type, eff, schema, instance).get("doc") or ("O25" if o25_embedded(eff) else None)
     if fid is None and o37_write(q, sp, data_model, eff, schema):
         fid = "O37"
     if fid is None and eff is not None and o39_predicate(eff) and (sp.target == "nest" or (q.op == "delete" and data_model == "rel")):

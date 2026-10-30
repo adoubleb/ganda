@@ -74,13 +74,6 @@ SYNTAXES = {
     "doc": ("path", "unwind", "let_expand", "inpath", "union", "traverse"),
     "rel": ("let", "flat"),
 }
-# The concrete syntaxes whose text is a correlated subquery with `$parent.$current` in the
-# outer query's scope -- the ones O1 applies to when the outer query is index-served
-# (`traverse` roots its TRAVERSE at `$parent.$current`: campaign c60b, seeds 414, 428
-# and 443, a null root under every index kind) -- and those that put a target predicate
-# in a BRACKET filter or behind a dotted link (`in.f`), where a property's `ci` collation
-# is ignored (O25; `edgescan` renders the source predicate that way too): the grid's
-# cells say which (`frames.py`).
 # a correlated LET reads the enclosing record under a scan
 assumes("equivalent.correlated_let", SQL, True)
 
@@ -638,7 +631,6 @@ def _rel_sub(q: TraversalQuery, schema: Schema, k: int, cur: Path, direction: "s
     out = direction == "out"
     near, far = ("src_id", "dst_id") if out else ("dst_id", "src_id")
     et = schema.edge_type(hop.edge_type)
-    # the junction row is the edge; its target is looked up by the far column
     target = Lookup(et.to_type if out else et.from_type, Path(CURRENT, far).id, k)
     lets, where = [], [f"{near} = {cur.id}"]
     if hop.edge_predicate:
@@ -687,7 +679,6 @@ def _rel_flat_conds(q: TraversalQuery, schema: Schema, out: bool) -> "tuple[str,
     near, far = ("src_id", "dst_id") if out else ("dst_id", "src_id")
     et = schema.edge_type(h.edge_type)
     tgt = et.to_type if out else et.from_type
-    # the junction row is the edge; the source and the target are semi-joined by its columns
     where = []
     if q.source_predicate:
         where.append(condition(q.source_predicate, Semijoin(near, q.source_table))[0])
@@ -708,7 +699,6 @@ def _rel_flat_part(q: TraversalQuery, schema: Schema, out: bool) -> str:
     elif q.edge_projection:
         value = q.field
     elif q.projection in FIELD_PROJECTIONS:
-        # projected, the target is looked up per row
         value, binds = Lookup(tgt, Path(CURRENT, far).id).value(q.field)
         lets += binds
     else:

@@ -162,8 +162,11 @@ WRITE = (
 
 CELLS = TRAVERSAL + REACH + PATH + SELECT + WRITE
 
-# the traversal syntaxes whose slot is a correlated subquery (O1 reads them) and those
-# that put a target predicate in a bracket filter or behind a dotted link (O25)
+# the traversal syntaxes whose slot is a correlated subquery with `$parent.$current` in
+# the outer query's scope (O1, when the outer query is index-served: `traverse` roots its
+# TRAVERSE there, campaign c60b, seeds 414, 428 and 443) and those that put a target
+# predicate in a bracket filter or behind a dotted link, where a `ci` collation is
+# ignored (O25; `edgescan` renders the source predicate that way too)
 CORRELATED = frozenset((c.data_model, c.syntax) for c in TRAVERSAL + REACH if c.correlated)
 BRACKET = frozenset((c.data_model, c.syntax) for c in TRAVERSAL if c.target in ("bracket", "dotted"))
 
