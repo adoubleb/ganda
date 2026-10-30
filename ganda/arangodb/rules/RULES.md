@@ -8,65 +8,65 @@ baseline: 3.12.11, every check of a rule held
 
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
-| order.string | aql | collation | V3 | oracle/predicate_sampling.py:29 |
-| equality.string | aql | code-point | V3 | oracle/semantics.py:42, storage/physical_design.py:83 |
-| aggregate.max.empty_input | aql | null | V6 | concrete_syntax/traversal.py:73 |
-| aggregate.max_min.skips_null | aql | true | V6, S4 | concrete_syntax/select.py:56, concrete_syntax/traversal.py:74 |
-| match.parallel_edges.rows | aql | 2 | S1 | concrete_syntax/traversal.py:68 |
-| match.parallel_edges.rows | traversal | 2 | S1 | concrete_syntax/traversal.py:69 |
-| match.undirected.self_loop.rows | aql | 2 | S2 | concrete_syntax/traversal.py:70 |
-| match.undirected.self_loop.rows | traversal | 2 | S2 | concrete_syntax/traversal.py:71 |
-| path.variable_length.mode | traversal | trail | S3 | concrete_syntax/traversal.py:78 |
-| shortest_path.unreachable.result | path | 0 | S7 | concrete_syntax/path.py:38 |
-| shortest_path.same_record.result | path | 1 | S7 | concrete_syntax/path.py:37 |
-| update.map_value.merged_by_default | aql | true | W4 | concrete_syntax/write.py:53, storage/mapping/common.py:47 |
-| update.map_value.merged_by_default | document-api | true | W4 | storage/mapping/common.py:48 |
-| update.null.kept_by_default | aql | true | W1 | concrete_syntax/write.py:54, storage/mapping/common.py:49 |
-| update.null.kept_by_default | document-api | true | W4 | storage/mapping/common.py:50 |
-| delete_vertex.cascades_edges | aql | false | W3 | concrete_syntax/write.py:56, storage/mapping/common.py:52 |
-| update.inline_array.rebuilds_elements | aql | true | W6 | concrete_syntax/write.py:238 |
-| transaction.own_uncommitted_visible | stream-transaction | true | W2 | concrete_syntax/support.py:116 |
+| order.string | aql | collation | V3 | concrete_syntax/query/predicate_sampling/operators.py:25 |
+| equality.string | aql | code-point | V3 | engine/semantics.py:36, provider/physical_design.py:83 |
+| aggregate.max.empty_input | aql | null | V6 | concrete_syntax/query/traversal.py:73 |
+| aggregate.max_min.skips_null | aql | true | V6, S4 | concrete_syntax/query/select.py:56, concrete_syntax/query/traversal.py:74 |
+| match.parallel_edges.rows | aql | 2 | S1 | concrete_syntax/query/traversal.py:68 |
+| match.parallel_edges.rows | traversal | 2 | S1 | concrete_syntax/query/traversal.py:69 |
+| match.undirected.self_loop.rows | aql | 2 | S2 | concrete_syntax/query/traversal.py:70 |
+| match.undirected.self_loop.rows | traversal | 2 | S2 | concrete_syntax/query/traversal.py:71 |
+| path.variable_length.mode | traversal | trail | S3 | concrete_syntax/query/traversal.py:78 |
+| shortest_path.unreachable.result | path | 0 | S7 | concrete_syntax/query/path.py:38 |
+| shortest_path.same_record.result | path | 1 | S7 | concrete_syntax/query/path.py:37 |
+| update.map_value.merged_by_default | aql | true | W4 | concrete_syntax/query/write.py:53, concrete_syntax/setup/common.py:34 |
+| update.map_value.merged_by_default | document-api | true | W4 | concrete_syntax/setup/common.py:35 |
+| update.null.kept_by_default | aql | true | W1 | concrete_syntax/query/write.py:54, concrete_syntax/setup/common.py:36 |
+| update.null.kept_by_default | document-api | true | W4 | concrete_syntax/setup/common.py:37 |
+| delete_vertex.cascades_edges | aql | false | W3 | concrete_syntax/query/write.py:56, concrete_syntax/setup/common.py:39 |
+| update.inline_array.rebuilds_elements | aql | true | W6 | concrete_syntax/query/write.py:238 |
+| transaction.own_uncommitted_visible | stream-transaction | true | W2 | concrete_syntax/query/support.py:116 |
 
 ## ask
 
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
-| accepts.has.non_object_argument | aql | accepted | V8 | concrete_syntax/predicate.py:25 |
-| accepts.values.non_object_argument | aql | refused | V8 | concrete_syntax/predicate.py:23 |
-| accepts.variable.redeclared | aql | refused | S6 | concrete_syntax/predicate.py:18 |
+| accepts.has.non_object_argument | aql | accepted | V8 | concrete_syntax/query/predicate.py:25 |
+| accepts.values.non_object_argument | aql | refused | V8 | concrete_syntax/query/predicate.py:23 |
+| accepts.variable.redeclared | aql | refused | S6 | concrete_syntax/query/predicate.py:18 |
 | accepts.bind_variable.undeclared | aql | refused | S8 | engine/connection.py:62 |
-| accepts.transaction.collection_absent_from_database | stream-transaction | refused | W5 | concrete_syntax/support.py:117 |
+| accepts.transaction.collection_absent_from_database | stream-transaction | refused | W5 | concrete_syntax/query/support.py:117 |
 
 ## equivalent
 
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
-| equivalent.link_array_forms | aql | true | S1 | concrete_syntax/traversal.py:63 |
-| equivalent.junction_forms | aql | true | S1 | concrete_syntax/traversal.py:64 |
-| equivalent.flat_collect | aql | true | S4 | concrete_syntax/traversal.py:65 |
-| equivalent.edge_scan | traversal | true | S1 | concrete_syntax/traversal.py:59 |
-| equivalent.both_as_union | traversal | true | S2 | concrete_syntax/traversal.py:61 |
-| equivalent.deep_traversal | traversal | true | S3 | concrete_syntax/traversal.py:60 |
-| equivalent.reach_bfs_global | traversal | true | S3 | concrete_syntax/traversal.py:62 |
-| equivalent.path_forms | path | true | S7 | concrete_syntax/path.py:36 |
-| equivalent.write_doors | aql | true | W2 | storage/physical_design.py:44 |
-| equivalent.write_doors | document-api | true | W2 | storage/physical_design.py:45 |
-| equivalent.update_replace | aql | true | W1 | concrete_syntax/write.py:110 |
+| equivalent.link_array_forms | aql | true | S1 | concrete_syntax/query/traversal.py:63 |
+| equivalent.junction_forms | aql | true | S1 | concrete_syntax/query/traversal.py:64 |
+| equivalent.flat_collect | aql | true | S4 | concrete_syntax/query/traversal.py:65 |
+| equivalent.edge_scan | traversal | true | S1 | concrete_syntax/query/traversal.py:59 |
+| equivalent.both_as_union | traversal | true | S2 | concrete_syntax/query/traversal.py:61 |
+| equivalent.deep_traversal | traversal | true | S3 | concrete_syntax/query/traversal.py:60 |
+| equivalent.reach_bfs_global | traversal | true | S3 | concrete_syntax/query/traversal.py:62 |
+| equivalent.path_forms | path | true | S7 | concrete_syntax/query/path.py:36 |
+| equivalent.write_doors | aql | true | W2 | provider/physical_design.py:44 |
+| equivalent.write_doors | document-api | true | W2 | provider/physical_design.py:45 |
+| equivalent.update_replace | aql | true | W1 | concrete_syntax/query/write.py:110 |
 
 ## exact
 
 | question | subject | answer | checked by | read by |
 |---|---|---|---|---|
-| aggregate.sum.integer.exact_below | aql | 9007199254740992 | V7 | oracle/semantics.py:44 |
-| exact.arithmetic.integer.below | aql | 9007199254740992 | V7 | oracle/semantics.py:228 |
+| aggregate.sum.integer.exact_below | aql | 9007199254740992 | V7 | engine/semantics.py:38 |
+| exact.arithmetic.integer.below | aql | 9007199254740992 | V7 | engine/semantics.py:138 |
 
 ## defects
 
 | id | subject | reproduced by | on 3.12.11 | read by |
 |---|---|---|---|---|
-| A25 | aql@index | A25 | reproduces | known_bugs/guards.py:38 |
-| A42 | aql | A42 | reproduces | known_bugs/guards.py:40 |
-| A43 | aql@index | A43 | reproduces | known_bugs/guards.py:42 |
+| A25 | aql@index | A25 | reproduces | known_bugs/predicate.py:32 |
+| A42 | aql | A42 | reproduces | known_bugs/predicate.py:34 |
+| A43 | aql@index | A43 | reproduces | known_bugs/select.py:9 |
 
 ## error classes
 

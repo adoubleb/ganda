@@ -28,7 +28,7 @@ from ganda.core.query.ir.path import PathQuery
 from ganda.core.data.model import Instance, Schema
 from ganda.arangodb.rules import assumes
 from ganda.arangodb.rules.catalog import PATH
-from ganda.arangodb.storage.dialect import engine_id
+from ganda.arangodb.engine.dialect import engine_id
 
 _DIR = {"OUT": "OUTBOUND", "IN": "INBOUND", "BOTH": "ANY"}
 # the path forms are twins; every one answers one vertex for the start itself and is

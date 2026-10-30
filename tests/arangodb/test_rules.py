@@ -11,7 +11,7 @@ ARANGO = pathlib.Path(__file__).resolve().parents[2] / "ganda" / "arangodb"
 
 
 def _probe_ids() -> list:
-    tree = ast.parse((ARANGO / "scripts" / "probe.py").read_text())
+    tree = ast.parse((ARANGO / "rules" / "probe.py").read_text())
     return [n.args[0].value for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "fact"]
 
 
@@ -48,14 +48,14 @@ def test_the_error_classes_read_an_errornum_as_the_connection_layer_does():
 
 
 def test_the_probe_names_what_a_failing_fact_checks_and_who_reads_it(monkeypatch):
-    from ganda.arangodb.scripts import probe
+    from ganda.arangodb.rules import probe
 
     assert probe.checked_by("S8") == ["accepts.bind_variable.undeclared (aql)"]
     assert probe.checked_by("L1") == ["no rule"]
     assert probe.checked_by("A43") == ["A43 (aql@index)"]
     index = read_index()
     (a42,) = probe.consequences("A42", index)
-    assert a42.startswith("A42 (aql) no longer reproduces: read by known_bugs/guards.py:")
+    assert a42.startswith("A42 (aql) no longer reproduces: read by known_bugs/predicate.py:")
     assert probe.consequences("T1", index) == ["checks no rule"]
     monkeypatch.setattr(probe, "failures", ["A25", "A42", "L2"])
     assert probe._sort_failures(CATALOG) == (["L2"], {"A25": ["A25"], "A42": ["A42"]})

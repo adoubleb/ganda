@@ -53,7 +53,7 @@ from ganda.core.data.model import Schema
 from ganda.core.rules.vocabulary import EmptyAggregate, PathMode
 from ganda.arangodb.rules import assumes
 from ganda.arangodb.rules.catalog import AQL, TRAVERSAL
-from ganda.arangodb.concrete_syntax.predicate import render_predicate as render_pred
+from ganda.arangodb.concrete_syntax.query.predicate import render_predicate as render_pred
 
 # the syntaxes of one data model are twins the oracle compares
 assumes("equivalent.edge_scan", TRAVERSAL, True)

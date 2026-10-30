@@ -18,22 +18,19 @@ document is removed.
 from __future__ import annotations
 
 from ganda.core.data.model import EdgeUpdate, Instance, NodeDelete
-from ganda.arangodb.storage.dialect import document_key, engine_id
-from ganda.arangodb.storage.mapping.common import (
-    Aql,
-    CreateIndex,
-    churned_away_edges,
+from ganda.arangodb.engine.dialect import document_key, engine_id
+from ganda.core.data.generator import initial_node_values
+from ganda.core.engine.setup_plan import churned_away_edges, initial_edge_values, initial_edges
+from ganda.arangodb.concrete_syntax.setup.common import (
     collection_steps,
     finalize,
     index_steps,
-    initial_edge_values,
-    initial_edges,
-    initial_node_values,
     insert_steps,
     node_collections,
     node_documents,
     node_update_steps,
 )
+from ganda.arangodb.engine.plan import Aql, CreateIndex
 
 DATA_MODEL = "doc"
 

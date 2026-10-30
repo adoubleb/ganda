@@ -44,8 +44,8 @@ from ganda.core.data.generator import BASE_CLASS
 from ganda.core.data.model import Instance, Schema
 from ganda.arangodb.rules import assumes
 from ganda.arangodb.rules.catalog import AQL
-from ganda.arangodb.concrete_syntax.predicate import render_predicate as render_pred
-from ganda.arangodb.storage.dialect import document_key
+from ganda.arangodb.concrete_syntax.query.predicate import render_predicate as render_pred
+from ganda.arangodb.engine.dialect import document_key
 
 # a data-modification statement is counted as a subquery's rows (`_counted`)
 # UPDATE merges a map value key by key and keeps a null unless told otherwise: every

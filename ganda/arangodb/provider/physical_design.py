@@ -1,6 +1,6 @@
 """ArangoDB's physical design: the index kinds a schema may draw and what each one
 enforces, the id index axis, the write forms a setup may take, the value pools, and how
-an index keys a value. The vocabulary is `ganda.arangodb.storage.dialect`'s.
+an index keys a value. The vocabulary is `ganda.arangodb.engine.dialect`'s.
 
 An index is a persistent (RocksDB) index on one or two attributes, unique or not,
 sparse (`IndexSpec.ignore_nulls`) or not; a LIST field's index is the expanded array
@@ -18,7 +18,7 @@ from ganda.core.rng import stream
 from ganda.core.rules.vocabulary import StringOrder
 from ganda.arangodb.rules import assumes
 from ganda.arangodb.rules.catalog import AQL, DOCUMENT_API
-from ganda.arangodb.storage.dialect import (
+from ganda.arangodb.engine.dialect import (
     EDGE_UPDATE_FORMS,
     ID_INDEX_KINDS,
     INSERT_FORMS,

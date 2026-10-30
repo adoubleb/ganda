@@ -37,9 +37,9 @@ from ganda.core.rules.model import ErrorKind
 from ganda.arangodb.rules import CATALOG, assumes
 from ganda.arangodb.rules.catalog import AQL, REFUSED
 from ganda.arangodb.engine import tx
-from ganda.arangodb.storage.dialect import engine_id, logical_id
+from ganda.arangodb.engine.dialect import engine_id, logical_id
 from ganda.arangodb.engine.limits import STREAMING_TRANSACTION_MAX_BYTES
-from ganda.arangodb.storage.mapping.common import Aql, CreateCollection, CreateIndex, DocumentApi, Insert, Transaction
+from ganda.arangodb.engine.plan import Aql, CreateCollection, CreateIndex, DocumentApi, Insert, Transaction
 
 DEFAULT_PASSWORD = "fuzz"
 DEFAULT_TIMEOUT_MS = 30000

@@ -42,7 +42,7 @@ def render_predicate(p, var: str = "n", schema=None) -> str:
         tag = re.sub(r"[^A-Za-z0-9_]", "_", p.bind or (q.leaves()[0].bind if q is not None else "sub"))
         s, m = f"s_{tag}", f"m_{tag}"
         if schema is not None and schema.is_base(t2):
-            from ganda.arangodb.concrete_syntax.support import base_union
+            from ganda.arangodb.concrete_syntax.query.support import base_union
 
             src = base_union(schema, m)
         else:

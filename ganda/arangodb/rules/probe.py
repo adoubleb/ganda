@@ -25,7 +25,7 @@ from ganda.core.engine.provider import EngineError
 from ganda.core.rules.model import Defect
 from ganda.arangodb.engine.connection import ArangoServer
 from ganda.arangodb.engine.limits import LIMITS
-from ganda.arangodb.oracle.semantics import eq, lt
+from ganda.arangodb.engine.semantics import eq, lt
 
 CHECKS: list = []
 ran: list = []

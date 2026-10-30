@@ -4,18 +4,18 @@ speak one language, AQL, so a subject is an execution path: a collection scan (a
 loop, its FILTER, COLLECT and the functions), the same statement served by a persistent
 index, the graph traversal operator, the path functions, a stream transaction and the
 REST document API. The probe facts that check the rules and reproduce the defects are
-in `checks.py` (`scripts/probe.py` runs them).
+in `checks.py` (`probe.py` runs them).
 
 The defects -- those that can make two data models differ: **A25** (the legacy port's,
 found again by this port's first campaign with the catalog: an OR of two whole-array
 equalities on a LIST attribute -- `replace-or-with-in` -- is served from the expanded array
-index's ELEMENT keys and answers nothing; withheld by `known_bugs/guards.py` on the data
+index's ELEMENT keys and answers nothing; withheld by `known_bugs/predicate.py` on the data
 models holding the index); **A42** (found by the large-scale
 campaign of 2026-10-24, seed 6: `LIKE` with a wildcard over a stored string of 125 000
 code points or more fails the query -- errorNum 1543, "invalid regex value": the `%` is
 spelled `(.|[\\r\\n])*`, which backtracks one frame per character into ICU's stack
 limit -- where `==`, `CONTAINS`, `STARTS_WITH` and `LENGTH` over the same value answer;
-withheld by `known_bugs/guards.py` where a column the LIKE reads holds such a value, the
+withheld by `known_bugs/predicate.py` where a column the LIKE reads holds such a value, the
 large scale's grown strings); **A43** (a correlated strict bound served by a sparse
 persistent index loses the null and absent records; withheld there). Retired
 2026-10-25, as unable to make two data models differ (each answers alike on every one):

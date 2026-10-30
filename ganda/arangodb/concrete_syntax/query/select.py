@@ -17,7 +17,7 @@ syntax is two independent choices, each asked alike on every data model:
 
 The filter is the drawn predicate's own text (`predicate.render_predicate`): its leaves'
 forms -- reversed operands, arithmetic, a parameter-keyed map entry -- are drawn with the
-predicate (`oracle/predicate_sampling.leaf_form`). A variant's name is `<data model>:<tag>`, the tag
+predicate (`predicate_sampling.leaf_form`). A variant's name is `<data model>:<tag>`, the tag
 the non-default choices joined by `+` in the order form, position. No choice exists only
 to make a data model use or avoid an index: a pair differs in data model, each with its
 own physical design.
@@ -46,8 +46,8 @@ from ganda.core.query.ir.select import SelectQuery
 from ganda.core.data.model import Instance, Schema
 from ganda.arangodb.rules import assumes
 from ganda.arangodb.rules.catalog import AQL
-from ganda.arangodb.concrete_syntax.predicate import render_predicate as render_pred
-from ganda.arangodb.concrete_syntax.support import METHODS, base_union, tx_extra_binds, tx_script  # noqa: F401
+from ganda.arangodb.concrete_syntax.query.predicate import render_predicate as render_pred
+from ganda.arangodb.concrete_syntax.query.support import METHODS, base_union, tx_extra_binds, tx_script  # noqa: F401
 
 POSITIONS = ("table", "poly", "polyin")
 FORMS = ("base", "collect", "order", "set", "fn", "jrev")

@@ -7,11 +7,34 @@ rests on (`ganda arangodb rules` renders them), `rules/baseline.json` the build 
 last verified."""
 from __future__ import annotations
 
-from ganda.core.engine.provider import Provider
-from ganda.arangodb.oracle import predicate_sampling
-from ganda.arangodb.config import ArangoConfig
+from ganda.core.engine.provider import Provider, Semantics
+from ganda.arangodb.provider.config import ArangoConfig
+from ganda.arangodb.engine import semantics
 from ganda.arangodb.engine.limits import LIMITS
-from ganda.arangodb.oracle.semantics import SEMANTICS
+from ganda.arangodb.concrete_syntax.query import predicate_sampling
+from ganda.arangodb.concrete_syntax.query.predicate_sampling import predicate_steering
+
+
+class ArangoSemantics(Semantics):
+    """ArangoDB's value semantics as the core's `Semantics`: the value order, equality
+    and arithmetic of `engine.semantics`, and how a scan answers a predicate
+    (`predicate_steering`)."""
+
+    key = staticmethod(semantics.aql_key)
+    eq = staticmethod(semantics.eq)
+    lt = staticmethod(semantics.lt)
+    predicate_hit = staticmethod(predicate_steering.predicate_hit)
+    evaluate = staticmethod(predicate_steering.evaluate)
+    apply_arith = staticmethod(semantics.apply_arith)
+    arith_exact = staticmethod(semantics.arith_exact)
+    sum_is_exact = staticmethod(semantics.sum_is_exact)
+
+    def canonical(self, value):
+        """The wire form: an integral double comes back as an integer (`2.0` is `2`)."""
+        return semantics.canonical(value)
+
+
+SEMANTICS = ArangoSemantics()
 
 
 class ArangoDBProvider(Provider):
@@ -28,43 +51,43 @@ class ArangoDBProvider(Provider):
 
     @property
     def physical_design(self):
-        from ganda.arangodb.storage import physical_design
+        from ganda.arangodb.provider import physical_design
 
         return physical_design
 
     @property
     def mappers(self) -> dict:
-        from ganda.arangodb.storage.mapping import MAPPERS
+        from ganda.arangodb.concrete_syntax.setup import MAPPERS
 
         return MAPPERS
 
     @property
     def traversal_syntax(self):
-        from ganda.arangodb.concrete_syntax import traversal
+        from ganda.arangodb.concrete_syntax.query import traversal as traversal_syntax
 
-        return traversal
+        return traversal_syntax
 
     @property
     def select_syntax(self):
-        from ganda.arangodb.concrete_syntax import select
+        from ganda.arangodb.concrete_syntax.query import select as select_syntax
 
-        return select
+        return select_syntax
 
     @property
     def path_syntax(self):
-        from ganda.arangodb.concrete_syntax import path
+        from ganda.arangodb.concrete_syntax.query import path as path_syntax
 
-        return path
+        return path_syntax
 
     @property
     def write_syntax(self):
-        from ganda.arangodb.concrete_syntax import write
+        from ganda.arangodb.concrete_syntax.query import write as write_syntax
 
-        return write
+        return write_syntax
 
     @property
     def known_bugs(self):
-        from ganda.arangodb.known_bugs import guards as known_bugs
+        from ganda.arangodb import known_bugs
 
         return known_bugs
 
@@ -116,7 +139,7 @@ class ArangoDBProvider(Provider):
     # --- the campaign ---------------------------------------------------------------------
 
     def probe(self, facts: "list | None" = None) -> int:
-        from ganda.arangodb.scripts import probe
+        from ganda.arangodb.rules import probe
 
         return probe.main(facts or [])
 

@@ -1,18 +1,6 @@
 """The setup steps of ArangoDB's data models and what the three mappings share.
 
-ArangoDB has no multi-statement script language: schema lives behind REST endpoints
-(`/_api/collection`, `/_api/index`) and data goes through the document API, AQL or a
-stream transaction. A step is a plain dataclass with a JSON `to_dict()`, so a bug
-bundle records the exact plan that ran (`ganda.core.engine.setup_plan`); its op name is
-prefixed `arango_` (the step registry is shared by every provider):
-
-    CreateCollection(name, edge)       `POST /_api/collection`
-    CreateIndex(collection, fields, name, unique, sparse)   a persistent index
-    Insert(collection, documents, via) a bulk insert: the document API (`api`), or
-                                       `FOR d IN @docs INSERT d INTO c` (`aql`)
-    Aql(query, bind_vars)              one AQL statement
-    DocumentApi(method, collection, key, body, params)   PATCH / PUT / DELETE one document
-    Transaction(steps, collections, commit)   the steps in one stream transaction
+The steps are `engine/plan.py`'s.
 
 **No engine id appears in a plan as something to capture.** A document's `_key` is a
 function of its logical id (`dialect.document_key`), so `_from`, `_to` and a link's
@@ -32,15 +20,14 @@ from __future__ import annotations
 import base64
 import json
 import re
-from dataclasses import dataclass, field
 
-from ganda.core.data.generator import initial_node_values, initial_nodes  # noqa: F401
+from ganda.core.data.generator import initial_nodes
 from ganda.core.data.model import EdgeUpdate, FieldType, Instance, NodeUpdate, Schema, WriteForm
-from ganda.core.engine.setup_plan import churned_away_edges, initial_edge_values, initial_edges, step, step_from_dict  # noqa: F401
 from ganda.arangodb.rules import assumes
 from ganda.arangodb.rules.catalog import AQL, DOCUMENT_API
-from ganda.arangodb.storage.dialect import DEFAULT_ID_INDEX, UNIQUE_KINDS, document_key, engine_id
+from ganda.arangodb.engine.dialect import DEFAULT_ID_INDEX, UNIQUE_KINDS, document_key, engine_id
 from ganda.arangodb.engine.limits import LIMITS
+from ganda.arangodb.engine.plan import Aql, CreateCollection, CreateIndex, DocumentApi, Insert, Transaction
 
 # every merging door (UPDATE / UPSERT / PATCH) carries `mergeObjects: false`, and unsets
 # the fields the final state lacks in its own `keepNull: false` step
@@ -50,101 +37,6 @@ assumes("update.null.kept_by_default", AQL, True)
 assumes("update.null.kept_by_default", DOCUMENT_API, True)
 # the engine removes no incident edge on its own: each mapping cascades explicitly
 assumes("delete_vertex.cascades_edges", AQL, False)
-
-
-# --- setup plan vocabulary ---------------------------------------------------------------
-
-
-@step("arango_collection")
-@dataclass
-class CreateCollection:
-    name: str
-    edge: bool = False
-
-    def to_dict(self) -> dict:
-        return {"op": "arango_collection", "name": self.name, "edge": self.edge}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "CreateCollection":
-        return cls(d["name"], d.get("edge", False))
-
-
-@step("arango_index")
-@dataclass
-class CreateIndex:
-    collection: str
-    fields: list
-    name: str
-    unique: bool = False
-    sparse: bool = False
-
-    def to_dict(self) -> dict:
-        return {"op": "arango_index", "collection": self.collection, "fields": list(self.fields), "name": self.name, "unique": self.unique, "sparse": self.sparse}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "CreateIndex":
-        return cls(d["collection"], list(d["fields"]), d["name"], d.get("unique", False), d.get("sparse", False))
-
-
-@step("arango_insert")
-@dataclass
-class Insert:
-    collection: str
-    documents: list
-    via: str = "api"
-
-    def to_dict(self) -> dict:
-        return {"op": "arango_insert", "collection": self.collection, "via": self.via, "documents": self.documents}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "Insert":
-        return cls(d["collection"], d["documents"], d.get("via", "api"))
-
-
-@step("arango_aql")
-@dataclass
-class Aql:
-    query: str
-    bind_vars: dict = field(default_factory=dict)
-
-    def to_dict(self) -> dict:
-        return {"op": "arango_aql", "query": self.query, "bind_vars": self.bind_vars}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "Aql":
-        return cls(d["query"], d.get("bind_vars") or {})
-
-
-@step("arango_document")
-@dataclass
-class DocumentApi:
-    method: str
-    collection: str
-    key: str
-    body: "dict | None" = None
-    params: dict = field(default_factory=dict)
-
-    def to_dict(self) -> dict:
-        return {"op": "arango_document", "method": self.method, "collection": self.collection, "key": self.key, "body": self.body, "params": dict(self.params)}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "DocumentApi":
-        return cls(d["method"], d["collection"], d["key"], d.get("body"), d.get("params") or {})
-
-
-@step("arango_transaction")
-@dataclass
-class Transaction:
-    steps: list
-    collections: list
-    commit: bool = True
-
-    def to_dict(self) -> dict:
-        return {"op": "arango_transaction", "commit": self.commit, "collections": list(self.collections), "steps": [s.to_dict() for s in self.steps]}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "Transaction":
-        return cls([step_from_dict(s) for s in d["steps"]], list(d.get("collections", [])), d.get("commit", True))
 
 
 # --- DDL ----------------------------------------------------------------------------------

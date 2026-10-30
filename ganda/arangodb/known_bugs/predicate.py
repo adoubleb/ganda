@@ -1,9 +1,5 @@
-"""The ArangoDB findings already filed, each withheld at its exact shape per variant so a
-campaign does not report it again (`ganda/orientdb/known_bugs/` is the pattern). The
-legacy port's A1..A39 (`../arangoDB/issue-drafts/`) are either outside this port's
-surface (ArangoSearch views, MDI and geo indexes, the JavaScript door) or kept
-unreachable by construction (no signed zero is stored, A1 / A2; no ordered comparison on
-a string, A9 / A34).
+"""Guards on one predicate, whichever IR asks it: the leaf shapes of the defects a
+filter alone triggers (A25, A42).
 
 **A25** (the legacy port's, found again by this port's first campaign with the rules
 catalog, seed 1, and pinned by the probe fact A25): an OR whose disjuncts are all
@@ -29,8 +25,6 @@ large scale's grown strings): the pulled-up forms too, which filter the same val
 """
 from __future__ import annotations
 
-import dataclasses
-
 from ganda.core.query.ir.predicates import Compound, Predicate
 from ganda.arangodb.rules import works_around
 
@@ -38,8 +32,6 @@ A25 = "A25"
 works_around("A25")
 A42 = "A42"
 works_around("A42")
-A43 = "A43"
-works_around("A43")
 # the measured first failing lengths, 124 999 code points under two wildcards and
 # 199 999 under one, rounded down (Ganda's patterns hold at most two)
 LIKE_WILDCARD_MAX_CHARS = 100_000
@@ -99,7 +91,7 @@ def or_of_list_equalities(p, under_or: bool = False) -> set:
 
 def array_indexed(schema, table: str, field: str, data_model: str, edge: bool = False) -> bool:
     """Whether `data_model`'s database holds the expanded array index over `field` of
-    `table` (every index on a LIST field is one, `storage/mapping/common._index_fields`)."""
+    `table` (every index on a LIST field is one, `concrete_syntax/setup/common._index_fields`)."""
     if edge:
         return any(ix.target == "edge" and ix.table == table and ix.field == field and ix.applies_to(data_model) for ix in schema.indexes)
     try:
@@ -110,76 +102,3 @@ def array_indexed(schema, table: str, field: str, data_model: str, edge: bool = 
 
 def a25_shape(p, schema, table: str, data_model: str, edge: bool = False) -> bool:
     return any(array_indexed(schema, table, f, data_model, edge) for f in or_of_list_equalities(p))
-
-
-# --- the judgements ----------------------------------------------------------------------------
-
-
-def mark_known_bugs(case, q, schema, instance):
-    """A traversal case: the A25 shape in a source, hop or target predicate withholds
-    the variants of the data models holding the array index -- but a pulled-up variant
-    for a source predicate, which filters a projection, never a collection; the A42
-    shape withholds every variant, the pulled-up ones too (they filter the same value)."""
-    marks: dict = {}
-    pulled_up = set(case.params.get("pulled_up", ()))
-
-    def mark(fid: str, data_models, skip=()):
-        for v in case.queries:
-            if v.split(":", 1)[0] in data_models and v not in skip:
-                marks.setdefault(v, fid)
-
-    def judge(p, rows, table: str, edge: bool, skip=()):
-        if a42_shape(p, rows):
-            mark(A42, set(schema.engine.data_models))
-        hit = [dm for dm in schema.engine.data_models if a25_shape(p, schema, table, dm, edge)]
-        if hit:
-            mark(A25, set(hit), skip)
-
-    if q.source_predicate is not None:
-        judge(q.source_predicate, instance.nodes_of(q.source_table), q.source_table, False, pulled_up)
-    for h in q.hops:
-        if h.predicate is None:
-            continue
-        et = schema.edge_type(h.edge_type)
-        if h.predicate.on == "edge":
-            judge(h.predicate, instance.edges_of(et.name), et.name, True)
-        else:
-            target = et.to_type if h.direction != "in" else et.from_type
-            judge(h.predicate, instance.nodes_of(target), target, False)
-    if not marks:
-        return case
-    return dataclasses.replace(case, known_bugs={**case.known_bugs, **marks})
-
-
-def a43_join(q, schema, instance, data_model: str) -> bool:
-    """A43: a join's correlated strict bound `x.f < n.f` (`n.f > x.f` reversed) served by
-    a sparse persistent index of the data model on the joined class's `f` loses the
-    records whose f is null or absent -- the shape, where the class holds such a record
-    (probed: `<=`, `==`, `>`, `>=`, `!=`, a constant bound and a dense index are right)."""
-    if q.kind != "join" or q.fn != "<" or schema.is_base(q.table):
-        return False
-    # an index on the class or on the base class (which covers every subclass)
-    sparse = any(ix.ignore_nulls for ix in schema.node_indexes(q.table, q.field, data_model))
-    return sparse and any(n.values.get(q.field) is None for n in instance.nodes_of(q.table))
-
-
-def select_known(q, syntax, rewrites, data_model, schema, instance):
-    if a43_join(q, schema, instance, data_model):
-        return A43
-    pred = q.where
-    rows = instance.edges_of(q.table) if q.edge else instance.nodes_of(q.table)
-    if a42_shape(pred, rows):
-        return A42
-    if a25_shape(pred, schema, q.table, data_model, q.edge):
-        return A25
-    return None
-
-
-def write_known(q, syntax, rewrites, data_model, schema, instance):
-    pred = q.where
-    rows = instance.edges_of(q.edge_type) if q.edge else instance.nodes_of(q.table)
-    if a42_shape(pred, rows):
-        return A42
-    if a25_shape(pred, schema, q.edge_type if q.edge else q.table, data_model, q.edge):
-        return A25
-    return None

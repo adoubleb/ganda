@@ -14,23 +14,20 @@ own document.
 from __future__ import annotations
 
 from ganda.core.data.model import EdgeDelete, Instance, NodeDelete
-from ganda.arangodb.storage.dialect import document_key
-from ganda.arangodb.storage.mapping.common import (
-    Aql,
-    CreateCollection,
-    CreateIndex,
+from ganda.arangodb.engine.dialect import document_key
+from ganda.core.data.generator import initial_node_values
+from ganda.core.engine.setup_plan import initial_edge_values, initial_edges
+from ganda.arangodb.concrete_syntax.setup.common import (
     collection_steps,
     edge_update_steps,
     finalize,
     index_steps,
-    initial_edge_values,
-    initial_edges,
-    initial_node_values,
     insert_steps,
     node_collections,
     node_documents,
     node_update_steps,
 )
+from ganda.arangodb.engine.plan import Aql, CreateCollection, CreateIndex
 
 DATA_MODEL = "rel"
 

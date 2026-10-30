@@ -10,8 +10,8 @@ from ganda.core.data.model import FieldType, Schema
 from ganda.arangodb.rules import assumes
 from ganda.arangodb.rules.catalog import REFUSED, TRANSACTION
 from ganda.arangodb.engine import tx as _tx
-from ganda.arangodb.oracle.semantics import F64_INT_EXACT
-from ganda.arangodb.storage.dialect import document_key
+from ganda.arangodb.engine.semantics import F64_INT_EXACT
+from ganda.arangodb.engine.dialect import document_key
 
 
 def _bmp(s: str) -> bool:

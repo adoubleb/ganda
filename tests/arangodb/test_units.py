@@ -19,13 +19,15 @@ from ganda.core.data.model import FieldType
 from ganda.core.engine.setup_plan import plan_from_dict, plan_to_dict
 from ganda.core.engine.state_check import compare_states
 from tests.instance_session import InstanceSession
-from ganda.arangodb.oracle.predicate_sampling import _arithmetic, leaf_form
-from ganda.arangodb.oracle.semantics import arith_exact
+from ganda.arangodb.concrete_syntax.query.predicate_sampling.forms import _arithmetic, leaf_form
+from ganda.arangodb.engine.semantics import arith_exact
 from ganda.arangodb.engine.connection import bind_subset
-from ganda.arangodb.storage.dialect import ARANGO_KEY_RE, document_key, engine_id, logical_id
-from ganda.arangodb.storage.mapping.common import Aql, CreateCollection, CreateIndex, DocumentApi, Insert, Transaction, chunks
+from ganda.arangodb.engine.dialect import ARANGO_KEY_RE, document_key, engine_id, logical_id
+from ganda.arangodb.engine.plan import Aql, CreateCollection, CreateIndex, DocumentApi, Insert, Transaction
+from ganda.arangodb.concrete_syntax.setup.common import chunks
 from ganda.arangodb.provider import PROVIDER as E
-from ganda.arangodb.oracle.semantics import aql_key, eq, evaluate, like_hit, lt, predicate_hit
+from ganda.arangodb.engine.semantics import aql_key, eq, lt
+from ganda.arangodb.concrete_syntax.query.predicate_sampling.predicate_steering import evaluate, like_hit, predicate_hit
 from ganda.arangodb.engine import tx
 
 CFG = E.config_class(custom_key_probability=0.3, inheritance_probability=0.5, narrow_type_probability=0.3, date_map_probability=0.5, collate_probability=0.4, list_index_probability=0.5, churn_edge_update_probability=0.2, write_form_probability=0.8, traversal_cases=6, select_cases=16, path_cases=2, write_cases=3)
@@ -152,7 +154,7 @@ def test_leaf_forms():
         def choice(self, xs):
             return xs[0]
 
-    from ganda.arangodb.concrete_syntax.predicate import render_predicate
+    from ganda.arangodb.concrete_syntax.query.predicate import render_predicate
 
     p = _leaf("a", "<", 7)
     assert render_predicate(leaf_form(Roll(0.05), p)) == "@ba > n.a"
@@ -313,7 +315,7 @@ def _flat(plan) -> list:
 
 
 def test_folding_keeps_each_documents_statement_order_and_bounds_a_transaction():
-    from ganda.arangodb.storage.mapping.common import fold_steps, transaction_groups
+    from ganda.arangodb.concrete_syntax.setup.common import fold_steps, transaction_groups
 
     steps = [Aql("UPDATE @key WITH @doc IN n1 OPTIONS {keepNull: false, mergeObjects: false}", {"key": "r1", "doc": {"a": None}}), Aql("UPDATE @key WITH @doc IN n1 OPTIONS {mergeObjects: false}", {"key": "r1", "doc": {"b": 1}}), Aql("UPDATE @key WITH @doc IN n1 OPTIONS {keepNull: false, mergeObjects: false}", {"key": "r2", "doc": {"a": None}}), Aql("UPDATE @key WITH @doc IN n1 OPTIONS {mergeObjects: false}", {"key": "r2", "doc": {"b": 2}}), Aql("UPDATE @key WITH @doc IN n1 OPTIONS {mergeObjects: false}", {"key": "r2", "doc": {"e1": []}}), Aql("REMOVE @key IN n1", {"key": "r3"}), Aql("REMOVE @key IN n1", {"key": "r4"})]
     folded = fold_steps(steps, 10)
@@ -397,7 +399,7 @@ def test_every_select_variant_form_fits_its_kind(seed):
 
 def test_a42_guard_fires_on_a_like_wildcard_over_a_long_stored_string():
     from ganda.core.data.model import NodeRow
-    from ganda.arangodb.known_bugs.guards import LIKE_WILDCARD_MAX_CHARS, a42_shape, like_wildcard_fields
+    from ganda.arangodb.known_bugs.predicate import LIKE_WILDCARD_MAX_CHARS, a42_shape, like_wildcard_fields
 
     infix = Predicate("source", "s", "LIKE", "p", "%m%", "string")
     exact = Predicate("source", "s", "LIKE", "p", "abc", "string")
@@ -414,8 +416,9 @@ def test_a42_guard_fires_on_a_like_wildcard_over_a_long_stored_string():
 
 
 def test_a42_withholds_every_select_variant_and_a_traversals_pulled_up_form():
-    from ganda.arangodb.concrete_syntax.select import Rewrites, SelectSyntax
-    from ganda.arangodb.known_bugs.guards import LIKE_WILDCARD_MAX_CHARS, mark_known_bugs, select_known
+    from ganda.arangodb.concrete_syntax.query.select import Rewrites, SelectSyntax
+    from ganda.arangodb.known_bugs import mark_known_bugs, select_known
+    from ganda.arangodb.known_bugs.predicate import LIKE_WILDCARD_MAX_CHARS
     from ganda.core.data.model import EdgeTypeSpec, FieldSpec, NodeTypeSpec, NodeRow
     from ganda.core.oracle.case import Comparison, QueryCase
     from ganda.core.query.ir.select import SelectQuery
@@ -481,15 +484,15 @@ def test_index_mutants_leave_the_transaction_door_alone():
 
 
 def test_a_string_column_draws_the_equality_family_only_because_its_order_is_collation():
-    from ganda.arangodb.oracle.predicate_sampling import EQUALITY_OPS, ORDERED_OPS, ordered_ops
+    from ganda.arangodb.concrete_syntax.query.predicate_sampling.operators import EQUALITY_OPS, ORDERED_OPS, ordered_ops
 
     assert ordered_ops(FieldType.STRING) == EQUALITY_OPS and ordered_ops(FieldType.BINARY) == EQUALITY_OPS
     assert ordered_ops(FieldType.INT) == ORDERED_OPS and ordered_ops(FieldType.DATE) == ORDERED_OPS
 
 
 def test_the_deep_traversal_asks_every_walk_and_the_collect_form_takes_sum():
-    from ganda.arangodb.concrete_syntax.select import _COLLECT_AGGREGATES
-    from ganda.arangodb.concrete_syntax.traversal import _DEEP_OPTIONS
+    from ganda.arangodb.concrete_syntax.query.select import _COLLECT_AGGREGATES
+    from ganda.arangodb.concrete_syntax.query.traversal import _DEEP_OPTIONS
 
     assert _DEEP_OPTIONS == " OPTIONS {uniqueEdges: 'none'}"
     assert "sum" in _COLLECT_AGGREGATES and "max" in _COLLECT_AGGREGATES
@@ -500,7 +503,7 @@ def test_the_deep_traversal_asks_every_walk_and_the_collect_form_takes_sum():
 
 def test_a25_guard_fires_on_an_or_of_two_list_equalities_over_an_array_index():
     from ganda.core.data.model import EdgeTypeSpec, FieldSpec, IndexSpec, NodeTypeSpec
-    from ganda.arangodb.known_bugs.guards import a25_shape, or_of_list_equalities
+    from ganda.arangodb.known_bugs.predicate import a25_shape, or_of_list_equalities
 
     eq1 = Predicate("source", "l", "=", "p_0", [1], "list")
     eq2 = Predicate("source", "l", "=", "p_1", [66], "list")
@@ -532,8 +535,8 @@ def test_a25_guard_fires_on_an_or_of_two_list_equalities_over_an_array_index():
 
 
 def test_a25_withholds_the_index_servable_select_variants_only():
-    from ganda.arangodb.concrete_syntax.select import Rewrites, SelectSyntax
-    from ganda.arangodb.known_bugs.guards import select_known
+    from ganda.arangodb.concrete_syntax.query.select import Rewrites, SelectSyntax
+    from ganda.arangodb.known_bugs import select_known
     from ganda.core.data.model import EdgeTypeSpec, FieldSpec, IndexSpec, NodeTypeSpec, NodeRow
     from ganda.core.query.ir.select import SelectQuery
 
@@ -548,8 +551,8 @@ def test_a25_withholds_the_index_servable_select_variants_only():
 
 
 def test_a43_guard_names_a_strict_join_over_a_sparse_index_with_nulls():
-    from ganda.arangodb.concrete_syntax.select import Rewrites, SelectSyntax
-    from ganda.arangodb.known_bugs.guards import select_known
+    from ganda.arangodb.concrete_syntax.query.select import Rewrites, SelectSyntax
+    from ganda.arangodb.known_bugs import select_known
     from ganda.core.data.model import EdgeTypeSpec, FieldSpec, IndexSpec, NodeRow, NodeTypeSpec
     from ganda.core.query.ir.select import SelectQuery
 

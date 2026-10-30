@@ -50,14 +50,14 @@ python3 -m ganda orientdb run --scale large --iterations 3 --seed 1   # the stor
   the engine gets it passed (`PROVIDER`); OrientDB's tests build instances through
   `tests/orientdb/helpers.build`, and `ganda.orientdb.Schema` is a `Schema` bound to
   OrientDB for hand-built schemas.
-- **Provider layout** (OrientDB and SurrealDB; ArangoDB and HANA move to it in turn): folders only at
+- **Provider layout** (OrientDB, SurrealDB and ArangoDB; HANA moves to it in turn): folders only at
   the top; `provider/` (`provider.py`, `config.py`, and `physical_design.py`: the index,
   storage and write-form draws); `engine/` (connection, plan steps, limits, semantics, dialect; it imports nothing from `concrete_syntax/`);
   `concrete_syntax/` (`setup/`, the instance as a setup plan; `query/`, the renderers and
   `predicate_sampling/`); `known_bugs/` (`predicate.py`, `traversal.py`, `select.py`, `write.py`), `mutation/` (`mutants.py`),
-  `code_coverage/` (JaCoCo); the probe is `rules/probe.py`. ArangoDB and HANA still keep `provider.py` and `config.py` at the top, `storage/` (dialect,
+  `code_coverage/` (JaCoCo); the probe is `rules/probe.py`. HANA still keeps `provider.py` and `config.py` at the top, `storage/` (dialect,
   physical design, `mapping/`), the renderers directly under `concrete_syntax/`, a single `known_bugs/guards.py`,
-  and `oracle/` (semantics, `predicate_sampling`; HANA also `rewrites` until its port).
+  and `oracle/` (semantics, `predicate_sampling`, `rewrites` until its port).
 - **Use conventional names** (the README glossary). New concepts get the textbook term.
 - **Engine limits are the provider's, in its `limits` slot** (`core/data/limits.py`,
   `ganda/orientdb/engine/limits.py`: every number documented or probed). The large-data axes
@@ -131,7 +131,7 @@ position, filter or form exists only to make a data model use or avoid an index 
 `noopt` filter, the `scan` / `nest` / `noindex` / `hint` positions, the `jscan` form and
 the semi-join's subquery-target rewrite are gone, with the rules and probe facts S5, S9,
 S10 that held them equivalent); the rewrites became drawn leaf forms
-(`oracle/predicate_sampling.leaf_form`: reversed operands, arithmetic, a parameter-keyed map entry;
+(`predicate_sampling.leaf_form`: reversed operands, arithmetic, a parameter-keyed map entry;
 `oracle/rewrites.py` is gone, `arith_exact` is `ArangoSemantics`'); writes share one target
 and door (`write_syntax.spelling`); and every doc write states its filter -- an attribute
 write rebuilds each source's array in the engine, `arr[* RETURN p ? MERGE(CURRENT, {...}) :
@@ -149,7 +149,7 @@ index loses the null and absent records; found 2026-10-25, the first campaign af
 refactoring); A1, A2, A40 and A41 retired 2026-10-25, each answering alike on every data
 model (the signed zero stays out of the pools, the `IS_OBJECT` ternary stays) -- beside
 them, and the error classes `engine/connection.py` classifies an errorNum through.
-`rules/checks.py` lists the rules each probe fact (`scripts/probe.py`: `V` values, `S`
+`rules/checks.py` lists the rules each probe fact (`rules/probe.py`: `V` values, `S`
 statement forms, `W` write doors, `L` limits, `T` timeout, `A` defects) asserts and the
 defects it reproduces; every rule is checked by a fact and read by code
 (`ganda.arangodb.rules`: `answer` where the code takes a value -- the arithmetic and sum
@@ -158,19 +158,20 @@ answer).
 A failing fact of a rule fails the probe; a defect that no longer reproduces is recorded
 in `rules/baseline.json` with the build, and `ganda arangodb run` warns when the server is
 another build. `ganda arangodb rules --write` renders `rules/RULES.md`;
-`tests/arangodb/test_rules.py` keeps catalog, checks, probe and file in step. Layout
-mirrors OrientDB's: `storage/dialect.py` (the logical `id` attribute, the percent-encoded
-`_key`, `engine_id` / `logical_id`), `storage/physical_design.py` (persistent indexes, unique
+`tests/arangodb/test_rules.py` keeps catalog, checks, probe and file in step. Layout is
+OrientDB's (`ganda/arangodb/README.md`): `engine/dialect.py` (the logical `id` attribute, the percent-encoded
+`_key`, `engine_id` / `logical_id`), `engine/plan.py` (the setup steps), `provider/physical_design.py` (persistent indexes, unique
 or sparse; the expanded `f[*]` array index for a LIST field; no signed zero in the
-pools), `config.py`, `engine/limits.py`, `engine/connection.py` (the cursor API, `bind_subset`, stream
+pools), `provider/config.py`, `engine/limits.py`, `engine/connection.py` (the cursor API, `bind_subset`, stream
 transactions, `maxRuntime` as the timeout), `engine/tx.py` (the transaction door's script
-text), `storage/mapping/` (bulk inserts chunked under half the request bound, `mergeObjects:
-false` on every update door), `oracle/semantics.py` (the total type order, exact numbers, code
-point string equality, `LIKE` as an ICU regex), `oracle/predicate_sampling.py` (`ordered_ops`: a string
-column takes the equality family only -- ICU collation orders them; `leaf_form`),
-`concrete_syntax/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),
-`known_bugs/guards.py` (A25, A42 and A43 guarded), `mutation/mutants.py` (the core's instance mutants,
-three render mutants and three index-path mutants, as OrientDB's), `scripts/probe.py`.
+text), `concrete_syntax/setup/` (bulk inserts chunked under half the request bound, `mergeObjects:
+false` on every update door), `engine/semantics.py` (the total type order, exact numbers, code
+point string equality), `concrete_syntax/query/predicate_sampling/` (`operators.ordered_ops`: a string
+column takes the equality family only -- ICU collation orders them; `forms.leaf_form`;
+`predicate_steering`, `LIKE` as an ICU regex),
+`concrete_syntax/query/` (`predicate`, `traversal`, `select`, `path`, `write`, `support`),
+`known_bugs/` (A25 and A42 in `predicate.py`, A43 in `select.py`), `mutation/mutants.py` (the core's instance mutants,
+three render mutants and three index-path mutants, as OrientDB's), `rules/probe.py`.
 
 Campaigns run on mousedeer (`ssh mousedeer`, a ControlMaster socket the user opens with
 `ssh -fN mousedeer`; the tree is rsynced to `/home/hakam/ganda/ganda`, the image there is
