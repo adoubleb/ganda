@@ -1,17 +1,79 @@
 """Guards on the TRAVERSAL IR: `mark_known_bugs`, the entry the traversal generator
-calls."""
+calls.
+
+**A44** (found by the symmetric-design campaign `sym-arangodb`, 30 cases from seed
+10065; pinned by the probe fact A44): `use-indexes` fails while optimizing with a 500,
+"The key of the next key/value pair must be a string", on a collection loop filtering
+a variable bound to an object literal that holds a subquery result with two or more
+`HAS` tests under one AND / OR, or one negated `HAS` that an OR beside it repeats in
+the disjunctive normal form (`(hr.a == 1 OR hr.b == 2) AND NOT HAS(hr, 'a')`; a positive
+one there answers, probed). A pulled-up variant is that shape when its projected row
+carries the traversal as a subquery (`v: MAX(FOR ...)`, or `LET` subqueries; a
+`COLLECT`-folded row is not)
+and the source predicate's presence leaves (`HAS(hr, 'f')`) are so placed.
+"""
 from __future__ import annotations
 
 import dataclasses
+import re
 
-from ganda.arangodb.known_bugs.predicate import A25, A42, a25_shape, a42_shape
+from ganda.core.query.ir.predicates import Compound, Predicate, fields_of, leaves
+from ganda.arangodb.rules import works_around
+from ganda.arangodb.known_bugs.predicate import A25, A39, A40, A42, a25_shape, a39_shape, a42_shape, holds_non_array, negated_memberships
+
+A44 = "A44"
+works_around("A44")
+# a traversal operator (`FOR v, e IN 1..1 OUTBOUND`, `FOR dv, de, dp IN 3..3 OUTBOUND`):
+# the edge-scan, link-array and junction texts hold none
+_TRAVERSAL = re.compile(r"\bIN \d+\.\.\d+ (?:OUTBOUND|INBOUND|ANY)\b")
+# a subquery inside the pulled-up query besides its own `FOR hr IN (FOR ...`: the row's
+# traversal answer (`v: MAX(FOR ...)`) or the `LET` subqueries it is built from (`LET rl1 =
+# UNIQUE(FOR ...)`, the reach projections; campaign seed 11424)
+_SUBQUERY_ROW = re.compile(r"\(FOR .*\(FOR ", re.S)
+_PRESENCE = ("IS PRESENT", "IS ABSENT")
+
+
+def _dnf(p, neg: bool = False) -> list:
+    """The disjunctive normal form's terms, each a list of (leaf, negated)."""
+    if isinstance(p, Compound):
+        if p.op == "NOT":
+            return _dnf(p.children[0], not neg)
+        parts = [_dnf(c, neg) for c in p.children]
+        if (p.op == "OR") != neg:
+            return [term for part in parts for term in part]
+        terms: list = [[]]
+        for part in parts:
+            terms = [a + b for a in terms for b in part]
+        return terms
+    return [[(p, neg)]]
+
+
+def a44_shape(p) -> bool:
+    presence = [lf for lf in leaves(p) if isinstance(lf, Predicate) and lf.op in _PRESENCE]
+    if len(presence) >= 2:
+        return True
+    if not presence:
+        return False
+    # one presence leaf: negated (`NOT HAS`) in two or more terms
+    negated = [term for term in _dnf(p) for lf, neg in term if lf is presence[0] and neg != (lf.op == "IS ABSENT")]
+    return len(negated) >= 2
+
+
+def _indexed(schema, table: str, fields, data_model: str) -> bool:
+    try:
+        return any(schema.node_indexes(table, f, data_model) for f in fields)
+    except KeyError:
+        return False
 
 
 def mark_known_bugs(case, q, schema, instance):
     """A traversal case: the A25 shape in a source, hop or target predicate withholds
     the variants of the data models holding the array index -- but a pulled-up variant
-    for a source predicate, which filters a projection, never a collection; the A42
-    shape withholds every variant, the pulled-up ones too (they filter the same value)."""
+    for a source predicate, which filters a projection, never a collection; the A42 and
+    A39 shapes withhold every variant, the pulled-up ones too (they filter the same
+    value). A40's spanned NOT withholds, in a hop predicate, the variants walking the
+    traversal operator, and in a source predicate, the pulled-up variants of the data
+    models holding an index on a field of it; A44 the pulled-up variants at its shape."""
     marks: dict = {}
     pulled_up = set(case.params.get("pulled_up", ()))
 
@@ -20,24 +82,43 @@ def mark_known_bugs(case, q, schema, instance):
             if v.split(":", 1)[0] in data_models and v not in skip:
                 marks.setdefault(v, fid)
 
+    def mark_where(fid: str, keep):
+        for v, text in case.queries.items():
+            if keep(v, text):
+                marks.setdefault(v, fid)
+
     def judge(p, rows, table: str, edge: bool, skip=()):
         if a42_shape(p, rows):
             mark(A42, set(schema.engine.data_models))
+        if a39_shape(p, rows):
+            mark(A39, set(schema.engine.data_models))
         hit = [dm for dm in schema.engine.data_models if a25_shape(p, schema, table, dm, edge)]
         if hit:
             mark(A25, set(hit), skip)
 
-    if q.source_predicate is not None:
-        judge(q.source_predicate, instance.nodes_of(q.source_table), q.source_table, False, pulled_up)
+    sp = q.source_predicate
+    if sp is not None:
+        rows = instance.nodes_of(q.source_table)
+        judge(sp, rows, q.source_table, False, pulled_up)
+        lfs = negated_memberships(sp)
+        if lfs and holds_non_array(rows, lfs):
+            indexed = {dm for dm in schema.engine.data_models if _indexed(schema, q.source_table, fields_of(sp), dm)}
+            mark_where(A40, lambda v, _t: v in pulled_up and v.split(":", 1)[0] in indexed)
+        if a44_shape(sp):
+            mark_where(A44, lambda v, t: v in pulled_up and bool(_SUBQUERY_ROW.search(t)))
     for h in q.hops:
         if h.predicate is None:
             continue
         et = schema.edge_type(h.edge_type)
         if h.predicate.on == "edge":
-            judge(h.predicate, instance.edges_of(et.name), et.name, True)
+            rows, table, edge = instance.edges_of(et.name), et.name, True
         else:
-            target = et.to_type if h.direction != "in" else et.from_type
-            judge(h.predicate, instance.nodes_of(target), target, False)
+            table = et.to_type if h.direction != "in" else et.from_type
+            rows, edge = instance.nodes_of(table), False
+        judge(h.predicate, rows, table, edge)
+        lfs = negated_memberships(h.predicate)
+        if lfs and holds_non_array(rows, lfs):
+            mark_where(A40, lambda _v, t: bool(_TRAVERSAL.search(t)))
     if not marks:
         return case
     return dataclasses.replace(case, known_bugs={**case.known_bugs, **marks})

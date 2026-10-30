@@ -1,4 +1,4 @@
-"""Guards for the ArangoDB defects already filed (A25, A42, A43): the provider's
+"""Guards for the ArangoDB defects already filed (A25, A39, A40, A42, A43, A44): the provider's
 `known_bugs` slot, one module per IR (`traversal`, `select`, `write`) over the guards
 on one predicate (`predicate`).
 
@@ -8,10 +8,10 @@ wider. When a concrete syntax would only re-report it, the case is marked
 counts the suppression instead of writing a bundle. `--no-known-bugs` turns the guards
 off, which is how a filed finding is re-confirmed.
 
-The legacy port's A1..A39 (`../arangoDB/issue-drafts/`) are either outside this port's
+The legacy port's A1..A38 (`../arangoDB/issue-drafts/`) are either outside this port's
 surface (ArangoSearch views, MDI and geo indexes, the JavaScript door) or kept
 unreachable by construction (no signed zero is stored, A1 / A2; no ordered comparison on
-a string, A9 / A34).
+a string, A9 / A34); its A39 is reachable and guarded.
 
 Each defect is described in `ganda/arangodb/rules`; `works_around("<id>")` ties the
 guard to that catalog entry.

@@ -374,6 +374,67 @@ def a25(s):
     _eq(sorted(s.aql("FOR n IN n1 FILTER n.l == @a OR n.l == @b RETURN n.id", binds, timeout_ms=0)), ["n1/r0", "n1/r1"], "without the index")
 
 
+def _fresh(s, *names, edge=()):
+    for name in names + tuple(edge):
+        try:
+            s._request("DELETE", f"/_api/collection/{name}")
+        except EngineError:
+            pass
+    for name in names:
+        s._request("POST", "/_api/collection", {"name": name})
+    for name in edge:
+        s._request("POST", "/_api/collection", {"name": name, "type": 3})
+
+
+@fact("A39", "use-indexes merges an integer constant with a double one or two ulps from it as one number and plans the conjunction as empty, on a collection with no index: `f > -5e-324 AND f == 0`, `f >= 2 AND f < 2.0000000000000004`, `f != 1.0000000000000002 AND f == 1`; the integer written as a double, a bound farther away, NOOPT and -use-indexes answer the rows")
+def a39(s):
+    _fresh(s, "ul")
+    s._request("POST", "/_api/document/ul", [{"_key": "a", "f": 0}, {"_key": "b", "f": 1}, {"_key": "c", "f": 2}])
+
+    def keys(cond, binds=None, **kw):
+        return sorted(s.aql(f"FOR d IN ul FILTER {cond} RETURN d._key", binds, timeout_ms=0, **kw))
+
+    for cond in ("d.f > -5e-324 AND d.f == 0", "d.f < 5e-324 AND d.f == 0", "d.f > -1e-323 AND d.f == 0", "d.f >= 2 AND d.f < 2.0000000000000004", "d.f != 1.0000000000000002 AND d.f == 1"):
+        _eq(keys(cond), [], cond)
+    _eq(keys("d.f > @a AND d.f IN @b", {"a": -5e-324, "b": [0, 0]}), [], "through bind parameters")
+    _eq(_one(s, "RETURN [0 > -5e-324, 0 != -5e-324, 2 < 2.0000000000000004]"), [True, True, True], "the constants compare exactly")
+    for cond in ("d.f > -5e-324 AND d.f == 0.0", "d.f > -4e-320 AND d.f == 0", "NOOPT(d.f) > -5e-324 AND NOOPT(d.f) == 0"):
+        _eq(keys(cond), ["a"], cond)
+    _eq(keys("d.f > -5e-324 AND d.f == 0", options={"optimizer": {"rules": ["-use-indexes"]}}), ["a"], "-use-indexes")
+
+
+@fact("A40", "NOT (x IN y) is rewritten into x NOT IN y, false over a null, absent or scalar attribute, where the constant form is true; a NOT over an OR is kept unless optimize-traversals pushes it into a traversal or use-indexes through a filter an index serves on another field (a pulled-up filter once its subquery is inlined); `[* FILTER NOT (x IN CURRENT.y)]` drops the non-arrays")
+def a40(s):
+    rows = s.aql("FOR d IN [{}, {x: null}, {x: 7}, {x: [1]}, {x: [2]}] RETURN [1 IN d.x, NOT (1 IN d.x), 1 NOT IN d.x, NOT (NOT (1 IN d.x)), NOT (d.x ANY == 1), NOT (d.x ANY IN [1]), NOT ([1] ALL IN d.x)]", timeout_ms=0)
+    _eq(rows[0], [False, False, False, False, True, True, True], "an absent attribute")
+    _eq(rows[1], [False, False, False, False, True, True, True], "a null attribute")
+    _eq(rows[2], [False, False, False, False, True, True, True], "a scalar attribute")
+    _eq(rows[3], [True, False, False, True, False, False, False], "a list holding the value")
+    _eq(rows[4], [False, True, True, False, True, True, True], "a list without it")
+    _eq(_one(s, "RETURN [1 IN null, NOT (1 IN null), 1 NOT IN null]"), [False, True, False], "the constant forms")
+    # s -> a, b, c, d; a stores no x, b a null, c [1], d [2] (the edges likewise); s holds 1
+    _fresh(s, "na", edge=("ne",))
+    s._request("POST", "/_api/index", {"type": "persistent", "fields": ["f"], "name": "ix_na_f"}, params={"collection": "na"})
+    arr = [{"k": "a"}, {"k": "b", "x": None}, {"k": "c", "x": [1]}, {"k": "d", "x": [2]}]
+    xs = {"a": {}, "b": {"x": None}, "c": {"x": [1]}, "d": {"x": [2]}}
+    s._request("POST", "/_api/document/na", [{"_key": "s", "x": [1], "f": True, "arr": arr}] + [{"_key": k, "f": True, **x} for k, x in xs.items()])
+    s._request("POST", "/_api/document/ne", [{"_key": f"e{k}", "_from": "na/s", "_to": f"na/{k}", **x} for k, x in xs.items()])
+    _eq(_one(s, "FOR n IN na FILTER n._key == 's' RETURN n.arr[* FILTER NOT (1 IN CURRENT.x) RETURN CURRENT.k]"), ["d"], "the inline filter's complement")
+    _eq(sorted(s.aql("FOR e IN ne FILTER 1 IN e.x RETURN e._key", timeout_ms=0)), ["ec"], "the collection filter")
+    off = {"optimizer": {"rules": ["-optimize-traversals"]}}
+    for var, want, right in (("e", ["ed"], ["ea", "eb", "ed"]), ("v", ["ed"], ["ea", "eb", "ed"])):
+        text = f"FOR v, e IN 1..1 OUTBOUND 'na/s' ne FILTER NOT (({var}._key == 'zz' OR 1 IN {var}.x)) SORT e._key RETURN e._key"
+        _eq(s.aql(text, timeout_ms=0), want, f"the traversal, a NOT over an OR on {var}")
+        _eq(s.aql(text, options=off, timeout_ms=0), right, f"-optimize-traversals, on {var}")
+    _eq(s.aql("FOR e IN ne FILTER e._from == 'na/s' FILTER NOT ((e._key == 'zz' OR 1 IN e.x)) SORT e._key RETURN e._key", timeout_ms=0), ["ea", "eb", "ed"], "the edge scan keeps the NOT")
+    pulled = "FOR hr IN (FOR n IN na RETURN {id: n._key, v: (FOR e IN ne FILTER e._from == n._id RETURN e._key), x: n.x, f: n.f}) FILTER NOT ((1 IN hr.x OR hr.f != true)) SORT hr.id RETURN hr.id"
+    _eq(s.aql(pulled, timeout_ms=0), ["d"], "the pulled-up filter, f indexed")
+    _eq(s.aql(pulled, options={"optimizer": {"rules": ["-use-indexes"]}}, timeout_ms=0), ["a", "b", "d"], "-use-indexes")
+    _eq(s.aql("FOR n IN na FILTER NOT ((n._key == 'zz' OR 1 IN n.x)) SORT n._key RETURN n._key", timeout_ms=0), ["a", "b", "d"], "a collection loop with no other field to serve keeps the NOT")
+    s._request("DELETE", "/_api/index/na/ix_na_f")
+    _eq(s.aql(pulled, timeout_ms=0), ["a", "b", "d"], "the pulled-up filter, f not indexed")
+
+
 @fact("A42", "LIKE with a wildcard over a stored string of 200 000 code points fails the query (errorNum 1543, 'invalid regex value': the wildcard is spelled (.|[\\r\\n])*, one backtracking frame per character) where ==, CONTAINS, STARTS_WITH and LENGTH answer; over 100 000 it answers")
 def a42(s):
     _fixture(s)
@@ -405,6 +466,31 @@ def a43(s):
     _eq([below("<"), below("<=")], [18, 19], "no index: 10 values and 8 nulls below 10.5")
     s._request("POST", "/_api/index", {"type": "persistent", "fields": ["b"], "sparse": True, "name": "ix_sp_b"}, params={"collection": "sp"})
     _eq([below("<"), below("<="), _one(s, "FOR x IN sp FILTER x.b < @p COLLECT WITH COUNT INTO c RETURN c", {"p": 10.5})], [10, 19, 18], "the sparse index loses the nulls under `<` only")
+
+
+@fact("A44", "two HAS tests of a variable bound to an object literal holding a subquery result, under one AND / OR in a collection loop's FILTER (or two FILTERs, which are fused), or one NOT HAS an OR beside it repeats in the disjunctive form, fail use-indexes with a 500 (errorNum 4, 'The key of the next key/value pair must be a string', while optimizing); one HAS, an array value, -use-indexes and a loop over an array answer")
+def a44(s):
+    _fixture(s)
+    text = "FOR d IN %s LET hr = {v: %s, a: 1} FILTER %s RETURN 1"
+    sub = "(FOR x IN [1] RETURN x)"
+    for cond in ("HAS(hr, 'a') AND HAS(hr, 'v')", "HAS(hr, 'a') OR HAS(hr, 'v')", "HAS(hr, 'a') AND HAS(hr, 'a')"):
+        e = _rejected(s, text % ("n1", sub, cond))
+        assert e is not None and e.internal and "key/value pair must be a string" in str(e), f"{cond} answered: {e}"
+    pulled = "FOR hr IN (FOR d IN n1 RETURN {v: (FOR x IN [1] RETURN x), a: 1, b: 2}) FILTER HAS(hr, 'a') AND HAS(hr, 'b') RETURN 1"
+    e = _rejected(s, pulled)
+    assert e is not None and e.internal, f"the pulled-up form answered: {e}"
+    e = _rejected(s, text % ("n1", sub, "HAS(hr, 'a') FILTER HAS(hr, 'v')"))
+    assert e is not None and e.internal, f"two FILTERs (fused into one condition) answered: {e}"
+    # one negated HAS that an OR beside it repeats in the disjunctive form; a positive one answers
+    e = _rejected(s, text % ("n1", sub, "(hr.a == 1 OR hr.a == 2) AND NOT HAS(hr, 'v')"))
+    assert e is not None and e.internal, f"a NOT HAS beside an OR answered: {e}"
+    four = [1, 1, 1, 1]
+    _eq(s.aql(text % ("n1", sub, "(hr.a == 1 OR hr.a == 2) AND HAS(hr, 'v')"), timeout_ms=0), four, "a HAS beside an OR")
+    _eq(s.aql(text % ("n1", sub, "hr.a == 7 OR NOT HAS(hr, 'c')"), timeout_ms=0), four, "a NOT HAS in one disjunct")
+    _eq(s.aql(text % ("n1", sub, "HAS(hr, 'a')"), timeout_ms=0), four, "one HAS")
+    _eq(s.aql(text % ("n1", "[1]", "HAS(hr, 'a') AND HAS(hr, 'v')"), timeout_ms=0), four, "an array value")
+    _eq(s.aql(text % ("n1", sub, "HAS(hr, 'a') AND HAS(hr, 'v')"), options={"optimizer": {"rules": ["-use-indexes"]}}, timeout_ms=0), four, "-use-indexes")
+    _eq(s.aql(text % ("[1, 2]", sub, "HAS(hr, 'a') AND HAS(hr, 'v')"), timeout_ms=0), [1, 1], "a loop over an array")
 
 
 # --- T: the timeout --------------------------------------------------------------------------------

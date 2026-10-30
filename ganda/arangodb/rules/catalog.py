@@ -17,13 +17,23 @@ spelled `(.|[\\r\\n])*`, which backtracks one frame per character into ICU's sta
 limit -- where `==`, `CONTAINS`, `STARTS_WITH` and `LENGTH` over the same value answer;
 withheld by `known_bugs/predicate.py` where a column the LIKE reads holds such a value, the
 large scale's grown strings); **A43** (a correlated strict bound served by a sparse
-persistent index loses the null and absent records; withheld there). Retired
-2026-10-25, as unable to make two data models differ (each answers alike on every one):
-A1 and A2 (a stored `-0.0`: the pools still hold none), A40 (`NOT (x IN n.list)` over a
-non-array; a guards-off campaign marked 236 pairs and none failed) and A41 (a vertex
+persistent index loses the null and absent records; withheld there); **A40** (`NOT (x IN
+f)` rewritten into `x NOT IN f`, false over a null, absent or scalar `f`: retired
+2026-10-25 as alike on every data model, restored 2026-10-30 when the symmetric-design
+campaign found three placements that are not -- doc's `[* FILTER NOT (p)]` edge delete, a
+NOT over an AND / OR pushed into a traversal by `optimize-traversals`, and the same NOT
+pushed through by `use-indexes` on a pulled-up filter whose subquery one data model's
+form inlines; withheld by `known_bugs/write.py`
+and `known_bugs/traversal.py`); **A39** (the legacy port's, met again: `use-indexes`
+merges an integer constant with a double one or two ulps from it as one number and
+plans the conjunction as empty; withheld by `known_bugs/predicate.py`); **A44** (found by
+the same campaign: two `HAS` tests of an object holding a subquery result fail
+`use-indexes` with a 500; withheld by `known_bugs/traversal.py` on the pulled-up forms).
+Retired 2026-10-25, as unable to make two data models differ (each answers alike on
+every one): A1 and A2 (a stored `-0.0`: the pools still hold none) and A41 (a vertex
 filter moved into a traversal evaluated on the start vertex: the `IS_OBJECT` ternary
 stays). The legacy
-port's other findings (`../arangoDB/issue-drafts/`, A3..A39) are outside this surface
+port's other findings (`../arangoDB/issue-drafts/`, A3..A38) are outside this surface
 (ArangoSearch views, MDI and geo indexes, the JavaScript door) or unreachable by
 construction: no ordered comparison on a string column (A9, A14, A34: `order.string` is
 collation), no `JoinNode` over a top-level two-loop (A20); A24's pair (an expanded index
@@ -142,8 +152,11 @@ RULES = COMPARE_RULES + ASK_RULES + EQUIVALENT_RULES + EXACT_RULES
 
 DEFECTS = (
     Defect("A25", AQL_INDEX),
+    Defect("A39", AQL),
+    Defect("A40", AQL),
     Defect("A42", AQL),
     Defect("A43", AQL_INDEX),
+    Defect("A44", AQL),
 )
 
 # The classification of an errorNum and its message; the HTTP status decides what the

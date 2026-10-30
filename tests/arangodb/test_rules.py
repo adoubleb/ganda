@@ -31,8 +31,8 @@ def test_every_rule_is_checked_by_a_fact_and_read_by_code():
     assert unread == []
 
 
-def test_the_defects_are_a25_a42_a43_each_reproduced_and_read():
-    assert [d.id for d in CATALOG.defects] == ["A25", "A42", "A43"]
+def test_the_defects_are_a25_a39_a40_a42_a43_a44_each_reproduced_and_read():
+    assert [d.id for d in CATALOG.defects] == ["A25", "A39", "A40", "A42", "A43", "A44"]
     assert CATALOG.unreproduced() == []
     index = read_index()
     assert all(index["defects"][d.id] for d in CATALOG.defects)

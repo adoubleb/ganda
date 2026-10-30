@@ -64,9 +64,12 @@ baseline: 3.12.11, every check of a rule held
 
 | id | subject | reproduced by | on 3.12.11 | read by |
 |---|---|---|---|---|
-| A25 | aql@index | A25 | reproduces | known_bugs/predicate.py:32 |
-| A42 | aql | A42 | reproduces | known_bugs/predicate.py:34 |
-| A43 | aql@index | A43 | reproduces | known_bugs/select.py:9 |
+| A25 | aql@index | A25 | reproduces | known_bugs/predicate.py:62 |
+| A39 | aql | A39 | reproduces | known_bugs/predicate.py:64 |
+| A40 | aql | A40 | reproduces | known_bugs/predicate.py:66 |
+| A42 | aql | A42 | reproduces | known_bugs/predicate.py:68 |
+| A43 | aql@index | A43 | reproduces | known_bugs/select.py:10 |
+| A44 | aql | A44 | reproduces | known_bugs/traversal.py:25 |
 
 ## error classes
 
@@ -75,4 +78,4 @@ baseline: 3.12.11, every check of a rule held
 | timeout | 1500, 1600 |  | unchecked |
 | timeout | any | `query killed`; `timed out`; `time out`; `timeout` (any case) | unchecked |
 
-36 rules (0 IR definitions): 36 checked by a probe fact, 0 unchecked; 36 read by code, 0 unread; 3 defects (3 reproduced by a probe fact); 2 error classes
+36 rules (0 IR definitions): 36 checked by a probe fact, 0 unchecked; 36 read by code, 0 unread; 6 defects (6 reproduced by a probe fact); 2 error classes

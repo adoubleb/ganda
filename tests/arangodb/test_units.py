@@ -569,3 +569,136 @@ def test_a43_guard_names_a_strict_join_over_a_sparse_index_with_nulls():
     # a sparse index on the base class covers the subclass (campaign a4n, seed 2008)
     based = E.schema(node_types=schema.node_types, edge_types=schema.edge_types, indexes=(dataclasses.replace(sparse, table="N0"),), base=NodeTypeSpec("N0", (FieldSpec("f", FieldType.FLOAT),)))
     assert select_known(lt, SelectSyntax(), Rewrites(), "graph", based, dataclasses.replace(inst, schema=based)) == "A43"
+
+
+# --- the known bugs A39, A40 and A44 (the symmetric-design campaign, 2026-10-30) ----------------------
+
+
+def test_a40_finds_the_memberships_each_placement_negates():
+    from ganda.arangodb.known_bugs.predicate import complement_memberships, holds_non_array, negated_memberships
+    from ganda.core.data.model import NodeRow
+
+    has = Predicate("source", "l", "HAS", "p", 1, "list")
+    other = Predicate("source", "a", "=", "q", 1, "int")
+    spanned = Compound("source", "NOT", (Compound("source", "OR", (other, has)),))
+    assert negated_memberships(spanned) == [has]
+    assert negated_memberships(Compound("source", "AND", (other, spanned))) == [has]
+    # a NOT straight over the leaf is rewritten on every path alike; two NOTs cancel
+    assert negated_memberships(Compound("source", "NOT", (has,))) == []
+    assert negated_memberships(Compound("source", "NOT", (Compound("source", "AND", (other, Compound("source", "NOT", (Compound("source", "OR", (other, has)),)))),))) == []
+    assert negated_memberships(Compound("source", "NOT", (Compound("source", "OR", (other, dataclasses.replace(has, rev=True))),))) == []
+    assert negated_memberships(Compound("source", "NOT", (Compound("source", "OR", (other, dataclasses.replace(has, op="HAS ANY"))),))) == []
+    # the edge delete's complement NOT (p): a leaf under no NOT is negated on doc alone, one
+    # under a bare NOT rewritten on graph and rel alone; a spanned NOT neither rewrites
+    assert complement_memberships(has) == [has] and complement_memberships(Compound("source", "OR", (other, has))) == [has]
+    assert complement_memberships(Compound("source", "NOT", (has,))) == [has]
+    assert complement_memberships(spanned) == []
+    assert holds_non_array([NodeRow("n1", 0, {"l": [1]}), NodeRow("n1", 1, {})], [has])
+    assert holds_non_array([NodeRow("n1", 0, {"l": 7})], [has])
+    assert not holds_non_array([NodeRow("n1", 0, {"l": [1]}), NodeRow("n1", 1, {"l": []})], [has])
+
+
+def test_a40_withholds_the_doc_edge_delete_over_a_link_without_an_array():
+    from ganda.arangodb.concrete_syntax.query.write import WriteSyntax
+    from ganda.arangodb.known_bugs import write_known
+    from ganda.core.data.model import EdgeRow, EdgeTypeSpec, FieldSpec, NodeRow, NodeTypeSpec
+    from ganda.core.query.ir.write import WriteQuery
+
+    schema = E.schema(node_types=(NodeTypeSpec("n1", ()),), edge_types=(EdgeTypeSpec("e1", "n1", "n1", (FieldSpec("w", FieldType.LIST),)),))
+    nodes = [NodeRow("n1", i, {}) for i in range(3)]
+    s0, s1, s2 = (n.record_id for n in nodes)
+    edges = [EdgeRow("e1", 0, s0, s1, {"w": [5]}), EdgeRow("e1", 1, s0, s2, {}), EdgeRow("e1", 2, s1, s2, {"w": None})]
+    inst = dataclasses.replace(build(1, CFG, E)[1], schema=schema, nodes=nodes, edges=edges, churn=[])
+    q = WriteQuery("edge_delete", edge_type="e1", where=Predicate("edge", "w", "HAS", "p", 5, "list"))
+    bracket = WriteSyntax(form="bracket")
+    assert write_known(q, bracket, None, "doc", schema, inst) == "A40"
+    assert write_known(q, WriteSyntax(), None, "graph", schema, inst) is None
+    # every link an array: nothing for either side to rewrite
+    assert write_known(q, bracket, None, "doc", schema, dataclasses.replace(inst, edges=[edges[0]])) is None
+    # a bare NOT: graph and rel rewrite it, doc's NOT (NOT (...)) folds (campaign seed 10223)
+    negated = dataclasses.replace(q, where=Compound("edge", "NOT", (q.where,)))
+    assert write_known(negated, bracket, None, "doc", schema, inst) == "A40"
+    spanned = dataclasses.replace(q, where=Compound("edge", "NOT", (Compound("edge", "OR", (Predicate("edge", "w", "IS NULL", "", None, "list"), q.where)),)))
+    assert write_known(spanned, bracket, None, "doc", schema, inst) is None
+
+
+def test_a40_and_a44_mark_the_traversal_and_pulled_up_variants_at_their_shapes():
+    from ganda.arangodb.known_bugs import mark_known_bugs
+    from ganda.core.data.model import EdgeTypeSpec, FieldSpec, IndexSpec, NodeRow, NodeTypeSpec
+    from ganda.core.oracle.case import Comparison, QueryCase
+    from ganda.core.query.ir.traversal import Hop, TraversalQuery
+
+    schema = E.schema(
+        node_types=(NodeTypeSpec("n1", (FieldSpec("l", FieldType.LIST), FieldSpec("a", FieldType.INT))),),
+        edge_types=(EdgeTypeSpec("e1", "n1", "n1", ()),),
+        indexes=(IndexSpec("n1", "a", data_model="both", kind="persistent"),),
+    )
+    inst = dataclasses.replace(build(1, CFG, E)[1], schema=schema, nodes=[NodeRow("n1", 0, {"l": [1], "a": 1}), NodeRow("n1", 1, {"a": 2})], edges=[], churn=[])
+    queries = {
+        "doc": "FOR n IN n1 RETURN {id: n.id, v: (FOR l1 IN (n.e1 || []) RETURN l1)}",
+        "doc:pull_up": "FOR hr IN (FOR n IN n1 RETURN {id: n.id, v: (FOR l1 IN (n.e1 || []) RETURN l1), l: n.l}) FILTER x RETURN hr",
+        "graph": "FOR n IN n1 RETURN {id: n.id, v: (FOR v1, ed1 IN 1..1 OUTBOUND n e1 RETURN v1.id)}",
+        "graph:escan": "FOR n IN n1 RETURN {id: n.id, v: (FOR ed1 IN e1 FILTER ed1._from == n._id RETURN ed1)}",
+        "graph:pull_up": "FOR hr IN (FOR n IN n1 FOR v1, ed1 IN 1..1 OUTBOUND n e1 COLLECT fid = n.id INTO g RETURN {id: fid, v: g, l: 1}) FILTER x RETURN hr",
+        "rel": "FOR n IN n1 RETURN {id: n.id, v: (FOR j IN e1 RETURN j)}",
+    }
+    case = QueryCase("ir_traversal", "", Comparison.SCALAR_BY_ID, queries, {}, {"pulled_up": ["doc:pull_up", "graph:pull_up"]}, shape="s")
+    spanned = Compound("source", "NOT", (Compound("source", "OR", (Predicate("source", "a", "=", "q", 9, "int"), Predicate("source", "l", "HAS", "p", 1, "list"))),))
+    # a source predicate: the pulled-up variants of the data models indexing a field of it
+    assert mark_known_bugs(case, TraversalQuery("n1", (Hop("e1", "out"),), "ids", source_predicate=spanned), schema, inst).known_bugs == {"doc:pull_up": "A40", "graph:pull_up": "A40"}
+    unindexed = E.schema(node_types=schema.node_types, edge_types=schema.edge_types)
+    assert mark_known_bugs(case, TraversalQuery("n1", (Hop("e1", "out"),), "ids", source_predicate=spanned), unindexed, dataclasses.replace(inst, schema=unindexed)).known_bugs == {}
+    # a target predicate: the variants walking the traversal operator
+    target = Compound("target", "NOT", (Compound("target", "OR", (Predicate("target", "a", "=", "q", 9, "int"), Predicate("target", "l", "HAS", "p", 1, "list"))),))
+    assert mark_known_bugs(case, TraversalQuery("n1", (Hop("e1", "out", target),), "ids"), schema, inst).known_bugs == {"graph": "A40", "graph:pull_up": "A40"}
+    # A44: two presence leaves, and a pulled-up row carrying the traversal as a subquery
+    present = Compound("source", "AND", (Predicate("source", "a", "IS PRESENT", "", None, "int"), Predicate("source", "l", "IS PRESENT", "", None, "list")))
+    assert mark_known_bugs(case, TraversalQuery("n1", (Hop("e1", "out"),), "ids", source_predicate=present), schema, inst).known_bugs == {"doc:pull_up": "A44"}
+    assert mark_known_bugs(case, TraversalQuery("n1", (Hop("e1", "out"),), "ids", source_predicate=present.children[0]), schema, inst).known_bugs == {}
+    let = dataclasses.replace(case, queries={**queries, "graph:pull_up": "FOR hr IN (FOR n IN n1 LET rl1 = UNIQUE(FOR x1 IN [n._id] RETURN x1) RETURN {id: n.id, v: rl1, l: n.l}) FILTER x RETURN hr"})
+    assert mark_known_bugs(let, TraversalQuery("n1", (Hop("e1", "out"),), "ids", source_predicate=present), schema, inst).known_bugs == {"doc:pull_up": "A44", "graph:pull_up": "A44"}
+
+
+def test_a44_shape_counts_presence_leaves_and_the_negated_one_an_or_repeats():
+    from ganda.arangodb.known_bugs.traversal import a44_shape
+
+    def leaf(f, op="="):
+        return Predicate("source", f, op, "" if "IS" in op else "q", None if "IS" in op else 1, "int")
+
+    has, absent, a, b = leaf("a", "IS PRESENT"), leaf("b", "IS ABSENT"), leaf("a"), leaf("b")
+    either = Compound("source", "OR", (a, b))
+    assert a44_shape(Compound("source", "AND", (has, leaf("b", "IS PRESENT"))))
+    assert a44_shape(Compound("source", "OR", (has, absent)))
+    assert a44_shape(Compound("source", "AND", (either, absent)))  # campaign seed 10445
+    assert a44_shape(Compound("source", "AND", (either, Compound("source", "NOT", (has,)))))
+    assert a44_shape(Compound("source", "AND", (either, Compound("source", "OR", (b, absent)))))  # seed 11907
+    # answered, probed: a positive HAS an OR repeats, one negated HAS in one term, one HAS
+    assert not a44_shape(Compound("source", "AND", (either, has)))
+    assert not a44_shape(Compound("source", "OR", (a, absent)))
+    assert not a44_shape(Compound("source", "NOT", (Compound("source", "AND", (a, has)),)))
+    assert not a44_shape(absent) and not a44_shape(either) and not a44_shape(None)
+
+
+def test_a39_withholds_an_integer_and_its_adjacent_double_on_one_field():
+    from ganda.arangodb.concrete_syntax.query.select import Rewrites, SelectSyntax
+    from ganda.arangodb.known_bugs import select_known
+    from ganda.arangodb.known_bugs.predicate import a39_shape
+    from ganda.core.data.model import EdgeTypeSpec, FieldSpec, NodeRow, NodeTypeSpec
+    from ganda.core.query.ir.select import SelectQuery
+
+    def both(lo, hi, op="="):
+        return Compound("source", "AND", (Predicate("source", "f", ">", "p_0", lo, "float"), Predicate("source", "f", op, "p_1", hi, "int")))
+
+    zero = [NodeRow("n1", 0, {"f": 0}), NodeRow("n1", 1, {"f": 7})]
+    assert a39_shape(both(-5e-324, 0), zero)
+    assert a39_shape(both(-1e-323, 0), zero)  # two ulps
+    assert a39_shape(Compound("source", "AND", (Predicate("source", "f", ">", "p_0", -5e-324, "float"), Predicate("source", "f", "IN", "p_1", [0, 0], "int"))), zero)
+    assert a39_shape(Compound("source", "AND", (Predicate("source", "f", "!=", "p_0", 1.0000000000000002, "float"), Predicate("source", "f", "=", "p_1", 1, "int"))), [NodeRow("n1", 0, {"f": 1})])
+    assert not a39_shape(both(-4e-320, 0), zero)  # far enough
+    assert not a39_shape(both(-5e-324, 0.0), zero)  # the integer as a double
+    assert not a39_shape(both(-5e-324, 0), [NodeRow("n1", 0, {"f": 7}), NodeRow("n1", 1, {})])  # nothing stored between them
+    assert not a39_shape(Compound("source", "AND", (Predicate("source", "f", ">", "p_0", -5e-324, "float"), Predicate("source", "g", "=", "p_1", 0, "int"))), [NodeRow("n1", 0, {"f": 0, "g": 0})])  # two fields
+    schema = E.schema(node_types=(NodeTypeSpec("n1", (FieldSpec("f", FieldType.FLOAT),)),), edge_types=(EdgeTypeSpec("e1", "n1", "n1", ()),))
+    inst = dataclasses.replace(build(1, CFG, E)[1], schema=schema, nodes=zero, edges=[], churn=[])
+    for dm in E.data_models:
+        assert select_known(SelectQuery("n1", both(-5e-324, 0), "ids", ()), SelectSyntax(), Rewrites(), dm, schema, inst) == "A39"

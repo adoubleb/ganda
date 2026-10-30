@@ -1,9 +1,10 @@
 """Guards on the SELECT IR: A43 (a join's correlated strict bound through a sparse
-index) and `select_known`, the entry the select generator calls."""
+index) and `select_known`, the entry the select generator calls; A39 withholds every
+concrete syntax (each is a FILTER `use-indexes` analyses)."""
 from __future__ import annotations
 
 from ganda.arangodb.rules import works_around
-from ganda.arangodb.known_bugs.predicate import A25, A42, a25_shape, a42_shape
+from ganda.arangodb.known_bugs.predicate import A25, A39, A42, a25_shape, a39_shape, a42_shape
 
 A43 = "A43"
 works_around("A43")
@@ -28,6 +29,8 @@ def select_known(q, syntax, rewrites, data_model, schema, instance):
     rows = instance.edges_of(q.table) if q.edge else instance.nodes_of(q.table)
     if a42_shape(pred, rows):
         return A42
+    if a39_shape(pred, rows):
+        return A39
     if a25_shape(pred, schema, q.table, data_model, q.edge):
         return A25
     return None

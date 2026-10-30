@@ -68,6 +68,9 @@ CHECKS = {
     "W6": (Rule(INLINE_ARRAY_REBUILDS, AQL, True),),
     # --- A: the defects, each reproduced by the fact of its id
     "A25": (_DEFECT["A25"],),
+    "A39": (_DEFECT["A39"],),
+    "A40": (_DEFECT["A40"],),
     "A42": (_DEFECT["A42"],),
     "A43": (_DEFECT["A43"],),
+    "A44": (_DEFECT["A44"],),
 }
