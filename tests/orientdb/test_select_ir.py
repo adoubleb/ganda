@@ -109,9 +109,9 @@ def test_every_case_is_well_formed():
             q = from_params(c.params["select"])
             texts = {data_model: _read_of(c.queries[data_model]) for data_model in ("doc", "graph", "rel") if data_model in c.queries}
             if q.edge:
-                # the doc data model reads the embedded link documents, and only ids / count
+                # the doc data model reads the embedded link documents
                 assert texts["graph"] == texts["rel"]
-                assert ("doc" in texts) == (q.kind in ("ids", "count")) == (not c.params.get("partial"))
+                assert "doc" in texts and not c.params.get("partial")
             else:
                 assert texts["doc"] == texts["graph"] == texts["rel"]
             if q.tx:

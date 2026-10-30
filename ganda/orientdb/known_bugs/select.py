@@ -3,7 +3,7 @@
 """
 from __future__ import annotations
 
-from ganda.core.query.ir.select import TxWrite
+from ganda.core.query.ir.select import DOC_EDGE_KINDS, TxWrite
 from ganda.orientdb.known_bugs.java_hash import distinct_collides
 from ganda.core.data.model import FieldType, Instance, Schema
 from ganda.orientdb.engine.dialect import RANGE_KINDS
@@ -344,6 +344,8 @@ def select_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Ins
         # null a column; its semi-joins' answers too)
         instance = view(q, instance)
         eff = predicates.resolve_subs(eff, instance)
+    if q.edge and data_model == "doc" and q.kind not in DOC_EDGE_KINDS:
+        return unwound_known(q, schema, instance) or select_shape_known(q, sp, data_model, schema, instance, rewrites.present)
     fid = None
     if q.edge:
         if eff is not None:
@@ -375,7 +377,7 @@ def _wraps(values: list) -> bool:
 
 def unwound_known(q, schema: Schema, instance: Instance) -> "str | None":
     """The known bug the doc data model's edge-type select over its links unwound into
-    rows (`select.render_unwound`, a gated cell) is the exact shape of. The link
+    rows (`select.render_unwound`) is the exact shape of. The link
     documents are undeclared: no collation (O25: a filter, an order, a group or a
     distinct over a `ci` attribute), and a number boxed by its value -- Integer,
     Long, Double -- where the E class and the junction class declare one type: an

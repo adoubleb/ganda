@@ -62,7 +62,6 @@ import dataclasses
 from ganda.core.data.model import Schema
 from ganda.core.query.ir.traversal import AGG_PROJECTIONS, EDGE_AGG_PROJECTIONS, EDGE_PROJECTIONS, FIELD_PROJECTIONS, REACH_PROJECTIONS, SET_PROJECTIONS, Hop, TraversalQuery
 from ganda.core.query.ir.predicates import fields_of, has_op
-from ganda.orientdb.concrete_syntax.query.frames import GATED
 from ganda.orientdb.concrete_syntax.query.predicate import condition, render_predicate as render_pred
 from ganda.orientdb.concrete_syntax.query.scope import CURRENT, RECORD, RENAMED, Lookup, Path, Renamed, Semijoin
 
@@ -224,18 +223,8 @@ def can_pull_up(q: TraversalQuery) -> bool:
     return not any(leaf.case_insensitive and leaf.op in _CI_OPS for leaf in p.leaves())
 
 
-def _ir(q: TraversalQuery) -> str:
-    return "reach" if q.projection in REACH_PROJECTIONS else "traversal"
-
-
 def syntaxes_for(q: TraversalQuery, schema: Schema, data_model: str) -> list:
-    """The applicable syntaxes the traversal generator draws from; a gated cell's
-    (`frames.GATED`) are asked by the `frame_holes` generator only."""
-    return [s for s in SYNTAXES[data_model] if (_ir(q), data_model, s) not in GATED and applicable(q, schema, data_model, s)]
-
-
-def gated_syntaxes_for(q: TraversalQuery, schema: Schema, data_model: str) -> list:
-    return [s for s in SYNTAXES[data_model] if (_ir(q), data_model, s) in GATED and applicable(q, schema, data_model, s)]
+    return [s for s in SYNTAXES[data_model] if applicable(q, schema, data_model, s)]
 
 
 # --- projections ----------------------------------------------------------------------------

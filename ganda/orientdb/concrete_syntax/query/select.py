@@ -33,12 +33,11 @@ as it reads the base class's).
 
 An EDGE-TYPE target reads `eid AS id` from the graph E class and the junction class
 (the `table` position); the doc data model has no relationship
-class, so it renders `ids` and `count` alone, through the source records' embedded
+class: it renders `ids` and `count` through the source records' embedded
 link lists -- `SELECT v AS id FROM (SELECT e[p].eid AS v FROM src UNWIND v) WHERE v
-IS NOT NULL` (a bracket filter is never index-served, so the positions are one). Every
-kind over the link documents unwound into rows is the gated cell `doc:unwound`
-(`render_unwound`: the kind's text over `FROM (SELECT e AS l FROM src UNWIND l)`, a
-link the record), asked by the `frame_holes` generator only.
+IS NOT NULL` (a bracket filter is never index-served, so the positions are one); every
+other kind is the kind's text over the link documents unwound into rows
+(`render_unwound`: `FROM (SELECT e AS l FROM src UNWIND l)`, a link the record).
 
 The TRANSACTION door wraps every concrete syntax of a `tx` question the same way:
 `BEGIN; <write>; LET $r = (<text> TIMEOUT ...); ROLLBACK; RETURN $r`, the write
@@ -108,7 +107,7 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
     if q.edge:
         if sp.position in ("poly", "polyin"):
             return False
-        if data_model == "doc" and (q.kind not in DOC_EDGE_KINDS or sp.position != "table" or sp.form != "base"):
+        if data_model == "doc" and (sp.position != "table" or sp.form != "base"):
             return False
     if sp.form == "jrev" and q.kind != "join":
         return False
@@ -123,10 +122,7 @@ def applicable(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewri
 
 
 def base_data_models(q: SelectQuery) -> tuple:
-    """The data models the question has a concrete syntax on (the doc data model lacks an edge
-    type's kinds beyond `ids` / `count`)."""
-    if q.edge and q.kind not in DOC_EDGE_KINDS:
-        return ("graph", "rel")
+    """The data models the question has a concrete syntax on: every one."""
     return ("doc", "graph", "rel")
 
 
@@ -232,7 +228,7 @@ def render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites,
 
 def _render(q: SelectQuery, schema: Schema, sp: SelectSyntax, rewrites: Rewrites, data_model: str) -> str:
     if q.edge and data_model == "doc":
-        return _doc_edge(q, schema)
+        return _doc_edge(q, schema) if q.kind in DOC_EDGE_KINDS else render_unwound(q, schema)
     src = _source(q, schema, sp, _where_text(q, sp), _join_let(q, sp) if q.kind == "join" else "")
     return _kind_text(q, sp, src, EDGE if q.edge else RECORD)
 
@@ -271,28 +267,23 @@ def _kind_text(q: SelectQuery, sp: SelectSyntax, src: str, at: Path) -> str:
 
 
 assumes("unwind.embedded_document.row_per_document", SQL, True)
-
-
-def unwound_applicable(q: SelectQuery, schema: Schema, present: list) -> bool:
-    """Whether `render_unwound` asks the question over these present values: an
-    undeclared INT attribute holds a value within 32 bits as an Integer, and INTEGER
-    arithmetic is asked only where its mirror holds (`METHODS[INT32]`: `* 2` wraps,
-    `math_abs(-2^31)` is -2^31)."""
-    if q.kind != "method" or schema.field(q.table, q.field, edge=True).type is not FieldType.INT:
-        return True
-    guard = dict(METHODS[FieldType.INT32]).get(q.fn)
-    return guard is not None and all(guard(v) for v in present if -(2**31) <= v < 2**31)
+# an Integer read through `asLong()` takes LONG arithmetic
+assumes("method.as_long.widens_integer", SQL, True)
 
 
 def render_unwound(q: SelectQuery, schema: Schema) -> str:
-    """The doc data model's edge-type select of every kind (a GATED cell, `frames.py`):
-    the select_edges frame over the source class's link documents unwound one row per
+    """The doc data model's edge-type select of a kind beyond `ids` / `count`: the
+    select_edges frame over the source class's link documents unwound one row per
     link, a link the record (`LINK`: `l.f`, `l.eid`, its definedness through its keys)
     -- `FROM (SELECT e AS l FROM src UNWIND l) WHERE l IS NOT NULL [AND p]` (an empty
     or absent list unwinds to a null row)."""
     et = schema.edge_type(q.table)
     where = _where_text(q, BASE, LINK)
     src = f"FROM (SELECT {et.name} AS l FROM {et.from_type} UNWIND l) WHERE l IS NOT NULL" + (f" AND {where}" if where else "")
+    if q.kind == "method" and schema.field(q.table, q.field, edge=True).type is FieldType.INT:
+        # an undeclared INT holds a value within 32 bits as an Integer, whose
+        # arithmetic wraps (`* 2`, `math_abs(-2^31)`): read as the LONG the others declare
+        return f"SELECT {LINK.id} AS id, {q.fn.format(f=LINK.field(q.field) + '.asLong()')} AS v {src}"
     return _kind_text(q, BASE, src, LINK)
 
 

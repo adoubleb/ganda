@@ -105,12 +105,10 @@ assumes("in_subquery.dotted_projection", SQL, True)
 assumes("unwind.bracket_projection.row_per_element", SQL, True)
 
 
-def render_gated(q: PathQuery, schema: Schema) -> dict:
-    """The level union on the graph and doc data models (the frame grid's gated
-    `path_levels` cells), in the LET form (O40 spares it): the E class's rows by their
-    ends' ids, the doc side's link lists unwound into (source, target) rows."""
-    if q.edge_type is None or q.direction == "BOTH":
-        return {}
+def _levels_union(q: PathQuery, schema: Schema) -> dict:
+    """The level union on the graph and doc data models, in the LET form (O40 spares
+    it): the E class's rows by their ends' ids, the doc side's link lists unwound into
+    (source, target) rows."""
     et = schema.edge_type(q.edge_type)
     links = f"(SELECT id AS src_id, {et.name}.target.id AS dst_id FROM {et.from_type} UNWIND dst_id)"
     return {
@@ -145,6 +143,7 @@ def render_all(q: PathQuery, schema: Schema, instance: Instance) -> "tuple[dict,
             queries["doc:deep"] = _doc(q, schema, n)
     if q.edge_type is not None and q.direction != "BOTH":
         queries.update(_rel(q))
+        queries.update(_levels_union(q, schema))
     known_bugs = {}
     if d == q.depth:
         known_bugs["graph"] = "O35"

@@ -44,8 +44,7 @@ def test_path_cells_are_the_variants():
     inst = Instance(schema, [NodeRow("n1", i, {}) for i in range(4)], [EdgeRow("e1", i, f"n1/r{i}", f"n1/r{i + 1}", {}) for i in range(3)])
     q = PathQuery("n1/r0", "n1", "n1/r3", "n1", "OUT", "e1", 3)
     tags = lambda queries: {tuple(v.split(":")) if ":" in v else (v, "") for v in queries}  # noqa: E731
-    assert tags(path.render_all(q, schema, inst)[0]) == _keys(c for c in PATH if not c.gated)
-    assert tags(path.render_gated(q, schema)) == _keys(c for c in PATH if c.gated)
+    assert tags(path.render_all(q, schema, inst)[0]) == _keys(PATH)
 
 
 def test_select_cells_are_the_targets():
@@ -53,7 +52,7 @@ def test_select_cells_are_the_targets():
         for edge in (False, True):
             q = SimpleNamespace(edge=edge, kind=kind)
             for dm in select.base_data_models(q):
-                frame = "select_nodes" if not edge else "select_links" if dm == "doc" else "select_edges"
+                frame = "select_nodes" if not edge else "select_links" if dm == "doc" and kind in ("ids", "count") else "select_edges"
                 assert any(c.frame == frame and c.data_model == dm for c in SELECT), (kind, edge, dm)
 
 
@@ -80,26 +79,3 @@ def test_unwound_select_is_the_edge_frame_over_the_links():
     q = SimpleNamespace(table="e1", where=None, kind="page", fields=("w",), field="w", directions=("DESC",), skip=1, limit=2, edge=True)
     assert select._kind_text(q, select.BASE, "FROM e1", select.EDGE) == "SELECT eid AS id FROM e1 ORDER BY w DESC, eid ASC SKIP 1 LIMIT 2"
     assert select.render_unwound(q, schema) == "SELECT l.eid AS id FROM (SELECT e1 AS l FROM n1 UNWIND l) WHERE l IS NOT NULL ORDER BY l.w DESC, l.eid ASC SKIP 1 LIMIT 2"
-
-
-def test_gated_cells_are_asked_by_frame_holes_only():
-    from tests.orientdb.helpers import GeneratorConfig, build
-    from ganda.core.query.generators.registry import all_cases
-    from ganda.orientdb.provider import frame_holes
-
-    assert set(frame_holes.BUILDERS) == {c.frame for c in CELLS if c.gated}
-    asked = Counter()
-    for seed in range(1, 31):
-        cfg = GeneratorConfig(frame_hole_cases=4)
-        schema, instance, rng = build(seed, cfg)
-        for case in all_cases(rng, schema, instance, cfg=cfg):
-            gated = {v for v in case.queries if tuple(v.split(":")) in {(dm, sp) for _ir, dm, sp in frames.GATED}}
-            if case.generator_name == frame_holes.GENERATOR:
-                assert gated
-                asked.update(gated)
-            else:
-                assert not gated, (case.generator_name, gated)
-    assert set(asked) == {f"{dm}:{sp}" for _ir, dm, sp in frames.GATED}
-    # off by default
-    schema, instance, rng = build(1, GeneratorConfig())
-    assert not [c for c in all_cases(rng, schema, instance, cfg=GeneratorConfig()) if c.generator_name == frame_holes.GENERATOR]

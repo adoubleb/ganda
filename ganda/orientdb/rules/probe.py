@@ -622,7 +622,7 @@ def main() -> int:
         check("C318", "O44: TRAVERSE MAXDEPTH 3 depth-first (the default) expands the start's last neighbour first, meets `x` at depth 3 through 0-a-y-x before 0-b-x and never expands it, missing `z`; breadth-first is complete",
               (reach[""], reach[" STRATEGY DEPTH_FIRST"], reach[" STRATEGY BREADTH_FIRST"]), (["0", "a", "b", "x", "y"], ["0", "a", "b", "x", "y"], ["0", "a", "b", "x", "y", "z"]))
 
-        print("--- the frame grid's gated cells: doc's reach through TRAVERSE, the level union on graph and doc")
+        print("--- the frame grid's filled holes: doc's reach through TRAVERSE, the level union on graph and doc")
         # qzd: A -> B, B -> C and B -> B, C -> D (C314's link lists; C310's d0..d2 beside them)
         docreach = "SELECT id, $t.id.asSet() AS v FROM qzd LET $t = (SELECT FROM (TRAVERSE e1, target FROM $parent.$current MAXDEPTH {k} STRATEGY BREADTH_FIRST))"
         check("C344", "the doc side's reach through TRAVERSE over its link lists rooted at `$parent.$current` (a scanned outer query): a link document adds no depth and answers no row, so the reach set is the records within k hops, as the path union's",
@@ -649,7 +649,7 @@ def main() -> int:
                err(s, "SELECT id, $t.id AS v FROM qzd LET $t = (SELECT FROM (TRAVERSE e1, target FROM $parent.$current MAXDEPTH 1 STRATEGY BREADTH_FIRST)) WHERE id = 'A'")),
               ("internal:other", "internal:other"))
 
-        print("--- the frame grid's gated cells: doc's edge-type select over its links unwound into rows")
+        print("--- the frame grid's filled holes: doc's edge-type select over its links unwound into rows")
         s.sql("CREATE CLASS q51")
         s.sql('INSERT INTO q51 CONTENT {"id": "A", "e": [{"eid": "a", "w": 1, "s": "b"}, {"eid": "c", "w": 1099511627776}]}')
         s.sql('INSERT INTO q51 CONTENT {"id": "B", "e": [{"eid": "z", "w": -3, "s": "a"}]}')
@@ -660,6 +660,12 @@ def main() -> int:
               (sorted(col(s, f"SELECT l.eid AS v {u51}")), col(s, f"SELECT count(*) AS v {u51}"), sorted(col(s, f"SELECT l.eid AS v {u51} AND l.keys() CONTAINS 's'")),
                sorted((r["k"] or "", r["v"]) for r in rows(s, f"SELECT l.s AS k, count(*) AS v {u51} GROUP BY l.s"))),
               (["a", "c", "z"], [3], ["a", "z"], [("", 1), ("a", 1), ("b", 1)]))
+        s.sql("CREATE CLASS q51m")
+        s.sql('INSERT INTO q51m CONTENT {"id": "E", "e": [{"eid": "m", "w": -2147483648}]}')
+        um = "FROM (SELECT e AS l FROM q51m UNWIND l) WHERE l IS NOT NULL"
+        check("C349", "an undeclared attribute within 32 bits is an Integer, whose arithmetic wraps (`math_abs(-2^31)` is -2^31, `* 2` 0); read through `asLong()` it takes LONG arithmetic",
+              (col(s, f"SELECT math_abs(l.w) AS v {um}"), col(s, f"SELECT l.w * 2 AS v {um}"), col(s, f"SELECT math_abs(l.w.asLong()) AS v {um}"), col(s, f"SELECT l.w.asLong() * 2 AS v {um}")),
+              ([-(2**31)], [0], [2**31], [-(2**32)]))
         s.sql("CREATE CLASS q51c")
         for k, v in [("a", 1), ("c", 2**40), ("z", -3)]:
             s.sql("INSERT INTO q51c SET id = :k, w = :v", {"k": k, "v": v})
