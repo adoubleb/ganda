@@ -1,13 +1,5 @@
-"""ArangoDB's vocabulary for the model's abstract types and physical-design knobs.
-
-ArangoDB documents are schemaless JSON (VelocyPack): a `FieldType` is the JSON type its
-values carry, so there is nothing to declare per column. What the provider decides is
-how a record is ADDRESSED: every document carries the model's logical id in its `id`
-attribute (`n1/r0`), and its engine key `_key` is that id's key percent-encoded into
-the engine's key alphabet (`document_key`), so the engine id `_id` is a deterministic
-function of the logical id (`engine_id`) and its inverse (`logical_id`) needs no lookup.
-The three data models store a relationship differently (`DATA_MODELS`).
-"""
+"""ArangoDB's vocabulary for the model's types and knobs: `_key` is the logical id
+percent-encoded (`document_key`), so `engine_id` / `logical_id` need no lookup."""
 from __future__ import annotations
 
 import re
@@ -22,10 +14,8 @@ UNIQUE_KINDS = ("unique",)
 ID_INDEX_KINDS = ("unique", "persistent")
 # the id index when the id index axis drew none for a data model
 DEFAULT_ID_INDEX = "unique"
-# the write doors (`WriteForm`): the document API's bulk insert or `FOR d IN @docs
-# INSERT d`; a NodeUpdate as UPDATE / REPLACE / UPSERT / `INSERT ... overwriteMode` /
-# PATCH / PUT; a relationship's update as UPDATE or REPLACE; the data steps inside one
-# stream transaction or auto-committed
+# the write doors (`WriteForm`): insert, NodeUpdate and relationship-update forms, and
+# whether the data steps run in one stream transaction
 INSERT_FORMS = ("api", "aql")
 UPDATE_FORMS = ("update", "replace", "upsert", "insert_overwrite", "patch_api", "put_api")
 EDGE_UPDATE_FORMS = ("update", "replace")

@@ -14,10 +14,7 @@ from ganda.surrealdb.engine.dialect import UNIQUE_KINDS, is_valid_key  # noqa: F
 
 DATA_MODELS = ("doc", "graph", "rel")
 
-# Write forms (`WriteForm`): each reaches another engine write path to the same final
-# state. insert: `CREATE .. SET` / `CREATE .. CONTENT` / `INSERT INTO t {..}`; update:
-# SET / MERGE / CONTENT / PATCH; edge creation: `RELATE` or `INSERT RELATION`; data
-# steps auto-committed or in `BEGIN .. COMMIT` transactions.
+# write forms (`WriteForm`): each another engine write path to the same final state
 INSERT_FORMS = ("set", "content", "insert")
 UPDATE_FORMS = ("set", "merge", "content", "patch")
 EDGE_UPDATE_FORMS = ("set", "merge", "patch")

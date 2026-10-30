@@ -1,17 +1,5 @@
-"""Guards on the TRAVERSAL IR: `mark_known_bugs`, the entry the traversal generator
-calls.
-
-**A44** (found by the symmetric-design campaign `sym-arangodb`, 30 cases from seed
-10065; pinned by the probe fact A44): `use-indexes` fails while optimizing with a 500,
-"The key of the next key/value pair must be a string", on a collection loop filtering
-a variable bound to an object literal that holds a subquery result with two or more
-`HAS` tests under one AND / OR, or one negated `HAS` that an OR beside it repeats in
-the disjunctive normal form (`(hr.a == 1 OR hr.b == 2) AND NOT HAS(hr, 'a')`; a positive
-one there answers, probed). A pulled-up variant is that shape when its projected row
-carries the traversal as a subquery (`v: MAX(FOR ...)`, or `LET` subqueries; a
-`COLLECT`-folded row is not)
-and the source predicate's presence leaves (`HAS(hr, 'f')`) are so placed.
-"""
+"""A44: a pulled-up row holding a subquery, filtered by two or more `HAS` tests or by one
+negated `HAS` an OR repeats."""
 from __future__ import annotations
 
 import dataclasses
@@ -67,13 +55,8 @@ def _indexed(schema, table: str, fields, data_model: str) -> bool:
 
 
 def mark_known_bugs(case, q, schema, instance):
-    """A traversal case: the A25 shape in a source, hop or target predicate withholds
-    the variants of the data models holding the array index -- but a pulled-up variant
-    for a source predicate, which filters a projection, never a collection; the A42 and
-    A39 shapes withhold every variant, the pulled-up ones too (they filter the same
-    value). A40's spanned NOT withholds, in a hop predicate, the variants walking the
-    traversal operator, and in a source predicate, the pulled-up variants of the data
-    models holding an index on a field of it; A44 the pulled-up variants at its shape."""
+    """A25, A39 and A42 at their predicate shapes; A40 on the traversal-operator variants
+    or indexed pull-ups; A44 on the pull-ups."""
     marks: dict = {}
     pulled_up = set(case.params.get("pulled_up", ()))
 

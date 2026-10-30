@@ -1,10 +1,5 @@
-"""AQL text for the abstract predicate tree (`ganda.core.query.ir.predicates`): the engine's
-parameter syntax (`@p1`), its operator forms (`IN_RANGE` for a range, `HAS()` for
-definedness, `@p IN f` for a list membership, `ANY IN` / `ALL IN` for the quantified
-ones, `HAS()` for a map's keys and `VALUES()` for its values), the semi-join's subquery and the reversed and
-arithmetic forms. Identical on every data model: the record is the document variable
-`var` (`n`, `v1`, `ed1`, `CURRENT`), and a field is `var.f`.
-"""
+"""AQL text for the predicate tree, alike on every data model: a field is `var.f` over
+the record's variable."""
 from __future__ import annotations
 
 import re
@@ -16,10 +11,8 @@ from ganda.arangodb.rules.catalog import ACCEPTED, AQL, REFUSED
 _OPS = {"=": "==", "<>": "!=", "<": "<", "<=": "<=", ">": ">", ">=": ">="}
 # every variable of a query is fresh (a semi-join's are named after the leaf's bind)
 assumes("accepts.variable.redeclared", AQL, REFUSED)
-# `VALUES()` rejects a non-object under failOnWarning (errorNum 1542): the value test
-# answers false for one through a ternary, which evaluates the taken branch only --
-# and never through `n.m || {}`: a filter the optimizer moves into a traversal is
-# evaluated on the start vertex too, where a number under `m` is the number
+# `VALUES()` rejects a non-object (errorNum 1542): a ternary guards it, never `n.m || {}`,
+# which a filter moved into a traversal evaluates on the start vertex too
 assumes("accepts.values.non_object_argument", AQL, REFUSED)
 # `HAS()` answers false for a non-object, so the key test needs no ternary
 _HAS_KEY = "HAS({expr}, @{bind})" if answer("accepts.has.non_object_argument", AQL) is ACCEPTED else "(IS_OBJECT({expr}) ? HAS({expr}, @{bind}) : false)"

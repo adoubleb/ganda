@@ -1,11 +1,5 @@
-"""SurrealDB's engine rules (`ganda.core.rules`): what the fuzzer acts on so that it asks
-and compares only what the engine's execution paths answer alike. Its three data models
-speak one language, SurrealQL, so a subject is an execution path: a table scan, the
-same statement served by an index, the graph arrows (`->e->t`), the recursive idioms
-(`{..}`), a `$parent` correlated subquery and the transaction (`BEGIN .. COMMIT /
-CANCEL`). Only a rule whose other answer could make two data models differ, make a
-statement invalid or exceed a limit is recorded. The probe checks that check the rules
-are in `checks.py`."""
+"""SurrealDB's engine rules; a subject is a SurrealQL execution path (scan, index, arrows, recursion, `$parent`, transaction).
+Only a rule whose other answer could make data models differ, invalidate a statement or exceed a limit is recorded."""
 from __future__ import annotations
 
 import enum

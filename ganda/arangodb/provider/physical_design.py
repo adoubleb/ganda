@@ -1,13 +1,5 @@
-"""ArangoDB's physical design: the index kinds a schema may draw and what each one
-enforces, the id index axis, the write forms a setup may take, the value pools, and how
-an index keys a value. The vocabulary is `ganda.arangodb.engine.dialect`'s.
-
-An index is a persistent (RocksDB) index on one or two attributes, unique or not,
-sparse (`IndexSpec.ignore_nulls`) or not; a LIST field's index is the expanded array
-index (`f[*]`); a MAP field's `BY KEY` / `BY VALUE` index has no equivalent and is not
-created (the spec stays in the schema, inert). Every data model indexes node documents
-alike; an edge index lands on the edge collection (graph) or the junction (rel).
-"""
+"""ArangoDB's physical design: persistent indexes (unique or sparse; `f[*]` for a LIST
+field), the id index axis, write forms and value pools."""
 from __future__ import annotations
 
 import random

@@ -1,16 +1,4 @@
-"""Shared pieces of the three materializers. A materializer produces a `SetupPlan`: an
-ordered list of `Surql` steps (`ganda.surrealdb.engine.plan`), each a script of
-statements sent in one request; records are addressed by their record ids, spelled from
-the logical ids (`dialect.engine_id`), every value a typed literal (`dialect.surql_literal`).
-
-What the three data models share: node records with the same values (a SCHEMAFULL
-class declares every field as `option<type | null>`, a SCHEMALESS one takes them as
-written), the `eid` of every relationship (the record key of an edge or junction row,
-a field of a doc link entry), the churn discipline (initial values first, then update to
-the final ones through the data model's drawn update form; churned edges written then
-removed; churned-away nodes removed with the per-data-model cascade), the write forms
-and the cancelled-junk transaction.
-"""
+"""Shared pieces of the three materializers: `Surql` steps addressing records by record id, every value a typed literal."""
 from __future__ import annotations
 
 import base64
@@ -288,11 +276,8 @@ PLAIN_DOOR_FOLD = 100
 
 
 def wrap_data(statements: list, form: WriteForm) -> list:
-    """The data statements as requests through the form's transaction door: the plain
-    door sends them in requests of `PLAIN_DOOR_FOLD` statements, each auto-committed
-    on its own; the `tx` door wraps the whole data in one `BEGIN TRANSACTION; ...;
-    COMMIT TRANSACTION;`. With `form.chunk_size` (the `statements_per_request` axis)
-    either door sends that many per request, a transaction per request."""
+    """The data statements as requests through the form's door: `PLAIN_DOOR_FOLD` auto-committed
+    statements per request, or one transaction; `form.chunk_size` sets the statements per request."""
     if not statements:
         return []
     size = form.chunk_size or (len(statements) if form.transaction == "tx" else PLAIN_DOOR_FOLD)

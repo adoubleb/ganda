@@ -1,8 +1,5 @@
-"""What ArangoDB can hold (`ganda.core.data.limits.StorageLimits`), and where each number
-comes from: the documentation, a bound the provider chooses so that all three data
-models stay inside a documented one, or a probe (`ganda arangodb probe`, the `L`
-facts). Every bound here is probed live before a large campaign relies on it.
-"""
+"""What ArangoDB can hold: documented bounds, bounds chosen under them, or probed ones
+(the `L` facts)."""
 from __future__ import annotations
 
 from ganda.core.data.limits import StorageLimits

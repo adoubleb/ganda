@@ -1,16 +1,5 @@
-"""The relational data model: every edge type is an ordinary DOCUMENT collection used as
-a junction table, with `src_id` / `dst_id` holding the endpoints' LOGICAL ids as plain
-strings -- so the engine builds no edge index and no graph structure for it, and a hop
-is a join through the junction and the node collection's `id` index:
-
-    e1/e0 { eid: "e1/e0", src_id: "n1/r0", dst_id: "n1/r2", w: 3 }
-    FOR j IN e1 FILTER j.src_id == n.id FOR v IN n1 FILTER v.id == j.dst_id
-
-`src_id` and `dst_id` each carry a persistent index (every relational schema has one on
-the column a join goes through). A churned relationship is `REMOVE`d; a churned-away
-node has its junction rows removed explicitly (there is nothing to cascade) before its
-own document.
-"""
+"""The relational data model: an edge type is a junction collection whose `src_id` /
+`dst_id` hold logical ids, each under a persistent index."""
 from __future__ import annotations
 
 from ganda.core.data.model import EdgeDelete, Instance, NodeDelete

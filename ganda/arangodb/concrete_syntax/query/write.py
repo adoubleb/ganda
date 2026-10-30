@@ -1,39 +1,3 @@
-"""The concrete syntax catalog of the write IR: HOW each data model issues a
-`WriteQuery` in AQL. A write runs ONCE per database, so a case carries no variants:
-the data models share the target and the door, each with its own form, and the answers
-and the resulting states are compared with each other. Every data model's statement
-states the filter, so the engine chooses the records on each (the Instance with the
-write applied steers later draws only). The choices:
-
-    axis     choice       the text
-    target   table        `FOR n IN t FILTER p`
-             nest         `FOR n IN t FILTER n.id IN (FOR m IN t FILTER p RETURN m.id)`:
-                          the records chosen before any is written
-             sub          `FOR n IN (FOR m IN t FILTER p RETURN m)`
-    door     auto         auto-committed statements
-             tx           every statement inside one stream transaction, committed
-    form     update       `UPDATE n WITH {f: ...} IN t OPTIONS {mergeObjects: false}`
-                          (`keepNull: false` for a remove; never a merge into a map value)
-             replace      `REPLACE n WITH MERGE(n, {f: ...}) IN t` (`UNSET(n, 'f')`)
-             deref        the doc data model's node-delete cascade: every source's
-                          array filtered by `target NOT IN <the doomed engine ids>`,
-                          read through the predicate
-             bracket      the doc data model's edge delete as an inline filter of the
-                          predicate, `arr[* FILTER NOT (p)]`
-             inline       the doc data model's attribute write: each source's array
-                          rebuilt, `arr[* RETURN p ? MERGE(CURRENT, {f: ...}) : CURRENT]`
-                          (a link object is not addressed in place)
-
-The answer: a count (`LET r = (<write> RETURN 1) RETURN {count: LENGTH(r)}`, a
-data-modification subquery), or the matched records' `id` and the written field
-before / after the write (`RETURN {id: OLD.id, v: OLD.f}`). A node delete removes the
-incident edges (graph) or junction rows (rel) first, each through the predicate's own
-victims; the doc data model rewrites the arrays pointing at a victim and the victim's
-own array dies with the document. An edge write on the doc data model answers no count
-(its statement is per source), so the case compares the graph and rel answers and
-checks every state (`partial`). A write on the base class (the inheritance axis) has
-no syntax: no one statement writes several collections.
-"""
 from __future__ import annotations
 
 import random

@@ -1,9 +1,5 @@
-"""Guards on the WRITE IR: `write_known`, the entry the write generator calls. The
-filter is judged as a read of the same predicate would be; the doc data model's edge
-delete (`bracket`, `arr[* FILTER NOT (p)]`) is also judged on the complement it filters
-by: A40 where a membership of `p` meets the `NOT IN` rewrite on one side and not the
-other (`complement_memberships`) and a link of the type stores a non-array there (graph
-and rel filter `p` itself). It is that form's only syntax, so the write is drawn again."""
+"""Guards on the write IR; doc's bracket edge delete is also judged on the complement it
+filters by (A40)."""
 from __future__ import annotations
 
 from ganda.arangodb.known_bugs.predicate import A25, A39, A40, A42, a25_shape, a39_shape, a42_shape, complement_memberships, holds_non_array

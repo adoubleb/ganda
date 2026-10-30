@@ -1,22 +1,5 @@
-"""ArangoDB's setup-plan vocabulary: the steps `connection.ArangoSession.apply_setup`
-executes.
-
-ArangoDB has no multi-statement script language: schema lives behind REST endpoints
-(`/_api/collection`, `/_api/index`) and data goes through the document API, AQL or a
-stream transaction. A step is a plain dataclass with a JSON `to_dict()`, so a bug
-bundle records the exact plan that ran (`ganda.core.engine.setup_plan`); its op name is
-prefixed `arango_` (the step registry is shared by every provider):
-
-    CreateCollection(name, edge)       `POST /_api/collection`
-    CreateIndex(collection, fields, name, unique, sparse)   a persistent index
-    Insert(collection, documents, via) a bulk insert: the document API (`api`), or
-                                       `FOR d IN @docs INSERT d INTO c` (`aql`)
-    Aql(query, bind_vars)              one AQL statement
-    DocumentApi(method, collection, key, body, params)   PATCH / PUT / DELETE one document
-    Transaction(steps, collections, commit)   the steps in one stream transaction
-
-The mappers that write plans are `concrete_syntax/setup/`.
-"""
+"""ArangoDB's setup-plan steps, run by `connection.ArangoSession.apply_setup`; each op
+name is prefixed `arango_`."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field

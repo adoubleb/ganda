@@ -1,25 +1,5 @@
-"""How a SurrealDB table SCAN answers a predicate over a record (live-probed 3.3.4,
-`rules/probe.py`): the leaves (`predicate_hit`) and the two-valued logic over them
-(`evaluate`). The generators steer with it (a filter that keeps some records, a write
-that matches some), `write.apply` keeps the `Instance` in step with it, and the guards
-read which records a defect's shape would touch; no answer is predicted from it. Values
-are ordered and compared under `ganda.surrealdb.engine.semantics`. The rules:
-
-- **Missing values.** An omitted field (NONE) and an explicit null (NULL) both sort
-  below every value: `<`, `<=`, `!=` hold, `=`, `>`, `>=`, `IN`, a range and the
-  containment operators fail; `IS NULL` holds for both (the text asks `IS NONE OR IS
-  NULL`), `IS PRESENT` for NULL alone (`IS NOT NONE`).
-- **Numbers** compare by value across int, float and decimal (`1 = 1.0`, `0.1dec =
-  0.1`); strings by code point; a date by its ISO text, which is its chronological
-  order. A case-insensitive column compares both sides lowercased.
-- **Arithmetic** over a missing value is refused by the engine, as is an integer result
-  past the 64-bit range: the text guards the leaf with the field's presence and range,
-  so a missing or overflowing value answers FALSE whatever the comparison.
-- **Lists and maps.** `CONTAINS` / `CONTAINSANY` / `CONTAINSALL` over a list (a
-  missing list holds nothing; `CONTAINSALL []` holds for every list); a map's keys and
-  values through `object::keys` / `object::values` (`?? {}` for a missing map); an entry
-  `m.k` missing when the map or the key is.
-"""
+"""How a SurrealDB table scan answers a predicate over a record (`predicate_hit`, `evaluate`), for steering and guards.
+NONE and NULL sort below every value; arithmetic over a missing or overflowing value answers false."""
 from __future__ import annotations
 
 from typing import Any

@@ -13,7 +13,7 @@ source record), `graph` (relation tables and `RELATE` edges), `rel` (junction ta
 | `provider/` | `provider.py` (the interface's implementation), `config.py` (campaign flags: `schemafull_probability`), `physical_design.py` (index, SCHEMAFULL and write-form draws per data model) | `config_class`, `physical_design`, `semantics` (assembled here) |
 | `engine/` | `connection.py` (`/sql`, Docker), `plan.py` (the setup step `Surql`), `semantics.py` (value order, equality, arithmetic), `dialect.py` (declared types, record ids, literals), `limits.py` | `server`, `limits` |
 | `concrete_syntax/setup/` | the instance as a setup plan, one mapper per data model | `mappers` |
-| `concrete_syntax/query/` | one renderer per IR (`traversal`, `select`, `path`, `write`), `predicate.py`, `support.py` | `*_syntax` |
+| `concrete_syntax/query/` | one renderer per IR (`traversal`, `select`, `path`, `write`), `predicate.py`, `support.py`; `frames.py` (every concrete syntax as a frame, the data model filling its slot and the scope its target takes there; the holes) | `*_syntax` |
 | `concrete_syntax/query/predicate_sampling/` | operators, cross-type constants and leaf forms a predicate draws; `predicate_steering.py` evaluates a predicate over a record | `predicate_sampling` |
 | `known_bugs/` | guards per IR (`traversal`, `select`, `write`) over `predicate.py`; `issue-drafts/` | `known_bugs` |
 | `rules/` | `catalog.py` (probed rules and the defects F6, F21, F28), `checks.py`, `probe.py`, `baseline.json`, `RULES.md` | `rules`, `baseline`, `probe` |

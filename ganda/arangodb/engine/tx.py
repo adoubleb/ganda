@@ -1,9 +1,5 @@
-"""The transaction door's text (`SelectQuery.tx`): a question read inside a stream
-transaction that first writes one record of the class and is then aborted. A door text
-is a SCRIPT: `TX_MARK`, the transaction's collections as JSON, then the statements
-separated by `SEPARATOR`, the question last. The session (`connection.ArangoSession`)
-begins the transaction, runs the statements and the question inside it, and aborts
-it whatever happened."""
+"""The transaction door's text: `TX_MARK`, the collections as JSON, then the statements
+separated by `SEPARATOR`, the question last; the session aborts it."""
 from __future__ import annotations
 
 import json

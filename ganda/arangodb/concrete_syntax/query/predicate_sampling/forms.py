@@ -27,11 +27,8 @@ _ARITH_CHOICES = {
 
 
 def leaf_form(rng: random.Random, p):
-    """The drawn leaf `p` in one of AQL's forms, each another question asked alike on
-    every data model: reversed operands (`@p > n.f`), the field under arithmetic (`(n.f
-    * @c) > @p`, the drawn constant shifted alike), a map entry keyed by a parameter
-    (`n.m[@k] == @p`); or `p` as drawn. The write generator keeps an arithmetic leaf
-    only where it is exact on every stored value."""
+    """The drawn leaf in one of AQL's forms: reversed operands, the field under arithmetic, a
+    parameter-keyed map entry, or as drawn."""
     if p.key is not None and not p.key_bind and p.sub is None and rng.random() < KEY_BIND_PROBABILITY:
         return dataclasses.replace(p, key_bind=f"{p.bind or 'k'}k")
     roll = rng.random()

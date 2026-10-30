@@ -1,11 +1,4 @@
-"""A fixed catalog of deliberately-broken materializers and renderers (the mutation
-benchmark's ground truth, `ganda.core.mutation.runner`): the core's instance-level
-mutants, then SurrealDB's corruptions of its own query text -- a comparison operator
-loosened on one data model, a projection deduplicated, and the index-path mutants (a
-strict range an index of one data model serves answered inclusively, a lookup also
-answering the missing-valued records, a DESC ordering answered ascending), which only
-the texts an index of that data model may serve are given.
-"""
+"""SurrealDB's mutants: the core's instance mutants, then render and index-path corruptions of its own query text."""
 from __future__ import annotations
 
 import dataclasses

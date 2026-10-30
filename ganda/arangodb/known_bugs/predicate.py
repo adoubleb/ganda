@@ -1,56 +1,7 @@
-"""Guards on one predicate, whichever IR asks it: the leaf shapes of the defects a
-filter alone triggers (A25, A39, A40, A42).
-
-**A25** (the legacy port's, found again by this port's first campaign with the rules
-catalog, seed 1, and pinned by the probe fact A25): an OR whose disjuncts are all
-whole-array equalities on one LIST attribute with two or more distinct values -- which
-`replace-or-with-in` turns into `n.l IN [[..], [..]]` -- or such an IN written out, is
-served from the ELEMENT keys of the expanded array index (`l[*]`) the data model holds on
-that attribute, and answers nothing; the scan twins (`NOOPT`, `disableIndex`), a single
-equality, a NOT over the OR and a one-element IN answer the rows. The guard withholds the
-index-servable variants of the data models holding the index, at a select's filter, a
-write's loop and a traversal's source or hop predicate alike (every one is a FILTER the
-optimizer may serve).
-
-**A42** (found by the large-scale campaign of 2026-10-24, seed 6, and pinned by the
-probe fact A42): `LIKE` with a wildcard over a stored string of 125 000 code points or
-more fails the query with errorNum 1543, "invalid regex value" -- the `%` is spelled
-`(.|[\\r\\n])*`, a backtracking frame per character, and ICU's stack limit is reached
-part-way through the value (at 199 999 code points under one wildcard, 124 999 under
-two) -- where `==`, `CONTAINS`, `STARTS_WITH` and `LENGTH` answer. A `_` loops over
-nothing and an exact pattern has no wildcard: neither fails. The guard withholds every
-variant of a question whose predicate holds a LIKE with a `%` over a column where a
-record the question reads stores `LIKE_WILDCARD_MAX_CHARS` code points or more (the
-large scale's grown strings): the pulled-up forms too, which filter the same value.
-
-**A40** (the first smoke's, retired 2026-10-25 and restored 2026-10-30 by the
-symmetric-design campaign `sym-arangodb`; pinned by the probe fact A40): the optimizer
-turns `NOT (@p IN f)` into `@p NOT IN f`, and both are false when `f` is null, absent or a
-scalar, so the negation drops exactly those records. A plain `NOT (@p IN n.f)` in a
-collection FILTER is rewritten on every data model alike; three placements are not:
-- `[* FILTER NOT (p)]`, the doc data model's edge delete, disagrees with graph's and
-  rel's `FILTER p` on the links whose `f` is not an array: a membership under no NOT in
-  `p` is negated (and rewritten) on doc alone, one under a bare NOT is rewritten on graph
-  and rel while doc's `NOT (NOT (...))` folds back to the membership;
-- a NOT over an AND / OR that holds the membership is kept by a collection loop with
-  nothing else to serve, but pushed through by `optimize-traversals` into a traversal's
-  vertex or edge filter;
-- the same NOT is pushed through by `use-indexes` where a persistent index serves another
-  field of the filter -- a collection loop and a pulled-up source filter (`FOR hr IN (...)
-  FILTER NOT ((@p IN hr.f OR hr.g != @q))`) once its subquery is inlined, which happens on
-  one data model's form and not another's (campaign seeds 10168, 11869: rel's alone),
-  while the base forms over one collection and one index plan alike.
-`negated_memberships` and `complement_memberships` find the leaves; the IR guards judge
-the placement.
-
-**A39** (the legacy port's, met again by `sym-arangodb` seed 11918; pinned by the probe
-fact A39): `use-indexes` merges an equality, a range bound or a `!=` on one attribute as
-if an INTEGER constant and a double one or two ulps from it were the same number, and
-plans the conjunction as empty (`n.f > -5e-324 AND n.f == 0`, `n.f != 1.0000000000000002
-AND n.f == 1`), with no index on the collection; the executor compares exactly. The
-guard withholds every variant of a question whose predicate pairs such constants on one
-field where a record the question reads stores a number between them.
-"""
+"""A25: an OR / IN of whole-array equalities on a LIST field, served by its array index.
+A39: an integer and a double constant one or two ulps apart on one field.
+A40: `NOT (@p IN f)` over a non-array `f`, where one data model's form rewrites it.
+A42: `LIKE` with a `%` over a stored string of 125 000 code points or more."""
 from __future__ import annotations
 
 import struct
@@ -180,11 +131,8 @@ def a39_shape(p, rows) -> bool:
 
 
 def or_of_list_equalities(p, under_or: bool = False) -> set:
-    """The LIST fields some OR compares for equality with two or more distinct array
-    values, every disjunct on that one field (the shape `replace-or-with-in` rewrites),
-    plus those an IN of two or more arrays names. An OR under a NOT and an OR that is a
-    disjunct of a wider OR are left alone: the optimizer flattens the latter and finds
-    the mixed attributes, and never rewrites the former."""
+    """The LIST fields an OR (not under a NOT or inside a wider OR) compares with two or more
+    distinct arrays, plus those an IN of two or more arrays names."""
     if isinstance(p, Predicate):
         if p.op == "IN" and p.ftype == "list" and isinstance(p.constant, list) and len({repr(v) for v in p.constant}) >= 2:
             return {p.field}

@@ -13,7 +13,7 @@ answers pair by pair. The core reaches this package only through the `Provider` 
 | `provider/` | `provider.py` (the interface's implementation), `config.py` (campaign flags: `id_index_probability`), `physical_design.py` (index and write-form draws per data model) | `config_class`, `physical_design`, `semantics` (assembled here) |
 | `engine/` | `connection.py` (the cursor API, stream transactions, Docker), `plan.py` (setup steps `CreateCollection` / `CreateIndex` / `Insert` / `Aql` / `DocumentApi` / `Transaction`), `tx.py` (the transaction door's script text), `semantics.py` (value order, equality, arithmetic), `dialect.py` (index kinds, write doors, the percent-encoded `_key`), `limits.py` | `server`, `limits` |
 | `concrete_syntax/setup/` | the instance as a setup plan, one mapper per data model | `mappers` |
-| `concrete_syntax/query/` | one renderer per IR (`traversal`, `select`, `path`, `write`), `predicate.py`, `support.py` | `*_syntax` |
+| `concrete_syntax/query/` | one renderer per IR (`traversal`, `select`, `path`, `write`), `predicate.py`, `support.py`; `frames.py` (every concrete syntax as a frame, the data model filling its slot and the variable its predicates read; the holes) | `*_syntax` |
 | `concrete_syntax/query/predicate_sampling/` | operators, cross-type constants and leaf forms a predicate draws; `predicate_steering.py` evaluates a predicate over a record | `predicate_sampling` |
 | `known_bugs/` | guards per IR (`traversal`, `select`, `write`) over `predicate.py` | `known_bugs` |
 | `rules/` | `catalog.py` (probed rules and the defects A25, A42, A43), `checks.py`, `probe.py`, `baseline.json`, `RULES.md` | `rules`, `baseline`, `probe` |

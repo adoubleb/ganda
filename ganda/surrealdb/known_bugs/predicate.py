@@ -1,15 +1,5 @@
-"""The guards on one predicate: which data model's index serves a leaf, and the
-per-data-model judgement `node_case_known` / `edge_case_known` the IR guards share.
-
-F28 (`issue-drafts/F28-array-index-whole-array-equality.md`): an index over an array
-field keys each ELEMENT, and a predicate the planner serves from it answers by element
-keys: a whole-array equality (`f = [1]`, `f IN [[1], [2]]`, `$p = f`) looks the array up
-as one key and answers nothing, a presence test (`f IS NOT NONE`, `f IS NOT NULL`) answers
-a record once per element (duplicate rows), where a scan answers each record once. The
-shape: a `=` / `IN` / `IS NOT NULL` / `IS PRESENT` leaf on a LIST column an index of the
-data model serves. `!=`, `IS NONE` and the containment operators answer right (probed
-3.3.4).
-"""
+"""The guards on one predicate (`node_case_known` / `edge_case_known`).
+F28: a `=` / `IN` / `IS NOT NULL` / `IS PRESENT` leaf on a LIST column an index serves (it keys each element)."""
 from __future__ import annotations
 
 from ganda.core.data.model import FieldType, Instance, Schema

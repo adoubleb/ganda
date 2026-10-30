@@ -1,10 +1,4 @@
-"""SurrealDB's vocabulary for the model's abstract types, its record ids and its literals.
-
-A record is `table:key`: the logical id `n1/r0` of the core is the record id `n1:r0`, a
-custom key written in backticks when it is not a bare word (`n1:`hello world``), which is
-how the engine prints it back. SurrealQL takes constants as typed literals (`d"..."`,
-`1.5dec`, `b"00ff"`); `surql_literal` renders a model value for a column of a type.
-"""
+"""SurrealDB's types, record ids (`n1/r0` is `n1:r0`, a non-bare key in backticks) and typed literals."""
 from __future__ import annotations
 
 import base64

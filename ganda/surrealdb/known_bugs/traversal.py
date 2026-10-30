@@ -1,8 +1,5 @@
-"""Guards on the TRAVERSAL IR: `mark_known_bugs`, the entry the traversal generator
-calls. A variant is marked when the source predicate or a hop's predicate has a known
-defect's shape on its data model (`predicate.node_case_known` / `edge_case_known`); a
-pulled-up variant filters its source predicate over a projection (never through an
-index), so only its hop predicates are judged."""
+"""Traversal guards: a variant is marked when its source or hop predicate has a defect's shape on its data model
+(a pulled-up variant: its hop predicates only)."""
 from __future__ import annotations
 
 import dataclasses

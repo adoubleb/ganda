@@ -1,22 +1,5 @@
-"""Document-style materialization: a relationship is an element of an array on the
-source record, an object holding the target as a record link under `target`, the
-relationship's logical id under `eid`, and the relationship's own attributes -- the
-denormalized "links inside the document" pattern, with the engine's own record link as
-the foreign reference:
-
-    n1:r0 { f1: "a", e1: [ { eid: "e0", target: n2:r3, w: 3 }, ... ] }
-
-A hop is `(e1 ?? []).target`, dereferenced as `.target.f1`; a SCHEMAFULL class declares
-the array as `option<array<object>> FLEXIBLE`.
-
-Two phases: node records are created first (every data model's node write forms
-apply), then one `UPDATE n1:r0 SET e1 = [...]` per (source, edge type) writes the
-INITIAL link list. Churn then rewrites lists: a source that loses an outgoing edge
-(EdgeDelete, or the cascade of a NodeDelete) or whose edge is updated gets its list
-rewritten to the final adjacency -- that rewrite IS this data model's cascade. A deleted
-node's own record is removed with `DELETE`; a link to a removed record dereferences to
-NONE (probed), which is exactly what the `doc_dangling_after_node_delete` mutant leaves.
-"""
+"""Doc materialization: a relationship is a link object `{eid, target, ...}` in an array on its source record.
+Churn rewrites a source's array to the final adjacency; a link to a removed record reads NONE."""
 from __future__ import annotations
 
 from ganda.core.data.generator import initial_node_values, initial_nodes

@@ -1,17 +1,4 @@
-"""Graph-style materialization: every edge type is a relation table and a relationship
-is a graph edge (`RELATE n1:r0->e1:e0->n2:r3`) whose `in` / `out` the engine maintains
--- the native graph feature, traversed with the arrow idioms `->e1->n2`, `<-e1<-n1`,
-`<->e1<->n2` and the recursive `{..}` idioms.
-
-    e1:e0 { in: n1:r0, out: n2:r3, w: 3 }
-
-The edge's record key is the relationship's logical key (`e1:e0`), so `record::id(id)`
-is its `eid`. An edge is created with `RELATE` or `INSERT RELATION INTO`, two write
-doors. A churned edge is `DELETE e1:e0`; a churned-away node is `DELETE n1:r0`, whose
-cascade removes the incident edges itself (probed) -- the engine's cascade rather than
-the fuzzer's. A SCHEMAFULL edge table is `TYPE RELATION IN n1 OUT n2 SCHEMAFULL` with
-every attribute declared.
-"""
+"""Graph materialization: an edge type is a relation table (`RELATE n1:r0->e1:e0->n2:r3`); deleting a node removes its edges."""
 from __future__ import annotations
 
 from ganda.core.data.generator import initial_node_values, initial_nodes

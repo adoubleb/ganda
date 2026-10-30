@@ -22,11 +22,8 @@ def _small(v) -> bool:
     return abs(v) < F64_INT_EXACT
 
 
-# Methods, each with a guard on the PRESENT values it is asked over (the query filters
-# `!= null`). Casing and trimming are asked over ASCII only; the character-position
-# functions over the Basic Multilingual Plane (an astral code point is two UTF-16 units
-# to some of the engine's string functions, A11's class). Nothing renders a float as
-# text (its shortest form is the engine's business) and nothing rounds (A5).
+# methods over present values: casing over ASCII, character positions over the BMP
+# (an astral code point is two UTF-16 units to some functions); no float as text, no rounding
 _INT_METHODS = [
     ("TO_STRING({f})", _small),
     ("{f} + 1", _small),
