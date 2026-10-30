@@ -1,39 +1,3 @@
-"""The concrete syntax catalog of the WRITE IR: HOW each data model issues a `WriteQuery`. A write
-runs ONCE per database, so a case does not carry variants: the data models share the
-target and the door, each with its own form, and the answers and the resulting states
-are compared with each other. Every data model's statement states the filter, so the
-engine chooses the records on each (the Instance with the write applied steers later
-draws only). The choices:
-
-    axis     choice       the text
-    target   table        `UPDATE t ... WHERE p`
-             nest         `UPDATE t ... WHERE id IN (SELECT id FROM t WHERE p)`: the
-                          records chosen before any is written
-             sub          `UPDATE (SELECT FROM t WHERE p) ...`, a lazily streamed
-                          subquery target (`DELETE VERTEX FROM (SELECT ...)` on the
-                          graph data model)
-    door     auto         auto-commit commands
-             tx           `BEGIN; ...; LET $r = <write>; COMMIT; RETURN $r`
-    form     update_edge  the graph data model's `UPDATE EDGE e ...` (else `UPDATE e ...`)
-             bracket      the doc data model's edge delete as `e = e[NOT (p)]`
-             position     the doc data model's edge-attribute write, one statement per
-                          list position k: `UPDATE src SET e[k].f = ... WHERE e.size() > k
-                          AND p(e[k])` (a filtered `e[p].f = ...` answers its count and
-                          changes nothing, probed)
-
-Per model: a node delete is `DELETE FROM t` (doc, rel) or `DELETE VERTEX t` (graph:
-`DELETE FROM` a vertex or edge class is refused, probed), and its cascade is the
-engine's own on the graph data model, `DELETE FROM e WHERE src_id IN (SELECT id FROM t
-WHERE p) OR dst_id IN (...)` first on the rel data_model, and on the doc data model
-`e = e[target.id IS NOT NULL]` on every source after the delete (a LINK to a deleted
-record dangles and `target.id` is null). An edge write is `UPDATE EDGE` / `DELETE
-EDGE` on the E class and a plain `UPDATE` / `DELETE FROM` of the junction; on the doc
-data model its answer is not the relationship count (a count per position), so an
-edge case compares the graph and rel answers and checks all three states (`partial`).
-
-Every UPDATE carries `TIMEOUT <ms> EXCEPTION` (an update through an index walk can
-revisit the records it moves and never finish; `DELETE` takes no TIMEOUT clause, probed).
-"""
 from __future__ import annotations
 
 import json
