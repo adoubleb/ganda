@@ -506,6 +506,12 @@ engine, every variant's text, bind variables, rows, mismatches), one
 `ganda.core.campaign.replay`). Read `failing_pairs` first: a same-database pair
 (`graph/graph:match`) is a within-engine inconsistency with no cross-model confound.
 `internal_error` is a raw exception from inside the engine and is a finding on its own.
+By default each data model draws its own physical design (an index on one data model or
+on all, an id-index kind per data model), so a cross-model pair may differ in a tunable
+index; `--symmetric-physical-design true` (`GeneratorConfig.symmetric_physical_design`)
+puts every index on every data model, one id-index kind on all and SurrealDB's SCHEMAFULL
+draw on all or none, so a failing pair differs in its data model alone (an edge index
+still misses doc). It draws nothing: a seed's schema is otherwise unchanged.
 A triaged finding is written up under `issues/` (`O46-...md`: the version, a minimal
 reproduction, expected and actual, the analysis down to the engine's source, the scope,
 how Ganda met it), ready to file; the legacy drafts O1..O45 are in

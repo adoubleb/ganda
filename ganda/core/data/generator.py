@@ -210,6 +210,7 @@ class GeneratorConfig:
         "composite_index_probability": "chance a class gets an index over two fields",
         "edge_index_probability": "chance an edge type gets an index on one edge attribute",
         "demote_colliding_indexes": "give a one-record-per-key index the provider's fallback kind when the values collide",
+        "symmetric_physical_design": "give every data model the same tunable physical design: each drawn index on every data model, one id-index kind, and the provider's per-data-model storage draws alike",
         "churn_update_probability": "chance a stored row is updated after setup (churn)",
         "churn_delete_probability": "chance a stored edge is deleted after setup (churn)",
         "churn_node_delete_probability": "chance a stored node, and its edges, is deleted after setup (churn)",
@@ -264,6 +265,12 @@ class GeneratorConfig:
     # back to the kind its provider names (`physical_design.demoted_kind`). Draws
     # nothing.
     demote_colliding_indexes: bool = True
+    # Every drawn index on every data model ("both"), the first data model's id-index kind
+    # on all of them, and the provider's per-data-model storage draws made alike: a failing
+    # pair then differs in its data model, never in a tunable index. Draws nothing, so the
+    # streams (and every seed) are those of the asymmetric design. An edge index still
+    # misses doc, which has no edge records to index.
+    symmetric_physical_design: bool = False
     # Churn.
     churn_update_probability: float = 0.15
     churn_delete_probability: float = 0.1
@@ -414,6 +421,9 @@ def generate_schema(rng: random.Random, cfg: GeneratorConfig, seed: "int | None"
 
     indexes = _without_blob_indexes(indexes + base_indexes, node_types, base)
     indexes += _list_indexes(seed, cfg, node_types, base, engine)
+    if cfg.symmetric_physical_design:
+        indexes = [dataclasses.replace(ix, data_model="both") for ix in indexes]
+        id_index = _one_id_index_kind(id_index, engine.data_models)
     return Schema(
         engine=engine,
         node_types=node_types,
@@ -422,6 +432,13 @@ def generate_schema(rng: random.Random, cfg: GeneratorConfig, seed: "int | None"
         id_index=id_index,
         base=base,
     )
+
+
+def _one_id_index_kind(id_index: dict, data_models: tuple) -> dict:
+    """The first data model's id-index draw on every data model (its UNIQUE default when it
+    drew none), so the axis keeps its per-instance probability."""
+    kind = id_index.get(data_models[0])
+    return {dm: kind for dm in data_models} if kind is not None else {}
 
 
 def _retype(seed: "int | None", cfg: GeneratorConfig, table: str, f: FieldSpec, limits: StorageLimits) -> FieldSpec:

@@ -79,12 +79,15 @@ def draw_index_options(rng: random.Random, ftype: FieldType) -> tuple:
 def draw_storage_options(seed: "int | None", cfg, node_types: tuple) -> tuple:
     """The SCHEMAFULL axis: per class and data model, on its own tail stream, the class
     (and the relationship tables leaving it) is declared with every field's type;
-    `options(schemafull=(<data models>,))`."""
+    `options(schemafull=(<data models>,))`. With `symmetric_physical_design` the first data
+    model's draw holds on every data model."""
     if seed is None or cfg.schemafull_probability <= 0:
         return node_types
     out = []
     for nt in node_types:
         full = tuple(dm for dm in DATA_MODELS if stream(seed, "schemafull", nt.name, dm).random() < cfg.schemafull_probability)
+        if cfg.symmetric_physical_design:
+            full = DATA_MODELS if DATA_MODELS[0] in full else ()
         if full:
             nt = dataclasses.replace(nt, options=options(**dict(nt.options), schemafull=full))
         out.append(nt)
