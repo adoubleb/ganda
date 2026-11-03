@@ -204,7 +204,10 @@ class Provider:
                     -> what every data model's write shares (optional)
     known_bugs      mark_known_bugs(case, q, schema, instance) -> case,
                     select_known(q, syntax, rewrites, dm, schema, instance) -> id | None,
-                    write_known(q, syntax, rewrites, dm, schema, instance) -> id | None
+                    write_known(q, syntax, rewrites, dm, schema, instance) -> id | None,
+                    activate_fixed_defects(server_version) -> frozenset[str] (optional:
+                    the baseline's fixed defects on a build-match, dropped from guard
+                    hits so the case is not withheld; the empty set otherwise)
     mutants         the mutation benchmark's catalog (`ganda.core.mutation.mutants`)
     rules           `ganda.core.rules.Catalog`: the engine rules as typed records (None:
                     the provider has no catalog yet); `ganda <engine> rules` renders it

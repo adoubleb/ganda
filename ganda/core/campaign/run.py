@@ -380,10 +380,16 @@ def apply_profile(args, cfg) -> None:
 
 def _warn_on_unprobed_build(engine, server) -> None:
     """Warn when the server is another build than the one the probe last verified (the
-    provider's baseline)."""
-    warning = engine.baseline.warning(engine.name, server.version()) if engine.baseline is not None else None
+    provider's baseline). Also hand the server's version to the known-bugs module so a
+    guard for a defect fixed on this build can be dropped (optional; providers that
+    don't implement `activate_fixed_defects` keep today's behaviour)."""
+    version = server.version()
+    warning = engine.baseline.warning(engine.name, version) if engine.baseline is not None else None
     if warning:
         print(f"warning: {warning}", flush=True)
+    activate = getattr(engine.known_bugs, "activate_fixed_defects", None) if engine.known_bugs is not None else None
+    if activate is not None:
+        activate(version)
 
 
 def run_campaign(engine, args) -> "tuple[CampaignStats, object]":

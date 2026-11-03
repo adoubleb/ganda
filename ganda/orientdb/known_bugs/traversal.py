@@ -337,6 +337,8 @@ works_around("O26")
 
 
 def mark_known_bugs(case: QueryCase, q: TraversalQuery, schema: Schema, instance: Instance) -> QueryCase:
+    from ganda.orientdb.known_bugs import discard_fixed
+
     known_bugs = dict(case.known_bugs)
     o7 = o7_data_models(q, schema)
     q_pulled_up = dataclasses.replace(q, source_predicate=None)
@@ -344,7 +346,8 @@ def mark_known_bugs(case: QueryCase, q: TraversalQuery, schema: Schema, instance
     for data_model, syntax in case.params.get("concrete_syntax", {}).items():
         base = data_model.split(":", 1)[0]
         if base in o7:
-            known_bugs[data_model] = "O7"
+            if discard_fixed("O7") is not None:
+                known_bugs[data_model] = "O7"
             continue
         fid = _data_model_known(q_pulled_up if data_model in pulled_up else q, schema, instance, base, syntax)
         if fid is None and data_model in pulled_up and base == "rel" and syntax == "flat" and q.projection != "nexists" and q.source_predicate is not None:
@@ -357,6 +360,7 @@ def mark_known_bugs(case: QueryCase, q: TraversalQuery, schema: Schema, instance
             # the inline union's parts carry a subquery (a nested LET, or a target
             # predicate's `IN (SELECT ...)`) under the pull-up's `IN (subquery)` filter
             fid = "O26"
+        fid = discard_fixed(fid)
         if fid:
             known_bugs[data_model] = fid
     return dataclasses.replace(case, known_bugs=known_bugs) if known_bugs != case.known_bugs else case
