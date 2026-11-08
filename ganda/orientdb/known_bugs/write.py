@@ -64,7 +64,11 @@ def write_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Inst
     is judged as a read of the same predicate would be (a finding there chooses the
     wrong records, and the state diverges from the reference): `node_case_known` /
     `edge_case_known`, the doc data model's bracket filter through its own findings (O13)
-    and O25 (a bracket ignores a `ci` collation); then O37."""
+    and O25 (a bracket ignores a `ci` collation); then O37. A hit for a defect the
+    baseline recorded as fixed on the server under test is dropped
+    (`known_bugs.discard_fixed`), so the case is not withheld."""
+    from ganda.orientdb.known_bugs import discard_fixed
+
     pred = q.where
     eff = pred
     if q.extra_notnull:
@@ -86,4 +90,4 @@ def write_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Inst
         # the filter inside `id IN (SELECT ...)` (the nest target, the rel data model's
         # cascade) holds a CONTAINSVALUE leaf: O39's NPE
         fid = "O39"
-    return fid
+    return discard_fixed(fid)

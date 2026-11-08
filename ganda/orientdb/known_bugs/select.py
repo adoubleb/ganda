@@ -331,13 +331,16 @@ def select_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Ins
     for an edge type (the doc data model's bracket filter: its
     own O13); plus a join's and the transaction
     door's own findings (O39 first there: the read is a `LET $r = (SELECT ...)`),
-    and the shape's own findings."""
+    and the shape's own findings. A hit for a defect the baseline recorded as fixed on
+    the server under test is dropped (`known_bugs.discard_fixed`), so the case is not
+    withheld."""
     from ganda.core.query.ir.select import effective, view
+    from ganda.orientdb.known_bugs import discard_fixed
 
     table = q.table
     eff = effective(q, sp.form, q.where)
     if q.tx and eff is not None and o39_predicate(eff):
-        return "O39"
+        return discard_fixed("O39")
     shape_instance = instance
     if q.tx:
         # the filter's findings over the rows the transaction reads (a write may
@@ -345,7 +348,7 @@ def select_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Ins
         instance = view(q, instance)
         eff = predicates.resolve_subs(eff, instance)
     if q.edge and data_model == "doc" and q.kind not in DOC_EDGE_KINDS:
-        return unwound_known(q, schema, instance) or select_shape_known(q, sp, data_model, schema, instance, rewrites.present)
+        return discard_fixed(unwound_known(q, schema, instance) or select_shape_known(q, sp, data_model, schema, instance, rewrites.present))
     fid = None
     if q.edge:
         if eff is not None:
@@ -362,7 +365,7 @@ def select_known(q, sp, rewrites, data_model: str, schema: Schema, instance: Ins
         fid = _join_known(q, sp, data_model, schema, instance, eff)
     if fid is None and q.tx:
         fid = _tx_known(q, sp, data_model, schema, eff)
-    return fid or select_shape_known(q, sp, data_model, schema, shape_instance, rewrites.present)
+    return discard_fixed(fid or select_shape_known(q, sp, data_model, schema, shape_instance, rewrites.present))
 
 
 works_around("O51")
